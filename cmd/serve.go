@@ -1,20 +1,45 @@
 package cmd
 
 import (
-	"fmt"
+	"go/types"
+	"wallet-backend/internal/serve"
 
 	"github.com/spf13/cobra"
+	"github.com/stellar/go/support/config"
+	supportlog "github.com/stellar/go/support/log"
 )
 
-// serveCmd represents the serve command
-var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Run Wallet Backend server",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("serve called")
-	},
+type serveCmd struct {
+	Logger *supportlog.Entry
 }
 
-func init() {
-	rootCmd.AddCommand(serveCmd)
+func (c *serveCmd) Command() *cobra.Command {
+	cfg := serve.Configs{
+		Logger: c.Logger,
+	}
+	cfgOpts := config.ConfigOptions{
+		{
+			Name:        "port",
+			Usage:       "Port to listen and serve on",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.Port,
+			FlagDefault: 8000,
+			Required:    false,
+		},
+	}
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run Wallet Backend server",
+		Run: func(_ *cobra.Command, _ []string) {
+			cfgOpts.Require()
+			cfgOpts.SetValues()
+			c.Run(cfg)
+		},
+	}
+	cfgOpts.Init(cmd)
+	return cmd
+}
+
+func (c *serveCmd) Run(cfg serve.Configs) {
+	serve.Serve(cfg)
 }

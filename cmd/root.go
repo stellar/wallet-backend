@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"os"
+	"log"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		os.Exit(1)
+		log.Fatal(err)
 	}
 }
 
@@ -30,5 +30,5 @@ func init() {
 	logger := supportlog.New()
 	logger.SetLevel(logrus.TraceLevel)
 
-	//rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand((&serveCmd{Logger: logger}).Command())
 }
