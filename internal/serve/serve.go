@@ -28,6 +28,9 @@ func Serve(cfg Configs) {
 		OnStarting: func() {
 			deps.Logger.Infof("Starting Wallet Backend server on %s", addr)
 		},
+		OnStopping: func() {
+			deps.Logger.Info("Stopping Wallet Backend server")
+		},
 	})
 }
 
