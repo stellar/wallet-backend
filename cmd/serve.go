@@ -32,11 +32,15 @@ func (c *serveCmd) Command() *cobra.Command {
 		Short: "Run Wallet Backend server",
 		Run: func(_ *cobra.Command, _ []string) {
 			cfgOpts.Require()
-			cfgOpts.SetValues()
+			if err := cfgOpts.SetValues(); err != nil {
+				c.Logger.Error(err)
+			}
 			c.Run(cfg)
 		},
 	}
-	cfgOpts.Init(cmd)
+	if err := cfgOpts.Init(cmd); err != nil {
+		c.Logger.Error(err)
+	}
 	return cmd
 }
 
