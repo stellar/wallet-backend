@@ -33,7 +33,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		Run: func(_ *cobra.Command, _ []string) {
 			cfgOpts.Require()
 			if err := cfgOpts.SetValues(); err != nil {
-				c.Logger.Error(err)
+				c.Logger.Fatalf("Error setting values of config options: %s", err.Error())
 			}
 			c.Run(cfg)
 		},
