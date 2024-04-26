@@ -39,7 +39,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 	}
 	if err := cfgOpts.Init(cmd); err != nil {
-		c.Logger.Error(err)
+		c.Logger.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	return cmd
 }
