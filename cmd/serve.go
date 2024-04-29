@@ -45,5 +45,8 @@ func (c *serveCmd) Command() *cobra.Command {
 }
 
 func (c *serveCmd) Run(cfg serve.Configs) {
-	serve.Serve(cfg)
+	err := serve.Serve(cfg)
+	if err != nil {
+		c.Logger.Fatalf("Error running Serve: %s", err.Error())
+	}
 }
