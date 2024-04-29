@@ -6,6 +6,7 @@ import (
 )
 
 type Models struct {
+	Payments *PaymentModel
 }
 
 func NewModels(db db.DBConnectionPool) (*Models, error) {
@@ -13,5 +14,7 @@ func NewModels(db db.DBConnectionPool) (*Models, error) {
 		return nil, errors.New("DBConnectionPool must be initialized")
 	}
 
-	return &Models{}, nil
+	return &Models{
+		Payments: &PaymentModel{db: db},
+	}, nil
 }
