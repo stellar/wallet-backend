@@ -14,9 +14,9 @@ import (
 )
 
 type Configs struct {
-	Logger          *supportlog.Entry
-	Port            int
-	DBConnectionURL string
+	Logger      *supportlog.Entry
+	Port        int
+	DatabaseURL string
 }
 
 type handlerDeps struct {
@@ -46,7 +46,7 @@ func Serve(cfg Configs) error {
 }
 
 func getHandlerDeps(cfg Configs) (handlerDeps, error) {
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DBConnectionURL)
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, errors.Wrap(err, "error connecting to the database")
 	}

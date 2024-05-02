@@ -4,6 +4,7 @@ import (
 	"go/types"
 	"wallet-backend/internal/serve"
 
+	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	supportlog "github.com/stellar/go/support/log"
@@ -25,6 +26,14 @@ func (c *serveCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.Port,
 			FlagDefault: 8000,
 			Required:    false,
+		},
+		{
+			Name:        "database-url",
+			Usage:       "Database connection URL",
+			OptType:     types.String,
+			ConfigKey:   &cfg.DatabaseURL,
+			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
+			Required:    true,
 		},
 	}
 	cmd := &cobra.Command{
