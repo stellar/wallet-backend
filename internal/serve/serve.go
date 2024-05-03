@@ -6,10 +6,7 @@ import (
 
 	"wallet-backend/internal/data"
 	"wallet-backend/internal/db"
-	"wallet-backend/internal/serve/httperror"
-	"wallet-backend/internal/serve/httphandler"
 
-	"github.com/go-chi/chi"
 	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
@@ -17,9 +14,9 @@ import (
 )
 
 type Configs struct {
-	Logger       *supportlog.Entry
-	Port         int
-	DBConnection string
+	Logger      *supportlog.Entry
+	Port        int
+	DatabaseURL string
 }
 
 type handlerDeps struct {
@@ -49,7 +46,7 @@ func Serve(cfg Configs) error {
 }
 
 func getHandlerDeps(cfg Configs) (handlerDeps, error) {
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DBConnection)
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, errors.Wrap(err, "error connecting to the database")
 	}
