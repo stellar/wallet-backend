@@ -4,22 +4,31 @@ import (
 	"fmt"
 	"net/http"
 
+	"wallet-backend/internal/data"
+	"wallet-backend/internal/db"
+
+	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 )
 
 type Configs struct {
-	Logger *supportlog.Entry
-	Port   int
+	Logger      *supportlog.Entry
+	Port        int
+	DatabaseURL string
 }
 
 type handlerDeps struct {
 	Logger *supportlog.Entry
+	Models *data.Models
 }
 
-func Serve(cfg Configs) {
-	deps := getHandlerDeps(cfg)
+func Serve(cfg Configs) error {
+	deps, err := getHandlerDeps(cfg)
+	if err != nil {
+		return errors.Wrap(err, "setting up handler depedencies")
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	supporthttp.Run(supporthttp.Config{
@@ -32,12 +41,24 @@ func Serve(cfg Configs) {
 			deps.Logger.Info("Stopping Wallet Backend server")
 		},
 	})
+
+	return nil
 }
 
-func getHandlerDeps(cfg Configs) handlerDeps {
+func getHandlerDeps(cfg Configs) (handlerDeps, error) {
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+	if err != nil {
+		return handlerDeps{}, errors.Wrap(err, "error connecting to the database")
+	}
+	models, err := data.NewModels(dbConnectionPool)
+	if err != nil {
+		return handlerDeps{}, errors.Wrap(err, "error creating models for Serve")
+	}
+
 	return handlerDeps{
 		Logger: cfg.Logger,
-	}
+		Models: models,
+	}, nil
 }
 
 func handler(deps handlerDeps) http.Handler {
