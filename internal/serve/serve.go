@@ -6,7 +6,10 @@ import (
 
 	"wallet-backend/internal/data"
 	"wallet-backend/internal/db"
+	"wallet-backend/internal/serve/httperror"
+	"wallet-backend/internal/serve/httphandler"
 
+	"github.com/go-chi/chi"
 	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
@@ -73,7 +76,9 @@ func handler(deps handlerDeps) http.Handler {
 		// r.Use(...authMiddleware...)
 
 		r.Route("/payments", func(r chi.Router) {
-			handler := &httphandler.PaymentsHandler{}
+			handler := &httphandler.PaymentsHandler{
+				Models: deps.Models,
+			}
 
 			r.Post("/subscribe", handler.SubscribeAddress)
 		})
