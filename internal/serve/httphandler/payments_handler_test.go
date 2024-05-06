@@ -42,9 +42,9 @@ func TestSubscribeAddress(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("success_happy_path", func(t *testing.T) {
 		// Prepare request
-		address := "GANZZQ5WFFDAUVI4RDMRJN2QAEWO7WCLXBVIME6ZXAWO5ZEQA4ZPFWFL"
+		address := keypair.MustRandom().Address()
 		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
 		req, err := http.NewRequest(http.MethodPost, "/payments/subscribe", strings.NewReader(payload))
 		require.NoError(t, err)
@@ -97,5 +97,71 @@ func TestSubscribeAddress(t *testing.T) {
 		assert.Equal(t, address, dbAddress.String)
 
 		clearAccounts(ctx)
+	})
+}
+
+func TestUnsubscribeAddress(t *testing.T) {
+	dbtest := dbtest.Open(t)
+	defer dbtest.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbtest.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	models, err := data.NewModels(dbConnectionPool)
+	require.NoError(t, err)
+	handler := &PaymentsHandler{
+		Models: models,
+	}
+
+	// Setup router
+	r := chi.NewRouter()
+	r.Post("/payments/unsubscribe", handler.UnsubscribeAddress)
+
+	t.Run("success_happy_path", func(t *testing.T) {
+		address := keypair.MustRandom().Address()
+		ctx := context.Background()
+
+		// Insert address in DB
+		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		require.NoError(t, err)
+
+		// Prepare request
+		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		req, err := http.NewRequest(http.MethodPost, "/payments/unsubscribe", strings.NewReader(payload))
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		// Assert no address no longer in DB
+		var dbAddress sql.NullString
+		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts")
+		assert.ErrorIs(t, err, sql.ErrNoRows)
+	})
+
+	t.Run("idempotency", func(t *testing.T) {
+		address := keypair.MustRandom().Address()
+		ctx := context.Background()
+
+		// Make sure DB is empty
+		_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+		require.NoError(t, err)
+
+		// Prepare request
+		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		req, err := http.NewRequest(http.MethodPost, "/payments/unsubscribe", strings.NewReader(payload))
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
 	})
 }

@@ -32,3 +32,20 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 		return
 	}
 }
+
+func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var reqBody PaymentsSubscribeRequest
+	err := httpdecode.DecodeJSON(r, &reqBody)
+	if err != nil {
+		httperror.BadRequest("Invalid request body").Render(w)
+		return
+	}
+
+	err = h.Models.Payments.UnsubscribeAddress(ctx, reqBody.Address)
+	if err != nil {
+		httperror.InternalServerError.Render(w)
+		return
+	}
+}
