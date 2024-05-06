@@ -13,7 +13,10 @@ var rootCmd = &cobra.Command{
 	Use:   "wallet-backend",
 	Short: "Wallet Backend Server",
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
+		err := cmd.Help()
+		if err != nil {
+			log.Fatalf("Error calling help command: %s", err.Error())
+		}
 	},
 }
 
@@ -22,7 +25,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error executing root command: %s", err.Error())
 	}
 }
 
