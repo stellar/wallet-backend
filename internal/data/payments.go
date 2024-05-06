@@ -8,7 +8,7 @@ import (
 )
 
 type PaymentModel struct {
-	db db.DBConnectionPool
+	db db.ConnectionPool
 }
 
 func (m *PaymentModel) SubscribeAddress(ctx context.Context, address string) error {
