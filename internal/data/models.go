@@ -11,7 +11,7 @@ type Models struct {
 
 func NewModels(db db.ConnectionPool) (*Models, error) {
 	if db == nil {
-		return nil, errors.New("DBConnectionPool must be initialized")
+		return nil, errors.New("ConnectionPool must be initialized")
 	}
 
 	return &Models{
