@@ -9,7 +9,7 @@ import (
 )
 
 type PaymentsHandler struct {
-	*data.Models
+	*data.PaymentModel
 }
 
 type PaymentsSubscribeRequest struct {
@@ -26,7 +26,7 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = h.Models.Payments.SubscribeAddress(ctx, reqBody.Address)
+	err = h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError.Render(w)
 		return
