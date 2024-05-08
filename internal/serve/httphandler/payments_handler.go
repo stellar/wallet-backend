@@ -29,6 +29,7 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 	err = h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError.Render(w)
+		// TODO: track in Sentry
 		return
 	}
 }
