@@ -1,8 +1,8 @@
-package serve
+package httperror
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,15 +17,15 @@ func TestErrorResponseRender(t *testing.T) {
 		want errorResponse
 	}{
 		{
-			in:   serverError,
+			in:   InternalServerError,
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
-			in:   notFound,
+			in:   NotFound,
 			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
 		},
 		{
-			in:   methodNotAllowed,
+			in:   MethodNotAllowed,
 			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
 		},
 	}
@@ -36,7 +36,7 @@ func TestErrorResponseRender(t *testing.T) {
 			tc.in.Render(w)
 			resp := w.Result()
 			assert.Equal(t, tc.want.Status, resp.StatusCode)
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want.Error), string(body))
 		})
@@ -45,19 +45,19 @@ func TestErrorResponseRender(t *testing.T) {
 
 func TestErrorHandler(t *testing.T) {
 	testCases := []struct {
-		in   errorHandler
+		in   ErrorHandler
 		want errorResponse
 	}{
 		{
-			in:   errorHandler{serverError},
+			in:   ErrorHandler{InternalServerError},
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
-			in:   errorHandler{notFound},
+			in:   ErrorHandler{NotFound},
 			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
 		},
 		{
-			in:   errorHandler{methodNotAllowed},
+			in:   ErrorHandler{MethodNotAllowed},
 			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
 		},
 	}
@@ -69,7 +69,7 @@ func TestErrorHandler(t *testing.T) {
 			tc.in.ServeHTTP(w, r)
 			resp := w.Result()
 			assert.Equal(t, tc.want.Status, resp.StatusCode)
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want.Error), string(body))
 		})

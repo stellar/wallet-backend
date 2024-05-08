@@ -6,7 +6,10 @@ import (
 
 	"wallet-backend/internal/data"
 	"wallet-backend/internal/db"
+	"wallet-backend/internal/serve/httperror"
+	"wallet-backend/internal/serve/httphandler"
 
+	"github.com/go-chi/chi"
 	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
@@ -63,10 +66,23 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(deps.Logger)
-	mux.NotFound(errorHandler{Error: notFound}.ServeHTTP)
-	mux.MethodNotAllowed(errorHandler{Error: methodNotAllowed}.ServeHTTP)
+	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
+	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
+
+	// Authenticated routes
+	mux.Group(func(r chi.Router) {
+		// r.Use(...authMiddleware...)
+
+		r.Route("/payments", func(r chi.Router) {
+			handler := &httphandler.PaymentsHandler{
+				PaymentModel: deps.Models.Payments,
+			}
+
+			r.Post("/subscribe", handler.SubscribeAddress)
+		})
+	})
 
 	return mux
 }
