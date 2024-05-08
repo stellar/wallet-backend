@@ -30,7 +30,7 @@ func TestSubscribeAddress(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
 	handler := &PaymentsHandler{
-		Models: models,
+		PaymentModel: models.Payments,
 	}
 
 	// Setup router
@@ -111,14 +111,14 @@ func TestUnsubscribeAddress(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
 	handler := &PaymentsHandler{
-		Models: models,
+		PaymentModel: models.Payments,
 	}
 
 	// Setup router
 	r := chi.NewRouter()
 	r.Post("/payments/unsubscribe", handler.UnsubscribeAddress)
 
-	t.Run("success_happy_path", func(t *testing.T) {
+	t.Run("successHappyPath", func(t *testing.T) {
 		address := keypair.MustRandom().Address()
 		ctx := context.Background()
 

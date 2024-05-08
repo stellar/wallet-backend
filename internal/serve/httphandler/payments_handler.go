@@ -9,7 +9,7 @@ import (
 )
 
 type PaymentsHandler struct {
-	*data.Models
+	*data.PaymentModel
 }
 
 type PaymentsSubscribeRequest struct {
@@ -26,9 +26,10 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err = h.Models.Payments.SubscribeAddress(ctx, reqBody.Address)
+	err = h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError.Render(w)
+		// TODO: track in Sentry
 		return
 	}
 }
@@ -43,9 +44,10 @@ func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err = h.Models.Payments.UnsubscribeAddress(ctx, reqBody.Address)
+	err = h.PaymentModel.UnsubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError.Render(w)
+		// TODO: track in Sentry
 		return
 	}
 }

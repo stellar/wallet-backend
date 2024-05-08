@@ -77,7 +77,7 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentsHandler{
-				Models: deps.Models,
+				PaymentModel: deps.Models.Payments,
 			}
 
 			r.Post("/subscribe", handler.SubscribeAddress)
