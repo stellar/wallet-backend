@@ -1,4 +1,4 @@
-package serve
+package httperror
 
 import (
 	"fmt"
@@ -17,15 +17,15 @@ func TestErrorResponseRender(t *testing.T) {
 		want errorResponse
 	}{
 		{
-			in:   serverError,
+			in:   InternalServerError,
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
-			in:   notFound,
+			in:   NotFound,
 			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
 		},
 		{
-			in:   methodNotAllowed,
+			in:   MethodNotAllowed,
 			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
 		},
 	}
@@ -45,19 +45,19 @@ func TestErrorResponseRender(t *testing.T) {
 
 func TestErrorHandler(t *testing.T) {
 	testCases := []struct {
-		in   errorHandler
+		in   ErrorHandler
 		want errorResponse
 	}{
 		{
-			in:   errorHandler{serverError},
+			in:   ErrorHandler{InternalServerError},
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
-			in:   errorHandler{notFound},
+			in:   ErrorHandler{NotFound},
 			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
 		},
 		{
-			in:   errorHandler{methodNotAllowed},
+			in:   ErrorHandler{MethodNotAllowed},
 			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
 		},
 	}

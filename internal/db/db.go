@@ -8,7 +8,7 @@ import (
 	"github.com/stellar/go/support/errors"
 )
 
-type DBConnectionPool interface {
+type ConnectionPool interface {
 	Close() error
 	Ping() error
 	DriverName() string
@@ -24,14 +24,14 @@ type DBConnectionPoolImplementation struct {
 }
 
 // Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
-var _ DBConnectionPool = (*DBConnectionPoolImplementation)(nil)
+var _ ConnectionPool = (*DBConnectionPoolImplementation)(nil)
 
 const (
 	MaxDBConnIdleTime = 10 * time.Second
 	MaxOpenDBConns    = 30
 )
 
-func OpenDBConnectionPool(dataSourceName string) (DBConnectionPool, error) {
+func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating app DB connection pool")
