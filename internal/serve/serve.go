@@ -81,6 +81,7 @@ func handler(deps handlerDeps) http.Handler {
 			}
 
 			r.Post("/subscribe", handler.SubscribeAddress)
+			r.Post("/unsubscribe", handler.UnsubscribeAddress)
 		})
 	})
 

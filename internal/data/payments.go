@@ -20,3 +20,13 @@ func (m *PaymentModel) SubscribeAddress(ctx context.Context, address string) err
 
 	return nil
 }
+
+func (m *PaymentModel) UnsubscribeAddress(ctx context.Context, address string) error {
+	const query = `DELETE FROM accounts WHERE stellar_address = $1`
+	_, err := m.db.ExecContext(ctx, query, address)
+	if err != nil {
+		return errors.Wrapf(err, "unsubscribing address %s to payments tracking", address)
+	}
+
+	return nil
+}
