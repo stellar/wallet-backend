@@ -76,11 +76,13 @@ jobs:
         ports:
           - 5432:5432
     env:
-      PGUSER: postgres
-      PGPASSWORD: postgres
       PGHOST: localhost
       PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
