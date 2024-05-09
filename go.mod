@@ -10,7 +10,7 @@ require (
 	github.com/rubenv/sql-migrate v1.6.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
-	github.com/stellar/go v0.0.0-20231212225359-bc7173e667a6
+	github.com/stellar/go v0.0.0-20240416222646-fd107948e6c4
 	github.com/stretchr/testify v1.9.0
 )
 
