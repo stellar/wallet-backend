@@ -24,11 +24,6 @@ var _ ConnectionPool = (*DBConnectionPoolImplementation)(nil)
 
 type DBConnectionPoolImplementation struct {
 	*sqlx.DB
-	dataSourceName string
-}
-
-func (db *DBConnectionPoolImplementation) DSN(ctx context.Context) (string, error) {
-	return db.dataSourceName, nil
 }
 
 const (
