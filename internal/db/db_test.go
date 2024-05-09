@@ -9,10 +9,10 @@ import (
 )
 
 func TestOpenDBConnectionPool(t *testing.T) {
-	db := dbtest.Postgres(t)
-	defer db.Close()
+	dbt := dbtest.Postgres(t)
+	defer dbt.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(db.DSN)
+	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

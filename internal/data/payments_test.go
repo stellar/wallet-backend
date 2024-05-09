@@ -13,10 +13,10 @@ import (
 )
 
 func TestSubscribeAddress(t *testing.T) {
-	dbtest := dbtest.Open(t)
-	defer dbtest.Close()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbtest.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

@@ -19,12 +19,12 @@ type ConnectionPool interface {
 	SelectContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 }
 
+// Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
+var _ ConnectionPool = (*DBConnectionPoolImplementation)(nil)
+
 type DBConnectionPoolImplementation struct {
 	*sqlx.DB
 }
-
-// Make sure *DBConnectionPoolImplementation implements DBConnectionPool:
-var _ ConnectionPool = (*DBConnectionPoolImplementation)(nil)
 
 const (
 	MaxDBConnIdleTime = 10 * time.Second
