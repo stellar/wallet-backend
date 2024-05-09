@@ -64,10 +64,8 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_DB: postgres
-          POSTGRES_PASSWORD: postgres
-          PGHOST: localhost
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: wallet-backend
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -76,11 +74,8 @@ jobs:
         ports:
           - 5432:5432
     env:
-      PGUSER: postgres
-      PGPASSWORD: postgres
-      PGHOST: localhost
       PGPORT: 5432
-      DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
+      DATABASE_URL: postgres://postgres@localhost:5432/wallet-backend?sslmode=disable
     steps:
       - name: Checkout
         uses: actions/checkout@v4
