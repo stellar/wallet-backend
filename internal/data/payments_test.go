@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"testing"
-	"wallet-backend/internal/db"
-	"wallet-backend/internal/db/dbtest"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -2,9 +2,9 @@ package data
 
 import (
 	"context"
-	"wallet-backend/internal/db"
 
 	"github.com/stellar/go/support/errors"
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type PaymentModel struct {

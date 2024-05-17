@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"net/http"
 
-	"wallet-backend/internal/data"
-	"wallet-backend/internal/db"
-	"wallet-backend/internal/serve/httperror"
-	"wallet-backend/internal/serve/httphandler"
-
 	"github.com/go-chi/chi"
 	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 )
 
 type Configs struct {

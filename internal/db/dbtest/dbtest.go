@@ -3,11 +3,11 @@ package dbtest
 import (
 	"net/http"
 	"testing"
-	"wallet-backend/internal/db/migrations"
 
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stellar/go/support/db/dbtest"
 	"github.com/stellar/go/support/db/schema"
+	"github.com/stellar/wallet-backend/internal/db/migrations"
 )
 
 func Open(t *testing.T) *dbtest.DB {
