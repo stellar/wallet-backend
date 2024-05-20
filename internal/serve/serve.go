@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
-	"github.com/pkg/errors"
 	supporthttp "github.com/stellar/go/support/http"
 	supportlog "github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
@@ -29,7 +28,7 @@ type handlerDeps struct {
 func Serve(cfg Configs) error {
 	deps, err := getHandlerDeps(cfg)
 	if err != nil {
-		return errors.Wrap(err, "setting up handler depedencies")
+		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
@@ -50,11 +49,11 @@ func Serve(cfg Configs) error {
 func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
-		return handlerDeps{}, errors.Wrap(err, "error connecting to the database")
+		return handlerDeps{}, fmt.Errorf("error connecting to the database: %w", err)
 	}
 	models, err := data.NewModels(dbConnectionPool)
 	if err != nil {
-		return handlerDeps{}, errors.Wrap(err, "error creating models for Serve")
+		return handlerDeps{}, fmt.Errorf("error creating models for Serve: %w", err)
 	}
 
 	return handlerDeps{

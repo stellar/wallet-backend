@@ -2,10 +2,10 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/stellar/go/support/errors"
 )
 
 type ConnectionPool interface {
@@ -34,14 +34,14 @@ const (
 func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
 	if err != nil {
-		return nil, errors.Wrap(err, "error creating app DB connection pool")
+		return nil, fmt.Errorf("error creating app DB connection pool: %w", err)
 	}
 	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
 	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
 
 	err = sqlxDB.Ping()
 	if err != nil {
-		return nil, errors.Wrap(err, "error pinging app DB connection pool")
+		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
 	return &DBConnectionPoolImplementation{DB: sqlxDB}, nil
