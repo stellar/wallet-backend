@@ -2,10 +2,10 @@ package httphandler
 
 import (
 	"net/http"
-	"wallet-backend/internal/data"
-	"wallet-backend/internal/serve/httperror"
 
 	"github.com/stellar/go/support/http/httpdecode"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/serve/httperror"
 )
 
 type PaymentsHandler struct {

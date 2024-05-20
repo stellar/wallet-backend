@@ -8,13 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"wallet-backend/internal/data"
-	"wallet-backend/internal/db/dbtest"
-
-	"wallet-backend/internal/db"
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

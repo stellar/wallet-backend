@@ -1,6 +1,6 @@
 package main
 
-import "wallet-backend/cmd"
+import "github.com/stellar/wallet-backend/cmd"
 
 func main() {
 	cmd.Execute()

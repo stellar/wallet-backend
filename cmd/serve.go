@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"go/types"
-	"wallet-backend/internal/serve"
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	supportlog "github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/serve"
 )
 
 type serveCmd struct {

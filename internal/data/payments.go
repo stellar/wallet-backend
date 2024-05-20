@@ -3,7 +3,8 @@ package data
 import (
 	"context"
 	"fmt"
-	"wallet-backend/internal/db"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type PaymentModel struct {
