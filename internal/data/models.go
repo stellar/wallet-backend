@@ -2,7 +2,8 @@ package data
 
 import (
 	"errors"
-	"wallet-backend/internal/db"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type Models struct {

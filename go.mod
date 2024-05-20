@@ -1,4 +1,4 @@
-module wallet-backend
+module github.com/stellar/wallet-backend
 
 go 1.22.0
 
