@@ -1,8 +1,10 @@
 package httperror
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/httpjson"
 )
 
@@ -23,11 +25,6 @@ func (h ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Error.Render(w)
 }
 
-var InternalServerError = errorResponse{
-	Status: http.StatusInternalServerError,
-	Error:  "An error occurred while processing this request.",
-}
-
 var NotFound = errorResponse{
 	Status: http.StatusNotFound,
 	Error:  "The resource at the url requested was not found.",
@@ -46,5 +43,26 @@ func BadRequest(message string) errorResponse {
 	return errorResponse{
 		Status: http.StatusBadRequest,
 		Error:  message,
+	}
+}
+
+func Unauthorized(message string) errorResponse {
+	if message == "" {
+		message = "Not authorized."
+	}
+
+	return errorResponse{
+		Status: http.StatusUnauthorized,
+		Error:  message,
+	}
+}
+
+func InternalServerError(ctx context.Context, message string, err error) errorResponse {
+	// TODO: track error in Sentry
+	log.Ctx(ctx).Error(err)
+
+	return errorResponse{
+		Status: http.StatusInternalServerError,
+		Error:  "An error occurred while processing this request.",
 	}
 }
