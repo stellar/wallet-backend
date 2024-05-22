@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"log"
-
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	supportlog "github.com/stellar/go/support/log"
+	"github.com/stellar/go/support/log"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -30,9 +28,9 @@ func Execute() {
 }
 
 func init() {
-	logger := supportlog.New()
-	logger.SetLevel(logrus.TraceLevel)
+	log.DefaultLogger = log.New()
+	log.DefaultLogger.SetLevel(logrus.TraceLevel)
 
-	rootCmd.AddCommand((&serveCmd{Logger: logger}).Command())
-	rootCmd.AddCommand((&ingestCmd{Logger: logger}).Command())
+	rootCmd.AddCommand((&serveCmd{}).Command())
+	rootCmd.AddCommand((&ingestCmd{}).Command())
 }

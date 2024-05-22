@@ -35,7 +35,7 @@ type Payment struct {
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
 	var lastSyncedLedger uint32
-	err := m.db.QueryRowxContext(ctx, `SELECT value FROM ingestion_store WHERE key = $1`, cursorName).Scan(&lastSyncedLedger)
+	err := m.db.QueryRowxContext(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&lastSyncedLedger)
 	// First run, key does not exist yet
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -49,7 +49,7 @@ func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName str
 
 func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName string, ledger uint32) error {
 	const query = `
-		INSERT INTO ingestion_store (key, value) VALUES ($1, $2)
+		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
 	_, err := m.db.ExecContext(ctx, query, cursorName, ledger)
@@ -71,7 +71,7 @@ func (m *PaymentModel) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 
 func (m *PaymentModel) AddPayment(ctx context.Context, tx *sqlx.Tx, payment Payment) error {
 	const query = `
-		INSERT INTO ingestion_payments (
+		INSERT INTO ingest_payments (
 			operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, 
 			dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo
 		)

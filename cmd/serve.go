@@ -6,18 +6,14 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
-	supportlog "github.com/stellar/go/support/log"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/serve"
 )
 
-type serveCmd struct {
-	Logger *supportlog.Entry
-}
+type serveCmd struct{}
 
 func (c *serveCmd) Command() *cobra.Command {
-	cfg := serve.Configs{
-		Logger: c.Logger,
-	}
+	cfg := serve.Configs{}
 	cfgOpts := config.ConfigOptions{
 		{
 			Name:        "port",
@@ -42,13 +38,13 @@ func (c *serveCmd) Command() *cobra.Command {
 		Run: func(_ *cobra.Command, _ []string) {
 			cfgOpts.Require()
 			if err := cfgOpts.SetValues(); err != nil {
-				c.Logger.Fatalf("Error setting values of config options: %s", err.Error())
+				log.Fatalf("Error setting values of config options: %s", err.Error())
 			}
 			c.Run(cfg)
 		},
 	}
 	if err := cfgOpts.Init(cmd); err != nil {
-		c.Logger.Fatalf("Error initializing a config option: %s", err.Error())
+		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	return cmd
 }
@@ -56,6 +52,6 @@ func (c *serveCmd) Command() *cobra.Command {
 func (c *serveCmd) Run(cfg serve.Configs) {
 	err := serve.Serve(cfg)
 	if err != nil {
-		c.Logger.Fatalf("Error running Serve: %s", err.Error())
+		log.Fatalf("Error running Serve: %s", err.Error())
 	}
 }
