@@ -34,4 +34,5 @@ func init() {
 	logger.SetLevel(logrus.TraceLevel)
 
 	rootCmd.AddCommand((&serveCmd{Logger: logger}).Command())
+	rootCmd.AddCommand((&ingestCmd{Logger: logger}).Command())
 }
