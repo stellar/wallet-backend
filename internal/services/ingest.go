@@ -2,11 +2,11 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
@@ -116,7 +116,7 @@ func trackServiceHealth(heartbeat chan any) {
 func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledgerMeta xdr.LedgerCloseMeta) (err error) {
 	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.NetworkPassphrase, ledgerMeta)
 	if err != nil {
-		return errors.Wrap(err, "creating ledger reader")
+		return fmt.Errorf("creating ledger reader: %w", err)
 	}
 
 	ledgerCloseTime := time.Unix(int64(ledgerMeta.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime), 0).UTC()
@@ -141,7 +141,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 			break
 		}
 		if err != nil {
-			return errors.Wrap(err, "reading transaction")
+			return fmt.Errorf("reading transaction: %w", err)
 		}
 
 		if !tx.Result.Successful() {
@@ -177,7 +177,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 
 			err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
 			if err != nil {
-				return errors.Wrapf(err, "adding payment for ledger %d, tx %q (%d), operation %d (%d)", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx)
+				return fmt.Errorf("adding payment for ledger %d, tx %q (%d), operation %d (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
 			}
 		}
 	}

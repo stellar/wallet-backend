@@ -9,7 +9,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/stellar/go/support/errors"
 )
 
 type PaymentModel struct {
@@ -54,7 +53,7 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 	`
 	_, err := m.db.ExecContext(ctx, query, cursorName, ledger)
 	if err != nil {
-		return errors.Wrapf(err, "updating last synced ledger to %d", ledger)
+		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
 
 	return nil
@@ -63,7 +62,7 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 func (m *PaymentModel) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
 	tx, err := m.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "beginning transaction")
+		return nil, fmt.Errorf("beginning transaction: %w", err)
 	}
 
 	return tx, nil
@@ -98,7 +97,7 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx *sqlx.Tx, payment Paym
 	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.From, payment.To, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAmount,
 		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAmount, payment.CreatedAt, payment.Memo)
 	if err != nil {
-		return errors.Wrap(err, "inserting payment")
+		return fmt.Errorf("inserting payment: %w", err)
 	}
 
 	return nil

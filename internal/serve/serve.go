@@ -34,7 +34,7 @@ func Serve(cfg Configs) error {
 		ListenAddr: addr,
 		Handler:    handler(deps),
 		OnStarting: func() {
-			log.Infof("Starting Wallet Backend server on %s", addr)
+			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
