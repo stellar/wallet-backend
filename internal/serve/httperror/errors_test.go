@@ -1,6 +1,7 @@
 package httperror
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,7 +18,7 @@ func TestErrorResponseRender(t *testing.T) {
 		want errorResponse
 	}{
 		{
-			in:   InternalServerError,
+			in:   InternalServerError(context.Background(), "", nil),
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
@@ -49,7 +50,7 @@ func TestErrorHandler(t *testing.T) {
 		want errorResponse
 	}{
 		{
-			in:   ErrorHandler{InternalServerError},
+			in:   ErrorHandler{InternalServerError(context.Background(), "", nil)},
 			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
