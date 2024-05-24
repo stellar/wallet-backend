@@ -61,17 +61,19 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 func TestExtractTimestampedSignature(t *testing.T) {
 	t.Run("invalid_header_content", func(t *testing.T) {
 		ts, s, err := ExtractTimestampedSignature("")
-		assert.EqualError(t, err, "malformed header format: ")
+		assert.EqualError(t, err, "malformed header: ")
 		assert.Empty(t, ts)
 		assert.Empty(t, s)
 
 		ts, s, err = ExtractTimestampedSignature("a,b")
-		assert.EqualError(t, err, "malformed timestamp format: [a]")
+		var errTimestampFormat *ErrInvalidTimestampFormat
+		assert.ErrorAs(t, err, &errTimestampFormat)
+		assert.EqualError(t, err, "malformed timestamp: a")
 		assert.Empty(t, ts)
 		assert.Empty(t, s)
 
 		ts, s, err = ExtractTimestampedSignature("t=abc,b")
-		assert.EqualError(t, err, "malformed signature format: [b]")
+		assert.EqualError(t, err, "malformed signature: [b]")
 		assert.Empty(t, ts)
 		assert.Empty(t, s)
 	})

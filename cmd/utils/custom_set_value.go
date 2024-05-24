@@ -13,7 +13,7 @@ func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
 
 	kp, err := keypair.ParseAddress(publicKey)
 	if err != nil {
-		return fmt.Errorf("error validating public key in %s: %w", co.Name, err)
+		return fmt.Errorf("validating public key in %s: %w", co.Name, err)
 	}
 
 	key, ok := co.ConfigKey.(*string)

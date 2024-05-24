@@ -93,17 +93,17 @@ func TestSetConfigOptionStellarPublicKey(t *testing.T) {
 	testCases := []customSetterTestCase[string]{
 		{
 			name:            "returns an error if the public key is empty",
-			wantErrContains: "error validating public key in wallet-signing-key: strkey is 0 bytes long; minimum valid length is 5",
+			wantErrContains: "validating public key in wallet-signing-key: strkey is 0 bytes long; minimum valid length is 5",
 		},
 		{
 			name:            "returns an error if the public key is invalid",
 			args:            []string{"--wallet-signing-key", "invalid_public_key"},
-			wantErrContains: "error validating public key in wallet-signing-key: base32 decode failed: illegal base32 data at input byte 18",
+			wantErrContains: "validating public key in wallet-signing-key: base32 decode failed: illegal base32 data at input byte 18",
 		},
 		{
 			name:            "returns an error if the public key is invalid (private key instead)",
 			args:            []string{"--wallet-signing-key", "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276"},
-			wantErrContains: "error validating public key in wallet-signing-key: invalid version byte",
+			wantErrContains: "validating public key in wallet-signing-key: invalid version byte",
 		},
 		{
 			name:       "handles Stellar public key through the CLI flag",

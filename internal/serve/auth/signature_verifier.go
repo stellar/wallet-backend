@@ -25,11 +25,15 @@ var (
 )
 
 type ErrInvalidTimestampFormat struct {
-	TimestampString string
+	TimestampString     string
+	timestampValueError bool
 }
 
 func (e ErrInvalidTimestampFormat) Error() string {
-	return fmt.Sprintf("signature format different than expected. expected unix seconds, got: %s", e.TimestampString)
+	if e.timestampValueError {
+		return fmt.Sprintf("signature format different than expected. expected unix seconds, got: %s", e.TimestampString)
+	}
+	return fmt.Sprintf("malformed timestamp: %s", e.TimestampString)
 }
 
 type ErrExpiredSignatureTimestamp struct {
@@ -53,21 +57,13 @@ func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatu
 	t, s, err := ExtractTimestampedSignature(signatureHeaderContent)
 	if err != nil {
 		log.Ctx(ctx).Error(err)
-		var errTimestampFormat *ErrInvalidTimestampFormat
-		if errors.As(err, &errTimestampFormat) {
-			return err
-		}
 		return ErrStellarSignatureNotVerified
 	}
 
-	// 2 minutes in seconds
+	// 2 seconds
 	err = VerifyGracePeriodSeconds(t, 2*time.Second)
 	if err != nil {
 		log.Ctx(ctx).Error(err)
-		var errExpiredSignatureTimestamp *ErrExpiredSignatureTimestamp
-		if errors.As(err, &errExpiredSignatureTimestamp) {
-			return err
-		}
 		return ErrStellarSignatureNotVerified
 	}
 
@@ -97,20 +93,20 @@ func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatu
 func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s string, err error) {
 	parts := strings.SplitN(signatureHeaderContent, ",", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("malformed header format: %s", signatureHeaderContent)
+		return "", "", fmt.Errorf("malformed header: %s", signatureHeaderContent)
 	}
 
 	tHeaderContent := parts[0]
 	timestampParts := strings.SplitN(tHeaderContent, "=", 2)
 	if len(timestampParts) != 2 || strings.TrimSpace(timestampParts[0]) != "t" {
-		return "", "", fmt.Errorf("malformed timestamp format: %s", timestampParts)
+		return "", "", &ErrInvalidTimestampFormat{TimestampString: tHeaderContent}
 	}
 	t = strings.TrimSpace(timestampParts[1])
 
 	sHeaderContent := parts[1]
 	signatureParts := strings.SplitN(sHeaderContent, "=", 2)
 	if len(signatureParts) != 2 || strings.TrimSpace(signatureParts[0]) != "s" {
-		return "", "", fmt.Errorf("malformed signature format: %s", signatureParts)
+		return "", "", fmt.Errorf("malformed signature: %s", signatureParts)
 	}
 	s = strings.TrimSpace(signatureParts[1])
 
@@ -120,7 +116,7 @@ func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s str
 func VerifyGracePeriodSeconds(timestampString string, gracePeriod time.Duration) error {
 	// Note: from Nov 20th, 2286 this RegEx will fail because of an extra digit
 	if ok, _ := regexp.MatchString(`^\d{10}$`, timestampString); !ok {
-		return &ErrInvalidTimestampFormat{TimestampString: timestampString}
+		return &ErrInvalidTimestampFormat{TimestampString: timestampString, timestampValueError: true}
 	}
 
 	timestampUnix, err := strconv.ParseInt(timestampString, 10, 64)

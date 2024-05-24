@@ -42,7 +42,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			OptType:     types.String,
 			ConfigKey:   &cfg.ServerBaseURL,
 			FlagDefault: "http://localhost:8000",
-			Required:    false,
+			Required:    true,
 		},
 		{
 			Name:           "wallet-signing-key",
