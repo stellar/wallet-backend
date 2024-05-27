@@ -124,3 +124,99 @@ func TestSetConfigOptionStellarPublicKey(t *testing.T) {
 		})
 	}
 }
+
+func TestSetConfigOptionCaptiveCoreBinPath(t *testing.T) {
+	opts := struct{ binPath string }{}
+
+	co := config.ConfigOption{
+		Name:           "captive-core-bin-path",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionCaptiveCoreBinPath,
+		ConfigKey:      &opts.binPath,
+	}
+
+	testCases := []customSetterTestCase[string]{
+		{
+			name:            "returns an error if the file path is not set, should be caught by the Require() function",
+			wantErrContains: "binary file  does not exist",
+		},
+		{
+			name:            "returns an error if the path is invalid",
+			args:            []string{"--captive-core-bin-path", "/a/random/path/bin"},
+			wantErrContains: "binary file /a/random/path/bin does not exist",
+		},
+		{
+			name:            "returns an error if the path format is invalid",
+			args:            []string{"--captive-core-bin-path", "^7JcrS8J4q@V0$c"},
+			wantErrContains: "binary file ^7JcrS8J4q@V0$c does not exist",
+		},
+		{
+			name:            "returns an error if the path is a directory, not a file",
+			args:            []string{"--captive-core-bin-path", "./"},
+			wantErrContains: "binary file path ./ is a directory, not a file",
+		},
+		{
+			name:       "sets to ENV var value",
+			envValue:   "./custom_set_value_test.go",
+			wantResult: "./custom_set_value_test.go",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.binPath = ""
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionCaptiveCoreConfigDir(t *testing.T) {
+	opts := struct{ binPath string }{}
+
+	co := config.ConfigOption{
+		Name:           "captive-core-config-dir",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionCaptiveCoreConfigDir,
+		ConfigKey:      &opts.binPath,
+	}
+
+	testCases := []customSetterTestCase[string]{
+		{
+			name:            "returns an error if the file path is not set, should be caught by the Require() function",
+			wantErrContains: "captive core configuration files dir  does not exist",
+		},
+		{
+			name:            "returns an error if the path is invalid",
+			envValue:        "/a/random/path",
+			wantErrContains: "captive core configuration files dir /a/random/path does not exist",
+		},
+		{
+			name:            "returns an error if the path format is invalid",
+			envValue:        "^7JcrS8J4q@V0$c",
+			wantErrContains: "captive core configuration files dir ^7JcrS8J4q@V0$c does not exist",
+		},
+
+		{
+			name:            "returns an error if the path is a file, not a directory",
+			envValue:        "./custom_set_value_test.go",
+			wantErrContains: "captive core configuration files dir ./custom_set_value_test.go is not a directory",
+		},
+		{
+			name:            "returns an error if the directory does not contain the configuration files",
+			envValue:        "./",
+			wantErrContains: "captive core testnet configuration file stellar-core_testnet.cfg does not exist in dir ./",
+		},
+		{
+			name:       "sets to ENV var value",
+			envValue:   "../../internal/ingest/config",
+			wantResult: "../../internal/ingest/config",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.binPath = ""
+			customSetterTester(t, tc, co)
+		})
+	}
+}

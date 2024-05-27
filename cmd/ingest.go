@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/ingest"
 )
 
@@ -33,20 +34,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
-			Name:        "captive-core-bin-path",
-			Usage:       "Path to Captive Core's binary file.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.CaptiveCoreBinPath,
-			FlagDefault: "/usr/local/bin/stellar-core",
-			Required:    true,
+			Name:           "captive-core-bin-path",
+			Usage:          "Path to Captive Core's binary file.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionCaptiveCoreBinPath,
+			ConfigKey:      &cfg.CaptiveCoreBinPath,
+			FlagDefault:    "/usr/local/bin/stellar-core",
+			Required:       true,
 		},
 		{
-			Name:        "captive-core-config-dir",
-			Usage:       "Path to Captive Core's configuration files directory.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.CaptiveCoreConfigDir,
-			FlagDefault: "./internal/ingest/config",
-			Required:    true,
+			Name:           "captive-core-config-dir",
+			Usage:          "Path to Captive Core's configuration files directory.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionCaptiveCoreConfigDir,
+			ConfigKey:      &cfg.CaptiveCoreConfigDir,
+			FlagDefault:    "./internal/ingest/config",
+			Required:       true,
 		},
 		{
 			Name:        "ledger-cursor-name",

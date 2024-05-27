@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
@@ -10,6 +11,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
+)
+
+const (
+	ConfigFileNamePubnet  = "stellar-core_pubnet.cfg"
+	ConfigFileNameTestnet = "stellar-core_testnet.cfg"
 )
 
 type Configs struct {
@@ -73,10 +79,10 @@ func getCaptiveCoreConfig(cfg Configs) (ledgerbackend.CaptiveCoreConfig, error) 
 	switch cfg.NetworkPassphrase {
 	case network.TestNetworkPassphrase:
 		networkArchivesURLs = network.TestNetworkhistoryArchiveURLs
-		configFilePath = cfg.CaptiveCoreConfigDir + "/stellar-core_testnet.cfg"
+		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, ConfigFileNameTestnet)
 	case network.PublicNetworkPassphrase:
 		networkArchivesURLs = network.PublicNetworkhistoryArchiveURLs
-		configFilePath = cfg.CaptiveCoreConfigDir + "/stellar-core_pubnet.cfg"
+		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, ConfigFileNamePubnet)
 	default:
 		return ledgerbackend.CaptiveCoreConfig{}, fmt.Errorf("unknown network: %s", cfg.NetworkPassphrase)
 	}
