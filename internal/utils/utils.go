@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 )
 
@@ -11,4 +12,18 @@ func SanitizeUTF8(input string) string {
 	// https://www.postgresql.org/docs/13/datatype-character.html
 	bs := bytes.ReplaceAll([]byte(input), []byte{0}, []byte{})
 	return strings.ToValidUTF8(string(bs), "?")
+}
+
+// IsEmpty checks if a value is empty.
+func IsEmpty[T any](v T) bool {
+	return reflect.ValueOf(&v).Elem().IsZero()
+}
+
+// UnwrapInterfaceToPointer unwraps an interface to a pointer of the given type.
+func UnwrapInterfaceToPointer[T any](i interface{}) *T {
+	t, ok := i.(*T)
+	if ok {
+		return t
+	}
+	return nil
 }

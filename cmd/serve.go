@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/serve"
 )
 
@@ -31,15 +32,33 @@ func (c *serveCmd) Command() *cobra.Command {
 			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
 			Required:    true,
 		},
+		{
+			Name:        "server-base-url",
+			Usage:       "The server base URL",
+			OptType:     types.String,
+			ConfigKey:   &cfg.ServerBaseURL,
+			FlagDefault: "http://localhost:8000",
+			Required:    true,
+		},
+		{
+			Name:           "wallet-signing-key",
+			Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionStellarPublicKey,
+			ConfigKey:      &cfg.WalletSigningKey,
+			Required:       true,
+		},
 	}
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run Wallet Backend server",
-		Run: func(_ *cobra.Command, _ []string) {
+		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			cfgOpts.Require()
 			if err := cfgOpts.SetValues(); err != nil {
 				log.Fatalf("Error setting values of config options: %s", err.Error())
 			}
+		},
+		Run: func(_ *cobra.Command, _ []string) {
 			c.Run(cfg)
 		},
 	}

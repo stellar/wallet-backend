@@ -10,17 +10,24 @@ import (
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 type Configs struct {
-	Port        int
-	DatabaseURL string
+	Port             int
+	DatabaseURL      string
+	ServerBaseURL    string
+	WalletSigningKey string
 }
 
 type handlerDeps struct {
-	Models *data.Models
+	Models            *data.Models
+	Port              int
+	DatabaseURL       string
+	SignatureVerifier auth.SignatureVerifier
 }
 
 func Serve(cfg Configs) error {
@@ -47,15 +54,21 @@ func Serve(cfg Configs) error {
 func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("error connecting to the database: %w", err)
+		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
 	models, err := data.NewModels(dbConnectionPool)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("error creating models for Serve: %w", err)
+		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
+	}
+
+	signatureVerifier, err := auth.NewStellarSignatureVerifier(cfg.ServerBaseURL, cfg.WalletSigningKey)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
 
 	return handlerDeps{
-		Models: models,
+		Models:            models,
+		SignatureVerifier: signatureVerifier,
 	}, nil
 }
 
@@ -68,7 +81,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		// r.Use(...authMiddleware...)
+		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
 
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentsHandler{

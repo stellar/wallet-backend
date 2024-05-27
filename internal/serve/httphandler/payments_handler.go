@@ -28,8 +28,7 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 
 	err = h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
-		httperror.InternalServerError.Render(w)
-		// TODO: track in Sentry
+		httperror.InternalServerError(ctx, "", err).Render(w)
 		return
 	}
 }
@@ -46,8 +45,7 @@ func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reque
 
 	err = h.PaymentModel.UnsubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
-		httperror.InternalServerError.Render(w)
-		// TODO: track in Sentry
+		httperror.InternalServerError(ctx, "", err).Render(w)
 		return
 	}
 }
