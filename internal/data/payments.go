@@ -7,12 +7,10 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
-
-	"github.com/jmoiron/sqlx"
 )
 
 type PaymentModel struct {
-	db db.ConnectionPool
+	DB db.ConnectionPool
 }
 
 type Payment struct {
@@ -34,7 +32,7 @@ type Payment struct {
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
 	var lastSyncedLedger uint32
-	err := m.db.QueryRowxContext(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&lastSyncedLedger)
+	err := m.DB.QueryRowxContext(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&lastSyncedLedger)
 	// First run, key does not exist yet
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -51,7 +49,7 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
-	_, err := m.db.ExecContext(ctx, query, cursorName, ledger)
+	_, err := m.DB.ExecContext(ctx, query, cursorName, ledger)
 	if err != nil {
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
@@ -59,16 +57,7 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 	return nil
 }
 
-func (m *PaymentModel) BeginTx(ctx context.Context) (*sqlx.Tx, error) {
-	tx, err := m.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("beginning transaction: %w", err)
-	}
-
-	return tx, nil
-}
-
-func (m *PaymentModel) AddPayment(ctx context.Context, tx *sqlx.Tx, payment Payment) error {
+func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, payment Payment) error {
 	const query = `
 		INSERT INTO ingest_payments (
 			operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, 
@@ -105,7 +94,7 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx *sqlx.Tx, payment Paym
 
 func (m *PaymentModel) SubscribeAddress(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`
-	_, err := m.db.ExecContext(ctx, query, address)
+	_, err := m.DB.ExecContext(ctx, query, address)
 	if err != nil {
 		return fmt.Errorf("subscribing address %s to payments tracking: %w", address, err)
 	}
@@ -115,7 +104,7 @@ func (m *PaymentModel) SubscribeAddress(ctx context.Context, address string) err
 
 func (m *PaymentModel) UnsubscribeAddress(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
-	_, err := m.db.ExecContext(ctx, query, address)
+	_, err := m.DB.ExecContext(ctx, query, address)
 	if err != nil {
 		return fmt.Errorf("unsubscribing address %s to payments tracking: %w", address, err)
 	}

@@ -22,7 +22,7 @@ func TestAddPayment(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	m := &PaymentModel{
-		db: dbConnectionPool,
+		DB: dbConnectionPool,
 	}
 	ctx := context.Background()
 
@@ -48,13 +48,9 @@ func TestAddPayment(t *testing.T) {
 	}
 
 	addPayment := func() {
-		tx, err := m.BeginTx(ctx)
-		require.NoError(t, err)
-
-		err = m.AddPayment(ctx, tx, payment)
-		require.NoError(t, err)
-
-		err = tx.Commit()
+		err := db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
+			return m.AddPayment(ctx, dbTx, payment)
+		})
 		require.NoError(t, err)
 	}
 
@@ -114,7 +110,7 @@ func TestSubscribeAddress(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	m := &PaymentModel{
-		db: dbConnectionPool,
+		DB: dbConnectionPool,
 	}
 
 	ctx := context.Background()
@@ -123,7 +119,7 @@ func TestSubscribeAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	var dbAddress sql.NullString
-	err = m.db.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
+	err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
 	require.NoError(t, err)
 
 	assert.True(t, dbAddress.Valid)

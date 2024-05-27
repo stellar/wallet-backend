@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -122,77 +123,61 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 	ledgerCloseTime := time.Unix(int64(ledgerMeta.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime), 0).UTC()
 	ledgerSequence := ledgerMeta.LedgerSequence()
 
-	dbTx, err := m.PaymentModel.BeginTx(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			rollbackErr := dbTx.Rollback()
-			if rollbackErr != nil {
-				log.Ctx(ctx).Error(rollbackErr)
+	return db.RunInTransaction(ctx, m.PaymentModel.DB, nil, func(dbTx db.Transaction) error {
+		for {
+			tx, err := reader.Read()
+			if err == io.EOF {
+				break
 			}
-		}
-	}()
-
-	for {
-		tx, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("reading transaction: %w", err)
-		}
-
-		if !tx.Result.Successful() {
-			continue
-		}
-
-		txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
-		txMemo := utils.Memo(tx.Envelope.Memo(), txHash)
-
-		for idx, op := range tx.Envelope.Operations() {
-			opIdx := idx + 1
-
-			payment := data.Payment{
-				OperationID:     utils.OperationID(int32(ledgerSequence), int32(tx.Index), int32(opIdx)),
-				OperationType:   op.Body.Type.String(),
-				TransactionID:   utils.TransactionID(int32(ledgerSequence), int32(tx.Index)),
-				TransactionHash: txHash,
-				From:            utils.SourceAccount(op, tx),
-				CreatedAt:       ledgerCloseTime,
-				Memo:            utils.SanitizeUTF8(txMemo), // Field is subject to user input
+			if err != nil {
+				return fmt.Errorf("reading transaction: %w", err)
 			}
 
-			switch op.Body.Type {
-			case xdr.OperationTypePayment:
-				fillPayment(&payment, op.Body)
-			case xdr.OperationTypePathPaymentStrictSend:
-				fillPathSend(&payment, op.Body, tx, opIdx)
-			case xdr.OperationTypePathPaymentStrictReceive:
-				fillPathReceive(&payment, op.Body, tx, opIdx)
-			default:
+			if !tx.Result.Successful() {
 				continue
 			}
 
-			err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
-			if err != nil {
-				return fmt.Errorf("adding payment for ledger %d, tx %q (%d), operation %d (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
+			txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
+			txMemo := utils.Memo(tx.Envelope.Memo(), txHash)
+
+			for idx, op := range tx.Envelope.Operations() {
+				opIdx := idx + 1
+
+				payment := data.Payment{
+					OperationID:     utils.OperationID(int32(ledgerSequence), int32(tx.Index), int32(opIdx)),
+					OperationType:   op.Body.Type.String(),
+					TransactionID:   utils.TransactionID(int32(ledgerSequence), int32(tx.Index)),
+					TransactionHash: txHash,
+					From:            utils.SourceAccount(op, tx),
+					CreatedAt:       ledgerCloseTime,
+					Memo:            utils.SanitizeUTF8(txMemo), // Field is subject to user input
+				}
+
+				switch op.Body.Type {
+				case xdr.OperationTypePayment:
+					fillPayment(&payment, op.Body)
+				case xdr.OperationTypePathPaymentStrictSend:
+					fillPathSend(&payment, op.Body, tx, opIdx)
+				case xdr.OperationTypePathPaymentStrictReceive:
+					fillPathReceive(&payment, op.Body, tx, opIdx)
+				default:
+					continue
+				}
+
+				err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
+				if err != nil {
+					return fmt.Errorf("adding payment for ledger %d, tx %q (%d), operation %d (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
+				}
 			}
 		}
-	}
 
-	err = m.PaymentModel.UpdateLatestLedgerSynced(ctx, m.LedgerCursorName, ledger)
-	if err != nil {
-		return err
-	}
+		err = m.PaymentModel.UpdateLatestLedgerSynced(ctx, m.LedgerCursorName, ledger)
+		if err != nil {
+			return err
+		}
 
-	err = dbTx.Commit()
-	if err != nil {
-		return err
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
