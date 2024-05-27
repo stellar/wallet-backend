@@ -14,20 +14,20 @@ type PaymentModel struct {
 }
 
 type Payment struct {
-	OperationID     int64
-	OperationType   string
-	TransactionID   int64
-	TransactionHash string
-	From            string
-	To              string
-	SrcAssetCode    string
-	SrcAssetIssuer  string
-	SrcAmount       int64
-	DestAssetCode   string
-	DestAssetIssuer string
-	DestAmount      int64
-	CreatedAt       time.Time
-	Memo            string
+	OperationID     int64     `db:"operation_id"`
+	OperationType   string    `db:"operation_type"`
+	TransactionID   int64     `db:"transaction_id"`
+	TransactionHash string    `db:"transaction_hash"`
+	From            string    `db:"from"`
+	To              string    `db:"to"`
+	SrcAssetCode    string    `db:"src_asset_code"`
+	SrcAssetIssuer  string    `db:"src_asset_issuer"`
+	SrcAmount       int64     `db:"src_amount"`
+	DestAssetCode   string    `db:"dest_asset_code"`
+	DestAssetIssuer string    `db:"dest_asset_issuer"`
+	DestAmount      int64     `db:"dest_amount"`
+	CreatedAt       time.Time `db:"created_at"`
+	Memo            string    `db:"memo"`
 }
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
@@ -38,7 +38,7 @@ func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName str
 		return 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("getting latest ledger synced for cursor %s: %w", cursorName, err)
 	}
 
 	return lastSyncedLedger, nil
