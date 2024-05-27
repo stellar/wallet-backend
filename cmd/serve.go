@@ -41,6 +41,15 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:           "log-level",
+			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
+			OptType:        types.String,
+			FlagDefault:    "TRACE",
+			ConfigKey:      &cfg.LogLevel,
+			CustomSetValue: utils.SetConfigOptionLogLevel,
+			Required:       false,
+		},
+		{
 			Name:           "wallet-signing-key",
 			Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
 			OptType:        types.String,

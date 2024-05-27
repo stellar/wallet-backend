@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
@@ -26,6 +27,7 @@ type Configs struct {
 	LedgerCursorName     string
 	StartLedger          int
 	EndLedger            int
+	LogLevel             logrus.Level
 }
 
 func Ingest(cfg Configs) error {

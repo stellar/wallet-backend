@@ -34,6 +34,15 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:           "log-level",
+			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
+			OptType:        types.String,
+			FlagDefault:    "TRACE",
+			ConfigKey:      &cfg.LogLevel,
+			CustomSetValue: utils.SetConfigOptionLogLevel,
+			Required:       false,
+		},
+		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",
 			OptType:        types.String,

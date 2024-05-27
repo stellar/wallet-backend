@@ -6,14 +6,40 @@ import (
 	"os"
 	"path"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/config"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/ingest"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
 	return fmt.Errorf("the expected type for the config key in %s is %T, but a %T was provided instead", co.Name, key, co.ConfigKey)
+}
+
+func SetConfigOptionLogLevel(co *config.ConfigOption) error {
+	logLevelStr := viper.GetString(co.Name)
+	logLevel, err := logrus.ParseLevel(logLevelStr)
+	if err != nil {
+		return fmt.Errorf("couldn't parse log level in %s: %w", co.Name, err)
+	}
+
+	key, ok := co.ConfigKey.(*logrus.Level)
+	if !ok {
+		return fmt.Errorf("%s configKey has an invalid type %T", co.Name, co.ConfigKey)
+	}
+	*key = logLevel
+
+	// Log for debugging
+	if config.IsExplicitlySet(co) {
+		log.Debugf("Setting log level to: %s", logLevel)
+		log.DefaultLogger.SetLevel(*key)
+	} else {
+		log.Debugf("Using default log level: %s", logLevel)
+	}
+
+	return nil
 }
 
 func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {

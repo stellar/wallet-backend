@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/log"
 )
@@ -29,7 +28,6 @@ func Execute() {
 
 func init() {
 	log.DefaultLogger = log.New()
-	log.DefaultLogger.SetLevel(logrus.TraceLevel)
 
 	rootCmd.AddCommand((&serveCmd{}).Command())
 	rootCmd.AddCommand((&ingestCmd{}).Command())

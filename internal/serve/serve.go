@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
+	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
@@ -21,6 +22,7 @@ type Configs struct {
 	DatabaseURL      string
 	ServerBaseURL    string
 	WalletSigningKey string
+	LogLevel         logrus.Level
 }
 
 type handlerDeps struct {
