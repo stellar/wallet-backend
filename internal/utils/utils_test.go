@@ -6,6 +6,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestSanitizeUTF8(t *testing.T) {
+	t.Run("non_utf8", func(t *testing.T) {
+		result := SanitizeUTF8("test\xF5")
+		assert.Equal(t, "test?", result)
+	})
+
+	t.Run("zero_byte", func(t *testing.T) {
+		result := SanitizeUTF8("test\x00\x00")
+		assert.Equal(t, "test", result)
+	})
+}
+
 func TestUnwrapInterfaceToPointer(t *testing.T) {
 	// Test with a string
 	strValue := "test"

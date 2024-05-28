@@ -12,8 +12,8 @@ func OperationID(ledgerNumber, txNumber, opNumber int32) int64 {
 	return toid.New(ledgerNumber, txNumber, opNumber).ToInt64()
 }
 
-func OperationResult(transaction ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
-	results, _ := transaction.Result.OperationResults()
+func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
+	results, _ := tx.Result.OperationResults()
 	tr := results[opNumber-1].MustTr()
 	return &tr
 }
