@@ -254,11 +254,6 @@ func TestSetConfigOptionCaptiveCoreConfigDir(t *testing.T) {
 			wantErrContains: "captive core configuration files dir ./custom_set_value_test.go is not a directory",
 		},
 		{
-			name:            "returns an error if the directory does not contain the configuration files",
-			envValue:        "./",
-			wantErrContains: "captive core testnet configuration file stellar-core_testnet.cfg does not exist in dir ./",
-		},
-		{
 			name:       "sets to ENV var value",
 			envValue:   "../../internal/ingest/config",
 			wantResult: "../../internal/ingest/config",

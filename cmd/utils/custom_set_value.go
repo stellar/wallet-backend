@@ -4,14 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/wallet-backend/internal/ingest"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
@@ -90,16 +88,6 @@ func SetConfigOptionCaptiveCoreConfigDir(co *config.ConfigOption) error {
 
 	if !fileInfo.IsDir() {
 		return fmt.Errorf("captive core configuration files dir %s is not a directory", dirPath)
-	}
-
-	testnetConfigFile := path.Join(dirPath, ingest.ConfigFileNameTestnet)
-	if _, err := os.Stat(testnetConfigFile); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("captive core testnet configuration file %s does not exist in dir %s", testnetConfigFile, dirPath)
-	}
-
-	pubnetConfigFile := path.Join(dirPath, ingest.ConfigFileNamePubnet)
-	if _, err := os.Stat(pubnetConfigFile); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("captive core pubnet configuration file %s does not exist in dir %s", pubnetConfigFile, dirPath)
 	}
 
 	key, ok := co.ConfigKey.(*string)

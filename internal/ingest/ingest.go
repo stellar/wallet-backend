@@ -2,7 +2,9 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path"
 
 	"github.com/sirupsen/logrus"
@@ -12,11 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
-)
-
-const (
-	ConfigFileNamePubnet  = "stellar-core_pubnet.cfg"
-	ConfigFileNameTestnet = "stellar-core_testnet.cfg"
 )
 
 type Configs struct {
@@ -74,6 +71,11 @@ func setupDeps(cfg Configs) (*services.IngestManager, error) {
 	}, nil
 }
 
+const (
+	configFileNamePubnet  = "stellar-core_pubnet.cfg"
+	configFileNameTestnet = "stellar-core_testnet.cfg"
+)
+
 func getCaptiveCoreConfig(cfg Configs) (ledgerbackend.CaptiveCoreConfig, error) {
 	var networkArchivesURLs []string
 	var configFilePath string
@@ -81,12 +83,16 @@ func getCaptiveCoreConfig(cfg Configs) (ledgerbackend.CaptiveCoreConfig, error) 
 	switch cfg.NetworkPassphrase {
 	case network.TestNetworkPassphrase:
 		networkArchivesURLs = network.TestNetworkhistoryArchiveURLs
-		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, ConfigFileNameTestnet)
+		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, configFileNameTestnet)
 	case network.PublicNetworkPassphrase:
 		networkArchivesURLs = network.PublicNetworkhistoryArchiveURLs
-		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, ConfigFileNamePubnet)
+		configFilePath = path.Join(cfg.CaptiveCoreConfigDir, configFileNamePubnet)
 	default:
 		return ledgerbackend.CaptiveCoreConfig{}, fmt.Errorf("unknown network: %s", cfg.NetworkPassphrase)
+	}
+
+	if _, err := os.Stat(configFilePath); errors.Is(err, os.ErrNotExist) {
+		return ledgerbackend.CaptiveCoreConfig{}, fmt.Errorf("captive core configuration file not found in %s", configFilePath)
 	}
 
 	// Read configuration TOML
