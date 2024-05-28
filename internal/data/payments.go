@@ -18,8 +18,8 @@ type Payment struct {
 	OperationType   string    `db:"operation_type"`
 	TransactionID   int64     `db:"transaction_id"`
 	TransactionHash string    `db:"transaction_hash"`
-	From            string    `db:"from"`
-	To              string    `db:"to"`
+	From            string    `db:"from_address"`
+	To              string    `db:"to_address"`
 	SrcAssetCode    string    `db:"src_asset_code"`
 	SrcAssetIssuer  string    `db:"src_asset_issuer"`
 	SrcAmount       int64     `db:"src_amount"`
