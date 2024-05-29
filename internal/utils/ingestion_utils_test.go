@@ -15,7 +15,7 @@ func TestMemo(t *testing.T) {
 		}
 
 		result := Memo(memo, "")
-		assert.Equal(t, "", result)
+		assert.Equal(t, (*string)(nil), result)
 	})
 
 	t.Run("type_text", func(t *testing.T) {
@@ -26,7 +26,7 @@ func TestMemo(t *testing.T) {
 		}
 
 		result := Memo(memo, "")
-		assert.Equal(t, "test", result)
+		assert.Equal(t, "test", *result)
 	})
 
 	t.Run("type_id", func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestMemo(t *testing.T) {
 		}
 
 		result := Memo(memo, "")
-		assert.Equal(t, "12345", result)
+		assert.Equal(t, "12345", *result)
 	})
 
 	t.Run("type_hash", func(t *testing.T) {
@@ -50,7 +50,7 @@ func TestMemo(t *testing.T) {
 		}
 
 		result := Memo(memo, "")
-		assert.Equal(t, value.HexString(), result)
+		assert.Equal(t, value.HexString(), *result)
 	})
 
 	t.Run("type_return", func(t *testing.T) {
@@ -63,6 +63,6 @@ func TestMemo(t *testing.T) {
 		}
 
 		result := Memo(memo, "")
-		assert.Equal(t, value.HexString(), result)
+		assert.Equal(t, value.HexString(), *result)
 	})
 }

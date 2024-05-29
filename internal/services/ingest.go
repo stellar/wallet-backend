@@ -139,6 +139,10 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 
 			txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
 			txMemo := utils.Memo(tx.Envelope.Memo(), txHash)
+			// The memo field is subject to user input, so we sanitize before persisting in the database
+			if txMemo != nil {
+				*txMemo = utils.SanitizeUTF8(*txMemo)
+			}
 
 			for idx, op := range tx.Envelope.Operations() {
 				opIdx := idx + 1
@@ -150,7 +154,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 					TransactionHash: txHash,
 					From:            utils.SourceAccount(op, tx),
 					CreatedAt:       ledgerCloseTime,
-					Memo:            utils.SanitizeUTF8(txMemo), // Field is subject to user input
+					Memo:            txMemo,
 				}
 
 				switch op.Body.Type {

@@ -123,6 +123,8 @@ func TestProcessLedger(t *testing.T) {
 	query := `SELECT operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo FROM ingest_payments`
 	err = dbConnectionPool.GetContext(ctx, &payment, query)
 	require.NoError(t, err)
+
+	expectedMemo := "memo_test"
 	assert.Equal(t, data.Payment{
 		OperationID:     528280981505,
 		OperationType:   "OperationTypePayment",
@@ -137,6 +139,6 @@ func TestProcessLedger(t *testing.T) {
 		DestAssetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
 		DestAmount:      50,
 		CreatedAt:       time.Date(2024, 5, 28, 11, 0, 0, 0, time.UTC),
-		Memo:            "memo_test",
+		Memo:            &expectedMemo,
 	}, payment)
 }

@@ -44,7 +44,7 @@ func TestAddPayment(t *testing.T) {
 		DestAssetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
 		DestAmount:      500000000,
 		CreatedAt:       time.Date(2023, 12, 15, 1, 0, 0, 0, time.UTC),
-		Memo:            "",
+		Memo:            nil,
 	}
 
 	addPayment := func() {

@@ -27,7 +27,7 @@ type Payment struct {
 	DestAssetIssuer string    `db:"dest_asset_issuer"`
 	DestAmount      int64     `db:"dest_amount"`
 	CreatedAt       time.Time `db:"created_at"`
-	Memo            string    `db:"memo"`
+	Memo            *string   `db:"memo"`
 }
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
