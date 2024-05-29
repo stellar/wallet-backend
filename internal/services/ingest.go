@@ -152,7 +152,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 					OperationType:   op.Body.Type.String(),
 					TransactionID:   utils.TransactionID(int32(ledgerSequence), int32(tx.Index)),
 					TransactionHash: txHash,
-					From:            utils.SourceAccount(op, tx),
+					FromAddress:     utils.SourceAccount(op, tx),
 					CreatedAt:       ledgerCloseTime,
 					Memo:            txMemo,
 				}
@@ -186,7 +186,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 
 func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 	paymentOp := operation.MustPaymentOp()
-	payment.To = paymentOp.Destination.Address()
+	payment.ToAddress = paymentOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(paymentOp.Asset)
 	payment.DestAssetCode = payment.SrcAssetCode
 	payment.SrcAssetIssuer = paymentOp.Asset.GetIssuer()
@@ -198,7 +198,7 @@ func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
 	pathOp := operation.MustPathPaymentStrictSendOp()
 	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictSendResult()
-	payment.To = pathOp.Destination.Address()
+	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
 	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
@@ -210,7 +210,7 @@ func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transactio
 func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
 	pathOp := operation.MustPathPaymentStrictReceiveOp()
 	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictReceiveResult()
-	payment.To = pathOp.Destination.Address()
+	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
 	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()

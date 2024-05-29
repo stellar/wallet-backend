@@ -18,8 +18,8 @@ type Payment struct {
 	OperationType   string    `db:"operation_type"`
 	TransactionID   int64     `db:"transaction_id"`
 	TransactionHash string    `db:"transaction_hash"`
-	From            string    `db:"from_address"`
-	To              string    `db:"to_address"`
+	FromAddress     string    `db:"from_address"`
+	ToAddress       string    `db:"to_address"`
 	SrcAssetCode    string    `db:"src_asset_code"`
 	SrcAssetIssuer  string    `db:"src_asset_issuer"`
 	SrcAmount       int64     `db:"src_amount"`
@@ -83,7 +83,7 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 			memo = EXCLUDED.memo
 		;
 	`
-	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.From, payment.To, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAmount,
+	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.FromAddress, payment.ToAddress, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAmount,
 		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAmount, payment.CreatedAt, payment.Memo)
 	if err != nil {
 		return fmt.Errorf("inserting payment: %w", err)
