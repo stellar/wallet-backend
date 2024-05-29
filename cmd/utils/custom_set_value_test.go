@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -120,6 +121,148 @@ func TestSetConfigOptionStellarPublicKey(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.sep10SigningPublicKey = ""
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func Test_SetConfigOptionLogLevel(t *testing.T) {
+	opts := struct{ logrusLevel logrus.Level }{}
+
+	co := config.ConfigOption{
+		Name:           "log-level",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionLogLevel,
+		ConfigKey:      &opts.logrusLevel,
+	}
+
+	testCases := []customSetterTestCase[logrus.Level]{
+		{
+			name:            "returns an error if the log level is empty",
+			args:            []string{},
+			wantErrContains: `couldn't parse log level in log-level: not a valid logrus Level: ""`,
+		},
+		{
+			name:            "returns an error if the log level is invalid",
+			args:            []string{"--log-level", "test"},
+			wantErrContains: `couldn't parse log level in log-level: not a valid logrus Level: "test"`,
+		},
+		{
+			name:       "handles messenger type TRACE (through CLI args)",
+			args:       []string{"--log-level", "TRACE"},
+			wantResult: logrus.TraceLevel,
+		},
+		{
+			name:       "handles messenger type TRACE (through ENV vars)",
+			envValue:   "TRACE",
+			wantResult: logrus.TraceLevel,
+		},
+		{
+			name:       "handles messenger type INFO (through CLI args)",
+			args:       []string{"--log-level", "iNfO"},
+			wantResult: logrus.InfoLevel,
+		},
+		{
+			name:       "handles messenger type INFO (through ENV vars)",
+			envValue:   "INFO",
+			wantResult: logrus.InfoLevel,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.logrusLevel = 0
+			customSetterTester[logrus.Level](t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionCaptiveCoreBinPath(t *testing.T) {
+	opts := struct{ binPath string }{}
+
+	co := config.ConfigOption{
+		Name:           "captive-core-bin-path",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionCaptiveCoreBinPath,
+		ConfigKey:      &opts.binPath,
+	}
+
+	testCases := []customSetterTestCase[string]{
+		{
+			name:            "returns an error if the file path is not set, should be caught by the Require() function",
+			wantErrContains: "binary file  does not exist",
+		},
+		{
+			name:            "returns an error if the path is invalid",
+			args:            []string{"--captive-core-bin-path", "/a/random/path/bin"},
+			wantErrContains: "binary file /a/random/path/bin does not exist",
+		},
+		{
+			name:            "returns an error if the path format is invalid",
+			args:            []string{"--captive-core-bin-path", "^7JcrS8J4q@V0$c"},
+			wantErrContains: "binary file ^7JcrS8J4q@V0$c does not exist",
+		},
+		{
+			name:            "returns an error if the path is a directory, not a file",
+			args:            []string{"--captive-core-bin-path", "./"},
+			wantErrContains: "binary file path ./ is a directory, not a file",
+		},
+		{
+			name:       "sets to ENV var value",
+			envValue:   "./custom_set_value_test.go",
+			wantResult: "./custom_set_value_test.go",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.binPath = ""
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionCaptiveCoreConfigDir(t *testing.T) {
+	opts := struct{ binPath string }{}
+
+	co := config.ConfigOption{
+		Name:           "captive-core-config-dir",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionCaptiveCoreConfigDir,
+		ConfigKey:      &opts.binPath,
+	}
+
+	testCases := []customSetterTestCase[string]{
+		{
+			name:            "returns an error if the file path is not set, should be caught by the Require() function",
+			wantErrContains: "captive core configuration files dir  does not exist",
+		},
+		{
+			name:            "returns an error if the path is invalid",
+			envValue:        "/a/random/path",
+			wantErrContains: "captive core configuration files dir /a/random/path does not exist",
+		},
+		{
+			name:            "returns an error if the path format is invalid",
+			envValue:        "^7JcrS8J4q@V0$c",
+			wantErrContains: "captive core configuration files dir ^7JcrS8J4q@V0$c does not exist",
+		},
+
+		{
+			name:            "returns an error if the path is a file, not a directory",
+			envValue:        "./custom_set_value_test.go",
+			wantErrContains: "captive core configuration files dir ./custom_set_value_test.go is not a directory",
+		},
+		{
+			name:       "sets to ENV var value",
+			envValue:   "../../internal/ingest/config",
+			wantResult: "../../internal/ingest/config",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.binPath = ""
 			customSetterTester(t, tc, co)
 		})
 	}

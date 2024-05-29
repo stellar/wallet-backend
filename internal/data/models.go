@@ -16,6 +16,6 @@ func NewModels(db db.ConnectionPool) (*Models, error) {
 	}
 
 	return &Models{
-		Payments: &PaymentModel{db: db},
+		Payments: &PaymentModel{DB: db},
 	}, nil
 }

@@ -5,8 +5,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi"
+	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
-	supportlog "github.com/stellar/go/support/log"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -17,16 +18,17 @@ import (
 )
 
 type Configs struct {
-	Logger           *supportlog.Entry
 	Port             int
+	DatabaseURL      string
 	ServerBaseURL    string
 	WalletSigningKey string
-	DatabaseURL      string
+	LogLevel         logrus.Level
 }
 
 type handlerDeps struct {
-	Logger            *supportlog.Entry
 	Models            *data.Models
+	Port              int
+	DatabaseURL       string
 	SignatureVerifier auth.SignatureVerifier
 }
 
@@ -41,10 +43,10 @@ func Serve(cfg Configs) error {
 		ListenAddr: addr,
 		Handler:    handler(deps),
 		OnStarting: func() {
-			deps.Logger.Infof("Starting Wallet Backend server on %s", addr)
+			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
 		},
 		OnStopping: func() {
-			deps.Logger.Info("Stopping Wallet Backend server")
+			log.Info("Stopping Wallet Backend server")
 		},
 	})
 
@@ -67,14 +69,13 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 
 	return handlerDeps{
-		Logger:            cfg.Logger,
 		Models:            models,
 		SignatureVerifier: signatureVerifier,
 	}, nil
 }
 
 func handler(deps handlerDeps) http.Handler {
-	mux := supporthttp.NewAPIMux(deps.Logger)
+	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
 

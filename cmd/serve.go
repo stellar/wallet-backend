@@ -6,19 +6,15 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
-	supportlog "github.com/stellar/go/support/log"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/serve"
 )
 
-type serveCmd struct {
-	Logger *supportlog.Entry
-}
+type serveCmd struct{}
 
 func (c *serveCmd) Command() *cobra.Command {
-	cfg := serve.Configs{
-		Logger: c.Logger,
-	}
+	cfg := serve.Configs{}
 	cfgOpts := config.ConfigOptions{
 		{
 			Name:        "port",
@@ -45,6 +41,15 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:           "log-level",
+			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
+			OptType:        types.String,
+			FlagDefault:    "TRACE",
+			ConfigKey:      &cfg.LogLevel,
+			CustomSetValue: utils.SetConfigOptionLogLevel,
+			Required:       false,
+		},
+		{
 			Name:           "wallet-signing-key",
 			Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
 			OptType:        types.String,
@@ -59,7 +64,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			cfgOpts.Require()
 			if err := cfgOpts.SetValues(); err != nil {
-				c.Logger.Fatalf("Error setting values of config options: %s", err.Error())
+				log.Fatalf("Error setting values of config options: %s", err.Error())
 			}
 		},
 		Run: func(_ *cobra.Command, _ []string) {
@@ -67,7 +72,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 	}
 	if err := cfgOpts.Init(cmd); err != nil {
-		c.Logger.Fatalf("Error initializing a config option: %s", err.Error())
+		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	return cmd
 }
@@ -75,6 +80,6 @@ func (c *serveCmd) Command() *cobra.Command {
 func (c *serveCmd) Run(cfg serve.Configs) {
 	err := serve.Serve(cfg)
 	if err != nil {
-		c.Logger.Fatalf("Error running Serve: %s", err.Error())
+		log.Fatalf("Error running Serve: %s", err.Error())
 	}
 }
