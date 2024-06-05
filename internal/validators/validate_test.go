@@ -52,7 +52,7 @@ func TestParseValidationError(t *testing.T) {
 				UnknownTagField:    1,
 			},
 			expectedFieldErrors: map[string]interface{}{
-				"requiredArrayField[1]": "This field cannot be empty e",
+				"requiredArrayField[1]": "This field cannot be empty",
 			},
 		},
 		{

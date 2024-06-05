@@ -12,7 +12,7 @@ import (
 
 func NewValidator() *validator.Validate {
 	validate := validator.New()
-	validate.RegisterValidation("public_key", publicKeyValidation)
+	_ = validate.RegisterValidation("public_key", publicKeyValidation)
 	validate.RegisterAlias("not_empty", "required")
 	return validate
 }
