@@ -13,7 +13,7 @@ type PaymentsHandler struct {
 }
 
 type PaymentsSubscribeRequest struct {
-	Address string `json:"address"`
+	Address string `json:"address" validate:"required,public_key"`
 }
 
 func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request) {
@@ -22,13 +22,19 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 	var reqBody PaymentsSubscribeRequest
 	err := httpdecode.DecodeJSON(r, &reqBody)
 	if err != nil {
-		httperror.BadRequest("Invalid request body").Render(w)
+		httperror.BadRequest("Invalid request body", nil).Render(w)
+		return
+	}
+
+	httpErr := ValidateRequestBody(ctx, reqBody)
+	if httpErr != nil {
+		httpErr.Render(w)
 		return
 	}
 
 	err = h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
 	}
 }
@@ -39,13 +45,19 @@ func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reque
 	var reqBody PaymentsSubscribeRequest
 	err := httpdecode.DecodeJSON(r, &reqBody)
 	if err != nil {
-		httperror.BadRequest("Invalid request body").Render(w)
+		httperror.BadRequest("Invalid request body", nil).Render(w)
+		return
+	}
+
+	httpErr := ValidateRequestBody(ctx, reqBody)
+	if httpErr != nil {
+		httpErr.Render(w)
 		return
 	}
 
 	err = h.PaymentModel.UnsubscribeAddress(ctx, reqBody.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
 	}
 }
