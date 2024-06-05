@@ -18,7 +18,7 @@ type AccountHandler struct {
 
 type SponsorAccountCreationRequest struct {
 	Address string            `json:"address" validate:"required,public_key"`
-	Signers []entities.Signer `json:"signers" validate:"gt=0,dive"`
+	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`
 }
 
 type TransactionEnvelopeResponse struct {
