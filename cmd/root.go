@@ -31,4 +31,5 @@ func init() {
 
 	rootCmd.AddCommand((&serveCmd{}).Command())
 	rootCmd.AddCommand((&ingestCmd{}).Command())
+	rootCmd.AddCommand((&migrateCmd{}).Command())
 }

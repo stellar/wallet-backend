@@ -24,3 +24,8 @@ func Open(t *testing.T) *dbtest.DB {
 
 	return db
 }
+
+func OpenWithoutMigrations(t *testing.T) *dbtest.DB {
+	db := dbtest.Postgres(t)
+	return db
+}
