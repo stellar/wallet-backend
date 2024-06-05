@@ -18,8 +18,8 @@ var (
 
 const (
 	// Sufficient to cover three average ledger close time.
-	CreateAccountTxnTimeBounds             = 60
-	CreateAccountTxnTimeBoundsSafetyMargin = 60
+	CreateAccountTxnTimeBounds             = 18
+	CreateAccountTxnTimeBoundsSafetyMargin = 12
 )
 
 type AccountSponsorshipService interface {
