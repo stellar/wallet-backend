@@ -61,6 +61,48 @@ func TestEnvSignatureClientSignStellarTransaction(t *testing.T) {
 	assert.Nil(t, signedTx)
 }
 
+func TestEnvSignatureClientSignStellarFeeBumpTransaction(t *testing.T) {
+	distributionAccount := keypair.MustRandom()
+	sc, err := NewEnvSignatureClient(distributionAccount.Seed(), network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	sourceAccount := txnbuild.NewSimpleAccount(distributionAccount.Address(), int64(9605939170639897))
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount:        &sourceAccount,
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: "GCCOBXW2XQNUSL467IEILE6MMCNRR66SSVL4YQADUNYYNUVREF3FIV2Z",
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(60)},
+		},
+	)
+	require.NoError(t, err)
+
+	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+		Inner:      tx,
+		FeeAccount: distributionAccount.Address(),
+		BaseFee:    txnbuild.MinBaseFee,
+	})
+	require.NoError(t, err)
+
+	expectedSignedFeeBumpTx, err := feeBumpTx.Sign(network.TestNetworkPassphrase, distributionAccount)
+	require.NoError(t, err)
+
+	signedFeeBumpTx, err := sc.SignStellarFeeBumpTransaction(context.Background(), feeBumpTx)
+	require.NoError(t, err)
+	assert.Equal(t, expectedSignedFeeBumpTx.Signatures(), signedFeeBumpTx.Signatures())
+
+	signedFeeBumpTx, err = sc.SignStellarFeeBumpTransaction(context.Background(), nil)
+	assert.ErrorIs(t, ErrInvalidTransaction, err)
+	assert.Nil(t, signedFeeBumpTx)
+}
+
 func TestEnvSignatureClientString(t *testing.T) {
 	distributionAccount := keypair.MustRandom()
 	signatureClient := envSignatureClient{
