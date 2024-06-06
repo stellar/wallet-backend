@@ -16,7 +16,13 @@ services:
         condition: service_started
     ports:
       - 8001:8001
-    command: serve
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        ./wallet-backend migrate up
+        ./wallet-backend serve
     environment:
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       PORT: 8001
