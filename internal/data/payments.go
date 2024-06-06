@@ -32,7 +32,7 @@ type Payment struct {
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
 	var lastSyncedLedger uint32
-	err := m.DB.QueryRowxContext(ctx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName).Scan(&lastSyncedLedger)
+	err := m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
 	// First run, key does not exist yet
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -87,26 +87,6 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAmount, payment.CreatedAt, payment.Memo)
 	if err != nil {
 		return fmt.Errorf("inserting payment: %w", err)
-	}
-
-	return nil
-}
-
-func (m *PaymentModel) SubscribeAddress(ctx context.Context, address string) error {
-	const query = `INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`
-	_, err := m.DB.ExecContext(ctx, query, address)
-	if err != nil {
-		return fmt.Errorf("subscribing address %s to payments tracking: %w", address, err)
-	}
-
-	return nil
-}
-
-func (m *PaymentModel) UnsubscribeAddress(ctx context.Context, address string) error {
-	const query = `DELETE FROM accounts WHERE stellar_address = $1`
-	_, err := m.DB.ExecContext(ctx, query, address)
-	if err != nil {
-		return fmt.Errorf("unsubscribing address %s to payments tracking: %w", address, err)
 	}
 
 	return nil

@@ -2,18 +2,16 @@ package data
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
-	"github.com/stellar/go/keypair"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddPayment(t *testing.T) {
+func TestPaymentModelAddPayment(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -101,27 +99,49 @@ func TestAddPayment(t *testing.T) {
 	})
 }
 
-func TestSubscribeAddress(t *testing.T) {
+func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	ctx := context.Background()
 	m := &PaymentModel{
 		DB: dbConnectionPool,
 	}
 
+	const key = "ingest_store_key"
+	lastSyncedLedger, err := m.GetLatestLedgerSynced(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0), lastSyncedLedger)
+
+	_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, key, 123)
+	require.NoError(t, err)
+
+	lastSyncedLedger, err = m.GetLatestLedgerSynced(ctx, key)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(123), lastSyncedLedger)
+}
+
+func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
 	ctx := context.Background()
-	address := keypair.MustRandom().Address()
-	err = m.SubscribeAddress(ctx, address)
+	m := &PaymentModel{
+		DB: dbConnectionPool,
+	}
+
+	const key = "ingest_store_key"
+	err = m.UpdateLatestLedgerSynced(ctx, key, 123)
 	require.NoError(t, err)
 
-	var dbAddress sql.NullString
-	err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
+	var lastSyncedLedger uint32
+	err = m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, key)
 	require.NoError(t, err)
-
-	assert.True(t, dbAddress.Valid)
-	assert.Equal(t, address, dbAddress.String)
+	assert.Equal(t, uint32(123), lastSyncedLedger)
 }

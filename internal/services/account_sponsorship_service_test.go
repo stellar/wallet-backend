@@ -11,6 +11,10 @@ import (
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/support/render/problem"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stretchr/testify/assert"
@@ -19,13 +23,22 @@ import (
 )
 
 func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	models, err := data.NewModels(dbConnectionPool)
+	require.NoError(t, err)
+
 	signatureClient := signing.SignatureClientMock{}
 	defer signatureClient.AssertExpectations(t)
 	horizonClient := horizonclient.MockClient{}
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee)
+	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
 	require.NoError(t, err)
 
 	t.Run("account_already_exists", func(t *testing.T) {
@@ -293,5 +306,222 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 		require.True(t, ok)
 		assert.Len(t, tx.Operations(), 9)
 		assert.Len(t, tx.Signatures(), 1)
+
+		exists, err := models.Account.Exists(ctx, accountToSponsor)
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+}
+
+func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	models, err := data.NewModels(dbConnectionPool)
+	require.NoError(t, err)
+
+	signatureClient := signing.SignatureClientMock{}
+	defer signatureClient.AssertExpectations(t)
+	horizonClient := horizonclient.MockClient{}
+	defer horizonClient.AssertExpectations(t)
+
+	ctx := context.Background()
+	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
+	require.NoError(t, err)
+
+	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
+		accountToSponsor := keypair.MustRandom()
+
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(CreateAccountTxnTimeBounds + CreateAccountTxnTimeBoundsSafetyMargin)},
+		})
+		require.NoError(t, err)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		assert.ErrorIs(t, ErrAccountNotEligibleForBeingSponsored, err)
+		assert.Empty(t, feeBumpTxe)
+		assert.Empty(t, networkPassphrase)
+	})
+
+	t.Run("blocked_operations", func(t *testing.T) {
+		accountToSponsor := keypair.MustRandom()
+		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		require.NoError(t, err)
+
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+				&txnbuild.LiquidityPoolDeposit{
+					LiquidityPoolID: txnbuild.LiquidityPoolId{123},
+					MaxAmountA:      "100",
+					MaxAmountB:      "200",
+					MinPrice:        xdr.Price{N: 1, D: 1},
+					MaxPrice:        xdr.Price{N: 1, D: 1},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(CreateAccountTxnTimeBounds + CreateAccountTxnTimeBoundsSafetyMargin)},
+		})
+		require.NoError(t, err)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit})
+		var errOperationNotAllowed *ErrOperationNotAllowed
+		assert.ErrorAs(t, err, &errOperationNotAllowed)
+		assert.Empty(t, feeBumpTxe)
+		assert.Empty(t, networkPassphrase)
+	})
+
+	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
+		accountToSponsor := keypair.MustRandom()
+		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		require.NoError(t, err)
+
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       100 * txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(CreateAccountTxnTimeBounds + CreateAccountTxnTimeBoundsSafetyMargin)},
+		})
+		require.NoError(t, err)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		assert.ErrorIs(t, err, ErrFeeExceedsMaximumBaseFee)
+		assert.Empty(t, feeBumpTxe)
+		assert.Empty(t, networkPassphrase)
+	})
+
+	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
+		accountToSponsor := keypair.MustRandom()
+		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		require.NoError(t, err)
+
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(CreateAccountTxnTimeBounds + CreateAccountTxnTimeBoundsSafetyMargin)},
+		})
+		require.NoError(t, err)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		assert.ErrorIs(t, err, ErrNoSignaturesProvided)
+		assert.Empty(t, feeBumpTxe)
+		assert.Empty(t, networkPassphrase)
+	})
+
+	t.Run("successfully_wraps_the_transaction_with_fee_bump", func(t *testing.T) {
+		distributionAccount := keypair.MustRandom()
+		accountToSponsor := keypair.MustRandom()
+		err := models.Account.Insert(ctx, accountToSponsor.Address())
+		require.NoError(t, err)
+
+		destinationAccount := keypair.MustRandom().Address()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: accountToSponsor.Address(),
+				Sequence:  123,
+			},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: destinationAccount,
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(CreateAccountTxnTimeBounds + CreateAccountTxnTimeBoundsSafetyMargin)},
+		})
+		require.NoError(t, err)
+
+		tx, err = tx.Sign(network.TestNetworkPassphrase, accountToSponsor)
+		require.NoError(t, err)
+
+		signedFeeBumpTx := txnbuild.FeeBumpTransaction{}
+		signatureClient.
+			On("GetDistributionAccountPublicKey").
+			Return(distributionAccount.Address()).
+			Once().
+			On("NetworkPassphrase").
+			Return(network.TestNetworkPassphrase).
+			Once().
+			On("SignStellarFeeBumpTransaction", ctx, mock.AnythingOfType("*txnbuild.FeeBumpTransaction")).
+			Run(func(args mock.Arguments) {
+				feeBumpTx, ok := args.Get(1).(*txnbuild.FeeBumpTransaction)
+				require.True(t, ok)
+
+				assert.Equal(t, distributionAccount.Address(), feeBumpTx.FeeAccount())
+				assert.Equal(t, []txnbuild.Operation{
+					&txnbuild.Payment{
+						Destination: destinationAccount,
+						Amount:      "10",
+						Asset:       txnbuild.NativeAsset{},
+					},
+				}, feeBumpTx.InnerTransaction().Operations())
+
+				feeBumpTx, err = feeBumpTx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				require.NoError(t, err)
+
+				signedFeeBumpTx = *feeBumpTx
+			}).
+			Return(&signedFeeBumpTx, nil)
+
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		require.NoError(t, err)
+
+		assert.Equal(t, network.TestNetworkPassphrase, networkPassphrase)
+		assert.NotEmpty(t, feeBumpTxe)
+		genericTx, err := txnbuild.TransactionFromXDR(feeBumpTxe)
+		require.NoError(t, err)
+		feeBumpTx, ok := genericTx.FeeBump()
+		require.True(t, ok)
+		assert.Equal(t, distributionAccount.Address(), feeBumpTx.FeeAccount())
+		assert.Len(t, feeBumpTx.InnerTransaction().Operations(), 1)
+		assert.Len(t, feeBumpTx.Signatures(), 1)
 	})
 }

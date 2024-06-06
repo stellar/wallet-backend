@@ -11,6 +11,7 @@ import (
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
+	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -21,6 +22,20 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 )
+
+// NOTE: perhaps move this to a environment variable.
+var blockedOperationTypes = []xdr.OperationType{
+	xdr.OperationTypeInvokeHostFunction,
+	xdr.OperationTypeExtendFootprintTtl,
+	xdr.OperationTypeRestoreFootprint,
+	xdr.OperationTypeLiquidityPoolWithdraw,
+	xdr.OperationTypeLiquidityPoolDeposit,
+	xdr.OperationTypeClawbackClaimableBalance,
+	xdr.OperationTypeClawback,
+	xdr.OperationTypeClaimClaimableBalance,
+	xdr.OperationTypeCreateClaimableBalance,
+	xdr.OperationTypeInflation,
+}
 
 type Configs struct {
 	Port             int
@@ -88,7 +103,7 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonURL: cfg.HorizonClientURL,
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee))
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee), models)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}
@@ -114,7 +129,7 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentsHandler{
-				PaymentModel: deps.Models.Payments,
+				Models: deps.Models,
 			}
 
 			r.Post("/subscribe", handler.SubscribeAddress)
@@ -125,9 +140,11 @@ func handler(deps handlerDeps) http.Handler {
 			handler := &httphandler.AccountHandler{
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
+				BlockedOperationsTypes:    blockedOperationTypes,
 			}
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)
+			r.Post("/create-fee-bump", handler.CreateFeeBumpTransaction)
 		})
 	})
 
