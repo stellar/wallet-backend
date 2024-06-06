@@ -2,6 +2,7 @@ package signing
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -25,7 +26,7 @@ func TestEnvSignatureClientNetworkPassphrase(t *testing.T) {
 	assert.Equal(t, network.TestNetworkPassphrase, sc.NetworkPassphrase())
 }
 
-func TestEnvSignatureSignStellarTransaction(t *testing.T) {
+func TestEnvSignatureClientSignStellarTransaction(t *testing.T) {
 	distributionAccount := keypair.MustRandom()
 	sc, err := NewEnvSignatureClient(distributionAccount.Seed(), network.TestNetworkPassphrase)
 	require.NoError(t, err)
@@ -60,6 +61,35 @@ func TestEnvSignatureSignStellarTransaction(t *testing.T) {
 	assert.Nil(t, signedTx)
 }
 
+func TestEnvSignatureClientString(t *testing.T) {
+	distributionAccount := keypair.MustRandom()
+	signatureClient := envSignatureClient{
+		distributionAccountFull: distributionAccount,
+		networkPassphrase:       network.TestNetworkPassphrase,
+	}
+
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "signatureClient.String()", value: signatureClient.String()},
+		{name: "&signatureClient.String()", value: (&signatureClient).String()},
+		{name: "%%v value", value: fmt.Sprintf("%v", signatureClient)},
+		{name: "%%v pointer", value: fmt.Sprintf("%v", &signatureClient)},
+		{name: "%%+v value", value: fmt.Sprintf("%+v", signatureClient)},
+		{name: "%%+v pointer", value: fmt.Sprintf("%+v", &signatureClient)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.NotContains(t, tc.value, distributionAccount.Seed())
+			assert.Contains(t, tc.value, distributionAccount.Address())
+			assert.Contains(t, tc.value, network.TestNetworkPassphrase)
+			assert.Contains(t, tc.value, fmt.Sprintf("%T", signatureClient))
+		})
+	}
+}
+
 // TODO: remove this test - it's only to skip deadcode validation
 func TestSignatureClientMock(t *testing.T) {
 	sc := SignatureClientMock{}
@@ -74,5 +104,5 @@ func TestSignatureClientMock(t *testing.T) {
 	sc.On("SignStellarTransaction", ctx, &txnbuild.Transaction{}).Return(nil, nil)
 	tx, err := sc.SignStellarTransaction(ctx, &txnbuild.Transaction{})
 	assert.Nil(t, tx)
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 }

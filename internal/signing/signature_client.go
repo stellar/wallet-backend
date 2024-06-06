@@ -61,3 +61,7 @@ func (sc *envSignatureClient) SignStellarTransaction(ctx context.Context, tx *tx
 
 	return signedTx, nil
 }
+
+func (sc envSignatureClient) String() string {
+	return fmt.Sprintf("%T{networkPassphrase: %s, publicKey: %v}", sc, sc.networkPassphrase, sc.distributionAccountFull.Address())
+}
