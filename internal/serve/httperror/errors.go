@@ -48,12 +48,12 @@ func BadRequest(message string, extras map[string]interface{}) *ErrorResponse {
 	}
 }
 
-func Unauthorized(message string, extras map[string]interface{}) ErrorResponse {
+func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse {
 	if message == "" {
 		message = "Not authorized."
 	}
 
-	return ErrorResponse{
+	return &ErrorResponse{
 		Status: http.StatusUnauthorized,
 		Error:  message,
 		Extras: extras,
