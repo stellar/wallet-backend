@@ -3,11 +3,13 @@ package validators
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/support/log"
 )
 
 func NewValidator() *validator.Validate {
@@ -44,10 +46,23 @@ func msgForFieldError(fieldError validator.FieldError) string {
 		return fmt.Sprintf("Unexpected value %q. Expected one of the following values: %s", fieldError.Value(), params)
 	case "gt":
 		if fieldError.Kind() == reflect.Slice || fieldError.Kind() == reflect.Array {
-			return "Should have at least 1 element"
+			v, err := strconv.Atoi(fieldError.Param())
+			if err != nil {
+				log.Errorf(`Error parsing "gt" param %q to integer: %s`, fieldError.Param(), err.Error())
+				return "Should have at least 1 element" // Fallback to this error message
+			}
+			return fmt.Sprintf("Should have at least %d element", v+1) // For instance, if "gt" is 0 (zero) then it should have at least 1 element
 		}
 		return fmt.Sprintf("Should be greater than %s", fieldError.Param())
 	case "gte":
+		if fieldError.Kind() == reflect.Slice || fieldError.Kind() == reflect.Array {
+			v, err := strconv.Atoi(fieldError.Param())
+			if err != nil {
+				log.Errorf(`Error parsing "gte" param %q to integer: %s`, fieldError.Param(), err.Error())
+				return "Should have at least 1 element" // Fallback to this error message
+			}
+			return fmt.Sprintf("Should have at least %d element", v)
+		}
 		return fmt.Sprintf("Should be greater than or equal %s", fieldError.Param())
 	default:
 		return "Invalid value"
@@ -58,15 +73,10 @@ func getFieldName(fieldError validator.FieldError) string {
 	// Ex.: structName.FieldName, structName.nestedStructName.nestedStructFieldName, structName.nestedStructName.nestedStructName....
 	namespace := strings.Split(fieldError.StructNamespace(), ".")
 	length := len(namespace)
-	if length == 2 {
-		return lcFirst(namespace[1])
+	if length <= 2 {
+		return lcFirst(namespace[length-1])
 	}
-
-	if length > 2 {
-		return fmt.Sprintf("%s.%s", lcFirst(namespace[length-2]), lcFirst(namespace[length-1]))
-	}
-
-	return lcFirst(namespace[0])
+	return fmt.Sprintf("%s.%s", lcFirst(namespace[length-2]), lcFirst(namespace[length-1]))
 }
 
 // lcFirst lowers the case of the first letter of the given string.

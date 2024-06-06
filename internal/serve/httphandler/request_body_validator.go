@@ -2,11 +2,22 @@ package httphandler
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/stellar/go/support/http/httpdecode"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/validators"
 )
+
+func DecodeJSONAndValidate(ctx context.Context, req *http.Request, reqBody interface{}) *httperror.ErrorResponse {
+	err := httpdecode.DecodeJSON(req, reqBody)
+	if err != nil {
+		return httperror.BadRequest("Invalid request body.", nil)
+	}
+
+	return ValidateRequestBody(ctx, reqBody)
+}
 
 func ValidateRequestBody[T any](ctx context.Context, reqBody T) *httperror.ErrorResponse {
 	val := validators.NewValidator()
