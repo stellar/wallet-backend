@@ -72,10 +72,6 @@ func msgForFieldError(fieldError validator.FieldError) string {
 func getFieldName(fieldError validator.FieldError) string {
 	// Ex.: structName.FieldName, structName.nestedStructName.nestedStructFieldName, structName.nestedStructName.nestedStructName....
 	namespace := strings.Split(fieldError.StructNamespace(), ".")
-	length := len(namespace)
-	if length <= 2 {
-		return lcFirst(namespace[length-1])
-	}
 
 	// we remove the root struct name
 	relevantNamespace := namespace[1:]
