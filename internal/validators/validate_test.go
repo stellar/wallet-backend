@@ -137,7 +137,8 @@ func TestParseValidationError(t *testing.T) {
 			InvalidGTE: 0,
 		}
 		assert.Panics(t, func() {
-			val.Struct(stcInvalid)
+			err := val.Struct(stcInvalid)
+			require.Error(t, err)
 		})
 	})
 }
