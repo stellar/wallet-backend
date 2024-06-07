@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,7 +45,7 @@ func TestSubscribeAddress(t *testing.T) {
 	t.Run("success_happy_path", func(t *testing.T) {
 		// Prepare request
 		address := keypair.MustRandom().Address()
-		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		payload := fmt.Sprintf(`{ "address": %q }`, address)
 		req, err := http.NewRequest(http.MethodPost, "/payments/subscribe", strings.NewReader(payload))
 		require.NoError(t, err)
 
@@ -76,7 +77,7 @@ func TestSubscribeAddress(t *testing.T) {
 		require.NoError(t, err)
 
 		// Prepare request
-		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		payload := fmt.Sprintf(`{ "address": %q }`, address)
 		req, err := http.NewRequest(http.MethodPost, "/payments/subscribe", strings.NewReader(payload))
 		require.NoError(t, err)
 
@@ -96,6 +97,24 @@ func TestSubscribeAddress(t *testing.T) {
 		assert.Equal(t, address, dbAddress.String)
 
 		clearAccounts(ctx)
+	})
+
+	t.Run("invalid_address", func(t *testing.T) {
+		// Prepare request
+		payload := fmt.Sprintf(`{ "address": %q }`, "invalid")
+		req, err := http.NewRequest(http.MethodPost, "/payments/subscribe", strings.NewReader(payload))
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.JSONEq(t, `{"error":"Validation error.", "extras": {"address":"Invalid public key provided"}}`, string(respBody))
 	})
 }
 
@@ -126,7 +145,7 @@ func TestUnsubscribeAddress(t *testing.T) {
 		require.NoError(t, err)
 
 		// Prepare request
-		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		payload := fmt.Sprintf(`{ "address": %q }`, address)
 		req, err := http.NewRequest(http.MethodPost, "/payments/unsubscribe", strings.NewReader(payload))
 		require.NoError(t, err)
 
@@ -152,7 +171,7 @@ func TestUnsubscribeAddress(t *testing.T) {
 		require.NoError(t, err)
 
 		// Prepare request
-		payload := fmt.Sprintf(`{ "address": "%s" }`, address)
+		payload := fmt.Sprintf(`{ "address": %q }`, address)
 		req, err := http.NewRequest(http.MethodPost, "/payments/unsubscribe", strings.NewReader(payload))
 		require.NoError(t, err)
 
@@ -162,5 +181,23 @@ func TestUnsubscribeAddress(t *testing.T) {
 
 		// Assert 200 response
 		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("invalid_address", func(t *testing.T) {
+		// Prepare request
+		payload := fmt.Sprintf(`{ "address": %q }`, "invalid")
+		req, err := http.NewRequest(http.MethodPost, "/payments/unsubscribe", strings.NewReader(payload))
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.JSONEq(t, `{"error":"Validation error.", "extras": {"address":"Invalid public key provided"}}`, string(respBody))
 	})
 }
