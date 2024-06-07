@@ -19,7 +19,7 @@ func DecodeJSONAndValidate(ctx context.Context, req *http.Request, reqBody inter
 	return ValidateRequestBody(ctx, reqBody)
 }
 
-func ValidateRequestBody[T any](ctx context.Context, reqBody T) *httperror.ErrorResponse {
+func ValidateRequestBody(ctx context.Context, reqBody interface{}) *httperror.ErrorResponse {
 	val := validators.NewValidator()
 	if err := val.StructCtx(ctx, reqBody); err != nil {
 		if vErrs, ok := err.(validator.ValidationErrors); ok {

@@ -63,7 +63,7 @@ func msgForFieldError(fieldError validator.FieldError) string {
 			}
 			return fmt.Sprintf("Should have at least %d element", v)
 		}
-		return fmt.Sprintf("Should be greater than or equal %s", fieldError.Param())
+		return fmt.Sprintf("Should be greater than or equal to %s", fieldError.Param())
 	default:
 		return "Invalid value"
 	}
@@ -76,7 +76,13 @@ func getFieldName(fieldError validator.FieldError) string {
 	if length <= 2 {
 		return lcFirst(namespace[length-1])
 	}
-	return fmt.Sprintf("%s.%s", lcFirst(namespace[length-2]), lcFirst(namespace[length-1]))
+
+	// we remove the root struct name
+	relevantNamespace := namespace[1:]
+	for i := range relevantNamespace {
+		relevantNamespace[i] = lcFirst(relevantNamespace[i])
+	}
+	return strings.Join(relevantNamespace, ".")
 }
 
 // lcFirst lowers the case of the first letter of the given string.
