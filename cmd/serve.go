@@ -17,6 +17,8 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 	cfgOpts := config.ConfigOptions{
+		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.LogLevelOption(&cfg.LogLevel),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -26,29 +28,12 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "database-url",
-			Usage:       "Database connection URL",
-			OptType:     types.String,
-			ConfigKey:   &cfg.DatabaseURL,
-			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
-			Required:    true,
-		},
-		{
 			Name:        "server-base-url",
 			Usage:       "The server base URL",
 			OptType:     types.String,
 			ConfigKey:   &cfg.ServerBaseURL,
 			FlagDefault: "http://localhost:8000",
 			Required:    true,
-		},
-		{
-			Name:           "log-level",
-			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
-			OptType:        types.String,
-			FlagDefault:    "TRACE",
-			ConfigKey:      &cfg.LogLevel,
-			CustomSetValue: utils.SetConfigOptionLogLevel,
-			Required:       false,
 		},
 		{
 			Name:           "wallet-signing-key",

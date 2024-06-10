@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"go/types"
 	"strconv"
 
 	migrate "github.com/rubenv/sql-migrate"
@@ -19,14 +18,7 @@ type migrateCmd struct{}
 func (c *migrateCmd) Command() *cobra.Command {
 	var databaseURL string
 	cfgOpts := config.ConfigOptions{
-		{
-			Name:        "database-url",
-			Usage:       "Database connection URL",
-			OptType:     types.String,
-			ConfigKey:   &databaseURL,
-			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
-			Required:    true,
-		},
+		utils.DatabaseURLOption(&databaseURL),
 	}
 
 	migrateCmd := &cobra.Command{

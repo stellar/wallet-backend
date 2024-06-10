@@ -6,7 +6,6 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
@@ -18,31 +17,9 @@ type ingestCmd struct{}
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
 	cfgOpts := config.ConfigOptions{
-		{
-			Name:        "database-url",
-			Usage:       "Database connection URL.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.DatabaseURL,
-			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
-			Required:    true,
-		},
-		{
-			Name:        "network-passphrase",
-			Usage:       "Stellar Network Passphrase to connect.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.NetworkPassphrase,
-			FlagDefault: network.TestNetworkPassphrase,
-			Required:    true,
-		},
-		{
-			Name:           "log-level",
-			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
-			OptType:        types.String,
-			FlagDefault:    "TRACE",
-			ConfigKey:      &cfg.LogLevel,
-			CustomSetValue: utils.SetConfigOptionLogLevel,
-			Required:       false,
-		},
+		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.LogLevelOption(&cfg.LogLevel),
+		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",
