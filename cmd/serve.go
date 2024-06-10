@@ -22,7 +22,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			Usage:       "Port to listen and serve on",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.Port,
-			FlagDefault: 8000,
+			FlagDefault: 8001,
 			Required:    false,
 		},
 		{
@@ -38,7 +38,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			Usage:       "The server base URL",
 			OptType:     types.String,
 			ConfigKey:   &cfg.ServerBaseURL,
-			FlagDefault: "http://localhost:8000",
+			FlagDefault: "http://localhost:8001",
 			Required:    true,
 		},
 		{
