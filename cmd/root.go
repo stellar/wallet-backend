@@ -7,8 +7,9 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "wallet-backend",
-	Short: "Wallet Backend Server",
+	Use:           "wallet-backend",
+	Short:         "Wallet Backend Server",
+	SilenceErrors: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		err := cmd.Help()
 		if err != nil {

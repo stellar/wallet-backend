@@ -20,7 +20,7 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 			if sig == "" {
 				sig = req.Header.Get("X-Stellar-Signature")
 				if sig == "" {
-					httperror.Unauthorized("").Render(rw)
+					httperror.Unauthorized("", nil).Render(rw)
 					return
 				}
 			}
@@ -30,7 +30,7 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 			reqBody, err := io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
 			if err != nil {
 				err = fmt.Errorf("reading request body: %w", err)
-				httperror.InternalServerError(ctx, "", err).Render(rw)
+				httperror.InternalServerError(ctx, "", err, nil).Render(rw)
 				return
 			}
 
@@ -38,7 +38,7 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 			if err != nil {
 				err = fmt.Errorf("checking request signature: %w", err)
 				log.Ctx(ctx).Error(err)
-				httperror.Unauthorized("").Render(rw)
+				httperror.Unauthorized("", nil).Render(rw)
 				return
 			}
 

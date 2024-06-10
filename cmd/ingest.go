@@ -1,11 +1,11 @@
 package cmd
 
 import (
+	"fmt"
 	"go/types"
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
@@ -17,31 +17,9 @@ type ingestCmd struct{}
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
 	cfgOpts := config.ConfigOptions{
-		{
-			Name:        "database-url",
-			Usage:       "Database connection URL.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.DatabaseURL,
-			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
-			Required:    true,
-		},
-		{
-			Name:        "network-passphrase",
-			Usage:       "Stellar Network Passphrase to connect.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.NetworkPassphrase,
-			FlagDefault: network.TestNetworkPassphrase,
-			Required:    true,
-		},
-		{
-			Name:           "log-level",
-			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
-			OptType:        types.String,
-			FlagDefault:    "TRACE",
-			ConfigKey:      &cfg.LogLevel,
-			CustomSetValue: utils.SetConfigOptionLogLevel,
-			Required:       false,
-		},
+		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.LogLevelOption(&cfg.LogLevel),
+		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",
@@ -86,27 +64,25 @@ func (c *ingestCmd) Command() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ingest",
-		Short: "Run Ingestion service",
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			cfgOpts.Require()
-			if err := cfgOpts.SetValues(); err != nil {
-				log.Fatalf("Error setting values of config options: %s", err.Error())
-			}
-		},
-		Run: func(_ *cobra.Command, _ []string) {
-			c.Run(cfg)
+		Use:               "ingest",
+		Short:             "Run Ingestion service",
+		PersistentPreRunE: utils.DefaultPersistentPreRunE(cfgOpts),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return c.Run(cfg)
 		},
 	}
+
 	if err := cfgOpts.Init(cmd); err != nil {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
+
 	return cmd
 }
 
-func (c *ingestCmd) Run(cfg ingest.Configs) {
+func (c *ingestCmd) Run(cfg ingest.Configs) error {
 	err := ingest.Ingest(cfg)
 	if err != nil {
-		log.Fatalf("Error running Ingest: %s", err.Error())
+		return fmt.Errorf("running ingest: %w", err)
 	}
+	return nil
 }

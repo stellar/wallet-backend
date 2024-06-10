@@ -22,7 +22,7 @@ func TestMigrate_up_1(t *testing.T) {
 
 	ctx := context.Background()
 
-	n, err := Migrate(dbt.DSN, migrate.Up, 1)
+	n, err := Migrate(ctx, dbt.DSN, migrate.Up, 1)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
@@ -43,7 +43,7 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 
 	ctx := context.Background()
 
-	n, err := Migrate(dbt.DSN, migrate.Up, 2)
+	n, err := Migrate(ctx, dbt.DSN, migrate.Up, 2)
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 
@@ -56,7 +56,7 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 	}
 	assert.Equal(t, wantIDs, ids)
 
-	n, err = Migrate(dbt.DSN, migrate.Down, 1)
+	n, err = Migrate(ctx, dbt.DSN, migrate.Down, 1)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
@@ -87,18 +87,18 @@ func TestMigrate_upall_down_all(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	n, err := Migrate(db.DSN, migrate.Up, 0)
+	ctx := context.Background()
+
+	n, err := Migrate(ctx, db.DSN, migrate.Up, 0)
 	require.NoError(t, err)
 	require.Equal(t, count, n)
-
-	ctx := context.Background()
 
 	var migrationsCount int
 	err = dbConnectionPool.GetContext(ctx, &migrationsCount, "SELECT COUNT(*) FROM gorp_migrations")
 	require.NoError(t, err)
 	assert.Equal(t, count, migrationsCount)
 
-	n, err = Migrate(db.DSN, migrate.Down, count)
+	n, err = Migrate(ctx, db.DSN, migrate.Down, count)
 	require.NoError(t, err)
 	require.Equal(t, count, n)
 

@@ -14,20 +14,29 @@ import (
 
 func TestErrorResponseRender(t *testing.T) {
 	testCases := []struct {
-		in   errorResponse
-		want errorResponse
+		in                   ErrorResponse
+		want                 ErrorResponse
+		expectedResponseBody string
 	}{
 		{
-			in:   InternalServerError(context.Background(), "", nil),
-			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
+			in:                   *InternalServerError(context.Background(), "", nil, nil),
+			want:                 ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
+			expectedResponseBody: `{"error": "An error occurred while processing this request."}`,
 		},
 		{
-			in:   NotFound,
-			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
+			in:                   NotFound,
+			want:                 ErrorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
+			expectedResponseBody: `{"error": "The resource at the url requested was not found."}`,
 		},
 		{
-			in:   MethodNotAllowed,
-			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
+			in:                   MethodNotAllowed,
+			want:                 ErrorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
+			expectedResponseBody: `{"error": "The method is not allowed for resource at the url requested."}`,
+		},
+		{
+			in:                   *BadRequest("Validation error.", map[string]interface{}{"field": "field error"}),
+			want:                 ErrorResponse{Status: http.StatusBadRequest, Error: "Validation error."},
+			expectedResponseBody: `{"error": "Validation error.", "extras": {"field": "field error"}}`,
 		},
 	}
 
@@ -39,7 +48,7 @@ func TestErrorResponseRender(t *testing.T) {
 			assert.Equal(t, tc.want.Status, resp.StatusCode)
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
-			assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want.Error), string(body))
+			assert.JSONEq(t, tc.expectedResponseBody, string(body))
 		})
 	}
 }
@@ -47,19 +56,19 @@ func TestErrorResponseRender(t *testing.T) {
 func TestErrorHandler(t *testing.T) {
 	testCases := []struct {
 		in   ErrorHandler
-		want errorResponse
+		want ErrorResponse
 	}{
 		{
-			in:   ErrorHandler{InternalServerError(context.Background(), "", nil)},
-			want: errorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
+			in:   ErrorHandler{*InternalServerError(context.Background(), "", nil, nil)},
+			want: ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{
 			in:   ErrorHandler{NotFound},
-			want: errorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
+			want: ErrorResponse{Status: http.StatusNotFound, Error: "The resource at the url requested was not found."},
 		},
 		{
 			in:   ErrorHandler{MethodNotAllowed},
-			want: errorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
+			want: ErrorResponse{Status: http.StatusMethodNotAllowed, Error: "The method is not allowed for resource at the url requested."},
 		},
 	}
 

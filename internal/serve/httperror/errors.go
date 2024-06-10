@@ -8,61 +8,65 @@ import (
 	"github.com/stellar/go/support/render/httpjson"
 )
 
-type errorResponse struct {
-	Status int    `json:"-"`
-	Error  string `json:"error"`
+type ErrorResponse struct {
+	Status int                    `json:"-"`
+	Error  string                 `json:"error"`
+	Extras map[string]interface{} `json:"extras,omitempty"`
 }
 
-func (e errorResponse) Render(w http.ResponseWriter) {
+func (e ErrorResponse) Render(w http.ResponseWriter) {
 	httpjson.RenderStatus(w, e.Status, e, httpjson.JSON)
 }
 
 type ErrorHandler struct {
-	Error errorResponse
+	Error ErrorResponse
 }
 
 func (h ErrorHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Error.Render(w)
 }
 
-var NotFound = errorResponse{
+var NotFound = ErrorResponse{
 	Status: http.StatusNotFound,
 	Error:  "The resource at the url requested was not found.",
 }
 
-var MethodNotAllowed = errorResponse{
+var MethodNotAllowed = ErrorResponse{
 	Status: http.StatusMethodNotAllowed,
 	Error:  "The method is not allowed for resource at the url requested.",
 }
 
-func BadRequest(message string) errorResponse {
+func BadRequest(message string, extras map[string]interface{}) *ErrorResponse {
 	if message == "" {
 		message = "Invalid request"
 	}
 
-	return errorResponse{
+	return &ErrorResponse{
 		Status: http.StatusBadRequest,
 		Error:  message,
+		Extras: extras,
 	}
 }
 
-func Unauthorized(message string) errorResponse {
+func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse {
 	if message == "" {
 		message = "Not authorized."
 	}
 
-	return errorResponse{
+	return &ErrorResponse{
 		Status: http.StatusUnauthorized,
 		Error:  message,
+		Extras: extras,
 	}
 }
 
-func InternalServerError(ctx context.Context, message string, err error) errorResponse {
+func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}) *ErrorResponse {
 	// TODO: track error in Sentry
 	log.Ctx(ctx).Error(err)
 
-	return errorResponse{
+	return &ErrorResponse{
 		Status: http.StatusInternalServerError,
 		Error:  "An error occurred while processing this request.",
+		Extras: extras,
 	}
 }
