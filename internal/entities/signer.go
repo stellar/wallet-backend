@@ -50,7 +50,7 @@ func ValidateSignersWeights(signers []Signer) (int, error) {
 	// finally make sure all partial signers weights are lower than the full signers weight
 	for _, s := range signers {
 		if s.Type == PartialSignerType && s.Weight >= *fullSignerWeight {
-			return 0, fmt.Errorf("all partial signers weight must be less than the weight of full signers")
+			return 0, fmt.Errorf("all partial signers' weights must be less than the weight of full signers")
 		}
 	}
 

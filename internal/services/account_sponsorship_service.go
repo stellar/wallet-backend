@@ -23,7 +23,7 @@ const (
 )
 
 type AccountSponsorshipService interface {
-	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, assets []entities.Asset) (string, string, error)
+	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error)
 }
 
 type accountSponsorshipService struct {
@@ -35,7 +35,7 @@ type accountSponsorshipService struct {
 
 var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
 
-func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, assets []entities.Asset) (string, string, error) {
+func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
 	// check the accountToSponsor does not exist on Stellar
 	_, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: accountToSponsor})
 	if err == nil {
@@ -51,7 +51,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 	}
 
 	// make sure the total number of entries does not exceed the numSponsoredThreshold
-	numEntries := 2 + len(assets) + len(signers) // 2 entries for account creation + 1 entry per supported asset + 1 entry per signer
+	numEntries := 2 + len(supportedAssets) + len(signers) // 2 entries for account creation + 1 entry per supported asset + 1 entry per signer
 	if numEntries > s.MaxSponsoredThreshold {
 		return "", "", ErrSponsorshipLimitExceed
 	}
@@ -74,7 +74,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 			SourceAccount: accountToSponsor,
 		})
 	}
-	for _, asset := range assets {
+	for _, asset := range supportedAssets {
 		ops = append(ops, &txnbuild.ChangeTrust{
 			Line: txnbuild.CreditAsset{
 				Code:   asset.Code,

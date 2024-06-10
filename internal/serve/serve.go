@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 )
@@ -28,7 +29,7 @@ type Configs struct {
 	LogLevel         logrus.Level
 
 	// Horizon
-	Assets                []entities.Asset
+	SupportedAssets       []entities.Asset
 	MaxSponsoredThreshold int
 	BaseFee               int
 	HorizonClient         horizonclient.ClientInterface
@@ -40,7 +41,7 @@ type handlerDeps struct {
 	Port              int
 	DatabaseURL       string
 	SignatureVerifier auth.SignatureVerifier
-	Assets            []entities.Asset
+	SupportedAssets   []entities.Asset
 
 	// Services
 	AccountSponsorshipService services.AccountSponsorshipService
@@ -90,7 +91,7 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 	return handlerDeps{
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
-		Assets:                    cfg.Assets,
+		SupportedAssets:           cfg.SupportedAssets,
 		AccountSponsorshipService: accountSponsorshipService,
 	}, nil
 }
@@ -104,7 +105,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		// r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
+		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
 
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentsHandler{
@@ -118,7 +119,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/tx", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
 				AccountSponsorshipService: deps.AccountSponsorshipService,
-				Assets:                    deps.Assets,
+				SupportedAssets:           deps.SupportedAssets,
 			}
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)

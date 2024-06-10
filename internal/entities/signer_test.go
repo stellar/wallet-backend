@@ -48,7 +48,7 @@ func TestValidateSignersWeights(t *testing.T) {
 			},
 		}
 		fw, err := ValidateSignersWeights(signers)
-		assert.EqualError(t, err, "all partial signers weight must be less than the weight of full signers")
+		assert.EqualError(t, err, "all partial signers' weights must be less than the weight of full signers")
 		assert.Empty(t, fw)
 	})
 

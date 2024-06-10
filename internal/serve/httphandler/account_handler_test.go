@@ -33,7 +33,7 @@ func TestSponsorAccountCreation(t *testing.T) {
 	}
 	handler := &AccountHandler{
 		AccountSponsorshipService: &asService,
-		Assets:                    assets,
+		SupportedAssets:           assets,
 	}
 
 	const endpoint = "/tx/create-sponsored-account"
@@ -126,10 +126,10 @@ func TestSponsorAccountCreation(t *testing.T) {
 				"extras": {
 					"signers[0].address": "Invalid public key provided",
 					"signers[0].type": "Unexpected value \"test\". Expected one of the following values: full, partial",
-					"signers[0].weight": "Should be greater than or equal 1",
+					"signers[0].weight": "Should be greater than or equal to 1",
 					"signers[1].address": "Invalid public key provided",
 					"signers[1].type": "Unexpected value \"test\". Expected one of the following values: full, partial",
-					"signers[1].weight": "Should be greater than or equal 1"
+					"signers[1].weight": "Should be greater than or equal to 1"
 				}
 			}
 		`
@@ -169,7 +169,7 @@ func TestSponsorAccountCreation(t *testing.T) {
 			{
 				"error": "Validation error.",
 				"extras": {
-					"signers": "all partial signers weight must be less than the weight of full signers"
+					"signers": "all partial signers' weights must be less than the weight of full signers"
 				}
 			}
 		`

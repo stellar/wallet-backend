@@ -13,7 +13,7 @@ import (
 
 type AccountHandler struct {
 	AccountSponsorshipService services.AccountSponsorshipService
-	Assets                    []entities.Asset
+	SupportedAssets           []entities.Asset
 }
 
 type SponsorAccountCreationRequest struct {
@@ -48,7 +48,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 	}
 
 	// TODO: Store the sponsored account on the database.
-	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, h.Assets)
+	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, h.SupportedAssets)
 	if err != nil {
 		if errors.Is(err, services.ErrSponsorshipLimitExceed) {
 			httperror.BadRequest("Sponsorship limit exceed.", nil).Render(rw)
