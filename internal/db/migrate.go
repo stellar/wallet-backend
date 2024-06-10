@@ -9,7 +9,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/migrations"
 )
 
-func Migrate(databaseURL string, direction migrate.MigrationDirection, count int) (int, error) {
+func Migrate(ctx context.Context, databaseURL string, direction migrate.MigrationDirection, count int) (int, error) {
 	dbConnectionPool, err := OpenDBConnectionPool(databaseURL)
 	if err != nil {
 		return 0, fmt.Errorf("connecting to the database: %w", err)
@@ -17,7 +17,6 @@ func Migrate(databaseURL string, direction migrate.MigrationDirection, count int
 	defer dbConnectionPool.Close()
 
 	m := migrate.HttpFileSystemMigrationSource{FileSystem: http.FS(migrations.FS)}
-	ctx := context.Background()
 	db, err := dbConnectionPool.SqlDB(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("fetching sql.DB: %w", err)

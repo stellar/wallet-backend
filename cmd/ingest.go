@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"go/types"
 
 	_ "github.com/lib/pq"
@@ -86,27 +87,25 @@ func (c *ingestCmd) Command() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ingest",
-		Short: "Run Ingestion service",
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			cfgOpts.Require()
-			if err := cfgOpts.SetValues(); err != nil {
-				log.Fatalf("Error setting values of config options: %s", err.Error())
-			}
-		},
-		Run: func(_ *cobra.Command, _ []string) {
-			c.Run(cfg)
+		Use:               "ingest",
+		Short:             "Run Ingestion service",
+		PersistentPreRunE: utils.DefaultPersistentPreRunE(cfgOpts),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return c.Run(cfg)
 		},
 	}
+
 	if err := cfgOpts.Init(cmd); err != nil {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
+
 	return cmd
 }
 
-func (c *ingestCmd) Run(cfg ingest.Configs) {
+func (c *ingestCmd) Run(cfg ingest.Configs) error {
 	err := ingest.Ingest(cfg)
 	if err != nil {
-		log.Fatalf("Error running Ingest: %s", err.Error())
+		return fmt.Errorf("running ingest: %w", err)
 	}
+	return nil
 }

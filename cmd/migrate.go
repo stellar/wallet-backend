@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
 )
 
@@ -29,33 +30,17 @@ func (c *migrateCmd) Command() *cobra.Command {
 	}
 
 	migrateCmd := &cobra.Command{
-		Use:   "migrate",
-		Short: "Schema migration helpers",
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			cfgOpts.Require()
-			if err := cfgOpts.SetValues(); err != nil {
-				log.Fatalf("Error setting values of config options: %s", err.Error())
-			}
-		},
+		Use:               "migrate",
+		Short:             "Schema migration helpers",
+		PersistentPreRunE: utils.DefaultPersistentPreRunE(cfgOpts),
 	}
 
-	migrateUpCmd := cobra.Command{
+	migrateUpCmd := &cobra.Command{
 		Use:   "up",
 		Short: "Migrates database up [count] migrations",
 		Args:  cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			var count int
-			if len(args) > 0 {
-				var err error
-				count, err = strconv.Atoi(args[0])
-				if err != nil {
-					log.Fatalf("Invalid [count] argument: %s", args[0])
-				}
-			}
-
-			if err := executeMigrations(cmd.Context(), databaseURL, migrate.Up, count); err != nil {
-				log.Fatalf("Error executing migrate up: %v", err)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return c.RunMigrateUp(cmd.Context(), databaseURL, args)
 		},
 	}
 
@@ -63,19 +48,12 @@ func (c *migrateCmd) Command() *cobra.Command {
 		Use:   "down [count]",
 		Short: "Migrates database down [count] migrations",
 		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			count, err := strconv.Atoi(args[0])
-			if err != nil {
-				log.Fatalf("Invalid [count] argument: %s", args[0])
-			}
-
-			if err := executeMigrations(cmd.Context(), databaseURL, migrate.Down, count); err != nil {
-				log.Fatalf("Error executing migrate down: %v", err)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return c.RunMigrateDown(cmd.Context(), databaseURL, args)
 		},
 	}
 
-	migrateCmd.AddCommand(&migrateUpCmd)
+	migrateCmd.AddCommand(migrateUpCmd)
 	migrateCmd.AddCommand(migrateDownCmd)
 
 	if err := cfgOpts.Init(migrateCmd); err != nil {
@@ -85,8 +63,34 @@ func (c *migrateCmd) Command() *cobra.Command {
 	return migrateCmd
 }
 
+func (c *migrateCmd) RunMigrateUp(ctx context.Context, databaseURL string, args []string) error {
+	var count int
+	if len(args) > 0 {
+		var err error
+		count, err = strconv.Atoi(args[0])
+		if err != nil {
+			return fmt.Errorf("invalid [count] argument: %s", args[0])
+		}
+	}
+	if err := executeMigrations(ctx, databaseURL, migrate.Up, count); err != nil {
+		return fmt.Errorf("executing migrate up: %w", err)
+	}
+	return nil
+}
+
+func (c *migrateCmd) RunMigrateDown(ctx context.Context, databaseURL string, args []string) error {
+	count, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid [count] argument: %s", args[0])
+	}
+	if err := executeMigrations(ctx, databaseURL, migrate.Down, count); err != nil {
+		return fmt.Errorf("executing migrate down: %v", err)
+	}
+	return nil
+}
+
 func executeMigrations(ctx context.Context, databaseURL string, direction migrate.MigrationDirection, count int) error {
-	numMigrationsRun, err := db.Migrate(databaseURL, direction, count)
+	numMigrationsRun, err := db.Migrate(ctx, databaseURL, direction, count)
 	if err != nil {
 		return fmt.Errorf("migrating database: %w", err)
 	}

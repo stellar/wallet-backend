@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"go/types"
 
 	_ "github.com/lib/pq"
@@ -59,27 +60,25 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 	}
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run Wallet Backend server",
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			cfgOpts.Require()
-			if err := cfgOpts.SetValues(); err != nil {
-				log.Fatalf("Error setting values of config options: %s", err.Error())
-			}
-		},
-		Run: func(_ *cobra.Command, _ []string) {
-			c.Run(cfg)
+		Use:               "serve",
+		Short:             "Run Wallet Backend server",
+		PersistentPreRunE: utils.DefaultPersistentPreRunE(cfgOpts),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return c.Run(cfg)
 		},
 	}
+
 	if err := cfgOpts.Init(cmd); err != nil {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
+
 	return cmd
 }
 
-func (c *serveCmd) Run(cfg serve.Configs) {
+func (c *serveCmd) Run(cfg serve.Configs) error {
 	err := serve.Serve(cfg)
 	if err != nil {
-		log.Fatalf("Error running Serve: %s", err.Error())
+		return fmt.Errorf("running serve: %w", err)
 	}
+	return nil
 }
