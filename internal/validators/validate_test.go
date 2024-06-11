@@ -10,7 +10,6 @@ import (
 )
 
 func TestParseValidationError(t *testing.T) {
-
 	t.Run("general_tests", func(t *testing.T) {
 		type testStructNested struct {
 			NestedRequiredField string `validate:"required"`
