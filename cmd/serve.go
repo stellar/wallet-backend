@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"go/types"
 	"net/http"
 	"time"
@@ -26,38 +27,23 @@ func (c *serveCmd) Command() *cobra.Command {
 		distributionAccountPrivateKey, horizonURL, networkPassphrase string
 	)
 	cfgOpts := config.ConfigOptions{
+		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.LogLevelOption(&cfg.LogLevel),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.Port,
-			FlagDefault: 8000,
+			FlagDefault: 8001,
 			Required:    false,
-		},
-		{
-			Name:        "database-url",
-			Usage:       "Database connection URL",
-			OptType:     types.String,
-			ConfigKey:   &cfg.DatabaseURL,
-			FlagDefault: "postgres://postgres@localhost:5432/wallet-backend?sslmode=disable",
-			Required:    true,
 		},
 		{
 			Name:        "server-base-url",
 			Usage:       "The server base URL",
 			OptType:     types.String,
 			ConfigKey:   &cfg.ServerBaseURL,
-			FlagDefault: "http://localhost:8000",
+			FlagDefault: "http://localhost:8001",
 			Required:    true,
-		},
-		{
-			Name:           "log-level",
-			Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
-			OptType:        types.String,
-			FlagDefault:    "TRACE",
-			ConfigKey:      &cfg.LogLevel,
-			CustomSetValue: utils.SetConfigOptionLogLevel,
-			Required:       false,
 		},
 		{
 			Name:           "wallet-signing-key",
@@ -120,10 +106,12 @@ func (c *serveCmd) Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run Wallet Backend server",
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			cfgOpts.Require()
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := cfgOpts.RequireE(); err != nil {
+				return fmt.Errorf("requiring values of config options: %w", err)
+			}
 			if err := cfgOpts.SetValues(); err != nil {
-				log.Fatalf("Error setting values of config options: %s", err.Error())
+				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
 			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, networkPassphrase)
@@ -136,20 +124,25 @@ func (c *serveCmd) Command() *cobra.Command {
 				HorizonURL: horizonURL,
 				HTTP:       &http.Client{Timeout: 40 * time.Second},
 			}
+
+			return nil
 		},
-		Run: func(_ *cobra.Command, _ []string) {
-			c.Run(cfg)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return c.Run(cfg)
 		},
 	}
+
 	if err := cfgOpts.Init(cmd); err != nil {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
+
 	return cmd
 }
 
-func (c *serveCmd) Run(cfg serve.Configs) {
+func (c *serveCmd) Run(cfg serve.Configs) error {
 	err := serve.Serve(cfg)
 	if err != nil {
-		log.Fatalf("Error running Serve: %s", err.Error())
+		return fmt.Errorf("running serve: %w", err)
 	}
+	return nil
 }
