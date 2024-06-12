@@ -89,20 +89,3 @@ func TestEnvSignatureClientString(t *testing.T) {
 		})
 	}
 }
-
-// TODO: remove this test - it's only to skip deadcode validation
-func TestSignatureClientMock(t *testing.T) {
-	sc := SignatureClientMock{}
-	defer sc.AssertExpectations(t)
-
-	ctx := context.Background()
-
-	sc.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
-	assert.Equal(t, network.TestNetworkPassphrase, sc.NetworkPassphrase())
-	sc.On("GetDistributionAccountPublicKey").Return("pubkey")
-	assert.Equal(t, "pubkey", sc.GetDistributionAccountPublicKey())
-	sc.On("SignStellarTransaction", ctx, &txnbuild.Transaction{}).Return(nil, nil)
-	tx, err := sc.SignStellarTransaction(ctx, &txnbuild.Transaction{})
-	assert.Nil(t, tx)
-	assert.NoError(t, err)
-}

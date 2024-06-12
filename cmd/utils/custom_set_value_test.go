@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,6 +123,48 @@ func TestSetConfigOptionStellarPublicKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.sep10SigningPublicKey = ""
 			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionStellarPrivateKey(t *testing.T) {
+	opts := struct{ distributionPrivateKey string }{}
+
+	co := config.ConfigOption{
+		Name:           "distribution-private-key",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionStellarPrivateKey,
+		ConfigKey:      &opts.distributionPrivateKey,
+	}
+	expectedPrivateKey := "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5"
+
+	testCases := []customSetterTestCase[string]{
+		{
+			name:            "returns an error if the private key is invalid",
+			args:            []string{"--distribution-private-key", "invalid_private_key"},
+			wantErrContains: `invalid private key provided in distribution-private-key`,
+		},
+		{
+			name:            "returns an error if the private key is invalid (public key instead)",
+			args:            []string{"--distribution-private-key", "GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"},
+			wantErrContains: `invalid private key provided in distribution-private-key`,
+		},
+		{
+			name:       "handles Stellar private key through the CLI flag",
+			args:       []string{"--distribution-private-key", "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5"},
+			wantResult: expectedPrivateKey,
+		},
+		{
+			name:       "handles Stellar private key through the ENV flag",
+			envValue:   "SBUSPEKAZKLZSWHRSJ2HWDZUK6I3IVDUWA7JJZSGBLZ2WZIUJI7FPNB5",
+			wantResult: expectedPrivateKey,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.distributionPrivateKey = ""
+			customSetterTester[string](t, tc, co)
 		})
 	}
 }
@@ -263,6 +306,56 @@ func TestSetConfigOptionCaptiveCoreConfigDir(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.binPath = ""
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestSetConfigOptionAssets(t *testing.T) {
+	opts := struct{ assets []entities.Asset }{}
+
+	co := config.ConfigOption{
+		Name:           "assets",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionAssets,
+		ConfigKey:      &opts.assets,
+	}
+	expectedAssets := []entities.Asset{
+		{
+			Code:   "USDC",
+			Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+		},
+		{
+			Code:   "ARST",
+			Issuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
+		},
+	}
+
+	testCases := []customSetterTestCase[[]entities.Asset]{
+		{
+			name:            "returns an error if asset is empty",
+			wantErrContains: "assets cannot be empty",
+		},
+		{
+			name:            "returns an error if assets JSON is invalid",
+			args:            []string{"--assets", "invalid"},
+			wantErrContains: "decoding assets JSON: invalid character 'i' looking for beginning of value",
+		},
+		{
+			name:       "handles assets JSON through the CLI flag",
+			args:       []string{"--assets", `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`},
+			wantResult: expectedAssets,
+		},
+		{
+			name:       "handles assets JSON through the ENV vars",
+			envValue:   `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`,
+			wantResult: expectedAssets,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.assets = []entities.Asset{}
 			customSetterTester(t, tc, co)
 		})
 	}

@@ -3,18 +3,23 @@ package serve
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/sirupsen/logrus"
+	"github.com/stellar/go/clients/horizonclient"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 type Configs struct {
@@ -23,6 +28,13 @@ type Configs struct {
 	ServerBaseURL    string
 	WalletSigningKey string
 	LogLevel         logrus.Level
+
+	// Horizon
+	SupportedAssets          []entities.Asset
+	MaxSponsoredBaseReserves int
+	BaseFee                  int
+	HorizonClientURL         string
+	SignatureClient          signing.SignatureClient
 }
 
 type handlerDeps struct {
@@ -30,6 +42,10 @@ type handlerDeps struct {
 	Port              int
 	DatabaseURL       string
 	SignatureVerifier auth.SignatureVerifier
+	SupportedAssets   []entities.Asset
+
+	// Services
+	AccountSponsorshipService services.AccountSponsorshipService
 }
 
 func Serve(cfg Configs) error {
@@ -68,9 +84,20 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
 
+	horizonClient := horizonclient.Client{
+		HorizonURL: cfg.HorizonClientURL,
+		HTTP:       &http.Client{Timeout: 40 * time.Second},
+	}
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee))
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
+	}
+
 	return handlerDeps{
-		Models:            models,
-		SignatureVerifier: signatureVerifier,
+		Models:                    models,
+		SignatureVerifier:         signatureVerifier,
+		SupportedAssets:           cfg.SupportedAssets,
+		AccountSponsorshipService: accountSponsorshipService,
 	}, nil
 }
 
@@ -92,6 +119,15 @@ func handler(deps handlerDeps) http.Handler {
 
 			r.Post("/subscribe", handler.SubscribeAddress)
 			r.Post("/unsubscribe", handler.UnsubscribeAddress)
+		})
+
+		r.Route("/tx", func(r chi.Router) {
+			handler := &httphandler.AccountHandler{
+				AccountSponsorshipService: deps.AccountSponsorshipService,
+				SupportedAssets:           deps.SupportedAssets,
+			}
+
+			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)
 		})
 	})
 

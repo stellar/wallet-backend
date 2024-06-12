@@ -1,15 +1,19 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
@@ -57,6 +61,23 @@ func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
 	return nil
 }
 
+func SetConfigOptionStellarPrivateKey(co *config.ConfigOption) error {
+	privateKey := viper.GetString(co.Name)
+
+	isValid := strkey.IsValidEd25519SecretSeed(privateKey)
+	if !isValid {
+		return fmt.Errorf("invalid private key provided in %s", co.Name)
+	}
+
+	key, ok := co.ConfigKey.(*string)
+	if !ok {
+		return unexpectedTypeError(key, co)
+	}
+	*key = privateKey
+
+	return nil
+}
+
 func SetConfigOptionCaptiveCoreBinPath(co *config.ConfigOption) error {
 	binPath := viper.GetString(co.Name)
 
@@ -95,6 +116,28 @@ func SetConfigOptionCaptiveCoreConfigDir(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = dirPath
+
+	return nil
+}
+
+func SetConfigOptionAssets(co *config.ConfigOption) error {
+	assetsJSON := viper.GetString(co.Name)
+
+	if assetsJSON == "" {
+		return fmt.Errorf("assets cannot be empty")
+	}
+
+	var assets []entities.Asset
+	err := json.NewDecoder(strings.NewReader(assetsJSON)).Decode(&assets)
+	if err != nil {
+		return fmt.Errorf("decoding assets JSON: %w", err)
+	}
+
+	key, ok := co.ConfigKey.(*[]entities.Asset)
+	if !ok {
+		return unexpectedTypeError(key, co)
+	}
+	*key = assets
 
 	return nil
 }
