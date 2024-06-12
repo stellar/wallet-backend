@@ -38,7 +38,7 @@ const (
 )
 
 type AccountSponsorshipService interface {
-	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, assets []entities.Asset) (string, string, error)
+	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error)
 	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction, blockedOperationsTypes []xdr.OperationType) (string, string, error)
 }
 
