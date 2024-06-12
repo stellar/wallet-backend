@@ -3,6 +3,7 @@ package serve
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/sirupsen/logrus"
@@ -29,11 +30,11 @@ type Configs struct {
 	LogLevel         logrus.Level
 
 	// Horizon
-	SupportedAssets       []entities.Asset
-	MaxSponsoredThreshold int
-	BaseFee               int
-	HorizonClient         horizonclient.ClientInterface
-	SignatureClient       signing.SignatureClient
+	SupportedAssets          []entities.Asset
+	MaxSponsoredBaseReserves int
+	BaseFee                  int
+	HorizonClientURL         string
+	SignatureClient          signing.SignatureClient
 }
 
 type handlerDeps struct {
@@ -83,7 +84,11 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
 
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, cfg.HorizonClient, cfg.MaxSponsoredThreshold, int64(cfg.BaseFee))
+	horizonClient := horizonclient.Client{
+		HorizonURL: cfg.HorizonClientURL,
+		HTTP:       &http.Client{Timeout: 40 * time.Second},
+	}
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}

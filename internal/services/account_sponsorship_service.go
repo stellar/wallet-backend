@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrAccountAlreadyExists   = errors.New("account already exists")
-	ErrSponsorshipLimitExceed = errors.New("sponsorship limit exceed")
+	ErrAccountAlreadyExists     = errors.New("account already exists")
+	ErrSponsorshipLimitExceeded = errors.New("sponsorship limit exceeded")
 )
 
 const (
@@ -27,16 +27,16 @@ type AccountSponsorshipService interface {
 }
 
 type accountSponsorshipService struct {
-	SignatureClient       signing.SignatureClient
-	HorizonClient         horizonclient.ClientInterface
-	MaxSponsoredThreshold int
-	BaseFee               int64
+	SignatureClient          signing.SignatureClient
+	HorizonClient            horizonclient.ClientInterface
+	MaxSponsoredBaseReserves int
+	BaseFee                  int64
 }
 
 var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
 
 func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
-	// check the accountToSponsor does not exist on Stellar
+	// Check the accountToSponsor does not exist on Stellar
 	_, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: accountToSponsor})
 	if err == nil {
 		return "", "", ErrAccountAlreadyExists
@@ -50,10 +50,10 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", err
 	}
 
-	// make sure the total number of entries does not exceed the numSponsoredThreshold
+	// Make sure the total number of entries does not exceed the numSponsoredThreshold
 	numEntries := 2 + len(supportedAssets) + len(signers) // 2 entries for account creation + 1 entry per supported asset + 1 entry per signer
-	if numEntries > s.MaxSponsoredThreshold {
-		return "", "", ErrSponsorshipLimitExceed
+	if numEntries > s.MaxSponsoredBaseReserves {
+		return "", "", ErrSponsorshipLimitExceeded
 	}
 
 	fullSignerThreshold := txnbuild.NewThreshold(txnbuild.Threshold(fullSignerWeight))
@@ -128,7 +128,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 	return txe, s.SignatureClient.NetworkPassphrase(), nil
 }
 
-func NewAccountSponsorshipService(signatureClient signing.SignatureClient, horizonClient horizonclient.ClientInterface, maxSponsoredThreshold int, baseFee int64) (*accountSponsorshipService, error) {
+func NewAccountSponsorshipService(signatureClient signing.SignatureClient, horizonClient horizonclient.ClientInterface, maxSponsoredBaseReserves int, baseFee int64) (*accountSponsorshipService, error) {
 	if signatureClient == nil {
 		return nil, fmt.Errorf("signature client cannot be nil")
 	}
@@ -142,9 +142,9 @@ func NewAccountSponsorshipService(signatureClient signing.SignatureClient, horiz
 	}
 
 	return &accountSponsorshipService{
-		SignatureClient:       signatureClient,
-		HorizonClient:         horizonClient,
-		MaxSponsoredThreshold: maxSponsoredThreshold,
-		BaseFee:               baseFee,
+		SignatureClient:          signatureClient,
+		HorizonClient:            horizonClient,
+		MaxSponsoredBaseReserves: maxSponsoredBaseReserves,
+		BaseFee:                  baseFee,
 	}, nil
 }

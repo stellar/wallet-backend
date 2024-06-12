@@ -4,15 +4,6 @@ import "fmt"
 
 type SignerType string
 
-func (st SignerType) IsValid() bool {
-	switch st {
-	case FullSignerType, PartialSignerType:
-		return true
-	default:
-		return false
-	}
-}
-
 const (
 	FullSignerType    SignerType = "full"
 	PartialSignerType SignerType = "partial"
@@ -34,8 +25,7 @@ func ValidateSignersWeights(signers []Signer) (int, error) {
 	for _, s := range signers {
 		if s.Type == FullSignerType {
 			if fullSignerWeight == nil {
-				bufferWeight := s.Weight
-				fullSignerWeight = &bufferWeight
+				fullSignerWeight = &s.Weight
 			} else if s.Weight != *fullSignerWeight {
 				return 0, fmt.Errorf("all full signers must have the same weight")
 			}

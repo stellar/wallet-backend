@@ -47,11 +47,11 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		return
 	}
 
-	// TODO: Store the sponsored account on the database.
+	// TODO: store the sponsored account on the database.
 	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, h.SupportedAssets)
 	if err != nil {
-		if errors.Is(err, services.ErrSponsorshipLimitExceed) {
-			httperror.BadRequest("Sponsorship limit exceed.", nil).Render(rw)
+		if errors.Is(err, services.ErrSponsorshipLimitExceeded) {
+			httperror.BadRequest("Sponsorship limit exceeded.", nil).Render(rw)
 			return
 		}
 

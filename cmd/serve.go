@@ -3,13 +3,10 @@ package cmd
 import (
 	"fmt"
 	"go/types"
-	"net/http"
-	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/clients/horizonclient"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -24,11 +21,12 @@ func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
 	var (
-		distributionAccountPrivateKey, horizonURL, networkPassphrase string
+		distributionAccountPrivateKey, networkPassphrase string
 	)
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
+		utils.NetworkPassphraseOption(&networkPassphrase),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -71,18 +69,10 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
-			Name:        "network-passphrase",
-			Usage:       "The Stellar network passphrase",
-			OptType:     types.String,
-			ConfigKey:   &networkPassphrase,
-			FlagDefault: network.TestNetworkPassphrase,
-			Required:    true,
-		},
-		{
-			Name:        "max-sponsored-threshold",
+			Name:        "max-sponsored-base-reservers",
 			Usage:       "The maximum reserves will be sponsored by the distribution account.",
 			OptType:     types.Int,
-			ConfigKey:   &cfg.MaxSponsoredThreshold,
+			ConfigKey:   &cfg.MaxSponsoredBaseReserves,
 			FlagDefault: 15,
 			Required:    true,
 		},
@@ -96,9 +86,9 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "horizon-url",
-			Usage:       "The URL of the Stellar Horizon server where this application will communicate with.",
+			Usage:       "The URL of the Stellar Horizon server which this application will communicate with.",
 			OptType:     types.String,
-			ConfigKey:   &horizonURL,
+			ConfigKey:   &cfg.HorizonClientURL,
 			FlagDefault: horizonclient.DefaultTestNetClient.HorizonURL,
 			Required:    true,
 		},
@@ -116,14 +106,9 @@ func (c *serveCmd) Command() *cobra.Command {
 
 			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, networkPassphrase)
 			if err != nil {
-				log.Fatalf("Error instantiating Env signature client: %s", err.Error())
+				return fmt.Errorf("instantiating env signature client: %w", err)
 			}
-
 			cfg.SignatureClient = signatureClient
-			cfg.HorizonClient = &horizonclient.Client{
-				HorizonURL: horizonURL,
-				HTTP:       &http.Client{Timeout: 40 * time.Second},
-			}
 
 			return nil
 		},

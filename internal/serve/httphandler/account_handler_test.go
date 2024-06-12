@@ -230,7 +230,7 @@ func TestSponsorAccountCreation(t *testing.T) {
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})
 
-	t.Run("account_sponsorship_limit_exceed", func(t *testing.T) {
+	t.Run("account_sponsorship_limit_exceeded", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom().Address()
 		fullSigner := entities.Signer{
 			Address: keypair.MustRandom().Address(),
@@ -265,7 +265,7 @@ func TestSponsorAccountCreation(t *testing.T) {
 
 		asService.
 			On("SponsorAccountCreationTransaction", req.Context(), accountToSponsor, []entities.Signer{fullSigner, partialSigner}, assets).
-			Return("", "", services.ErrSponsorshipLimitExceed).
+			Return("", "", services.ErrSponsorshipLimitExceeded).
 			Once()
 
 		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
@@ -278,7 +278,7 @@ func TestSponsorAccountCreation(t *testing.T) {
 
 		expectedRespBody := `
 			{
-				"error": "Sponsorship limit exceed."
+				"error": "Sponsorship limit exceeded."
 			}
 		`
 		assert.JSONEq(t, expectedRespBody, string(respBody))

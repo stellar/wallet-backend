@@ -143,7 +143,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 		}
 
 		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, assets)
-		assert.ErrorIs(t, ErrSponsorshipLimitExceed, err)
+		assert.ErrorIs(t, ErrSponsorshipLimitExceeded, err)
 		assert.Empty(t, txe)
 		assert.Empty(t, networkPassphrase)
 	})
