@@ -69,7 +69,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
-			Name:        "max-sponsored-base-reservers",
+			Name:        "max-sponsored-base-reserves",
 			Usage:       "The maximum reserves will be sponsored by the distribution account.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxSponsoredBaseReserves,
