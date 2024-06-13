@@ -22,6 +22,7 @@ services:
       - -c
       - |
         ./wallet-backend migrate up
+        ./wallet-backend channel-account ensure 5
         ./wallet-backend serve
     environment:
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable

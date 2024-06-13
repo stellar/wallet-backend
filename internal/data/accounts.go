@@ -31,12 +31,19 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	return nil
 }
 
-func (m *AccountModel) Exists(ctx context.Context, address string) (bool, error) {
-	const query = `SELECT EXISTS(SELECT stellar_address FROM accounts WHERE stellar_address = $1)`
+func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
+	const query = `
+		SELECT 
+			EXISTS(
+				SELECT stellar_address FROM accounts WHERE stellar_address = $1
+				UNION
+				SELECT public_key FROM channel_accounts WHERE public_key = $1
+			)
+	`
 	var exists bool
 	err := m.DB.GetContext(ctx, &exists, query, address)
 	if err != nil {
-		return false, fmt.Errorf("checking if account %s exists: %w", address, err)
+		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
 
 	return exists, nil

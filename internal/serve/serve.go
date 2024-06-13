@@ -45,11 +45,13 @@ type Configs struct {
 	LogLevel         logrus.Level
 
 	// Horizon
-	SupportedAssets          []entities.Asset
-	MaxSponsoredBaseReserves int
-	BaseFee                  int
-	HorizonClientURL         string
-	SignatureClient          signing.SignatureClient
+	SupportedAssets                    []entities.Asset
+	NetworkPassphrase                  string
+	MaxSponsoredBaseReserves           int
+	BaseFee                            int
+	HorizonClientURL                   string
+	DistributionAccountSignatureClient signing.SignatureClient
+	ChannelAccountSignatureClient      signing.SignatureClient
 }
 
 type handlerDeps struct {
@@ -103,7 +105,14 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonURL: cfg.HorizonClientURL,
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee), models)
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(
+		cfg.DistributionAccountSignatureClient,
+		cfg.ChannelAccountSignatureClient,
+		&horizonClient,
+		cfg.MaxSponsoredBaseReserves,
+		int64(cfg.BaseFee),
+		models,
+	)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}
@@ -120,6 +129,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
+	mux.Use(middleware.RecoverHandler)
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
 

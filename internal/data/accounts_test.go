@@ -65,7 +65,7 @@ func TestAccountModelDelete(t *testing.T) {
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 }
 
-func TestAccountModelExists(t *testing.T) {
+func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -80,9 +80,9 @@ func TestAccountModelExists(t *testing.T) {
 	ctx := context.Background()
 	address := keypair.MustRandom().Address()
 
-	exists, err := m.Exists(ctx, address)
+	isFeeBumpEligible, err := m.IsAccountFeeBumpEligible(ctx, address)
 	require.NoError(t, err)
-	assert.False(t, exists)
+	assert.False(t, isFeeBumpEligible)
 
 	result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
 	require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestAccountModelExists(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), rowAffected)
 
-	exists, err = m.Exists(ctx, address)
+	isFeeBumpEligible, err = m.IsAccountFeeBumpEligible(ctx, address)
 	require.NoError(t, err)
-	assert.True(t, exists)
+	assert.True(t, isFeeBumpEligible)
 }

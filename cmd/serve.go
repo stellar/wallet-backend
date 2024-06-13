@@ -6,13 +6,13 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/cmd/utils"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
 )
 
 type serveCmd struct{}
@@ -20,13 +20,14 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
-	var (
-		distributionAccountPrivateKey, networkPassphrase string
-	)
+	var distributionAccountPrivateKey string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
-		utils.NetworkPassphraseOption(&networkPassphrase),
+		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
+		utils.BaseFeeOption(&cfg.BaseFee),
+		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
+		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -61,35 +62,11 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
-			Name:           "distribution-account-private-key",
-			Usage:          "The Distribution Account private key.",
-			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
-			ConfigKey:      &distributionAccountPrivateKey,
-			Required:       true,
-		},
-		{
 			Name:        "max-sponsored-base-reservers",
 			Usage:       "The maximum reserves will be sponsored by the distribution account.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxSponsoredBaseReserves,
 			FlagDefault: 15,
-			Required:    true,
-		},
-		{
-			Name:        "base-fee",
-			Usage:       "The base fee (in stroops) for submitting a Stellar transaction",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.BaseFee,
-			FlagDefault: 100 * txnbuild.MinBaseFee,
-			Required:    true,
-		},
-		{
-			Name:        "horizon-url",
-			Usage:       "The URL of the Stellar Horizon server which this application will communicate with.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.HorizonClientURL,
-			FlagDefault: horizonclient.DefaultTestNetClient.HorizonURL,
 			Required:    true,
 		},
 	}
@@ -104,11 +81,22 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, networkPassphrase)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+			if err != nil {
+				return fmt.Errorf("opening connection pool: %w", err)
+			}
+
+			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, cfg.NetworkPassphrase)
 			if err != nil {
 				return fmt.Errorf("instantiating env signature client: %w", err)
 			}
-			cfg.SignatureClient = signatureClient
+			cfg.DistributionAccountSignatureClient = signatureClient
+
+			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, distributionAccountPrivateKey)
+			if err != nil {
+				return fmt.Errorf("instantiating channel account db signature client: %w", err)
+			}
+			cfg.ChannelAccountSignatureClient = channelAccountSignatureClient
 
 			return nil
 		},

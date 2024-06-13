@@ -33,8 +33,8 @@ func (e ErrOperationNotAllowed) Error() string {
 
 const (
 	// Sufficient to cover three average ledger close time.
-	CreateAccountTxnTimeBounds             = 18
-	CreateAccountTxnTimeBoundsSafetyMargin = 12
+	CreateAccountTxnTimeBounds             = 60
+	CreateAccountTxnTimeBoundsSafetyMargin = 60
 )
 
 type AccountSponsorshipService interface {
@@ -43,11 +43,12 @@ type AccountSponsorshipService interface {
 }
 
 type accountSponsorshipService struct {
-	SignatureClient          signing.SignatureClient
-	HorizonClient            horizonclient.ClientInterface
-	MaxSponsoredBaseReserves int
-	BaseFee                  int64
-	Models                   *data.Models
+	DistributionAccountSignatureClient signing.SignatureClient
+	ChannelAccountSignatureClient      signing.SignatureClient
+	HorizonClient                      horizonclient.ClientInterface
+	MaxSponsoredBaseReserves           int
+	BaseFee                            int64
+	Models                             *data.Models
 }
 
 var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
@@ -73,16 +74,21 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", ErrSponsorshipLimitExceeded
 	}
 
+	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("getting distribution account public key: %w", err)
+	}
+
 	fullSignerThreshold := txnbuild.NewThreshold(txnbuild.Threshold(fullSignerWeight))
 	ops := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
 			SponsoredID:   accountToSponsor,
-			SourceAccount: s.SignatureClient.GetDistributionAccountPublicKey(),
+			SourceAccount: distributionAccountPublicKey,
 		},
 		&txnbuild.CreateAccount{
 			Destination:   accountToSponsor,
 			Amount:        "0",
-			SourceAccount: s.SignatureClient.GetDistributionAccountPublicKey(),
+			SourceAccount: distributionAccountPublicKey,
 		},
 	}
 	for _, signer := range signers {
@@ -113,15 +119,19 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		},
 	)
 
-	// TODO: use Channel Accounts instead of using the Distribution Account.
-	distributionAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: s.SignatureClient.GetDistributionAccountPublicKey()})
+	channelAccountPublicKey, err := s.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("getting channel account public key: %w", err)
+	}
+
+	channelAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: channelAccountPublicKey})
 	if err != nil {
 		return "", "", fmt.Errorf("getting distribution account details: %w", err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount:        &distributionAccount,
+			SourceAccount:        &channelAccount,
 			IncrementSequenceNum: true,
 			Operations:           ops,
 			BaseFee:              s.BaseFee,
@@ -132,7 +142,12 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", fmt.Errorf("building transaction: %w", err)
 	}
 
-	tx, err = s.SignatureClient.SignStellarTransaction(ctx, tx)
+	tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
+	if err != nil {
+		return "", "", fmt.Errorf("signing transaction: %w", err)
+	}
+
+	tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
 	if err != nil {
 		return "", "", fmt.Errorf("signing transaction: %w", err)
 	}
@@ -146,16 +161,16 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", fmt.Errorf("inserting the sponsored account: %w", err)
 	}
 
-	return txe, s.SignatureClient.NetworkPassphrase(), nil
+	return txe, s.ChannelAccountSignatureClient.NetworkPassphrase(), nil
 }
 
 // WrapTransaction wraps a stellar transaction with a fee bump transaction with the configured distribution account as the fee account.
 func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction, blockedOperationsTypes []xdr.OperationType) (string, string, error) {
-	exists, err := s.Models.Account.Exists(ctx, tx.SourceAccount().AccountID)
+	isFeeBumpEligible, err := s.Models.Account.IsAccountFeeBumpEligible(ctx, tx.SourceAccount().AccountID)
 	if err != nil {
 		return "", "", fmt.Errorf("checking if transaction source account is eligible for being fee-bumped: %w", err)
 	}
-	if !exists {
+	if !isFeeBumpEligible {
 		return "", "", ErrAccountNotEligibleForBeingSponsored
 	}
 
@@ -180,10 +195,15 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		return "", "", ErrNoSignaturesProvided
 	}
 
+	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("getting distribution account public key: %w", err)
+	}
+
 	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      tx,
-			FeeAccount: s.SignatureClient.GetDistributionAccountPublicKey(),
+			FeeAccount: distributionAccountPublicKey,
 			BaseFee:    int64(s.BaseFee),
 		},
 	)
@@ -191,7 +211,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		return "", "", fmt.Errorf("creating fee-bump transaction: %w", err)
 	}
 
-	signedFeeBumpTx, err := s.SignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
+	signedFeeBumpTx, err := s.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
 	if err != nil {
 		return "", "", fmt.Errorf("signing fee bump transaction: %w", err)
 	}
@@ -201,12 +221,16 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		return "", "", fmt.Errorf("getting transaction envelope: %w", err)
 	}
 
-	return feeBumpTxe, s.SignatureClient.NetworkPassphrase(), nil
+	return feeBumpTxe, s.DistributionAccountSignatureClient.NetworkPassphrase(), nil
 }
 
-func NewAccountSponsorshipService(signatureClient signing.SignatureClient, horizonClient horizonclient.ClientInterface, maxSponsoredBaseReserves int, baseFee int64, models *data.Models) (*accountSponsorshipService, error) {
-	if signatureClient == nil {
-		return nil, fmt.Errorf("signature client cannot be nil")
+func NewAccountSponsorshipService(distributionAccountSignatureClient, channelAccountSignatureClient signing.SignatureClient, horizonClient horizonclient.ClientInterface, maxSponsoredBaseReserves int, baseFee int64, models *data.Models) (*accountSponsorshipService, error) {
+	if distributionAccountSignatureClient == nil {
+		return nil, fmt.Errorf("distribution account signature client cannot be nil")
+	}
+
+	if channelAccountSignatureClient == nil {
+		return nil, fmt.Errorf("channel account signature client cannot be nil")
 	}
 
 	if horizonClient == nil {
@@ -222,10 +246,11 @@ func NewAccountSponsorshipService(signatureClient signing.SignatureClient, horiz
 	}
 
 	return &accountSponsorshipService{
-		SignatureClient:          signatureClient,
-		HorizonClient:            horizonClient,
-		MaxSponsoredBaseReserves: maxSponsoredBaseReserves,
-		BaseFee:                  baseFee,
-		Models:                   models,
+		DistributionAccountSignatureClient: distributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      channelAccountSignatureClient,
+		HorizonClient:                      horizonClient,
+		MaxSponsoredBaseReserves:           maxSponsoredBaseReserves,
+		BaseFee:                            baseFee,
+		Models:                             models,
 	}, nil
 }

@@ -18,13 +18,13 @@ func (s *SignatureClientMock) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (s *SignatureClientMock) GetDistributionAccountPublicKey() string {
-	args := s.Called()
-	return args.String(0)
+func (s *SignatureClientMock) GetAccountPublicKey(ctx context.Context) (string, error) {
+	args := s.Called(ctx)
+	return args.String(0), args.Error(1)
 }
 
-func (s *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.Transaction, error) {
-	args := s.Called(ctx, tx)
+func (s *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, accounts ...string) (*txnbuild.Transaction, error) {
+	args := s.Called(ctx, tx, accounts)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
