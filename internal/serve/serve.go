@@ -103,7 +103,7 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonURL: cfg.HorizonClientURL,
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee), models)
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(cfg.SignatureClient, &horizonClient, cfg.MaxSponsoredBaseReserves, int64(cfg.BaseFee), blockedOperationTypes, models)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}
@@ -140,7 +140,6 @@ func handler(deps handlerDeps) http.Handler {
 			handler := &httphandler.AccountHandler{
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
-				BlockedOperationsTypes:    blockedOperationTypes,
 			}
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)

@@ -348,7 +348,6 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 
 	handler := &AccountHandler{
 		AccountSponsorshipService: &asService,
-		BlockedOperationsTypes:    []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit},
 	}
 
 	const endpoint = "/tx/create-fee-bump"
@@ -481,7 +480,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		asService.
-			On("WrapTransaction", req.Context(), tx, handler.BlockedOperationsTypes).
+			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrAccountNotEligibleForBeingSponsored).
 			Once()
 
@@ -530,7 +529,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		asService.
-			On("WrapTransaction", req.Context(), tx, handler.BlockedOperationsTypes).
+			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrFeeExceedsMaximumBaseFee).
 			Once()
 
@@ -579,7 +578,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		asService.
-			On("WrapTransaction", req.Context(), tx, handler.BlockedOperationsTypes).
+			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrNoSignaturesProvided).
 			Once()
 
@@ -628,7 +627,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		asService.
-			On("WrapTransaction", req.Context(), tx, handler.BlockedOperationsTypes).
+			On("WrapTransaction", req.Context(), tx).
 			Return("", "", &services.ErrOperationNotAllowed{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
 			Once()
 
@@ -677,7 +676,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		asService.
-			On("WrapTransaction", req.Context(), tx, handler.BlockedOperationsTypes).
+			On("WrapTransaction", req.Context(), tx).
 			Return("fee-bump-envelope", network.TestNetworkPassphrase, nil).
 			Once()
 

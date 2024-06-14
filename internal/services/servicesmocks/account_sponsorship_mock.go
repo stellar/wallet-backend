@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stretchr/testify/mock"
@@ -21,7 +20,7 @@ func (s *AccountSponsorshipServiceMock) SponsorAccountCreationTransaction(ctx co
 	return args.String(0), args.String(1), args.Error(2)
 }
 
-func (s *AccountSponsorshipServiceMock) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction, blockedOperationsTypes []xdr.OperationType) (string, string, error) {
-	args := s.Called(ctx, tx, blockedOperationsTypes)
+func (s *AccountSponsorshipServiceMock) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
+	args := s.Called(ctx, tx)
 	return args.String(0), args.String(1), args.Error(2)
 }

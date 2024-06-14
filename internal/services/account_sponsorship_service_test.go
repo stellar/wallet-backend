@@ -38,7 +38,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
+	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, []xdr.OperationType{}, models)
 	require.NoError(t, err)
 
 	t.Run("account_already_exists", func(t *testing.T) {
@@ -329,7 +329,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
+	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit}, models)
 	require.NoError(t, err)
 
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
@@ -353,7 +353,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		assert.ErrorIs(t, ErrAccountNotEligibleForBeingSponsored, err)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
@@ -389,7 +389,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit})
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		var errOperationNotAllowed *ErrOperationNotAllowed
 		assert.ErrorAs(t, err, &errOperationNotAllowed)
 		assert.Empty(t, feeBumpTxe)
@@ -419,7 +419,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		assert.ErrorIs(t, err, ErrFeeExceedsMaximumBaseFee)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
@@ -448,7 +448,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		assert.ErrorIs(t, err, ErrNoSignaturesProvided)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
@@ -511,7 +511,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 			}).
 			Return(&signedFeeBumpTx, nil)
 
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx, []xdr.OperationType{})
+		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		require.NoError(t, err)
 
 		assert.Equal(t, network.TestNetworkPassphrase, networkPassphrase)
