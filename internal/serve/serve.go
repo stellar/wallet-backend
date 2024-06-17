@@ -105,14 +105,14 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonURL: cfg.HorizonClientURL,
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(
-		cfg.DistributionAccountSignatureClient,
-		cfg.ChannelAccountSignatureClient,
-		&horizonClient,
-		cfg.MaxSponsoredBaseReserves,
-		int64(cfg.BaseFee),
-		models,
-	)
+	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
+		HorizonClient:                      &horizonClient,
+		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
+		BaseFee:                            int64(cfg.BaseFee),
+		Models:                             models,
+	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}

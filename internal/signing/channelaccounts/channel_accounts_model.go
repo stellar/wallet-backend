@@ -65,7 +65,7 @@ func (ca *ChannelAccountModel) GetIdleChannelAccount(ctx context.Context, locked
 	for range ChannelAccountWaitTime {
 		err := ca.DB.GetContext(ctx, &channelAccount, query)
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Ctx(ctx).Info("All channel accounts are in use. Retry in 1 second.")
+			log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")
 			time.Sleep(1 * time.Second)
 			continue
 		}

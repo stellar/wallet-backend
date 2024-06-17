@@ -137,7 +137,43 @@ type ChannelAccountServiceOptions struct {
 	EncryptionPassphrase               string
 }
 
-func NewChannelAccountService(opts ChannelAccountServiceOptions) *channelAccountService {
+func (o *ChannelAccountServiceOptions) Validate() error {
+	if o.DB == nil {
+		return fmt.Errorf("DB cannot be nil")
+	}
+
+	if o.HorizonClient == nil {
+		return fmt.Errorf("horizon client cannot be nil")
+	}
+
+	if o.BaseFee < int64(txnbuild.MinBaseFee) {
+		return fmt.Errorf("base fee is lower than the minimum network fee")
+	}
+
+	if o.DistributionAccountSignatureClient == nil {
+		return fmt.Errorf("distribution account signature client cannot be nil")
+	}
+
+	if o.ChannelAccountStore == nil {
+		return fmt.Errorf("channel account store cannot be nil")
+	}
+
+	if o.PrivateKeyEncrypter == nil {
+		return fmt.Errorf("private key encrypter cannot be nil")
+	}
+
+	if o.EncryptionPassphrase == "" {
+		return fmt.Errorf("encryption passphrase cannot be empty")
+	}
+
+	return nil
+}
+
+func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccountService, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &channelAccountService{
 		DB:                                 opts.DB,
 		HorizonClient:                      opts.HorizonClient,
@@ -146,5 +182,5 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) *channelAccount
 		ChannelAccountStore:                opts.ChannelAccountStore,
 		PrivateKeyEncrypter:                opts.PrivateKeyEncrypter,
 		EncryptionPassphrase:               opts.EncryptionPassphrase,
-	}
+	}, nil
 }

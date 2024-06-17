@@ -38,7 +38,14 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
+	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
+		DistributionAccountSignatureClient: &signatureClient,
+		ChannelAccountSignatureClient:      &signatureClient,
+		HorizonClient:                      &horizonClient,
+		MaxSponsoredBaseReserves:           10,
+		BaseFee:                            txnbuild.MinBaseFee,
+		Models:                             models,
+	})
 	require.NoError(t, err)
 
 	t.Run("account_already_exists", func(t *testing.T) {
@@ -329,7 +336,14 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, models)
+	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
+		DistributionAccountSignatureClient: &signatureClient,
+		ChannelAccountSignatureClient:      &signatureClient,
+		HorizonClient:                      &horizonClient,
+		MaxSponsoredBaseReserves:           10,
+		BaseFee:                            txnbuild.MinBaseFee,
+		Models:                             models,
+	})
 	require.NoError(t, err)
 
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {

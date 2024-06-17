@@ -67,12 +67,12 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 
 			signatureClient, err := signing.NewEnvSignatureClient(cfg.DistributionAccountPrivateKey, cfg.NetworkPassphrase)
 			if err != nil {
-				return fmt.Errorf("instantiating signature client")
+				return fmt.Errorf("instantiating distribution account signature client: %w", err)
 			}
 
 			privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
 
-			c.channelAccountService = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 				DB: dbConnectionPool,
 				HorizonClient: &horizonclient.Client{
 					HorizonURL: cfg.HorizonClientURL,
@@ -84,6 +84,9 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
 				EncryptionPassphrase:               cfg.DistributionAccountPrivateKey,
 			})
+			if err != nil {
+				return fmt.Errorf("instantiating channel account services: %w", err)
+			}
 
 			return nil
 		},

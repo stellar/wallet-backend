@@ -33,8 +33,8 @@ func (e ErrOperationNotAllowed) Error() string {
 
 const (
 	// Sufficient to cover three average ledger close time.
-	CreateAccountTxnTimeBounds             = 60
-	CreateAccountTxnTimeBoundsSafetyMargin = 60
+	CreateAccountTxnTimeBounds             = 18
+	CreateAccountTxnTimeBoundsSafetyMargin = 12
 )
 
 type AccountSponsorshipService interface {
@@ -224,33 +224,50 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 	return feeBumpTxe, s.DistributionAccountSignatureClient.NetworkPassphrase(), nil
 }
 
-func NewAccountSponsorshipService(distributionAccountSignatureClient, channelAccountSignatureClient signing.SignatureClient, horizonClient horizonclient.ClientInterface, maxSponsoredBaseReserves int, baseFee int64, models *data.Models) (*accountSponsorshipService, error) {
-	if distributionAccountSignatureClient == nil {
-		return nil, fmt.Errorf("distribution account signature client cannot be nil")
+type AccountSponsorshipServiceOptions struct {
+	DistributionAccountSignatureClient signing.SignatureClient
+	ChannelAccountSignatureClient      signing.SignatureClient
+	HorizonClient                      horizonclient.ClientInterface
+	MaxSponsoredBaseReserves           int
+	BaseFee                            int64
+	Models                             *data.Models
+}
+
+func (o *AccountSponsorshipServiceOptions) Validate() error {
+	if o.DistributionAccountSignatureClient == nil {
+		return fmt.Errorf("distribution account signature client cannot be nil")
 	}
 
-	if channelAccountSignatureClient == nil {
-		return nil, fmt.Errorf("channel account signature client cannot be nil")
+	if o.ChannelAccountSignatureClient == nil {
+		return fmt.Errorf("channel account signature client cannot be nil")
 	}
 
-	if horizonClient == nil {
-		return nil, fmt.Errorf("horizon client cannot be nil")
+	if o.HorizonClient == nil {
+		return fmt.Errorf("horizon client cannot be nil")
 	}
 
-	if baseFee < int64(txnbuild.MinBaseFee) {
-		return nil, fmt.Errorf("base fee is lower than the minimum network fee")
+	if o.BaseFee < int64(txnbuild.MinBaseFee) {
+		return fmt.Errorf("base fee is lower than the minimum network fee")
 	}
 
-	if models == nil {
-		return nil, fmt.Errorf("models cannot be nil")
+	if o.Models == nil {
+		return fmt.Errorf("models cannot be nil")
+	}
+
+	return nil
+}
+
+func NewAccountSponsorshipService(opts AccountSponsorshipServiceOptions) (*accountSponsorshipService, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
 
 	return &accountSponsorshipService{
-		DistributionAccountSignatureClient: distributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      channelAccountSignatureClient,
-		HorizonClient:                      horizonClient,
-		MaxSponsoredBaseReserves:           maxSponsoredBaseReserves,
-		BaseFee:                            baseFee,
-		Models:                             models,
+		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
+		HorizonClient:                      opts.HorizonClient,
+		MaxSponsoredBaseReserves:           opts.MaxSponsoredBaseReserves,
+		BaseFee:                            opts.BaseFee,
+		Models:                             opts.Models,
 	}, nil
 }
