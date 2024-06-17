@@ -1,3 +1,3 @@
 # wallet-backend
 
-A backend for Stellar wallet applications.
+A backend for Stellar wallet applications
