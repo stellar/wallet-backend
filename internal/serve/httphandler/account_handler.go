@@ -25,7 +25,7 @@ type SponsorAccountCreationRequest struct {
 }
 
 type CreateFeeBumpTransactionRequest struct {
-	Transaction string `json:"transaction" validate:"required,not_empty"`
+	Transaction string `json:"transaction" validate:"required"`
 }
 
 type TransactionEnvelopeResponse struct {
@@ -99,7 +99,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	feeBumpTxe, networkPassphrase, err := h.AccountSponsorshipService.WrapTransaction(ctx, tx, h.BlockedOperationsTypes)
+	feeBumpTxe, networkPassphrase, err := h.AccountSponsorshipService.WrapTransaction(ctx, tx)
 	if err != nil {
 		var errOperationNotAllowed *services.ErrOperationNotAllowed
 		switch {

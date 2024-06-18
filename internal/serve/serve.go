@@ -112,6 +112,7 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
+		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)

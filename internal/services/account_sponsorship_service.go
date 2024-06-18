@@ -39,7 +39,7 @@ const (
 
 type AccountSponsorshipService interface {
 	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error)
-	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction, blockedOperationsTypes []xdr.OperationType) (string, string, error)
+	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error)
 }
 
 type accountSponsorshipService struct {
@@ -49,6 +49,7 @@ type accountSponsorshipService struct {
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
+	BlockedOperationsTypes             []xdr.OperationType
 }
 
 var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
@@ -165,7 +166,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 }
 
 // WrapTransaction wraps a stellar transaction with a fee bump transaction with the configured distribution account as the fee account.
-func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction, blockedOperationsTypes []xdr.OperationType) (string, string, error) {
+func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
 	isFeeBumpEligible, err := s.Models.Account.IsAccountFeeBumpEligible(ctx, tx.SourceAccount().AccountID)
 	if err != nil {
 		return "", "", fmt.Errorf("checking if transaction source account is eligible for being fee-bumped: %w", err)
@@ -180,7 +181,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 			return "", "", fmt.Errorf("retrieving xdr for operation: %w", err)
 		}
 
-		if slices.Contains(blockedOperationsTypes, operationXDR.Body.Type) {
+		if slices.Contains(s.BlockedOperationsTypes, operationXDR.Body.Type) {
 			log.Ctx(ctx).Warnf("blocked operation type: %s", operationXDR.Body.Type.String())
 			return "", "", &ErrOperationNotAllowed{OperationType: operationXDR.Body.Type}
 		}
@@ -213,7 +214,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 
 	signedFeeBumpTx, err := s.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
 	if err != nil {
-		return "", "", fmt.Errorf("signing fee bump transaction: %w", err)
+		return "", "", fmt.Errorf("signing fee-bump transaction: %w", err)
 	}
 
 	feeBumpTxe, err := signedFeeBumpTx.Base64()
@@ -231,6 +232,7 @@ type AccountSponsorshipServiceOptions struct {
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
+	BlockedOperationsTypes             []xdr.OperationType
 }
 
 func (o *AccountSponsorshipServiceOptions) Validate() error {
@@ -269,5 +271,6 @@ func NewAccountSponsorshipService(opts AccountSponsorshipServiceOptions) (*accou
 		MaxSponsoredBaseReserves:           opts.MaxSponsoredBaseReserves,
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,
+		BlockedOperationsTypes:             opts.BlockedOperationsTypes,
 	}, nil
 }
