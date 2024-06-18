@@ -301,6 +301,9 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 				signedTx = *tx
 			}).
 			Return(&signedTx, nil).
+			Once().
+			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+			Return(&signedTx, nil).
 			Once()
 
 		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, assets)
