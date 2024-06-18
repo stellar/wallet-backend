@@ -8,6 +8,7 @@ import (
 
 type Models struct {
 	Payments *PaymentModel
+	Account  *AccountModel
 }
 
 func NewModels(db db.ConnectionPool) (*Models, error) {
@@ -17,5 +18,6 @@ func NewModels(db db.ConnectionPool) (*Models, error) {
 
 	return &Models{
 		Payments: &PaymentModel{DB: db},
+		Account:  &AccountModel{DB: db},
 	}, nil
 }

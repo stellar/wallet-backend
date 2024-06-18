@@ -8,7 +8,7 @@ import (
 )
 
 type PaymentsHandler struct {
-	*data.PaymentModel
+	Models *data.Models
 }
 
 type PaymentsSubscribeRequest struct {
@@ -25,7 +25,7 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := h.PaymentModel.SubscribeAddress(ctx, reqBody.Address)
+	err := h.Models.Account.Insert(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
@@ -42,7 +42,7 @@ func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err := h.PaymentModel.UnsubscribeAddress(ctx, reqBody.Address)
+	err := h.Models.Account.Delete(ctx, reqBody.Address)
 	if err != nil {
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return

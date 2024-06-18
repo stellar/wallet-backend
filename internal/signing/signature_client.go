@@ -16,6 +16,7 @@ type SignatureClient interface {
 	NetworkPassphrase() string
 	GetDistributionAccountPublicKey() string
 	SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.Transaction, error)
+	SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error)
 }
 
 type envSignatureClient struct {
@@ -60,6 +61,19 @@ func (sc *envSignatureClient) SignStellarTransaction(ctx context.Context, tx *tx
 	}
 
 	return signedTx, nil
+}
+
+func (sc *envSignatureClient) SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error) {
+	if feeBumpTx == nil {
+		return nil, ErrInvalidTransaction
+	}
+
+	signedFeeBumpTx, err := feeBumpTx.Sign(sc.NetworkPassphrase(), sc.distributionAccountFull)
+	if err != nil {
+		return nil, fmt.Errorf("signing fee bump transaction: %w", err)
+	}
+
+	return signedFeeBumpTx, nil
 }
 
 func (sc envSignatureClient) String() string {

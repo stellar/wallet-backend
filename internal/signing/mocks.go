@@ -30,3 +30,11 @@ func (s *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *tx
 	}
 	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
 }
+
+func (s *SignatureClientMock) SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error) {
+	args := s.Called(ctx, feeBumpTx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*txnbuild.FeeBumpTransaction), args.Error(1)
+}

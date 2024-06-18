@@ -30,7 +30,7 @@ func TestSubscribeAddress(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
 	handler := &PaymentsHandler{
-		PaymentModel: models.Payments,
+		Models: models,
 	}
 
 	// Setup router
@@ -129,7 +129,7 @@ func TestUnsubscribeAddress(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
 	handler := &PaymentsHandler{
-		PaymentModel: models.Payments,
+		Models: models,
 	}
 
 	// Setup router
