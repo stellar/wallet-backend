@@ -70,7 +70,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 
 	if err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops); err != nil {
-		return fmt.Errorf("inserting channel accounts: %w", err)
+		return fmt.Errorf("submitting create channel accounts on chain transaction: %w", err)
 	}
 
 	if err = s.ChannelAccountStore.BatchInsert(ctx, s.DB, channelAccountsToInsert); err != nil {
@@ -104,7 +104,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		return fmt.Errorf("signing transaction: %w", err)
 	}
 
-	hash, err := signedTx.Hash(s.DistributionAccountSignatureClient.NetworkPassphrase())
+	hash, err := signedTx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
 	if err != nil {
 		return fmt.Errorf("getting transaction hash: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi"
+	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stretchr/testify/assert"
@@ -135,4 +136,34 @@ func TestSignatureMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.JSONEq(t, `{"status":"ok"}`, string(respBody))
 	})
+}
+
+func Test_RecoverHandler(t *testing.T) {
+	// setup logger to assert the logged texts later
+	buf := new(strings.Builder)
+	log.DefaultLogger.SetOutput(buf)
+	log.DefaultLogger.SetLevel(logrus.TraceLevel)
+
+	// setup
+	r := chi.NewRouter()
+	r.Use(RecoverHandler)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		panic("test panic")
+	})
+
+	// test
+	req, err := http.NewRequest("GET", "/", nil)
+	require.NoError(t, err)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// assert response
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	wantJson := `{
+		"error": "An error occurred while processing this request."
+	}`
+	assert.JSONEq(t, wantJson, rr.Body.String())
+
+	// assert logged text
+	assert.Contains(t, buf.String(), "panic: test panic", "should log the panic message")
 }

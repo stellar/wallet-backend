@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnvSignatureClientGetDistributionAccountPublicKey(t *testing.T) {
+func TestEnvSignatureClientGetAccountPublicKey(t *testing.T) {
 	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	sc, err := NewEnvSignatureClient(distributionAccount.Seed(), network.TestNetworkPassphrase)
