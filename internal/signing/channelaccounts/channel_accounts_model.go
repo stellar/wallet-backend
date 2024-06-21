@@ -8,15 +8,15 @@ import (
 	"time"
 
 	"github.com/lib/pq"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/db"
 )
 
 const ChannelAccountWaitTime = 6
 
 var (
-	ErrNoAvailableChannelAccount = errors.New("no available channel account")
-	ErrChannelAccountNotFound    = errors.New("channel account not found")
+	ErrNoIdleChannelAccountAvailable = errors.New("no idle channel account available")
+	ErrNoChannelAccountConfigured    = errors.New("no channel accounts")
+	ErrChannelAccountNotFound        = errors.New("channel account not found")
 )
 
 type ChannelAccount struct {
@@ -31,6 +31,7 @@ type ChannelAccount struct {
 type ChannelAccountStore interface {
 	GetIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error)
 	Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error)
+	GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error)
 	BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error
 	Count(ctx context.Context) (int64, error)
 }
@@ -62,21 +63,15 @@ func (ca *ChannelAccountModel) GetIdleChannelAccount(ctx context.Context, locked
 	`, int64(lockedUntil.Seconds()))
 
 	var channelAccount ChannelAccount
-	for range ChannelAccountWaitTime {
-		err := ca.DB.GetContext(ctx, &channelAccount, query)
+	err := ca.DB.GetContext(ctx, &channelAccount, query)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("getting idle channel account: %w", err)
+			return nil, ErrNoIdleChannelAccountAvailable
 		}
 
-		return &channelAccount, nil
+		return nil, fmt.Errorf("getting idle channel account: %w", err)
 	}
-
-	return nil, ErrNoAvailableChannelAccount
+	return &channelAccount, nil
 }
 
 func (ca *ChannelAccountModel) Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error) {
@@ -92,6 +87,18 @@ func (ca *ChannelAccountModel) Get(ctx context.Context, sqlExec db.SQLExecuter, 
 	}
 
 	return &channelAccount, nil
+}
+
+func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error) {
+	const query = `SELECT * FROM channel_accounts WHERE public_key = ANY($1)`
+
+	var channelAccounts []*ChannelAccount
+	err := sqlExec.SelectContext(ctx, channelAccounts, query, pq.Array(publicKeys))
+	if err != nil {
+		return nil, fmt.Errorf("getting channel accounts %v: %w", publicKeys, err)
+	}
+
+	return channelAccounts, nil
 }
 
 func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {

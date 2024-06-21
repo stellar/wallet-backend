@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -38,11 +40,13 @@ var blockedOperationTypes = []xdr.OperationType{
 }
 
 type Configs struct {
-	Port             int
-	DatabaseURL      string
-	ServerBaseURL    string
-	WalletSigningKey string
-	LogLevel         logrus.Level
+	Port                    int
+	DatabaseURL             string
+	ServerBaseURL           string
+	WalletSigningKey        string
+	LogLevel                logrus.Level
+	EncryptionPassphrase    string
+	NumberOfChannelAccounts int
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -66,7 +70,7 @@ type handlerDeps struct {
 }
 
 func Serve(cfg Configs) error {
-	deps, err := getHandlerDeps(cfg)
+	deps, err := initHandlerDeps(cfg)
 	if err != nil {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
@@ -86,7 +90,7 @@ func Serve(cfg Configs) error {
 	return nil
 }
 
-func getHandlerDeps(cfg Configs) (handlerDeps, error) {
+func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
@@ -118,12 +122,37 @@ func getHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}
 
+	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+		DB:                                 dbConnectionPool,
+		HorizonClient:                      &horizonClient,
+		BaseFee:                            int64(cfg.BaseFee),
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountStore:                channelaccounts.NewChannelAccountModel(dbConnectionPool),
+		PrivateKeyEncrypter:                &channelaccounts.DefaultPrivateKeyEncrypter{},
+		EncryptionPassphrase:               cfg.EncryptionPassphrase,
+	})
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
+	}
+	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
+
 	return handlerDeps{
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountSponsorshipService: accountSponsorshipService,
 	}, nil
+}
+
+func ensureChannelAccounts(channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
+	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
+	if err != nil {
+		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
+		return
+	}
+	log.Ctx(ctx).Infof("Ensured that at least %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
 func handler(deps handlerDeps) http.Handler {
@@ -151,7 +180,6 @@ func handler(deps handlerDeps) http.Handler {
 			handler := &httphandler.AccountHandler{
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
-				BlockedOperationsTypes:    blockedOperationTypes,
 			}
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)

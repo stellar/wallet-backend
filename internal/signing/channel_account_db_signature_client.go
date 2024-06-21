@@ -2,11 +2,13 @@ package signing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
@@ -41,16 +43,45 @@ func (sc *channelAccountDBSignatureClient) NetworkPassphrase() string {
 }
 
 func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Context) (string, error) {
-	channelAccount, err := sc.channelAccountStore.GetIdleChannelAccount(ctx, time.Minute)
-	if err != nil {
-		return "", fmt.Errorf("getting idle channel account: %w", err)
+	for range channelaccounts.ChannelAccountWaitTime {
+		channelAccount, err := sc.channelAccountStore.GetIdleChannelAccount(ctx, time.Minute)
+		if err != nil {
+			if errors.Is(err, channelaccounts.ErrNoIdleChannelAccountAvailable) {
+				log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			return "", fmt.Errorf("getting idle channel account: %w", err)
+		}
+
+		return channelAccount.PublicKey, nil
 	}
-	return channelAccount.PublicKey, nil
+
+	numOfChannelAccounts, err := sc.channelAccountStore.Count(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting the number of channel accounts: %w", err)
+	}
+
+	if numOfChannelAccounts > 0 {
+		return "", channelaccounts.ErrNoIdleChannelAccountAvailable
+	}
+
+	return "", channelaccounts.ErrNoChannelAccountConfigured
 }
 
 func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Context, stellarAccounts ...string) ([]*keypair.Full, error) {
 	if len(stellarAccounts) == 0 {
 		return nil, fmt.Errorf("no accounts provided")
+	}
+
+	channelAccounts, err := sc.channelAccountStore.GetAllByPublicKey(ctx, sc.dbConnectionPool, stellarAccounts...)
+	if err != nil {
+		return nil, fmt.Errorf("getting channel accounts %v: %w", stellarAccounts, err)
+	}
+
+	channelAccountsMap := make(map[string]*channelaccounts.ChannelAccount, len(channelAccounts))
+	for _, chAcc := range channelAccounts {
+		channelAccountsMap[chAcc.PublicKey] = chAcc
 	}
 
 	accountsAlreadyAccountedFor := map[string]struct{}{}
@@ -65,9 +96,9 @@ func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Conte
 			return nil, fmt.Errorf("account %d is empty", i)
 		}
 
-		chAcc, err := sc.channelAccountStore.Get(ctx, sc.dbConnectionPool, account)
-		if err != nil {
-			return nil, fmt.Errorf("getting secret for channel account %q: %w", account, err)
+		chAcc, ok := channelAccountsMap[account]
+		if !ok {
+			return nil, fmt.Errorf("account %s not found", account)
 		}
 
 		chAccPrivateKey, err := sc.privateKeyEncrypter.Decrypt(ctx, chAcc.EncryptedPrivateKey, sc.encryptionPassphrase)

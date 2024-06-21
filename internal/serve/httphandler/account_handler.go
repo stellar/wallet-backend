@@ -7,7 +7,6 @@ import (
 	"github.com/stellar/go/support/http/httpdecode"
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -16,7 +15,6 @@ import (
 type AccountHandler struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	SupportedAssets           []entities.Asset
-	BlockedOperationsTypes    []xdr.OperationType
 }
 
 type SponsorAccountCreationRequest struct {

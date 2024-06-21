@@ -28,6 +28,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
 		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
+		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -67,6 +68,14 @@ func (c *serveCmd) Command() *cobra.Command {
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxSponsoredBaseReserves,
 			FlagDefault: 15,
+			Required:    true,
+		},
+		{
+			Name:        "number-channel-accounts",
+			Usage:       "The minimum number of Channel Accounts that must exist in the database.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.NumberOfChannelAccounts,
+			FlagDefault: 5,
 			Required:    true,
 		},
 	}

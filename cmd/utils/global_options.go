@@ -76,3 +76,13 @@ func DistributionAccountPrivateKeyOption(configKey *string) *config.ConfigOption
 		Required:       true,
 	}
 }
+
+func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:      "channel-account-encryption-passphrase",
+		Usage:     "The Encryption Passphrase used to encrypt the channel accounts private key.",
+		OptType:   types.String,
+		ConfigKey: configKey,
+		Required:  true,
+	}
+}

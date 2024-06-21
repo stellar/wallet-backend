@@ -23,6 +23,7 @@ type channelAccountCmdConfigOptions struct {
 	NetworkPassphrase             string
 	BaseFee                       int
 	DistributionAccountPrivateKey string
+	EncryptionPassphrase          string
 }
 
 type channelAccountCmd struct {
@@ -37,6 +38,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
 		utils.DistributionAccountPrivateKeyOption(&cfg.DistributionAccountPrivateKey),
+		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 	}
 
 	cmd := &cobra.Command{
@@ -63,15 +65,13 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
-			channelAccountModel := channelaccounts.ChannelAccountModel{DB: dbConnectionPool}
-
 			signatureClient, err := signing.NewEnvSignatureClient(cfg.DistributionAccountPrivateKey, cfg.NetworkPassphrase)
 			if err != nil {
 				return fmt.Errorf("instantiating distribution account signature client: %w", err)
 			}
 
+			channelAccountModel := channelaccounts.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
-
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 				DB: dbConnectionPool,
 				HorizonClient: &horizonclient.Client{
@@ -82,7 +82,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				DistributionAccountSignatureClient: signatureClient,
 				ChannelAccountStore:                &channelAccountModel,
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
-				EncryptionPassphrase:               cfg.DistributionAccountPrivateKey,
+				EncryptionPassphrase:               cfg.EncryptionPassphrase,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
