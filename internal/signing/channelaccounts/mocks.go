@@ -30,6 +30,14 @@ func (s *ChannelAccountStoreMock) Get(ctx context.Context, sqlExec db.SQLExecute
 	return args.Get(0).(*ChannelAccount), args.Error(1)
 }
 
+func (s *ChannelAccountStoreMock) GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error) {
+	args := s.Called(ctx, sqlExec, publicKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*ChannelAccount), args.Error(1)
+}
+
 func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {
 	args := s.Called(ctx, sqlExec, channelAccounts)
 	return args.Error(0)

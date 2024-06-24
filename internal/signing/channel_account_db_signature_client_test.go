@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,8 @@ import (
 )
 
 func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
 	channelAccountStore := channelaccounts.ChannelAccountStoreMock{}
@@ -27,13 +30,49 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Run("returns_error_when_couldn't_get_an_idle_channel_account", func(t *testing.T) {
 		channelAccountStore.
 			On("GetIdleChannelAccount", ctx, time.Minute).
-			Return(nil, channelaccounts.ErrNoAvailableChannelAccount).
+			Return(nil, channelaccounts.ErrNoIdleChannelAccountAvailable).
+			Times(6).
+			On("Count", ctx).
+			Return(5, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
+		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
+
 		publicKey, err := sc.GetAccountPublicKey(ctx)
-		assert.ErrorIs(t, err, channelaccounts.ErrNoAvailableChannelAccount)
+		assert.ErrorIs(t, err, channelaccounts.ErrNoIdleChannelAccountAvailable)
 		assert.Empty(t, publicKey)
+
+		entries := getEntries()
+		require.Len(t, entries, 6)
+
+		for _, entry := range entries {
+			assert.Equal(t, entry.Message, "All channel accounts are in use. Retry in 1 second.")
+		}
+	})
+
+	t.Run("returns_error_when_there's_no_channel_account_configured", func(t *testing.T) {
+		channelAccountStore.
+			On("GetIdleChannelAccount", ctx, time.Minute).
+			Return(nil, channelaccounts.ErrNoIdleChannelAccountAvailable).
+			Times(6).
+			On("Count", ctx).
+			Return(0, nil).
+			Once()
+		defer channelAccountStore.AssertExpectations(t)
+
+		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
+
+		publicKey, err := sc.GetAccountPublicKey(ctx)
+		assert.ErrorIs(t, err, channelaccounts.ErrNoChannelAccountConfigured)
+		assert.Empty(t, publicKey)
+
+		entries := getEntries()
+		require.Len(t, entries, 6)
+
+		for _, entry := range entries {
+			assert.Equal(t, entry.Message, "All channel accounts are in use. Retry in 1 second.")
+		}
 	})
 
 	t.Run("gets_an_idle_channel_account", func(t *testing.T) {
@@ -103,8 +142,8 @@ func TestChannelAccountDBSignatureClientSignStellarTransaction(t *testing.T) {
 			EncryptedPrivateKey: encryptedPrivateKey,
 		}
 		channelAccountStore.
-			On("Get", ctx, nil, channelAccount.Address()).
-			Return(&chAcc, nil).
+			On("GetAllByPublicKey", ctx, nil, []string{channelAccount.Address()}).
+			Return([]*channelaccounts.ChannelAccount{&chAcc}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
@@ -26,8 +25,6 @@ func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnection
 }
 
 func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
-	t.Parallel()
-
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -44,8 +41,6 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1.Address(), channelAccount1.Seed())
 		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount2.Address(), channelAccount2.Seed())
 
-		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
-
 		const lockChannelAccountQuery = `
 			UPDATE
 				channel_accounts
@@ -61,15 +56,8 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		require.NoError(t, err)
 
 		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
-		assert.ErrorIs(t, err, ErrNoAvailableChannelAccount)
+		assert.ErrorIs(t, err, ErrNoIdleChannelAccountAvailable)
 		assert.Nil(t, ca)
-
-		entries := getEntries()
-		require.Len(t, entries, 6)
-
-		for _, entry := range entries {
-			assert.Equal(t, entry.Message, "All channel accounts are in use. Retry in 1 second.")
-		}
 	})
 
 	t.Run("returns_error_when_there's_no_channel_account_available", func(t *testing.T) {
@@ -118,6 +106,30 @@ func TestChannelAccountModelGet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ca.PublicKey, channelAccount.Address())
 	assert.Equal(t, ca.EncryptedPrivateKey, channelAccount.Seed())
+}
+
+func TestChannelAccountModelGetAllByPublicKey(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	channelAccount1 := keypair.MustRandom()
+	channelAccount2 := keypair.MustRandom()
+	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1.Address(), channelAccount1.Seed())
+	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount2.Address(), channelAccount2.Seed())
+
+	channelAccounts, err := m.GetAllByPublicKey(ctx, dbConnectionPool, channelAccount1.Address(), channelAccount2.Address())
+	require.NoError(t, err)
+
+	assert.Len(t, channelAccounts, 2)
+	assert.Equal(t, channelAccount1.Address(), channelAccounts[0].PublicKey)
+	assert.Equal(t, channelAccount2.Address(), channelAccounts[1].PublicKey)
 }
 
 func TestChannelAccountModelBatchInsert(t *testing.T) {

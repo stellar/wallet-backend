@@ -93,7 +93,7 @@ func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, sqlExec db
 	const query = `SELECT * FROM channel_accounts WHERE public_key = ANY($1)`
 
 	var channelAccounts []*ChannelAccount
-	err := sqlExec.SelectContext(ctx, channelAccounts, query, pq.Array(publicKeys))
+	err := sqlExec.SelectContext(ctx, &channelAccounts, query, pq.Array(publicKeys))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel accounts %v: %w", publicKeys, err)
 	}
