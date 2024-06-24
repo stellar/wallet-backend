@@ -77,6 +77,7 @@ var _ Transaction = (*sqlx.Tx)(nil)
 type SQLExecuter interface {
 	DriverName() string
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	NamedExecContext(ctx context.Context, query string, arg interface{}) (sql.Result, error)
 	GetContext(ctx context.Context, dest interface{}, query string, args ...interface{}) error
 	sqlx.PreparerContext
 	sqlx.QueryerContext

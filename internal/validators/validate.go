@@ -21,7 +21,7 @@ func NewValidator() *validator.Validate {
 
 func publicKeyValidation(fl validator.FieldLevel) bool {
 	addr := fl.Field().String()
-	return strkey.IsValidEd25519PublicKey(addr) || strkey.IsValidMuxedAccountEd25519PublicKey(addr)
+	return addr == "" || strkey.IsValidEd25519PublicKey(addr) || strkey.IsValidMuxedAccountEd25519PublicKey(addr)
 }
 
 func ParseValidationError(errors validator.ValidationErrors) map[string]interface{} {

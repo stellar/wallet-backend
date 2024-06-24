@@ -134,6 +134,7 @@ func handler(deps handlerDeps) http.Handler {
 
 			r.Post("/subscribe", handler.SubscribeAddress)
 			r.Post("/unsubscribe", handler.UnsubscribeAddress)
+			r.Get("/", handler.GetPayments)
 		})
 
 		r.Route("/tx", func(r chi.Router) {

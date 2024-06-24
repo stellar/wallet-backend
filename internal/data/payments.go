@@ -14,20 +14,20 @@ type PaymentModel struct {
 }
 
 type Payment struct {
-	OperationID     int64     `db:"operation_id"`
-	OperationType   string    `db:"operation_type"`
-	TransactionID   int64     `db:"transaction_id"`
-	TransactionHash string    `db:"transaction_hash"`
-	FromAddress     string    `db:"from_address"`
-	ToAddress       string    `db:"to_address"`
-	SrcAssetCode    string    `db:"src_asset_code"`
-	SrcAssetIssuer  string    `db:"src_asset_issuer"`
-	SrcAmount       int64     `db:"src_amount"`
-	DestAssetCode   string    `db:"dest_asset_code"`
-	DestAssetIssuer string    `db:"dest_asset_issuer"`
-	DestAmount      int64     `db:"dest_amount"`
-	CreatedAt       time.Time `db:"created_at"`
-	Memo            *string   `db:"memo"`
+	OperationID     int64     `db:"operation_id" json:"operationId"`
+	OperationType   string    `db:"operation_type" json:"operationType"`
+	TransactionID   int64     `db:"transaction_id" json:"transactionId"`
+	TransactionHash string    `db:"transaction_hash" json:"transactionHash"`
+	FromAddress     string    `db:"from_address" json:"fromAddress"`
+	ToAddress       string    `db:"to_address" json:"toAddress"`
+	SrcAssetCode    string    `db:"src_asset_code" json:"srcAssetCode"`
+	SrcAssetIssuer  string    `db:"src_asset_issuer" json:"srcAssetIssuer"`
+	SrcAmount       int64     `db:"src_amount" json:"srcAmount"`
+	DestAssetCode   string    `db:"dest_asset_code" json:"destAssetCode"`
+	DestAssetIssuer string    `db:"dest_asset_issuer" json:"destAssetIssuer"`
+	DestAmount      int64     `db:"dest_amount" json:"destAmount"`
+	CreatedAt       time.Time `db:"created_at" json:"createdAt"`
+	Memo            *string   `db:"memo" json:"memo"`
 }
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
@@ -90,4 +90,33 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	}
 
 	return nil
+}
+
+func (m *PaymentModel) GetPayments(ctx context.Context, address string, afterID int64, sortOrder SortOrder, limit int) ([]Payment, error) {
+	if !sortOrder.IsValid() {
+		return nil, fmt.Errorf("invalid sort value: %s", sortOrder)
+	}
+
+	const query = `
+		SELECT * FROM ingest_payments
+		WHERE
+			($1 = '' OR $1 IN (from_address, to_address)) AND
+			($2 = 0 OR CASE
+				WHEN $3 = 'DESC' THEN operation_id < $2
+				ELSE operation_id > $2
+			END)
+		ORDER BY
+			CASE
+				WHEN $3 = 'DESC' THEN -operation_id
+				ELSE operation_id
+			END
+		LIMIT $4
+	`
+	var payments []Payment
+	err := m.DB.SelectContext(ctx, &payments, query, address, afterID, sortOrder, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetching payments: %w", err)
+	}
+
+	return payments, nil
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/keypair"
@@ -19,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubscribeAddress(t *testing.T) {
+func TestPaymentsHandlerSubscribeAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -118,7 +119,7 @@ func TestSubscribeAddress(t *testing.T) {
 	})
 }
 
-func TestUnsubscribeAddress(t *testing.T) {
+func TestPaymentsHandlerUnsubscribeAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -199,5 +200,246 @@ func TestUnsubscribeAddress(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		assert.JSONEq(t, `{"error":"Validation error.", "extras": {"address":"Invalid public key provided"}}`, string(respBody))
+	})
+}
+
+func TestPaymentsHandlerGetPayments(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	models, err := data.NewModels(dbConnectionPool)
+	require.NoError(t, err)
+	handler := &PaymentsHandler{
+		Models: models,
+	}
+
+	// Setup router
+	r := chi.NewRouter()
+	r.Route("/payments", func(r chi.Router) {
+		r.Get("/", handler.GetPayments)
+	})
+	ctx := context.Background()
+
+	dbPayments := []data.Payment{
+		{OperationID: 1, OperationType: "OperationTypePayment", TransactionID: 11, TransactionHash: "c370ff20144e4c96b17432b8d14664c1", FromAddress: "GD73EG2IJJQQTCD33JKPKEGS76CJJ4TQ7NHDQYMS4D3Z5FBHPML6M66W", ToAddress: "GCJ4LXZIQRSS5Z7YVIH5YLA7RXMYB64DQN3XMKWEBHUUAFXIXOL3GYVT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAmount: 10, DestAssetCode: "XLM", DestAssetIssuer: "", DestAmount: 10, CreatedAt: time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC), Memo: nil},
+		{OperationID: 2, OperationType: "OperationTypePayment", TransactionID: 22, TransactionHash: "30850d8fc7d1439782885103390cd975", FromAddress: "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L", ToAddress: "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAmount: 20, DestAssetCode: "XLM", DestAssetIssuer: "", DestAmount: 20, CreatedAt: time.Date(2024, 6, 22, 0, 0, 0, 0, time.UTC), Memo: nil},
+		{OperationID: 3, OperationType: "OperationTypePayment", TransactionID: 33, TransactionHash: "d9521ed7057d4d1e9b9dd22ab515cbf1", FromAddress: "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W", ToAddress: "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAmount: 30, DestAssetCode: "XLM", DestAssetIssuer: "", DestAmount: 30, CreatedAt: time.Date(2024, 6, 23, 0, 0, 0, 0, time.UTC), Memo: nil},
+	}
+
+	const query = `INSERT INTO ingest_payments (operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo) VALUES (:operation_id, :operation_type, :transaction_id, :transaction_hash, :from_address, :to_address, :src_asset_code, :src_asset_issuer, :src_amount, :dest_asset_code, :dest_asset_issuer, :dest_amount, :created_at, :memo);`
+	_, err = dbConnectionPool.NamedExecContext(ctx, query, dbPayments)
+	require.NoError(t, err)
+
+	t.Run("no_filters", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"payments": [
+				{
+					"createdAt": "2024-06-23T00:00:00Z",
+					"destAmount": 30,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W",
+					"memo": null,
+					"operationId": 3,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 30,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN",
+					"transactionHash": "d9521ed7057d4d1e9b9dd22ab515cbf1",
+					"transactionId": 33
+				},
+				{
+					"createdAt": "2024-06-22T00:00:00Z",
+					"destAmount": 20,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
+					"memo": null,
+					"operationId": 2,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 20,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
+					"transactionHash": "30850d8fc7d1439782885103390cd975",
+					"transactionId": 22
+				},
+				{
+					"createdAt": "2024-06-21T00:00:00Z",
+					"destAmount": 10,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GD73EG2IJJQQTCD33JKPKEGS76CJJ4TQ7NHDQYMS4D3Z5FBHPML6M66W",
+					"memo": null,
+					"operationId": 1,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 10,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GCJ4LXZIQRSS5Z7YVIH5YLA7RXMYB64DQN3XMKWEBHUUAFXIXOL3GYVT",
+					"transactionHash": "c370ff20144e4c96b17432b8d14664c1",
+					"transactionId": 11
+				}
+			]
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("limit_1_after_1", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments?afterId=3&limit=1", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"payments": [
+				{
+					"createdAt": "2024-06-22T00:00:00Z",
+					"destAmount": 20,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
+					"memo": null,
+					"operationId": 2,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 20,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
+					"transactionHash": "30850d8fc7d1439782885103390cd975",
+					"transactionId": 22
+				}
+			]
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("limit_1_after_2_asc", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments?sort=ASC&afterId=2&limit=1", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"payments": [
+				{
+					"createdAt": "2024-06-23T00:00:00Z",
+					"destAmount": 30,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W",
+					"memo": null,
+					"operationId": 3,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 30,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN",
+					"transactionHash": "d9521ed7057d4d1e9b9dd22ab515cbf1",
+					"transactionId": 33
+				}
+			]
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("filter_address", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments?address=GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 200 response
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"payments": [
+				{
+					"createdAt": "2024-06-22T00:00:00Z",
+					"destAmount": 20,
+					"destAssetCode": "XLM",
+					"destAssetIssuer": "",
+					"fromAddress": "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
+					"memo": null,
+					"operationId": 2,
+					"operationType": "OperationTypePayment",
+					"srcAmount": 20,
+					"srcAssetCode": "XLM",
+					"srcAssetIssuer": "",
+					"toAddress": "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
+					"transactionHash": "30850d8fc7d1439782885103390cd975",
+					"transactionId": 22
+				}
+			]
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("invalid_limit_param", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments?limit=0&sort=BS", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 400 response
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"error": "Validation error.",
+			"extras": {
+				"limit": "Should be greater than 0",
+				"sort": "Unexpected value \"BS\". Expected one of the following values: ASC, DESC"
+			}
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})
 }
