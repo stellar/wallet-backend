@@ -51,10 +51,11 @@ func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reque
 }
 
 type PaymentsRequest struct {
-	Address string         `query:"address" validate:"public_key"`
-	AfterID int64          `query:"afterId"`
-	Sort    data.SortOrder `query:"sort" validate:"oneof=ASC DESC"`
-	Limit   int            `query:"limit" validate:"gt=0"`
+	Address  string         `query:"address" validate:"public_key"`
+	AfterID  int64          `query:"afterId"`
+	BeforeID int64          `query:"beforeId"`
+	Sort     data.SortOrder `query:"sort" validate:"oneof=ASC DESC"`
+	Limit    int            `query:"limit" validate:"gt=0"`
 }
 
 type PaymentsResponse struct {
@@ -71,7 +72,7 @@ func (h PaymentsHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payments, err := h.Models.Payments.GetPayments(ctx, reqQuery.Address, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
+	payments, err := h.Models.Payments.GetPayments(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
 	if err != nil {
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return

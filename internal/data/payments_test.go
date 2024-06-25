@@ -171,7 +171,7 @@ func TestPaymentModelGetPayments(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("no_filter_desc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, DESC, 2)
+		payments, err := m.GetPayments(ctx, "", 0, 0, DESC, 2)
 		require.NoError(t, err)
 
 		assert.Equal(t, []Payment{
@@ -181,7 +181,7 @@ func TestPaymentModelGetPayments(t *testing.T) {
 	})
 
 	t.Run("no_filter_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, ASC, 2)
+		payments, err := m.GetPayments(ctx, "", 0, 0, ASC, 2)
 		require.NoError(t, err)
 
 		assert.Equal(t, []Payment{
@@ -190,8 +190,8 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("afterid_desc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", dbPayments[3].OperationID, DESC, 2)
+	t.Run("after_id_desc", func(t *testing.T) {
+		payments, err := m.GetPayments(ctx, "", 0, dbPayments[3].OperationID, DESC, 2)
 		require.NoError(t, err)
 
 		assert.Equal(t, []Payment{
@@ -200,12 +200,41 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("afterid_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", dbPayments[3].OperationID, ASC, 2)
+	t.Run("after_id_asc", func(t *testing.T) {
+		payments, err := m.GetPayments(ctx, "", 0, dbPayments[3].OperationID, ASC, 2)
 		require.NoError(t, err)
 
 		assert.Equal(t, []Payment{
 			dbPayments[4],
+		}, payments)
+	})
+
+	t.Run("before_id_desc", func(t *testing.T) {
+		payments, err := m.GetPayments(ctx, "", dbPayments[2].OperationID, 0, DESC, 2)
+		require.NoError(t, err)
+
+		assert.Equal(t, []Payment{
+			dbPayments[4],
+			dbPayments[3],
+		}, payments)
+	})
+
+	t.Run("before_id_asc", func(t *testing.T) {
+		payments, err := m.GetPayments(ctx, "", dbPayments[2].OperationID, 0, ASC, 2)
+		require.NoError(t, err)
+
+		assert.Equal(t, []Payment{
+			dbPayments[0],
+			dbPayments[1],
+		}, payments)
+	})
+
+	t.Run("before_id_after_id_asc", func(t *testing.T) {
+		payments, err := m.GetPayments(ctx, "", dbPayments[4].OperationID, dbPayments[2].OperationID, ASC, 2)
+		require.NoError(t, err)
+
+		assert.Equal(t, []Payment{
+			dbPayments[3],
 		}, payments)
 	})
 }

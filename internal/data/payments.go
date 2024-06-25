@@ -92,7 +92,7 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	return nil
 }
 
-func (m *PaymentModel) GetPayments(ctx context.Context, address string, afterID int64, sortOrder SortOrder, limit int) ([]Payment, error) {
+func (m *PaymentModel) GetPayments(ctx context.Context, address string, beforeID, afterID int64, sortOrder SortOrder, limit int) ([]Payment, error) {
 	if !sortOrder.IsValid() {
 		return nil, fmt.Errorf("invalid sort value: %s", sortOrder)
 	}
@@ -102,18 +102,22 @@ func (m *PaymentModel) GetPayments(ctx context.Context, address string, afterID 
 		WHERE
 			($1 = '' OR $1 IN (from_address, to_address)) AND
 			($2 = 0 OR CASE
-				WHEN $3 = 'DESC' THEN operation_id < $2
-				ELSE operation_id > $2
+				WHEN $4 = 'DESC' THEN operation_id > $2
+				ELSE operation_id < $2
+			END) AND
+			($3 = 0 OR CASE
+				WHEN $4 = 'DESC' THEN operation_id < $3
+				ELSE operation_id > $3
 			END)
 		ORDER BY
 			CASE
-				WHEN $3 = 'DESC' THEN -operation_id
+				WHEN $4 = 'DESC' THEN -operation_id
 				ELSE operation_id
 			END
-		LIMIT $4
+		LIMIT $5
 	`
 	var payments []Payment
-	err := m.DB.SelectContext(ctx, &payments, query, address, afterID, sortOrder, limit)
+	err := m.DB.SelectContext(ctx, &payments, query, address, beforeID, afterID, sortOrder, limit)
 	if err != nil {
 		return nil, fmt.Errorf("fetching payments: %w", err)
 	}
