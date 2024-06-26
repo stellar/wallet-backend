@@ -234,9 +234,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 		{OperationID: 2, OperationType: "OperationTypePayment", TransactionID: 22, TransactionHash: "30850d8fc7d1439782885103390cd975", FromAddress: "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L", ToAddress: "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAmount: 20, DestAssetCode: "XLM", DestAssetIssuer: "", DestAmount: 20, CreatedAt: time.Date(2024, 6, 22, 0, 0, 0, 0, time.UTC), Memo: nil},
 		{OperationID: 3, OperationType: "OperationTypePayment", TransactionID: 33, TransactionHash: "d9521ed7057d4d1e9b9dd22ab515cbf1", FromAddress: "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W", ToAddress: "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAmount: 30, DestAssetCode: "XLM", DestAssetIssuer: "", DestAmount: 30, CreatedAt: time.Date(2024, 6, 23, 0, 0, 0, 0, time.UTC), Memo: nil},
 	}
-
-	_, err = dbConnectionPool.NamedExecContext(ctx, data.InsertPaymentsQuery, dbPayments)
-	require.NoError(t, err)
+	data.InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("no_filters", func(t *testing.T) {
 		// Prepare request

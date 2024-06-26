@@ -37,9 +37,7 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 		{OperationID: 4, OperationType: "OperationTypePayment", TransactionID: 44, TransactionHash: "2af98496a86741c6a6814200e06027fd", FromAddress: "GACKTNR2QQXU", ToAddress: "GBZ5KUZHAAVI", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAmount: 40, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAmount: 40, CreatedAt: time.Date(2024, 6, 24, 0, 0, 0, 0, time.UTC), Memo: nil},
 		{OperationID: 5, OperationType: "OperationTypePayment", TransactionID: 55, TransactionHash: "edfab36f9f104c4fb74b549de44cfbcc", FromAddress: "GA4CMYJEC5W5", ToAddress: "GAZ37ZO4TU3H", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAmount: 50, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAmount: 50, CreatedAt: time.Date(2024, 6, 25, 0, 0, 0, 0, time.UTC), Memo: nil},
 	}
-
-	_, err = dbConnectionPool.NamedExecContext(ctx, data.InsertPaymentsQuery, dbPayments)
-	require.NoError(t, err)
+	data.InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("page_1", func(t *testing.T) {
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", 0, 0, data.DESC, 2)
