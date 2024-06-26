@@ -128,12 +128,13 @@ func handler(deps handlerDeps) http.Handler {
 		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
 
 		r.Route("/payments", func(r chi.Router) {
-			handler := &httphandler.PaymentsHandler{
+			handler := &httphandler.PaymentHandler{
 				Models: deps.Models,
 			}
 
 			r.Post("/subscribe", handler.SubscribeAddress)
 			r.Post("/unsubscribe", handler.UnsubscribeAddress)
+			r.Get("/", handler.GetPayments)
 		})
 
 		r.Route("/tx", func(r chi.Router) {

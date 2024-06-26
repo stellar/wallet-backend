@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/stellar/go/support/http/httpdecode"
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -35,12 +34,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 	ctx := req.Context()
 
 	var reqBody SponsorAccountCreationRequest
-	if err := httpdecode.DecodeJSON(req, &reqBody); err != nil {
-		httperror.BadRequest("", nil).Render(rw)
-		return
-	}
-
-	httpErr := ValidateRequestBody(ctx, reqBody)
+	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody)
 	if httpErr != nil {
 		httpErr.Render(rw)
 		return

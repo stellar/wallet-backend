@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,20 +15,20 @@ type PaymentModel struct {
 }
 
 type Payment struct {
-	OperationID     int64     `db:"operation_id"`
-	OperationType   string    `db:"operation_type"`
-	TransactionID   int64     `db:"transaction_id"`
-	TransactionHash string    `db:"transaction_hash"`
-	FromAddress     string    `db:"from_address"`
-	ToAddress       string    `db:"to_address"`
-	SrcAssetCode    string    `db:"src_asset_code"`
-	SrcAssetIssuer  string    `db:"src_asset_issuer"`
-	SrcAmount       int64     `db:"src_amount"`
-	DestAssetCode   string    `db:"dest_asset_code"`
-	DestAssetIssuer string    `db:"dest_asset_issuer"`
-	DestAmount      int64     `db:"dest_amount"`
-	CreatedAt       time.Time `db:"created_at"`
-	Memo            *string   `db:"memo"`
+	OperationID     int64     `db:"operation_id" json:"operationId"`
+	OperationType   string    `db:"operation_type" json:"operationType"`
+	TransactionID   int64     `db:"transaction_id" json:"transactionId"`
+	TransactionHash string    `db:"transaction_hash" json:"transactionHash"`
+	FromAddress     string    `db:"from_address" json:"fromAddress"`
+	ToAddress       string    `db:"to_address" json:"toAddress"`
+	SrcAssetCode    string    `db:"src_asset_code" json:"srcAssetCode"`
+	SrcAssetIssuer  string    `db:"src_asset_issuer" json:"srcAssetIssuer"`
+	SrcAmount       int64     `db:"src_amount" json:"srcAmount"`
+	DestAssetCode   string    `db:"dest_asset_code" json:"destAssetCode"`
+	DestAssetIssuer string    `db:"dest_asset_issuer" json:"destAssetIssuer"`
+	DestAmount      int64     `db:"dest_amount" json:"destAmount"`
+	CreatedAt       time.Time `db:"created_at" json:"createdAt"`
+	Memo            *string   `db:"memo" json:"memo"`
 }
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
@@ -90,4 +91,111 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	}
 
 	return nil
+}
+
+func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID int64, sort SortOrder, limit int) ([]Payment, bool, bool, error) {
+	if !sort.IsValid() {
+		return nil, false, false, fmt.Errorf("invalid sort value: %s", sort)
+	}
+
+	if beforeID != 0 && afterID != 0 {
+		return nil, false, false, errors.New("at most one cursor may be provided, got afterId and beforeId")
+	}
+
+	const filteredSetCTE = `
+		WITH filtered_set AS (
+			SELECT * FROM ingest_payments WHERE :address = '' OR :address IN (from_address, to_address)
+		)
+	`
+
+	var selectQ string
+	if beforeID != 0 && sort == DESC {
+		selectQ = "SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id > :before_id ORDER BY operation_id ASC LIMIT :limit) AS reverse_set ORDER BY operation_id DESC"
+	} else if beforeID != 0 && sort == ASC {
+		selectQ = "SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id < :before_id ORDER BY operation_id DESC LIMIT :limit) AS reverse_set ORDER BY operation_id ASC"
+	} else if afterID != 0 && sort == DESC {
+		selectQ = "SELECT * FROM filtered_set WHERE operation_id < :after_id ORDER BY operation_id DESC LIMIT :limit"
+	} else if afterID != 0 && sort == ASC {
+		selectQ = "SELECT * FROM filtered_set WHERE operation_id > :after_id ORDER BY operation_id ASC LIMIT :limit"
+	} else if sort == ASC {
+		selectQ = "SELECT * FROM filtered_set ORDER BY operation_id ASC LIMIT :limit"
+	} else {
+		selectQ = "SELECT * FROM filtered_set ORDER BY operation_id DESC LIMIT :limit"
+	}
+
+	argumentsMap := map[string]interface{}{
+		"address":   address,
+		"limit":     limit,
+		"before_id": beforeID,
+		"after_id":  afterID,
+	}
+
+	payments := make([]Payment, 0)
+	query := fmt.Sprintf("%s %s", filteredSetCTE, selectQ)
+	query, args, err := PrepareNamedQuery(ctx, m.DB, query, argumentsMap)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("preparing named query: %w", err)
+	}
+	err = m.DB.SelectContext(ctx, &payments, query, args...)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("fetching payments: %w", err)
+	}
+
+	prevExists, nextExists, err := m.existsPrevNext(ctx, filteredSetCTE, address, sort, payments)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("checking prev and next pages: %w", err)
+	}
+
+	return payments, prevExists, nextExists, nil
+}
+
+func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string, address string, sort SortOrder, payments []Payment) (bool, bool, error) {
+	firstElementID := FirstPaymentOperationID(payments)
+	lastElementID := LastPaymentOperationID(payments)
+
+	query := fmt.Sprintf(`
+		%s
+		SELECT
+			EXISTS(
+				SELECT 1 FROM filtered_set WHERE CASE WHEN :sort = 'ASC' THEN operation_id < :first_element_id WHEN :sort = 'DESC' THEN operation_id > :first_element_id END LIMIT 1
+			) AS prev_exists,
+			EXISTS(
+				SELECT 1 FROM filtered_set WHERE CASE WHEN :sort = 'ASC' THEN operation_id > :last_element_id WHEN :sort = 'DESC' THEN operation_id < :last_element_id END LIMIT 1
+			) AS next_exists
+	`, filteredSetCTE)
+
+	argumentsMap := map[string]interface{}{
+		"address":          address,
+		"first_element_id": firstElementID,
+		"last_element_id":  lastElementID,
+		"sort":             sort,
+	}
+
+	query, args, err := PrepareNamedQuery(ctx, m.DB, query, argumentsMap)
+	if err != nil {
+		return false, false, fmt.Errorf("preparing named query: %w", err)
+	}
+
+	var prevExists, nextExists bool
+	err = m.DB.QueryRowxContext(ctx, query, args...).Scan(&prevExists, &nextExists)
+	if err != nil {
+		return false, false, fmt.Errorf("fetching prev and next exists: %w", err)
+	}
+
+	return prevExists, nextExists, nil
+}
+
+func FirstPaymentOperationID(payments []Payment) int64 {
+	if len(payments) > 0 {
+		return payments[0].OperationID
+	}
+	return 0
+}
+
+func LastPaymentOperationID(payments []Payment) int64 {
+	len := len(payments)
+	if len > 0 {
+		return payments[len-1].OperationID
+	}
+	return 0
 }
