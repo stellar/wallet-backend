@@ -10,7 +10,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-type PaymentsHandler struct {
+type PaymentHandler struct {
 	Models  *data.Models
 	Service *services.PaymentService
 }
@@ -19,7 +19,7 @@ type PaymentsSubscribeRequest struct {
 	Address string `json:"address" validate:"required,public_key"`
 }
 
-func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request) {
+func (h PaymentHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var reqBody PaymentsSubscribeRequest
@@ -36,7 +36,7 @@ func (h PaymentsHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func (h PaymentsHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Request) {
+func (h PaymentHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var reqBody PaymentsSubscribeRequest
@@ -66,7 +66,7 @@ type PaymentsResponse struct {
 	entities.Pagination
 }
 
-func (h PaymentsHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
+func (h PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	reqQuery := PaymentsRequest{Sort: data.DESC, Limit: 50}

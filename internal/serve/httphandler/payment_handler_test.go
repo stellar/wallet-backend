@@ -31,7 +31,7 @@ func TestPaymentsHandlerSubscribeAddress(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	handler := &PaymentsHandler{
+	handler := &PaymentHandler{
 		Models: models,
 	}
 
@@ -130,7 +130,7 @@ func TestPaymentsHandlerUnsubscribeAddress(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	handler := &PaymentsHandler{
+	handler := &PaymentHandler{
 		Models: models,
 	}
 
@@ -214,7 +214,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	handler := &PaymentsHandler{
+	handler := &PaymentHandler{
 		Models: models,
 		Service: &services.PaymentService{
 			Models:        models,
