@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -92,35 +93,85 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	return nil
 }
 
-func (m *PaymentModel) GetPayments(ctx context.Context, address string, beforeID, afterID int64, sortOrder SortOrder, limit int) ([]Payment, error) {
-	if !sortOrder.IsValid() {
-		return nil, fmt.Errorf("invalid sort value: %s", sortOrder)
+func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID int64, sort SortOrder, limit int) ([]Payment, bool, bool, error) {
+	if !sort.IsValid() {
+		return nil, false, false, fmt.Errorf("invalid sort value: %s", sort)
 	}
 
-	const query = `
-		SELECT * FROM ingest_payments
-		WHERE
-			($1 = '' OR $1 IN (from_address, to_address)) AND
-			($2 = 0 OR CASE
-				WHEN $4 = 'DESC' THEN operation_id > $2
-				ELSE operation_id < $2
-			END) AND
-			($3 = 0 OR CASE
-				WHEN $4 = 'DESC' THEN operation_id < $3
-				ELSE operation_id > $3
-			END)
-		ORDER BY
-			CASE
-				WHEN $4 = 'DESC' THEN -operation_id
-				ELSE operation_id
-			END
-		LIMIT $5
+	if beforeID != 0 && afterID != 0 {
+		return nil, false, false, errors.New("at most one cursor may be provided, got afterId and beforeId")
+	}
+
+	const filteredSetCTE = `
+		WITH filtered_set AS (
+			SELECT * FROM ingest_payments WHERE $1 = '' OR $1 IN (from_address, to_address)
+		)
 	`
-	var payments []Payment
-	err := m.DB.SelectContext(ctx, &payments, query, address, beforeID, afterID, sortOrder, limit)
-	if err != nil {
-		return nil, fmt.Errorf("fetching payments: %w", err)
+
+	var selectQ string
+	if beforeID != 0 && sort == DESC {
+		selectQ = fmt.Sprintf("SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id > %d ORDER BY operation_id ASC LIMIT $2) AS reverse_set ORDER BY operation_id DESC", beforeID)
+	} else if beforeID != 0 && sort == ASC {
+		selectQ = fmt.Sprintf("SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id < %d ORDER BY operation_id DESC LIMIT $2) AS reverse_set ORDER BY operation_id ASC", beforeID)
+	} else if afterID != 0 && sort == DESC {
+		selectQ = fmt.Sprintf("SELECT * FROM filtered_set WHERE operation_id < %d ORDER BY operation_id DESC LIMIT $2", afterID)
+	} else if afterID != 0 && sort == ASC {
+		selectQ = fmt.Sprintf("SELECT * FROM filtered_set WHERE operation_id > %d ORDER BY operation_id ASC LIMIT $2", afterID)
+	} else if sort == ASC {
+		selectQ = "SELECT * FROM filtered_set ORDER BY operation_id ASC LIMIT $2"
+	} else {
+		selectQ = "SELECT * FROM filtered_set ORDER BY operation_id DESC LIMIT $2"
 	}
 
-	return payments, nil
+	payments := make([]Payment, 0)
+	query := fmt.Sprintf("%s %s", filteredSetCTE, selectQ)
+	err := m.DB.SelectContext(ctx, &payments, query, address, limit)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("fetching payments: %w", err)
+	}
+
+	prevExists, nextExists, err := m.existsPrevNext(ctx, filteredSetCTE, address, sort, payments)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("checking prev and next pages: %w", err)
+	}
+
+	return payments, prevExists, nextExists, nil
+}
+
+func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string, address string, sort SortOrder, payments []Payment) (bool, bool, error) {
+	firstElementID := FirstElementID(payments)
+	lastElementID := LastElementID(payments)
+
+	query := fmt.Sprintf(`
+		%s
+		SELECT
+			EXISTS(
+				SELECT 1 FROM filtered_set WHERE CASE WHEN $2 = 'ASC' THEN operation_id < $3 WHEN $2 = 'DESC' THEN operation_id > $3 END LIMIT 1
+			) AS prev_exists,
+			EXISTS(
+				SELECT 1 FROM filtered_set WHERE CASE WHEN $2 = 'ASC' THEN operation_id > $4 WHEN $2 = 'DESC' THEN operation_id < $4 END LIMIT 1
+			) AS next_exists
+	`, filteredSetCTE)
+	var prevExists, nextExists bool
+	err := m.DB.QueryRowxContext(ctx, query, address, sort, firstElementID, lastElementID).Scan(&prevExists, &nextExists)
+	if err != nil {
+		return false, false, fmt.Errorf("fetching prev and next exists: %w", err)
+	}
+
+	return prevExists, nextExists, nil
+}
+
+func FirstElementID(payments []Payment) int64 {
+	if len(payments) > 0 {
+		return payments[0].OperationID
+	}
+	return 0
+}
+
+func LastElementID(payments []Payment) int64 {
+	len := len(payments)
+	if len > 0 {
+		return payments[len-1].OperationID
+	}
+	return 0
 }

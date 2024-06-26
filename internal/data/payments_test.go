@@ -166,13 +166,15 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		{OperationID: 5, OperationType: "OperationTypePayment", TransactionID: 55, TransactionHash: "edfab36f9f104c4fb74b549de44cfbcc", FromAddress: "GA4CMYJEC5W5", ToAddress: "GAZ37ZO4TU3H", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAmount: 50, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAmount: 50, CreatedAt: time.Date(2024, 6, 25, 0, 0, 0, 0, time.UTC), Memo: nil},
 	}
 
-	const query = `INSERT INTO ingest_payments (operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo) VALUES (:operation_id, :operation_type, :transaction_id, :transaction_hash, :from_address, :to_address, :src_asset_code, :src_asset_issuer, :src_amount, :dest_asset_code, :dest_asset_issuer, :dest_amount, :created_at, :memo);`
-	_, err = dbConnectionPool.NamedExecContext(ctx, query, dbPayments)
+	_, err = dbConnectionPool.NamedExecContext(ctx, InsertPaymentsQuery, dbPayments)
 	require.NoError(t, err)
 
 	t.Run("no_filter_desc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, 0, DESC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, 0, DESC, 2)
 		require.NoError(t, err)
+
+		assert.False(t, prevExists)
+		assert.True(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[4],
@@ -181,8 +183,11 @@ func TestPaymentModelGetPayments(t *testing.T) {
 	})
 
 	t.Run("no_filter_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, 0, ASC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, 0, ASC, 2)
 		require.NoError(t, err)
+
+		assert.False(t, prevExists)
+		assert.True(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[0],
@@ -190,9 +195,24 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("after_id_desc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, dbPayments[3].OperationID, DESC, 2)
+	t.Run("filter_address", func(t *testing.T) {
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, dbPayments[1].FromAddress, 0, 0, DESC, 2)
 		require.NoError(t, err)
+
+		assert.False(t, prevExists)
+		assert.False(t, nextExists)
+
+		assert.Equal(t, []Payment{
+			dbPayments[1],
+		}, payments)
+	})
+
+	t.Run("filter_after_id_desc", func(t *testing.T) {
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, dbPayments[3].OperationID, DESC, 2)
+		require.NoError(t, err)
+
+		assert.True(t, prevExists)
+		assert.True(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[2],
@@ -200,18 +220,24 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("after_id_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", 0, dbPayments[3].OperationID, ASC, 2)
+	t.Run("filter_after_id_asc", func(t *testing.T) {
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, dbPayments[3].OperationID, ASC, 2)
 		require.NoError(t, err)
+
+		assert.True(t, prevExists)
+		assert.False(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[4],
 		}, payments)
 	})
 
-	t.Run("before_id_desc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", dbPayments[2].OperationID, 0, DESC, 2)
+	t.Run("filter_before_id_desc", func(t *testing.T) {
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, 0, DESC, 2)
 		require.NoError(t, err)
+
+		assert.False(t, prevExists)
+		assert.True(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[4],
@@ -219,9 +245,12 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("before_id_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", dbPayments[2].OperationID, 0, ASC, 2)
+	t.Run("filter_before_id_asc", func(t *testing.T) {
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, 0, ASC, 2)
 		require.NoError(t, err)
+
+		assert.False(t, prevExists)
+		assert.True(t, nextExists)
 
 		assert.Equal(t, []Payment{
 			dbPayments[0],
@@ -229,12 +258,8 @@ func TestPaymentModelGetPayments(t *testing.T) {
 		}, payments)
 	})
 
-	t.Run("before_id_after_id_asc", func(t *testing.T) {
-		payments, err := m.GetPayments(ctx, "", dbPayments[4].OperationID, dbPayments[2].OperationID, ASC, 2)
-		require.NoError(t, err)
-
-		assert.Equal(t, []Payment{
-			dbPayments[3],
-		}, payments)
+	t.Run("filter_before_id_after_id_asc", func(t *testing.T) {
+		_, _, _, err := m.GetPaymentsPaginated(ctx, "", dbPayments[4].OperationID, dbPayments[2].OperationID, ASC, 2)
+		assert.ErrorContains(t, err, "at most one cursor may be provided, got afterId and beforeId")
 	})
 }
