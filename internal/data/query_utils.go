@@ -19,6 +19,8 @@ func (o SortOrder) IsValid() bool {
 	return o == ASC || o == DESC
 }
 
+// PrepareNamedQuery prepares the given query replacing the named parameters with Postgres' bindvars.
+// It returns an SQL Injection-safe query and the arguments array to be used alongside it.
 func PrepareNamedQuery(ctx context.Context, connectionPool db.ConnectionPool, namedQuery string, argsMap map[string]interface{}) (string, []interface{}, error) {
 	query, args, err := sqlx.Named(namedQuery, argsMap)
 	if err != nil {
