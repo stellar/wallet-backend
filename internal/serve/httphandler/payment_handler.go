@@ -5,11 +5,14 @@ import (
 
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 type PaymentsHandler struct {
-	Models *data.Models
+	Models  *data.Models
+	Service *services.PaymentService
 }
 
 type PaymentsSubscribeRequest struct {
@@ -60,6 +63,7 @@ type PaymentsRequest struct {
 
 type PaymentsResponse struct {
 	Payments []data.Payment `json:"payments"`
+	entities.Pagination
 }
 
 func (h PaymentsHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
@@ -72,13 +76,14 @@ func (h PaymentsHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payments, err := h.Models.Payments.GetPayments(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
+	payments, pagination, err := h.Service.GetPaymentsPaginated(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
 	if err != nil {
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
 	}
 
 	httpjson.Render(w, PaymentsResponse{
-		Payments: payments,
+		Payments:   payments,
+		Pagination: pagination,
 	}, httpjson.JSON)
 }
