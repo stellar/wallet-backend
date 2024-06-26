@@ -139,8 +139,8 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 }
 
 func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string, address string, sort SortOrder, payments []Payment) (bool, bool, error) {
-	firstElementID := FirstElementID(payments)
-	lastElementID := LastElementID(payments)
+	firstElementID := FirstPaymentOperationID(payments)
+	lastElementID := LastPaymentOperationID(payments)
 
 	query := fmt.Sprintf(`
 		%s
@@ -161,14 +161,14 @@ func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string
 	return prevExists, nextExists, nil
 }
 
-func FirstElementID(payments []Payment) int64 {
+func FirstPaymentOperationID(payments []Payment) int64 {
 	if len(payments) > 0 {
 		return payments[0].OperationID
 	}
 	return 0
 }
 
-func LastElementID(payments []Payment) int64 {
+func LastPaymentOperationID(payments []Payment) int64 {
 	len := len(payments)
 	if len > 0 {
 		return payments[len-1].OperationID

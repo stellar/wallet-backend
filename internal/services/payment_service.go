@@ -28,7 +28,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 	}
 
 	if prevExists {
-		firstElementID := data.FirstElementID(payments)
+		firstElementID := data.FirstPaymentOperationID(payments)
 		prev, err = buildURL(s.ServerBaseURL, address, firstElementID, 0, sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building prev link: %w", err)
@@ -36,7 +36,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 	}
 
 	if nextExists {
-		lastElementID := data.LastElementID(payments)
+		lastElementID := data.LastPaymentOperationID(payments)
 		next, err = buildURL(s.ServerBaseURL, address, 0, lastElementID, sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building next link: %w", err)
