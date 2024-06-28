@@ -106,7 +106,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 
 	t.Run("to_known_address_update_on_reingestion", func(t *testing.T) {
 		updatedPayment := Payment{
-			OperationID:     payment.OperationID,
+			OperationID:     payment.OperationID, // Same OperationID
 			OperationType:   xdr.OperationTypePathPaymentStrictSend.String(),
 			TransactionID:   2120562792996865,
 			TransactionHash: "a3daffa64dc46db84888b1206dc8014a480042e7fe8b19fd5d05465709f4e888",
