@@ -101,7 +101,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
 
-			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, distributionAccountPrivateKey)
+			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {
 				return fmt.Errorf("instantiating channel account db signature client: %w", err)
 			}
