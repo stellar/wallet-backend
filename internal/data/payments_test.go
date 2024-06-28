@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,9 +51,9 @@ func TestPaymentModelAddPayment(t *testing.T) {
 		MemoType:        xdr.MemoTypeMemoNone.String(),
 	}
 
-	addPayment := func() {
+	addPayment := func(p Payment) {
 		err := db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
-			return m.AddPayment(ctx, dbTx, payment)
+			return m.AddPayment(ctx, dbTx, p)
 		})
 		require.NoError(t, err)
 	}
@@ -69,7 +70,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	}
 
 	t.Run("unkown_address", func(t *testing.T) {
-		addPayment()
+		addPayment(payment)
 
 		_, err := fetchPayment()
 		assert.ErrorIs(t, err, sql.ErrNoRows)
@@ -81,7 +82,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 		_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO accounts (stellar_address) VALUES ($1)`, fromAddress)
 		require.NoError(t, err)
 
-		addPayment()
+		addPayment(payment)
 
 		dbPayment, err := fetchPayment()
 		require.NoError(t, err)
@@ -94,11 +95,45 @@ func TestPaymentModelAddPayment(t *testing.T) {
 		_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO accounts (stellar_address) VALUES ($1)`, toAddress)
 		require.NoError(t, err)
 
-		addPayment()
+		addPayment(payment)
 
 		dbPayment, err := fetchPayment()
 		require.NoError(t, err)
 		assert.Equal(t, payment, dbPayment)
+
+		cleanUpDB()
+	})
+
+	t.Run("to_known_address_update_on_reingestion", func(t *testing.T) {
+		updatedPayment := Payment{
+			OperationID:     payment.OperationID,
+			OperationType:   xdr.OperationTypePathPaymentStrictSend.String(),
+			TransactionID:   2120562792996865,
+			TransactionHash: "a3daffa64dc46db84888b1206dc8014a480042e7fe8b19fd5d05465709f4e888",
+			FromAddress:     fromAddress,
+			ToAddress:       toAddress,
+			SrcAssetCode:    "XLM",
+			SrcAssetIssuer:  "",
+			SrcAssetType:    xdr.AssetTypeAssetTypeCreditAlphanum12.String(),
+			SrcAmount:       300000000,
+			DestAssetCode:   "ARST",
+			DestAssetIssuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
+			DestAssetType:   xdr.AssetTypeAssetTypeCreditAlphanum12.String(),
+			DestAmount:      700000000,
+			CreatedAt:       time.Date(2023, 12, 16, 1, 0, 0, 0, time.UTC),
+			Memo:            utils.PointOf("diff"),
+			MemoType:        xdr.MemoTypeMemoText.String(),
+		}
+
+		_, err := dbConnectionPool.ExecContext(ctx, `INSERT INTO accounts (stellar_address) VALUES ($1)`, toAddress)
+		require.NoError(t, err)
+
+		addPayment(payment)
+		addPayment(updatedPayment)
+
+		dbPayment, err := fetchPayment()
+		require.NoError(t, err)
+		assert.Equal(t, updatedPayment, dbPayment)
 
 		cleanUpDB()
 	})
