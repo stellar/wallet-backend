@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -12,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, publicKey, encryptedPrivateKey string) {
+func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, channelAccounts ...ChannelAccount) {
 	t.Helper()
 	const q = `
 		INSERT INTO 
 			channel_accounts (public_key, encrypted_private_key)
 		VALUES
-			($1, $2)
+			(:public_key, :encrypted_private_key)
 	`
-	_, err := dbConnectionPool.ExecContext(ctx, q, publicKey, encryptedPrivateKey)
+	_, err := dbConnectionPool.NamedExecContext(ctx, q, channelAccounts)
 	require.NoError(t, err)
 }
 
@@ -38,8 +39,7 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 	t.Run("returns_error_when_there's_no_channel_account_available", func(t *testing.T) {
 		channelAccount1 := keypair.MustRandom()
 		channelAccount2 := keypair.MustRandom()
-		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1.Address(), channelAccount1.Seed())
-		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount2.Address(), channelAccount2.Seed())
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
 
 		const lockChannelAccountQuery = `
 			UPDATE
@@ -48,11 +48,9 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 				locked_at = NOW(),
 				locked_until = NOW() + '5 minutes'::INTERVAL
 			WHERE
-				public_key = $1
+				public_key = ANY($1)
 		`
-		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, channelAccount1.Address())
-		require.NoError(t, err)
-		_, err = dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, channelAccount2.Address())
+		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.Address(), channelAccount2.Address()}))
 		require.NoError(t, err)
 
 		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
@@ -60,11 +58,10 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		assert.Nil(t, ca)
 	})
 
-	t.Run("returns_error_when_there's_no_channel_account_available", func(t *testing.T) {
+	t.Run("returns_channel_account_available", func(t *testing.T) {
 		channelAccount1 := keypair.MustRandom()
 		channelAccount2 := keypair.MustRandom()
-		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1.Address(), channelAccount1.Seed())
-		createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount2.Address(), channelAccount2.Seed())
+		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
 
 		const lockChannelAccountQuery = `
 			UPDATE
@@ -101,7 +98,7 @@ func TestChannelAccountModelGet(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChannelAccountNotFound)
 	assert.Nil(t, ca)
 
-	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount.Address(), channelAccount.Seed())
+	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
 	ca, err = m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	require.NoError(t, err)
 	assert.Equal(t, ca.PublicKey, channelAccount.Address())
@@ -121,8 +118,7 @@ func TestChannelAccountModelGetAllByPublicKey(t *testing.T) {
 
 	channelAccount1 := keypair.MustRandom()
 	channelAccount2 := keypair.MustRandom()
-	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1.Address(), channelAccount1.Seed())
-	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount2.Address(), channelAccount2.Seed())
+	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
 
 	channelAccounts, err := m.GetAllByPublicKey(ctx, dbConnectionPool, channelAccount1.Address(), channelAccount2.Address())
 	require.NoError(t, err)
@@ -204,7 +200,8 @@ func TestChannelAccountModelCount(t *testing.T) {
 	assert.Equal(t, int64(0), n)
 
 	channelAccount := keypair.MustRandom()
-	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount.Address(), channelAccount.Seed())
+	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
+
 	n, err = m.Count(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n)

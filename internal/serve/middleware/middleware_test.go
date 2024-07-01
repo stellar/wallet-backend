@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi"
-	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stretchr/testify/assert"
@@ -138,11 +137,8 @@ func TestSignatureMiddleware(t *testing.T) {
 	})
 }
 
-func Test_RecoverHandler(t *testing.T) {
-	// setup logger to assert the logged texts later
-	buf := new(strings.Builder)
-	log.DefaultLogger.SetOutput(buf)
-	log.DefaultLogger.SetLevel(logrus.TraceLevel)
+func TestRecoverHandler(t *testing.T) {
+	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
 
 	// setup
 	r := chi.NewRouter()
@@ -164,6 +160,7 @@ func Test_RecoverHandler(t *testing.T) {
 	}`
 	assert.JSONEq(t, wantJson, rr.Body.String())
 
-	// assert logged text
-	assert.Contains(t, buf.String(), "panic: test panic", "should log the panic message")
+	entries := getEntries()
+	require.Len(t, entries, 2)
+	assert.Contains(t, entries[0].Message, "panic: test panic", "should log the panic message")
 }
