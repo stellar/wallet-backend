@@ -136,3 +136,31 @@ func TestSignatureMiddleware(t *testing.T) {
 		assert.JSONEq(t, `{"status":"ok"}`, string(respBody))
 	})
 }
+
+func TestRecoverHandler(t *testing.T) {
+	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+
+	// setup
+	r := chi.NewRouter()
+	r.Use(RecoverHandler)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		panic("test panic")
+	})
+
+	// test
+	req, err := http.NewRequest("GET", "/", nil)
+	require.NoError(t, err)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// assert response
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	wantJson := `{
+		"error": "An error occurred while processing this request."
+	}`
+	assert.JSONEq(t, wantJson, rr.Body.String())
+
+	entries := getEntries()
+	require.Len(t, entries, 2)
+	assert.Contains(t, entries[0].Message, "panic: test panic", "should log the panic message")
+}

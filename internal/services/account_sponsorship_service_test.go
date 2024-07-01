@@ -38,7 +38,15 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, []xdr.OperationType{}, models)
+	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
+		DistributionAccountSignatureClient: &signatureClient,
+		ChannelAccountSignatureClient:      &signatureClient,
+		HorizonClient:                      &horizonClient,
+		MaxSponsoredBaseReserves:           10,
+		BaseFee:                            txnbuild.MinBaseFee,
+		Models:                             models,
+		BlockedOperationsTypes:             []xdr.OperationType{},
+	})
 	require.NoError(t, err)
 
 	t.Run("account_already_exists", func(t *testing.T) {
@@ -216,13 +224,13 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 
 		signedTx := txnbuild.Transaction{}
 		signatureClient.
-			On("GetDistributionAccountPublicKey").
-			Return(distributionAccount.Address()).
-			Times(3).
+			On("GetAccountPublicKey", ctx).
+			Return(distributionAccount.Address(), nil).
+			Times(2).
 			On("NetworkPassphrase").
 			Return(network.TestNetworkPassphrase).
 			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).
+			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
 			Run(func(args mock.Arguments) {
 				tx, ok := args.Get(1).(*txnbuild.Transaction)
 				require.True(t, ok)
@@ -293,6 +301,9 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 				signedTx = *tx
 			}).
 			Return(&signedTx, nil).
+			Once().
+			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+			Return(&signedTx, nil).
 			Once()
 
 		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, assets)
@@ -307,9 +318,9 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 		assert.Len(t, tx.Operations(), 9)
 		assert.Len(t, tx.Signatures(), 1)
 
-		exists, err := models.Account.Exists(ctx, accountToSponsor)
+		isFeeBumpEligible, err := models.Account.IsAccountFeeBumpEligible(ctx, accountToSponsor)
 		require.NoError(t, err)
-		assert.True(t, exists)
+		assert.True(t, isFeeBumpEligible)
 	})
 }
 
@@ -329,7 +340,15 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(&signatureClient, &horizonClient, 10, txnbuild.MinBaseFee, []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit}, models)
+	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
+		DistributionAccountSignatureClient: &signatureClient,
+		ChannelAccountSignatureClient:      &signatureClient,
+		HorizonClient:                      &horizonClient,
+		MaxSponsoredBaseReserves:           10,
+		BaseFee:                            txnbuild.MinBaseFee,
+		Models:                             models,
+		BlockedOperationsTypes:             []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit},
+	})
 	require.NoError(t, err)
 
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
@@ -484,8 +503,8 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 		signedFeeBumpTx := txnbuild.FeeBumpTransaction{}
 		signatureClient.
-			On("GetDistributionAccountPublicKey").
-			Return(distributionAccount.Address()).
+			On("GetAccountPublicKey", ctx).
+			Return(distributionAccount.Address(), nil).
 			Once().
 			On("NetworkPassphrase").
 			Return(network.TestNetworkPassphrase).

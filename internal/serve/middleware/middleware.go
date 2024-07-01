@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -46,4 +47,31 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 			next.ServeHTTP(rw, req)
 		})
 	}
+}
+
+// RecoverHandler is a middleware that recovers from panics and logs the error.
+func RecoverHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				return
+			}
+			err, ok := r.(error)
+			if !ok {
+				err = fmt.Errorf("panic: %v", r)
+			}
+
+			// No need to recover when the client has disconnected:
+			if errors.Is(err, http.ErrAbortHandler) {
+				panic(err)
+			}
+
+			ctx := req.Context()
+			log.Ctx(ctx).WithStack(err).Error(err)
+			httperror.InternalServerError(ctx, "", err, nil).Render(rw)
+		}()
+
+		next.ServeHTTP(rw, req)
+	})
 }

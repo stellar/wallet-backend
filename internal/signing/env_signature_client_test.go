@@ -12,11 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnvSignatureClientGetDistributionAccountPublicKey(t *testing.T) {
+func TestEnvSignatureClientGetAccountPublicKey(t *testing.T) {
+	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	sc, err := NewEnvSignatureClient(distributionAccount.Seed(), network.TestNetworkPassphrase)
 	require.NoError(t, err)
-	assert.Equal(t, distributionAccount.Address(), sc.GetDistributionAccountPublicKey())
+	publicKey, _ := sc.GetAccountPublicKey(ctx)
+	assert.Equal(t, distributionAccount.Address(), publicKey)
 }
 
 func TestEnvSignatureClientNetworkPassphrase(t *testing.T) {
@@ -52,7 +54,7 @@ func TestEnvSignatureClientSignStellarTransaction(t *testing.T) {
 	expectedSignedTx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 	require.NoError(t, err)
 
-	signedTx, err := sc.SignStellarTransaction(context.Background(), tx)
+	signedTx, err := sc.SignStellarTransaction(context.Background(), tx, distributionAccount.Address())
 	require.NoError(t, err)
 	assert.Equal(t, expectedSignedTx.Signatures(), signedTx.Signatures())
 

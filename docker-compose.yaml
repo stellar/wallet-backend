@@ -22,6 +22,7 @@ services:
       - -c
       - |
         ./wallet-backend migrate up
+        ./wallet-backend channel-account ensure 5
         ./wallet-backend serve
     environment:
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
@@ -30,6 +31,7 @@ services:
       LOG_LEVEL: TRACE
       WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY}
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
 
 volumes:
   postgres-db:
