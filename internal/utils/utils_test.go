@@ -37,6 +37,19 @@ func TestUnwrapInterfaceToPointer(t *testing.T) {
 	assert.Equal(t, testStruct{Name: "test"}, *UnwrapInterfaceToPointer[testStruct](i))
 }
 
+func TestPointOf(t *testing.T) {
+	// Test with a string
+	strPointer := PointOf("test")
+	assert.Equal(t, "test", *strPointer)
+
+	// Test with a struct
+	type testStruct struct {
+		Name string
+	}
+	structPointer := PointOf(testStruct{Name: "test"})
+	assert.Equal(t, testStruct{Name: "test"}, *structPointer)
+}
+
 func TestIsEmpty(t *testing.T) {
 	type testCase struct {
 		name      string

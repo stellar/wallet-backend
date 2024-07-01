@@ -20,7 +20,7 @@ CREATE TABLE ingest_payments (
   dest_asset_issuer text NOT NULL,
   dest_amount bigint NOT NULL,
   created_at timestamp with time zone NOT NULL,
-  memo text,
+  memo text NULL,
   PRIMARY KEY (operation_id)
 );
 

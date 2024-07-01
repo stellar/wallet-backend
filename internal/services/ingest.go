@@ -138,7 +138,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 			}
 
 			txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
-			txMemo := utils.Memo(tx.Envelope.Memo(), txHash)
+			txMemo, txMemoType := utils.Memo(tx.Envelope.Memo(), txHash)
 			// The memo field is subject to user input, so we sanitize before persisting in the database
 			if txMemo != nil {
 				*txMemo = utils.SanitizeUTF8(*txMemo)
@@ -155,6 +155,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 					FromAddress:     utils.SourceAccount(op, tx),
 					CreatedAt:       ledgerCloseTime,
 					Memo:            txMemo,
+					MemoType:        txMemoType,
 				}
 
 				switch op.Body.Type {
@@ -188,11 +189,13 @@ func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 	paymentOp := operation.MustPaymentOp()
 	payment.ToAddress = paymentOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(paymentOp.Asset)
-	payment.DestAssetCode = payment.SrcAssetCode
 	payment.SrcAssetIssuer = paymentOp.Asset.GetIssuer()
-	payment.DestAssetIssuer = payment.SrcAssetIssuer
+	payment.SrcAssetType = paymentOp.Asset.Type.String()
 	payment.SrcAmount = int64(paymentOp.Amount)
-	payment.DestAmount = int64(paymentOp.Amount)
+	payment.DestAssetCode = payment.SrcAssetCode
+	payment.DestAssetIssuer = payment.SrcAssetIssuer
+	payment.DestAssetType = payment.SrcAssetType
+	payment.DestAmount = payment.SrcAmount
 }
 
 func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
@@ -200,10 +203,12 @@ func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transactio
 	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictSendResult()
 	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
-	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
-	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.SrcAssetType = pathOp.SendAsset.Type.String()
 	payment.SrcAmount = int64(pathOp.SendAmount)
+	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
+	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.DestAssetType = pathOp.DestAsset.Type.String()
 	payment.DestAmount = int64(result.DestAmount())
 }
 
@@ -212,9 +217,11 @@ func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, transac
 	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictReceiveResult()
 	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
-	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
-	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.SrcAssetType = pathOp.SendAsset.Type.String()
 	payment.SrcAmount = int64(result.SendAmount())
+	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
+	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.DestAssetType = pathOp.DestAsset.Type.String()
 	payment.DestAmount = int64(pathOp.DestAmount)
 }

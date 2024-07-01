@@ -23,12 +23,15 @@ type Payment struct {
 	ToAddress       string    `db:"to_address" json:"toAddress"`
 	SrcAssetCode    string    `db:"src_asset_code" json:"srcAssetCode"`
 	SrcAssetIssuer  string    `db:"src_asset_issuer" json:"srcAssetIssuer"`
+	SrcAssetType    string    `db:"src_asset_type" json:"srcAssetType"`
 	SrcAmount       int64     `db:"src_amount" json:"srcAmount"`
 	DestAssetCode   string    `db:"dest_asset_code" json:"destAssetCode"`
 	DestAssetIssuer string    `db:"dest_asset_issuer" json:"destAssetIssuer"`
+	DestAssetType   string    `db:"dest_asset_type" json:"destAssetType"`
 	DestAmount      int64     `db:"dest_amount" json:"destAmount"`
 	CreatedAt       time.Time `db:"created_at" json:"createdAt"`
 	Memo            *string   `db:"memo" json:"memo"`
+	MemoType        string    `db:"memo_type" json:"memoType"`
 }
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
@@ -61,10 +64,10 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, payment Payment) error {
 	const query = `
 		INSERT INTO ingest_payments (
-			operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, 
-			dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo
+			operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_asset_type, src_amount, 
+			dest_asset_code, dest_asset_issuer, dest_asset_type, dest_amount, created_at, memo, memo_type
 		)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 		WHERE EXISTS (
 			SELECT 1 FROM accounts WHERE stellar_address IN ($5, $6)
 		)
@@ -76,16 +79,19 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 			to_address = EXCLUDED.to_address,
 			src_asset_code = EXCLUDED.src_asset_code,
 			src_asset_issuer = EXCLUDED.src_asset_issuer,
+			src_asset_type = EXCLUDED.src_asset_type,
 			src_amount = EXCLUDED.src_amount,
 			dest_asset_code = EXCLUDED.dest_asset_code,
 			dest_asset_issuer = EXCLUDED.dest_asset_issuer,
+			dest_asset_type = EXCLUDED.dest_asset_type,
 			dest_amount = EXCLUDED.dest_amount,
 			created_at = EXCLUDED.created_at,
-			memo = EXCLUDED.memo
+			memo = EXCLUDED.memo,
+			memo_type = EXCLUDED.memo_type
 		;
 	`
-	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.FromAddress, payment.ToAddress, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAmount,
-		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAmount, payment.CreatedAt, payment.Memo)
+	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.FromAddress, payment.ToAddress, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAssetType, payment.SrcAmount,
+		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAssetType, payment.DestAmount, payment.CreatedAt, payment.Memo, payment.MemoType)
 	if err != nil {
 		return fmt.Errorf("inserting payment: %w", err)
 	}

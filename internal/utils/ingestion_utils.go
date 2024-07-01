@@ -26,39 +26,40 @@ func TransactionHash(ledgerMeta xdr.LedgerCloseMeta, txNumber int) string {
 	return ledgerMeta.TransactionHash(txNumber - 1).HexString()
 }
 
-func Memo(memo xdr.Memo, txHash string) *string {
+// Memo returns the memo value parsed to string and its type.
+func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	memoType := memo.Type
 	switch memoType {
 	case xdr.MemoTypeMemoNone:
-		return nil
+		return nil, memoType.String()
 	case xdr.MemoTypeMemoText:
 		if text, ok := memo.GetText(); ok {
-			return &text
+			return &text, memoType.String()
 		}
 	case xdr.MemoTypeMemoId:
 		if id, ok := memo.GetId(); ok {
 			idStr := strconv.FormatUint(uint64(id), 10)
-			return &idStr
+			return &idStr, memoType.String()
 		}
 	case xdr.MemoTypeMemoHash:
 		if hash, ok := memo.GetHash(); ok {
 			hashStr := hash.HexString()
-			return &hashStr
+			return &hashStr, memoType.String()
 		}
 	case xdr.MemoTypeMemoReturn:
 		if retHash, ok := memo.GetRetHash(); ok {
 			retHashStr := retHash.HexString()
-			return &retHashStr
+			return &retHashStr, memoType.String()
 		}
 	default:
 		// TODO: track in Sentry
 		// sentry.CaptureException(fmt.Errorf("unknown memo type %q for transaction %s", memoType.String(), txHash))
-		return nil
+		return nil, ""
 	}
 
 	// TODO: track in Sentry
 	// sentry.CaptureException(fmt.Errorf("failed to parse memo for type %q and transaction %s", memoType.String(), txHash))
-	return nil
+	return nil, memoType.String()
 }
 
 func SourceAccount(op xdr.Operation, tx ingest.LedgerTransaction) string {

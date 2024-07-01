@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,25 +121,27 @@ func TestProcessLedger(t *testing.T) {
 
 	// Assert payment properly persisted to database
 	var payment data.Payment
-	query := `SELECT operation_id, operation_type, transaction_id, transaction_hash, from_address, to_address, src_asset_code, src_asset_issuer, src_amount, dest_asset_code, dest_asset_issuer, dest_amount, created_at, memo FROM ingest_payments`
+	query := `SELECT * FROM ingest_payments`
 	err = dbConnectionPool.GetContext(ctx, &payment, query)
 	require.NoError(t, err)
 
-	expectedMemo := "memo_test"
 	assert.Equal(t, data.Payment{
 		OperationID:     528280981505,
-		OperationType:   "OperationTypePayment",
+		OperationType:   xdr.OperationTypePayment.String(),
 		TransactionID:   528280981504,
 		TransactionHash: "c20936e363c85799b31fd321b67aa49ecd88f04fc41297959387e445245080db",
 		FromAddress:     "GB3H2CRRTO7W5WF54K53A3MRAFEUISHZ7Y5YGRVGRGHUZESLV5VYYWXI",
 		ToAddress:       "GBLI2OE4H3HAW7Z2GXLYZQNQ57XLHJ5OILFPVL33EPA4GDAIQ5F33JGA",
 		SrcAssetCode:    "USDC",
 		SrcAssetIssuer:  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+		SrcAssetType:    xdr.AssetTypeAssetTypeCreditAlphanum4.String(),
 		SrcAmount:       50,
 		DestAssetCode:   "USDC",
 		DestAssetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+		DestAssetType:   xdr.AssetTypeAssetTypeCreditAlphanum4.String(),
 		DestAmount:      50,
 		CreatedAt:       time.Date(2024, 5, 28, 11, 0, 0, 0, time.UTC),
-		Memo:            &expectedMemo,
+		Memo:            utils.PointOf("memo_test"),
+		MemoType:        xdr.MemoTypeMemoText.String(),
 	}, payment)
 }

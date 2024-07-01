@@ -27,3 +27,8 @@ func UnwrapInterfaceToPointer[T any](i interface{}) *T {
 	}
 	return nil
 }
+
+// PointOf returns a pointer to the value
+func PointOf[T any](value T) *T {
+	return &value
+}

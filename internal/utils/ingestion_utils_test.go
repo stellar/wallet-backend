@@ -14,30 +14,31 @@ func TestMemo(t *testing.T) {
 			Type: xdr.MemoTypeMemoNone,
 		}
 
-		result := Memo(memo, "")
-		assert.Equal(t, (*string)(nil), result)
+		memo_value, memo_type := Memo(memo, "")
+		assert.Equal(t, (*string)(nil), memo_value)
+		assert.Equal(t, xdr.MemoTypeMemoNone.String(), memo_type)
 	})
 
 	t.Run("type_text", func(t *testing.T) {
-		value := "test"
 		memo := xdr.Memo{
 			Type: xdr.MemoTypeMemoText,
-			Text: &value,
+			Text: PointOf("test"),
 		}
 
-		result := Memo(memo, "")
-		assert.Equal(t, "test", *result)
+		memo_value, memo_type := Memo(memo, "")
+		assert.Equal(t, "test", *memo_value)
+		assert.Equal(t, xdr.MemoTypeMemoText.String(), memo_type)
 	})
 
 	t.Run("type_id", func(t *testing.T) {
-		value := xdr.Uint64(12345)
 		memo := xdr.Memo{
 			Type: xdr.MemoTypeMemoId,
-			Id:   &value,
+			Id:   PointOf(xdr.Uint64(12345)),
 		}
 
-		result := Memo(memo, "")
-		assert.Equal(t, "12345", *result)
+		memo_value, memo_type := Memo(memo, "")
+		assert.Equal(t, "12345", *memo_value)
+		assert.Equal(t, xdr.MemoTypeMemoId.String(), memo_type)
 	})
 
 	t.Run("type_hash", func(t *testing.T) {
@@ -49,8 +50,9 @@ func TestMemo(t *testing.T) {
 			Hash: &value,
 		}
 
-		result := Memo(memo, "")
-		assert.Equal(t, value.HexString(), *result)
+		memo_value, memo_type := Memo(memo, "")
+		assert.Equal(t, value.HexString(), *memo_value)
+		assert.Equal(t, xdr.MemoTypeMemoHash.String(), memo_type)
 	})
 
 	t.Run("type_return", func(t *testing.T) {
@@ -62,7 +64,8 @@ func TestMemo(t *testing.T) {
 			RetHash: &value,
 		}
 
-		result := Memo(memo, "")
-		assert.Equal(t, value.HexString(), *result)
+		memo_value, memo_type := Memo(memo, "")
+		assert.Equal(t, value.HexString(), *memo_value)
+		assert.Equal(t, xdr.MemoTypeMemoReturn.String(), memo_type)
 	})
 }
