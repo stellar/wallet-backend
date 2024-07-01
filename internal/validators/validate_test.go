@@ -149,7 +149,7 @@ func TestGetFieldName(t *testing.T) {
 	}
 
 	type testStruct struct {
-		PublicKey   string             `validate:"public_key"`
+		PublicKey   string             `validate:"required,public_key"`
 		NestedField []testStructNested `validate:"required,dive"`
 	}
 
