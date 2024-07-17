@@ -8,7 +8,14 @@ TAG ?= stellar/wallet-backend:$(LABEL)
 BUILD_DATE := $(shell date -u +%FT%TZ)
 
 docker-build:
-	$(SUDO) docker build -f Dockerfile --pull --label org.opencontainers.image.created="$(BUILD_DATE)" -t $(TAG) --build-arg GIT_COMMIT=$(LABEL) .
+	$(SUDO) docker build \
+		--file Dockerfile \
+		--pull \
+		--label org.opencontainers.image.created="$(BUILD_DATE)" \
+		--tag $(TAG) \
+		--build-arg GIT_COMMIT=$(LABEL) \
+		--platform linux/amd64 \
+		.
 
 docker-push:
 	$(SUDO) docker push $(TAG)
