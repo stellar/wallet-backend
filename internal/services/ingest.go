@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -33,9 +32,12 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 		}
 
 		if lastSyncedLedger == 0 {
-			return errors.New("ingestion service is not initialized, --start flag is required")
+			// Captive Core is not able to process genesis ledger and often has trouble processing ledger 2, so we start ingestion at ledger 3
+			log.Ctx(ctx).Info("No last synced ledger cursor found, initializing ingestion at ledger 3")
+			ingestLedger = 3
+		} else {
+			ingestLedger = lastSyncedLedger + 1
 		}
-		ingestLedger = lastSyncedLedger
 	} else {
 		ingestLedger = start
 	}

@@ -10,7 +10,12 @@ services:
       - 5432:5432
   api:
     image: stellar/wallet-backend:development
-    build: ./
+    build:
+      context: ./
+      platforms:
+        - "linux/amd64"
+      args:
+        STELLAR_CORE_VERSION: 21.0.0-1872.c6f474133.jammy
     depends_on:
       db:
         condition: service_started
@@ -32,7 +37,18 @@ services:
       WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY}
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
-
+  ingest:
+    image: stellar/wallet-backend:development
+    depends_on:
+      db:
+        condition: service_started
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - ./wallet-backend ingest
+    environment:
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
 volumes:
   postgres-db:
     driver: local
