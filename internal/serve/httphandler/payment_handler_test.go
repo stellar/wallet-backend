@@ -233,9 +233,9 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 
 	dbPayments := []data.Payment{
 		{
-			OperationID:     1,
+			OperationID:     "1",
 			OperationType:   xdr.OperationTypePayment.String(),
-			TransactionID:   11,
+			TransactionID:   "11",
 			TransactionHash: "c370ff20144e4c96b17432b8d14664c1",
 			FromAddress:     "GD73EG2IJJQQTCD33JKPKEGS76CJJ4TQ7NHDQYMS4D3Z5FBHPML6M66W",
 			ToAddress:       "GCJ4LXZIQRSS5Z7YVIH5YLA7RXMYB64DQN3XMKWEBHUUAFXIXOL3GYVT",
@@ -252,9 +252,9 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 			MemoType:        xdr.MemoTypeMemoText.String(),
 		},
 		{
-			OperationID:     2,
+			OperationID:     "2",
 			OperationType:   xdr.OperationTypePayment.String(),
-			TransactionID:   22,
+			TransactionID:   "22",
 			TransactionHash: "30850d8fc7d1439782885103390cd975",
 			FromAddress:     "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
 			ToAddress:       "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
@@ -271,9 +271,9 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 			MemoType:        xdr.MemoTypeMemoId.String(),
 		},
 		{
-			OperationID:     3,
+			OperationID:     "3",
 			OperationType:   xdr.OperationTypePathPaymentStrictSend.String(),
-			TransactionID:   33,
+			TransactionID:   "33",
 			TransactionHash: "d9521ed7057d4d1e9b9dd22ab515cbf1",
 			FromAddress:     "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W",
 			ToAddress:       "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN",
@@ -323,7 +323,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"fromAddress": "GCXBGEYNIEIUJ56YX5UVBM27NTKCBMLDD2NEPTTXZGQMBA2EOKG5VA2W",
 					"memo": null,
 					"memoType": "MemoTypeMemoNone",
-					"operationId": 3,
+					"operationId": "3",
 					"operationType": "OperationTypePathPaymentStrictSend",
 					"srcAmount": 300,
 					"srcAssetCode": "XLM",
@@ -331,7 +331,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"srcAssetType": "AssetTypeAssetTypeNative",
 					"toAddress": "GAX6VPTVC2YNJM52OYMJAZKTQMSLNQ6NKYYU77KSGRVHINZ2D3EUJWAN",
 					"transactionHash": "d9521ed7057d4d1e9b9dd22ab515cbf1",
-					"transactionId": 33
+					"transactionId": "33"
 				},
 				{
 					"createdAt": "2024-06-22T00:00:00Z",
@@ -342,7 +342,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"fromAddress": "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
 					"memo": "123",
 					"memoType": "MemoTypeMemoId",
-					"operationId": 2,
+					"operationId": "2",
 					"operationType": "OperationTypePayment",
 					"srcAmount": 20,
 					"srcAssetCode": "USDC",
@@ -350,7 +350,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"srcAssetType": "AssetTypeAssetTypeCreditAlphanum4",
 					"toAddress": "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
 					"transactionHash": "30850d8fc7d1439782885103390cd975",
-					"transactionId": 22
+					"transactionId": "22"
 				},
 				{
 					"createdAt": "2024-06-21T00:00:00Z",
@@ -361,7 +361,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"fromAddress": "GD73EG2IJJQQTCD33JKPKEGS76CJJ4TQ7NHDQYMS4D3Z5FBHPML6M66W",
 					"memo": "test",
 					"memoType": "MemoTypeMemoText",
-					"operationId": 1,
+					"operationId": "1",
 					"operationType": "OperationTypePayment",
 					"srcAmount": 10,
 					"srcAssetCode": "XLM",
@@ -369,7 +369,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"srcAssetType": "AssetTypeAssetTypeNative",
 					"toAddress": "GCJ4LXZIQRSS5Z7YVIH5YLA7RXMYB64DQN3XMKWEBHUUAFXIXOL3GYVT",
 					"transactionHash": "c370ff20144e4c96b17432b8d14664c1",
-					"transactionId": 11
+					"transactionId": "11"
 				}
 			]
 		}`
@@ -407,7 +407,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"fromAddress": "GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L",
 					"memo": "123",
 					"memoType": "MemoTypeMemoId",
-					"operationId": 2,
+					"operationId": "2",
 					"operationType": "OperationTypePayment",
 					"srcAmount": 20,
 					"srcAssetCode": "USDC",
@@ -415,7 +415,7 @@ func TestPaymentsHandlerGetPayments(t *testing.T) {
 					"srcAssetType": "AssetTypeAssetTypeCreditAlphanum4",
 					"toAddress": "GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J",
 					"transactionHash": "30850d8fc7d1439782885103390cd975",
-					"transactionId": 22
+					"transactionId": "22"
 				}
 			]
 		}`

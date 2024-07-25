@@ -173,7 +173,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 
 				err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
 				if err != nil {
-					return fmt.Errorf("adding payment for ledger %d, tx %q (%d), operation %d (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
+					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
 				}
 			}
 		}
