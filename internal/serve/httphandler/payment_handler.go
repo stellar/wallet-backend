@@ -55,8 +55,8 @@ func (h PaymentHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Reques
 
 type PaymentsRequest struct {
 	Address  string         `query:"address" validate:"public_key"`
-	AfterID  int64          `query:"afterId"`
-	BeforeID int64          `query:"beforeId"`
+	AfterID  string         `query:"afterId"`
+	BeforeID string         `query:"beforeId"`
 	Sort     data.SortOrder `query:"sort" validate:"oneof=ASC DESC"`
 	Limit    int            `query:"limit" validate:"gt=0"`
 }

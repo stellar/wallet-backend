@@ -15,9 +15,9 @@ type PaymentModel struct {
 }
 
 type Payment struct {
-	OperationID     int64     `db:"operation_id" json:"operationId"`
+	OperationID     string    `db:"operation_id" json:"operationId"`
 	OperationType   string    `db:"operation_type" json:"operationType"`
-	TransactionID   int64     `db:"transaction_id" json:"transactionId"`
+	TransactionID   string    `db:"transaction_id" json:"transactionId"`
 	TransactionHash string    `db:"transaction_hash" json:"transactionHash"`
 	FromAddress     string    `db:"from_address" json:"fromAddress"`
 	ToAddress       string    `db:"to_address" json:"toAddress"`
@@ -99,12 +99,12 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	return nil
 }
 
-func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID int64, sort SortOrder, limit int) ([]Payment, bool, bool, error) {
+func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID string, sort SortOrder, limit int) ([]Payment, bool, bool, error) {
 	if !sort.IsValid() {
 		return nil, false, false, fmt.Errorf("invalid sort value: %s", sort)
 	}
 
-	if beforeID != 0 && afterID != 0 {
+	if beforeID != "" && afterID != "" {
 		return nil, false, false, errors.New("at most one cursor may be provided, got afterId and beforeId")
 	}
 
@@ -115,13 +115,13 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 	`
 
 	var selectQ string
-	if beforeID != 0 && sort == DESC {
+	if beforeID != "" && sort == DESC {
 		selectQ = "SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id > :before_id ORDER BY operation_id ASC LIMIT :limit) AS reverse_set ORDER BY operation_id DESC"
-	} else if beforeID != 0 && sort == ASC {
+	} else if beforeID != "" && sort == ASC {
 		selectQ = "SELECT * FROM (SELECT * FROM filtered_set WHERE operation_id < :before_id ORDER BY operation_id DESC LIMIT :limit) AS reverse_set ORDER BY operation_id ASC"
-	} else if afterID != 0 && sort == DESC {
+	} else if afterID != "" && sort == DESC {
 		selectQ = "SELECT * FROM filtered_set WHERE operation_id < :after_id ORDER BY operation_id DESC LIMIT :limit"
-	} else if afterID != 0 && sort == ASC {
+	} else if afterID != "" && sort == ASC {
 		selectQ = "SELECT * FROM filtered_set WHERE operation_id > :after_id ORDER BY operation_id ASC LIMIT :limit"
 	} else if sort == ASC {
 		selectQ = "SELECT * FROM filtered_set ORDER BY operation_id ASC LIMIT :limit"
@@ -191,17 +191,17 @@ func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string
 	return prevExists, nextExists, nil
 }
 
-func FirstPaymentOperationID(payments []Payment) int64 {
+func FirstPaymentOperationID(payments []Payment) string {
 	if len(payments) > 0 {
 		return payments[0].OperationID
 	}
-	return 0
+	return ""
 }
 
-func LastPaymentOperationID(payments []Payment) int64 {
+func LastPaymentOperationID(payments []Payment) string {
 	len := len(payments)
 	if len > 0 {
 		return payments[len-1].OperationID
 	}
-	return 0
+	return ""
 }
