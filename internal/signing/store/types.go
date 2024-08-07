@@ -24,3 +24,15 @@ type ChannelAccountStore interface {
 	BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error
 	Count(ctx context.Context) (int64, error)
 }
+
+type Keypair struct {
+	PublicKey           string    `db:"public_key"`
+	EncryptedPrivateKey []byte    `db:"encrypted_private_key"`
+	CreatedAt           time.Time `db:"created_at"`
+	UpdatedAt           time.Time `db:"updated_at"`
+}
+
+type KeypairStore interface {
+	GetByPublicKey(ctx context.Context, publicKey string) (*Keypair, error)
+	Insert(ctx context.Context, publicKey string, encryptedPrivateKey []byte) error
+}

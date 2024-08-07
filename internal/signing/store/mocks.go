@@ -47,3 +47,22 @@ func (s *ChannelAccountStoreMock) Count(ctx context.Context) (int64, error) {
 	args := s.Called(ctx)
 	return int64(args.Int(0)), args.Error(1)
 }
+
+type KeypairStoreMock struct {
+	mock.Mock
+}
+
+var _ KeypairStore = (*KeypairStoreMock)(nil)
+
+func (s *KeypairStoreMock) GetByPublicKey(ctx context.Context, publicKey string) (*Keypair, error) {
+	args := s.Called(ctx, publicKey)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*Keypair), args.Error(1)
+}
+
+func (s *KeypairStoreMock) Insert(ctx context.Context, publicKey string, encryptedPrivateKey []byte) error {
+	args := s.Called(ctx, publicKey, encryptedPrivateKey)
+	return args.Error(0)
+}
