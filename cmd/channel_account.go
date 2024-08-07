@@ -14,7 +14,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type channelAccountCmdConfigOptions struct {
@@ -37,9 +38,12 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
-		utils.DistributionAccountPrivateKeyOption(&cfg.DistributionAccountPrivateKey),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 	}
+
+	// Distribution Account Signature Client options
+	signatureClientOpts := signing.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureClientOptions(&signatureClientOpts)...)
 
 	cmd := &cobra.Command{
 		Use:               "channel-account",
@@ -65,13 +69,15 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
-			signatureClient, err := signing.NewEnvSignatureClient(cfg.DistributionAccountPrivateKey, cfg.NetworkPassphrase)
+			signatureClientOpts.DBConnectionPool = dbConnectionPool
+			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
+			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
 			if err != nil {
-				return fmt.Errorf("instantiating distribution account signature client: %w", err)
+				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 
-			channelAccountModel := channelaccounts.ChannelAccountModel{DB: dbConnectionPool}
-			privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
+			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
+			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 				DB: dbConnectionPool,
 				HorizonClient: &horizonclient.Client{

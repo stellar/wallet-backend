@@ -2,3 +2,4 @@
 .vscode
 captive-core*/
 .env
+.DS_Store

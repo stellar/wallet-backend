@@ -15,7 +15,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -32,8 +33,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	ctx := context.Background()
 	horizonClient := horizonclient.MockClient{}
 	signatureClient := signing.SignatureClientMock{}
-	channelAccountStore := channelaccounts.ChannelAccountStoreMock{}
-	privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
+	channelAccountStore := store.ChannelAccountStoreMock{}
+	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
 	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
@@ -251,9 +252,9 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		defer horizonClient.AssertExpectations(t)
 
 		channelAccountStore.
-			On("BatchInsert", ctx, dbConnectionPool, mock.AnythingOfType("[]*channelaccounts.ChannelAccount")).
+			On("BatchInsert", ctx, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).
 			Run(func(args mock.Arguments) {
-				channelAccounts, ok := args.Get(2).([]*channelaccounts.ChannelAccount)
+				channelAccounts, ok := args.Get(2).([]*store.ChannelAccount)
 				require.True(t, ok)
 
 				channelAccountsAddresses := make([]string, 0, len(channelAccounts))

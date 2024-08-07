@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
@@ -63,6 +64,10 @@ func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
 
 func SetConfigOptionStellarPrivateKey(co *config.ConfigOption) error {
 	privateKey := viper.GetString(co.Name)
+
+	if privateKey == "" && !co.Required {
+		return nil
+	}
 
 	isValid := strkey.IsValidEd25519SecretSeed(privateKey)
 	if !isValid {
@@ -138,6 +143,28 @@ func SetConfigOptionAssets(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = assets
+
+	return nil
+}
+
+func SetConfigOptionSignatureClientProvider(co *config.ConfigOption) error {
+	scType := viper.GetString(co.Name)
+
+	scType = strings.TrimSpace(scType)
+	if scType == "" {
+		return fmt.Errorf("%s cannot be empty", co.Name)
+	}
+
+	t := signing.SignatureClientType(scType)
+	if !t.IsValid() {
+		return fmt.Errorf("invalid %s value provided. expected: ENV or KMS", co.Name)
+	}
+
+	key, ok := co.ConfigKey.(*signing.SignatureClientType)
+	if !ok {
+		return unexpectedTypeError(key, co)
+	}
+	*key = t
 
 	return nil
 }
