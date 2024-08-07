@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func DefaultPersistentPreRunE(cfgOpts config.ConfigOptions) func(_ *cobra.Command, _ []string) error {
@@ -17,4 +18,12 @@ func DefaultPersistentPreRunE(cfgOpts config.ConfigOptions) func(_ *cobra.Comman
 		}
 		return nil
 	}
+}
+
+func SignatureClientResolver(signatureClientOpts *signing.SignatureClientOptions) (signing.SignatureClient, error) {
+	signatureClient, err := signing.NewSignatureClient(signatureClientOpts)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating signature client: %w", err)
+	}
+	return signatureClient, nil
 }

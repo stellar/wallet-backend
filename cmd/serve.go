@@ -20,14 +20,12 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
-	var distributionAccountPrivateKey string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
-		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 		{
 			Name:        "port",
@@ -79,6 +77,11 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 	}
+
+	// Distribution Account Signature Client options
+	signatureClientOpts := signing.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureClientOptions(&signatureClientOpts)...)
+
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run Wallet Backend server",
@@ -95,9 +98,11 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
-			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, cfg.NetworkPassphrase)
+			signatureClientOpts.DBConnectionPool = dbConnectionPool
+			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
+			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
 			if err != nil {
-				return fmt.Errorf("instantiating env signature client: %w", err)
+				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
 
