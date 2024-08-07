@@ -34,4 +34,5 @@ func init() {
 	rootCmd.AddCommand((&ingestCmd{}).Command())
 	rootCmd.AddCommand((&migrateCmd{}).Command())
 	rootCmd.AddCommand((&channelAccountCmd{}).Command())
+	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
 }

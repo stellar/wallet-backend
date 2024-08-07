@@ -86,3 +86,24 @@ func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigO
 		Required:  true,
 	}
 }
+
+func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
+	awsOpts := config.ConfigOptions{
+		{
+			Name:        "aws-region",
+			Usage:       `The AWS region. It's required if the configured signature client is "KMS"`,
+			OptType:     types.String,
+			ConfigKey:   awsRegionConfigKey,
+			FlagDefault: "us-east-2",
+			Required:    required,
+		},
+		{
+			Name:      "kms-key-arn",
+			Usage:     `The KMS Key ARN. It's required if the configured signature client is "KMS"`,
+			OptType:   types.String,
+			ConfigKey: kmsKeyARN,
+			Required:  required,
+		},
+	}
+	return awsOpts
+}

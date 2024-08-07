@@ -3,6 +3,7 @@ module github.com/stellar/wallet-backend
 go 1.22.0
 
 require (
+	github.com/aws/aws-sdk-go v1.45.26
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-playground/validator/v10 v10.20.0
 	github.com/jmoiron/sqlx v1.3.5
@@ -13,6 +14,7 @@ require (
 	github.com/spf13/viper v1.17.0
 	github.com/stellar/go v0.0.0-20240416222646-fd107948e6c4
 	github.com/stretchr/testify v1.9.0
+	golang.org/x/term v0.18.0
 )
 
 require (
@@ -25,7 +27,6 @@ require (
 	github.com/Masterminds/squirrel v1.5.4 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/aws/aws-sdk-go v1.45.26 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
