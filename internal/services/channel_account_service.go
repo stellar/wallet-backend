@@ -9,7 +9,8 @@ import (
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type ChannelAccountService interface {
@@ -21,8 +22,8 @@ type channelAccountService struct {
 	HorizonClient                      horizonclient.ClientInterface
 	BaseFee                            int64
 	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountStore                channelaccounts.ChannelAccountStore
-	PrivateKeyEncrypter                channelaccounts.PrivateKeyEncrypter
+	ChannelAccountStore                store.ChannelAccountStore
+	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
 	EncryptionPassphrase               string
 }
 
@@ -46,7 +47,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 
 	ops := make([]txnbuild.Operation, 0, numOfChannelAccountsToCreate)
-	channelAccountsToInsert := []*channelaccounts.ChannelAccount{}
+	channelAccountsToInsert := []*store.ChannelAccount{}
 	for range numOfChannelAccountsToCreate {
 		kp, err := keypair.Random()
 		if err != nil {
@@ -63,7 +64,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 			Amount:        "1",
 			SourceAccount: distributionAccountPublicKey,
 		})
-		channelAccountsToInsert = append(channelAccountsToInsert, &channelaccounts.ChannelAccount{
+		channelAccountsToInsert = append(channelAccountsToInsert, &store.ChannelAccount{
 			PublicKey:           kp.Address(),
 			EncryptedPrivateKey: encryptedPrivateKey,
 		})
@@ -132,8 +133,8 @@ type ChannelAccountServiceOptions struct {
 	HorizonClient                      horizonclient.ClientInterface
 	BaseFee                            int64
 	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountStore                channelaccounts.ChannelAccountStore
-	PrivateKeyEncrypter                channelaccounts.PrivateKeyEncrypter
+	ChannelAccountStore                store.ChannelAccountStore
+	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
 	EncryptionPassphrase               string
 }
 

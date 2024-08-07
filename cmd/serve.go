@@ -12,7 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type serveCmd struct{}
@@ -101,7 +101,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
 
-			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
+			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &signingutils.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {
 				return fmt.Errorf("instantiating channel account db signature client: %w", err)
 			}
