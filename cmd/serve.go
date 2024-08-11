@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
+	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -29,6 +30,8 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
 		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
+		utils.SentryDSNOption(&cfg.SentryDsn),
+		utils.StellarEnvironmentOption(&cfg.StellarEnvironment),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -100,6 +103,8 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("instantiating env signature client: %w", err)
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
+			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
+			cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
 
 			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {

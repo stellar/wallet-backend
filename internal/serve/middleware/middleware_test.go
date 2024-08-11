@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -19,11 +20,12 @@ import (
 
 func TestSignatureMiddleware(t *testing.T) {
 	signatureVerifierMock := auth.MockSignatureVerifier{}
+	appTrackerMock := apptracker.MockAppTracker{}
 	defer signatureVerifierMock.AssertExpectations(t)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
-		r.Use(SignatureMiddleware(&signatureVerifierMock))
+		r.Use(SignatureMiddleware(&signatureVerifierMock, &appTrackerMock))
 
 		r.Get("/authenticated", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -139,10 +141,11 @@ func TestSignatureMiddleware(t *testing.T) {
 
 func TestRecoverHandler(t *testing.T) {
 	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+	appTrackerMock := apptracker.MockAppTracker{}
 
 	// setup
 	r := chi.NewRouter()
-	r.Use(RecoverHandler)
+	r.Use(RecoverHandlerWrapper(&appTrackerMock))
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
 	})

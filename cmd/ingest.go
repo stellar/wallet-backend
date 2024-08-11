@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
+	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
 )
 
@@ -20,6 +21,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
+		utils.SentryDSNOption(&cfg.SentryDsn),
+		utils.StellarEnvironmentOption(&cfg.StellarEnvironment),
 		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",
@@ -62,12 +65,18 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: 0,
 			Required:    false,
 		},
+		//SentryOps()
 	}
 
 	cmd := &cobra.Command{
-		Use:               "ingest",
-		Short:             "Run Ingestion service",
-		PersistentPreRunE: utils.DefaultPersistentPreRunE(cfgOpts),
+		Use:   "ingest",
+		Short: "Run Ingestion service",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			utils.DefaultPersistentPreRunE(cfgOpts)
+			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
+			cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
+			return nil
+		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return c.Run(cfg)
 		},

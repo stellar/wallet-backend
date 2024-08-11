@@ -8,18 +8,20 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestErrorResponseRender(t *testing.T) {
+	appTrackerMock := apptracker.MockAppTracker{}
 	testCases := []struct {
 		in                   ErrorResponse
 		want                 ErrorResponse
 		expectedResponseBody string
 	}{
 		{
-			in:                   *InternalServerError(context.Background(), "", nil, nil),
+			in:                   *InternalServerError(context.Background(), "", nil, nil, &appTrackerMock),
 			want:                 ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 			expectedResponseBody: `{"error": "An error occurred while processing this request."}`,
 		},
@@ -54,12 +56,13 @@ func TestErrorResponseRender(t *testing.T) {
 }
 
 func TestErrorHandler(t *testing.T) {
+	appTrackerMock := apptracker.MockAppTracker{}
 	testCases := []struct {
 		in   ErrorHandler
 		want ErrorResponse
 	}{
 		{
-			in:   ErrorHandler{*InternalServerError(context.Background(), "", nil, nil)},
+			in:   ErrorHandler{*InternalServerError(context.Background(), "", nil, nil, &appTrackerMock)},
 			want: ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{

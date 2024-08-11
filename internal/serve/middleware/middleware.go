@@ -8,13 +8,14 @@ import (
 	"net/http"
 
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 )
 
 const MaxBodySize int64 = 10_240 // 10kb
 
-func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next http.Handler) http.Handler {
+func SignatureMiddleware(signatureVerifier auth.SignatureVerifier, appTracker apptracker.AppTracker) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			sig := req.Header.Get("Signature")
@@ -31,7 +32,7 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 			reqBody, err := io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
 			if err != nil {
 				err = fmt.Errorf("reading request body: %w", err)
-				httperror.InternalServerError(ctx, "", err, nil).Render(rw)
+				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
 				return
 			}
 
@@ -50,7 +51,7 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier) func(next htt
 }
 
 // RecoverHandler is a middleware that recovers from panics and logs the error.
-func RecoverHandler(next http.Handler) http.Handler {
+func RecoverHandler(next http.Handler, appTracker apptracker.AppTracker) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		defer func() {
 			r := recover()
@@ -69,9 +70,15 @@ func RecoverHandler(next http.Handler) http.Handler {
 
 			ctx := req.Context()
 			log.Ctx(ctx).WithStack(err).Error(err)
-			httperror.InternalServerError(ctx, "", err, nil).Render(rw)
+			httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
 		}()
 
 		next.ServeHTTP(rw, req)
 	})
+}
+
+func RecoverHandlerWrapper(appTracker apptracker.AppTracker) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return RecoverHandler(next, appTracker)
+	}
 }
