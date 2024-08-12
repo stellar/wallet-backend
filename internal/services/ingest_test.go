@@ -126,9 +126,9 @@ func TestProcessLedger(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, data.Payment{
-		OperationID:     528280981505,
+		OperationID:     "528280981505",
 		OperationType:   xdr.OperationTypePayment.String(),
-		TransactionID:   528280981504,
+		TransactionID:   "528280981504",
 		TransactionHash: "c20936e363c85799b31fd321b67aa49ecd88f04fc41297959387e445245080db",
 		FromAddress:     "GB3H2CRRTO7W5WF54K53A3MRAFEUISHZ7Y5YGRVGRGHUZESLV5VYYWXI",
 		ToAddress:       "GBLI2OE4H3HAW7Z2GXLYZQNQ57XLHJ5OILFPVL33EPA4GDAIQ5F33JGA",

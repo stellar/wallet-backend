@@ -32,9 +32,9 @@ func TestPaymentModelAddPayment(t *testing.T) {
 		toAddress   = "GDDEAH46MNFO6JD7NTQ5FWJBC4ZSA47YEK3RKFHQWADYTS6NDVD5CORW"
 	)
 	payment := Payment{
-		OperationID:     2120562792996865,
+		OperationID:     "2120562792996865",
 		OperationType:   xdr.OperationTypePayment.String(),
-		TransactionID:   2120562792996864,
+		TransactionID:   "2120562792996864",
 		TransactionHash: "a3daffa64dc46db84888b1206dc8014a480042e7fe8b19fd5d05465709f4e887",
 		FromAddress:     fromAddress,
 		ToAddress:       toAddress,
@@ -108,7 +108,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 		updatedPayment := Payment{
 			OperationID:     payment.OperationID, // Same OperationID
 			OperationType:   xdr.OperationTypePathPaymentStrictSend.String(),
-			TransactionID:   2120562792996865,
+			TransactionID:   "2120562792996865",
 			TransactionHash: "a3daffa64dc46db84888b1206dc8014a480042e7fe8b19fd5d05465709f4e888",
 			FromAddress:     fromAddress,
 			ToAddress:       toAddress,
@@ -199,16 +199,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	}
 
 	dbPayments := []Payment{
-		{OperationID: 1, OperationType: xdr.OperationTypePayment.String(), TransactionID: 11, TransactionHash: "c370ff20144e4c96b17432b8d14664c1", FromAddress: "GAZ37ZO4TU3H", ToAddress: "GDD2HQO6IOFT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 10, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 10, CreatedAt: time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
-		{OperationID: 2, OperationType: xdr.OperationTypePayment.String(), TransactionID: 22, TransactionHash: "30850d8fc7d1439782885103390cd975", FromAddress: "GBZ5Q56JKHJQ", ToAddress: "GASV72SENBSY", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 20, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 20, CreatedAt: time.Date(2024, 6, 22, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
-		{OperationID: 3, OperationType: xdr.OperationTypePayment.String(), TransactionID: 33, TransactionHash: "d9521ed7057d4d1e9b9dd22ab515cbf1", FromAddress: "GAYFAYPOECBT", ToAddress: "GDWDPNMALNIT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 30, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 30, CreatedAt: time.Date(2024, 6, 23, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
-		{OperationID: 4, OperationType: xdr.OperationTypePayment.String(), TransactionID: 44, TransactionHash: "2af98496a86741c6a6814200e06027fd", FromAddress: "GACKTNR2QQXU", ToAddress: "GBZ5KUZHAAVI", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), SrcAmount: 40, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), DestAmount: 40, CreatedAt: time.Date(2024, 6, 24, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
-		{OperationID: 5, OperationType: xdr.OperationTypePayment.String(), TransactionID: 55, TransactionHash: "edfab36f9f104c4fb74b549de44cfbcc", FromAddress: "GA4CMYJEC5W5", ToAddress: "GAZ37ZO4TU3H", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), SrcAmount: 50, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), DestAmount: 50, CreatedAt: time.Date(2024, 6, 25, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
+		{OperationID: "1", OperationType: xdr.OperationTypePayment.String(), TransactionID: "11", TransactionHash: "c370ff20144e4c96b17432b8d14664c1", FromAddress: "GAZ37ZO4TU3H", ToAddress: "GDD2HQO6IOFT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 10, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 10, CreatedAt: time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
+		{OperationID: "2", OperationType: xdr.OperationTypePayment.String(), TransactionID: "22", TransactionHash: "30850d8fc7d1439782885103390cd975", FromAddress: "GBZ5Q56JKHJQ", ToAddress: "GASV72SENBSY", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 20, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 20, CreatedAt: time.Date(2024, 6, 22, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
+		{OperationID: "3", OperationType: xdr.OperationTypePayment.String(), TransactionID: "33", TransactionHash: "d9521ed7057d4d1e9b9dd22ab515cbf1", FromAddress: "GAYFAYPOECBT", ToAddress: "GDWDPNMALNIT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 30, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 30, CreatedAt: time.Date(2024, 6, 23, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
+		{OperationID: "4", OperationType: xdr.OperationTypePayment.String(), TransactionID: "44", TransactionHash: "2af98496a86741c6a6814200e06027fd", FromAddress: "GACKTNR2QQXU", ToAddress: "GBZ5KUZHAAVI", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), SrcAmount: 40, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), DestAmount: 40, CreatedAt: time.Date(2024, 6, 24, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
+		{OperationID: "5", OperationType: xdr.OperationTypePayment.String(), TransactionID: "55", TransactionHash: "edfab36f9f104c4fb74b549de44cfbcc", FromAddress: "GA4CMYJEC5W5", ToAddress: "GAZ37ZO4TU3H", SrcAssetCode: "USDC", SrcAssetIssuer: "GAHLU7PDIQMZ", SrcAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), SrcAmount: 50, DestAssetCode: "USDC", DestAssetIssuer: "GAHLU7PDIQMZ", DestAssetType: xdr.AssetTypeAssetTypeCreditAlphanum4.String(), DestAmount: 50, CreatedAt: time.Date(2024, 6, 25, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
 	}
 	InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("no_filter_desc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, 0, DESC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", "", DESC, 2)
 		require.NoError(t, err)
 
 		assert.False(t, prevExists)
@@ -221,7 +221,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("no_filter_asc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, 0, ASC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", "", ASC, 2)
 		require.NoError(t, err)
 
 		assert.False(t, prevExists)
@@ -234,7 +234,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_address", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, dbPayments[1].FromAddress, 0, 0, DESC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, dbPayments[1].FromAddress, "", "", DESC, 2)
 		require.NoError(t, err)
 
 		assert.False(t, prevExists)
@@ -246,7 +246,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_after_id_desc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, dbPayments[3].OperationID, DESC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", dbPayments[3].OperationID, DESC, 2)
 		require.NoError(t, err)
 
 		assert.True(t, prevExists)
@@ -259,7 +259,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_after_id_asc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", 0, dbPayments[3].OperationID, ASC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", dbPayments[3].OperationID, ASC, 2)
 		require.NoError(t, err)
 
 		assert.True(t, prevExists)
@@ -271,7 +271,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_before_id_desc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, 0, DESC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, "", DESC, 2)
 		require.NoError(t, err)
 
 		assert.False(t, prevExists)
@@ -284,7 +284,7 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_before_id_asc", func(t *testing.T) {
-		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, 0, ASC, 2)
+		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, "", ASC, 2)
 		require.NoError(t, err)
 
 		assert.False(t, prevExists)
