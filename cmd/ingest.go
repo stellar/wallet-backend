@@ -65,7 +65,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: 0,
 			Required:    false,
 		},
-		//SentryOps()
 	}
 
 	cmd := &cobra.Command{
@@ -74,7 +73,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			utils.DefaultPersistentPreRunE(cfgOpts)
 			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
-			cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
+			err := cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
+			if err != nil {
+				log.Fatalf("Error initializing App Tracker: %s", err.Error())
+			}
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
