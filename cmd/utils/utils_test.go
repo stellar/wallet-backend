@@ -12,11 +12,11 @@ import (
 func TestSignatureClientResolver(t *testing.T) {
 	t.Run("invalid_signature_client_type", func(t *testing.T) {
 		sc, err := SignatureClientResolver(&SignatureClientOptions{})
-		assert.ErrorIs(t, err, ErrInvalidSignatureClientType)
+		assert.ErrorIs(t, err, signing.ErrInvalidSignatureClientType)
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{Type: "invalid"})
-		assert.ErrorIs(t, err, ErrInvalidSignatureClientType)
+		assert.ErrorIs(t, err, signing.ErrInvalidSignatureClientType)
 		assert.Nil(t, sc)
 	})
 

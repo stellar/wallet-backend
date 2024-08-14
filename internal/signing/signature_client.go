@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	ErrInvalidTransaction = errors.New("invalid transaction provided")
-	ErrNotImplemented     = errors.New("not implemented")
+	ErrInvalidTransaction         = errors.New("invalid transaction provided")
+	ErrNotImplemented             = errors.New("not implemented")
+	ErrInvalidSignatureClientType = errors.New("invalid signature client type")
 )
 
 type SignatureClient interface {

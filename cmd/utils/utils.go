@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -12,8 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/signing/utils"
 )
-
-var ErrInvalidSignatureClientType = errors.New("invalid signature client type")
 
 func DefaultPersistentPreRunE(cfgOpts config.ConfigOptions) func(_ *cobra.Command, _ []string) error {
 	return func(_ *cobra.Command, _ []string) error {
@@ -70,5 +67,5 @@ func SignatureClientResolver(signatureClientOpts *SignatureClientOptions) (signi
 		)
 	}
 
-	return nil, ErrInvalidSignatureClientType
+	return nil, signing.ErrInvalidSignatureClientType
 }
