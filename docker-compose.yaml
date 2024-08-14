@@ -43,6 +43,7 @@ services:
 
       # KMS Signature Client
       KMS_KEY_ARN: ${KMS_KEY_ARN}
+      AWS_REGIONG: ${AWS_REGION}
       # Using KMS locally is necessary to inject the AWS credentials envs.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
