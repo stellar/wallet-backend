@@ -154,6 +154,7 @@ func TestRecoverHandler(t *testing.T) {
 	req, err := http.NewRequest("GET", "/", nil)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
+	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
 	r.ServeHTTP(rr, req)
 
 	// assert response

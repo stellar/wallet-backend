@@ -62,7 +62,6 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 }
 
 func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
-	// TODO: track error in Sentry
 	log.Ctx(ctx).Error(err)
 	appTracker.CaptureException(err)
 

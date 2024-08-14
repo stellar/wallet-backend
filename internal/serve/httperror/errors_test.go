@@ -10,11 +10,13 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestErrorResponseRender(t *testing.T) {
 	appTrackerMock := apptracker.MockAppTracker{}
+	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
 	testCases := []struct {
 		in                   ErrorResponse
 		want                 ErrorResponse
@@ -57,6 +59,7 @@ func TestErrorResponseRender(t *testing.T) {
 
 func TestErrorHandler(t *testing.T) {
 	appTrackerMock := apptracker.MockAppTracker{}
+	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
 	testCases := []struct {
 		in   ErrorHandler
 		want ErrorResponse
