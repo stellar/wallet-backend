@@ -79,7 +79,7 @@ func (sc *kmsSignatureClient) SignStellarTransaction(ctx context.Context, tx *tx
 	// Ensure that the distribution account is the only account signing the transaction
 	for _, stellarAccount := range stellarAccounts {
 		if stellarAccount != sc.distributionAccountPublicKey {
-			return nil, fmt.Errorf("stellar account %s is not allowed to sign in %T", stellarAccount, sc)
+			return nil, fmt.Errorf("stellar account %s is not allowed to sign %T", stellarAccount, sc)
 		}
 	}
 

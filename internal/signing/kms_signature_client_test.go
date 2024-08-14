@@ -98,7 +98,7 @@ func TestKMSSignatureClientSignStellarTransaction(t *testing.T) {
 
 		acc := keypair.MustRandom()
 		signedTx, err := sc.SignStellarTransaction(ctx, tx, acc.Address())
-		assert.EqualError(t, err, fmt.Sprintf("stellar account %s is not allowed to sign in *signing.kmsSignatureClient", acc.Address()))
+		assert.EqualError(t, err, fmt.Sprintf("stellar account %s is not allowed to sign *signing.kmsSignatureClient", acc.Address()))
 		assert.Nil(t, signedTx)
 	})
 

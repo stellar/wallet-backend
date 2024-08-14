@@ -79,8 +79,8 @@ func (c *serveCmd) Command() *cobra.Command {
 	}
 
 	// Distribution Account Signature Client options
-	signatureClientOpts := signing.SignatureClientOptions{}
-	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureClientOptions(&signatureClientOpts)...)
+	signatureClientOpts := utils.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
 
 	cmd := &cobra.Command{
 		Use:   "serve",

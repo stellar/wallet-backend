@@ -13,7 +13,6 @@ import (
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
@@ -42,8 +41,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 	}
 
 	// Distribution Account Signature Client options
-	signatureClientOpts := signing.SignatureClientOptions{}
-	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureClientOptions(&signatureClientOpts)...)
+	signatureClientOpts := utils.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
 
 	cmd := &cobra.Command{
 		Use:               "channel-account",

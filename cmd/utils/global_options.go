@@ -132,7 +132,7 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 	return awsOpts
 }
 
-func DistributionAccountSignatureClientOptions(scOpts *signing.SignatureClientOptions) config.ConfigOptions {
+func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))
 	opts = append(opts, DistributionAccountSignatureClientProviderOption(&scOpts.Type))
