@@ -15,7 +15,7 @@ type PaymentService struct {
 	ServerBaseURL string
 }
 
-func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID int64, sort data.SortOrder, limit int) ([]data.Payment, entities.Pagination, error) {
+func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID string, sort data.SortOrder, limit int) ([]data.Payment, entities.Pagination, error) {
 	payments, prevExists, nextExists, err := s.Models.Payments.GetPaymentsPaginated(ctx, address, beforeID, afterID, sort, limit)
 	if err != nil {
 		return nil, entities.Pagination{}, fmt.Errorf("getting payments: %w", err)
@@ -29,7 +29,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 
 	if prevExists {
 		firstElementID := data.FirstPaymentOperationID(payments)
-		prev, err = buildURL(s.ServerBaseURL, address, firstElementID, 0, sort, limit)
+		prev, err = buildURL(s.ServerBaseURL, address, firstElementID, "", sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building prev link: %w", err)
 		}
@@ -37,7 +37,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 
 	if nextExists {
 		lastElementID := data.LastPaymentOperationID(payments)
-		next, err = buildURL(s.ServerBaseURL, address, 0, lastElementID, sort, limit)
+		next, err = buildURL(s.ServerBaseURL, address, "", lastElementID, sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building next link: %w", err)
 		}
@@ -53,7 +53,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 	return payments, pagination, nil
 }
 
-func buildURL(baseURL string, address string, beforeID, afterID int64, sort data.SortOrder, limit int) (string, error) {
+func buildURL(baseURL string, address string, beforeID, afterID string, sort data.SortOrder, limit int) (string, error) {
 	url, err := url.ParseRequestURI(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("parsing base URL: %s: %w", baseURL, err)
@@ -65,11 +65,11 @@ func buildURL(baseURL string, address string, beforeID, afterID int64, sort data
 	if address != "" {
 		values.Add("address", string(address))
 	}
-	if beforeID != 0 {
-		values.Add("beforeId", strconv.FormatInt(beforeID, 10))
+	if beforeID != "" {
+		values.Add("beforeId", beforeID)
 	}
-	if afterID != 0 {
-		values.Add("afterId", strconv.FormatInt(afterID, 10))
+	if afterID != "" {
+		values.Add("afterId", afterID)
 	}
 	url.RawQuery = values.Encode()
 

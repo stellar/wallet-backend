@@ -8,8 +8,8 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
-func OperationID(ledgerNumber, txNumber, opNumber int32) int64 {
-	return toid.New(ledgerNumber, txNumber, opNumber).ToInt64()
+func OperationID(ledgerNumber, txNumber, opNumber int32) string {
+	return toid.New(ledgerNumber, txNumber, opNumber).String()
 }
 
 func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
@@ -18,8 +18,8 @@ func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationRe
 	return &tr
 }
 
-func TransactionID(ledgerNumber, txNumber int32) int64 {
-	return toid.New(int32(ledgerNumber), int32(txNumber), 0).ToInt64()
+func TransactionID(ledgerNumber, txNumber int32) string {
+	return toid.New(int32(ledgerNumber), int32(txNumber), 0).String()
 }
 
 func TransactionHash(ledgerMeta xdr.LedgerCloseMeta, txNumber int) string {
