@@ -11,20 +11,21 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type channelAccountDBSignatureClient struct {
 	networkPassphrase    string
 	dbConnectionPool     db.ConnectionPool
 	encryptionPassphrase string
-	privateKeyEncrypter  channelaccounts.PrivateKeyEncrypter
-	channelAccountStore  channelaccounts.ChannelAccountStore
+	privateKeyEncrypter  signingutils.PrivateKeyEncrypter
+	channelAccountStore  store.ChannelAccountStore
 }
 
 var _ SignatureClient = (*channelAccountDBSignatureClient)(nil)
 
-func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, networkPassphrase string, privateKeyEncrypter channelaccounts.PrivateKeyEncrypter, encryptionPassphrase string) (*channelAccountDBSignatureClient, error) {
+func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, networkPassphrase string, privateKeyEncrypter signingutils.PrivateKeyEncrypter, encryptionPassphrase string) (*channelAccountDBSignatureClient, error) {
 	if networkPassphrase != network.TestNetworkPassphrase && networkPassphrase != network.PublicNetworkPassphrase {
 		return nil, fmt.Errorf("invalid network passphrase provided: %s", networkPassphrase)
 	}
@@ -32,7 +33,7 @@ func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, netw
 	return &channelAccountDBSignatureClient{
 		networkPassphrase:    networkPassphrase,
 		dbConnectionPool:     dbConnectionPool,
-		channelAccountStore:  channelaccounts.NewChannelAccountModel(dbConnectionPool),
+		channelAccountStore:  store.NewChannelAccountModel(dbConnectionPool),
 		privateKeyEncrypter:  privateKeyEncrypter,
 		encryptionPassphrase: encryptionPassphrase,
 	}, nil
@@ -43,10 +44,10 @@ func (sc *channelAccountDBSignatureClient) NetworkPassphrase() string {
 }
 
 func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Context) (string, error) {
-	for range channelaccounts.ChannelAccountWaitTime {
+	for range store.ChannelAccountWaitTime {
 		channelAccount, err := sc.channelAccountStore.GetIdleChannelAccount(ctx, time.Minute)
 		if err != nil {
-			if errors.Is(err, channelaccounts.ErrNoIdleChannelAccountAvailable) {
+			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
 				log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")
 				time.Sleep(1 * time.Second)
 				continue
@@ -63,10 +64,10 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 	}
 
 	if numOfChannelAccounts > 0 {
-		return "", channelaccounts.ErrNoIdleChannelAccountAvailable
+		return "", store.ErrNoIdleChannelAccountAvailable
 	}
 
-	return "", channelaccounts.ErrNoChannelAccountConfigured
+	return "", store.ErrNoChannelAccountConfigured
 }
 
 func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Context, stellarAccounts ...string) ([]*keypair.Full, error) {
@@ -79,7 +80,7 @@ func (sc *channelAccountDBSignatureClient) getKPsForPublicKeys(ctx context.Conte
 		return nil, fmt.Errorf("getting channel accounts %v: %w", stellarAccounts, err)
 	}
 
-	channelAccountsMap := make(map[string]*channelaccounts.ChannelAccount, len(channelAccounts))
+	channelAccountsMap := make(map[string]*store.ChannelAccount, len(channelAccounts))
 	for _, chAcc := range channelAccounts {
 		channelAccountsMap[chAcc.PublicKey] = chAcc
 	}

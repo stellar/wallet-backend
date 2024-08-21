@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func DatabaseURLOption(configKey *string) *config.ConfigOption {
@@ -66,17 +67,6 @@ func HorizonClientURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
-func DistributionAccountPrivateKeyOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:           "distribution-account-private-key",
-		Usage:          "The Distribution Account private key.",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionStellarPrivateKey,
-		ConfigKey:      configKey,
-		Required:       true,
-	}
-}
-
 func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:      "channel-account-encryption-passphrase",
@@ -85,4 +75,68 @@ func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigO
 		ConfigKey: configKey,
 		Required:  true,
 	}
+}
+
+func DistributionAccountPublicKeyOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:           "distribution-account-public-key",
+		Usage:          "The Distribution Account public key.",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionStellarPublicKey,
+		ConfigKey:      configKey,
+		Required:       true,
+	}
+}
+
+func DistributionAccountPrivateKeyOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:           "distribution-account-private-key",
+		Usage:          `The Distribution Account private key. It's required if the configured signature client is "ENV"`,
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionStellarPrivateKey,
+		ConfigKey:      configKey,
+		Required:       false,
+	}
+}
+
+func DistributionAccountSignatureClientProviderOption(configKey *signing.SignatureClientType) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:           "distribution-account-signature-provider",
+		Usage:          "The Distribution Account Signature Client Provider. Options: ENV, KMS",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionSignatureClientProvider,
+		ConfigKey:      configKey,
+		FlagDefault:    string(signing.EnvSignatureClientType),
+		Required:       true,
+	}
+}
+
+func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
+	awsOpts := config.ConfigOptions{
+		{
+			Name:        "aws-region",
+			Usage:       `The AWS region. It's required if the configured signature client is "KMS"`,
+			OptType:     types.String,
+			ConfigKey:   awsRegionConfigKey,
+			FlagDefault: "us-east-2",
+			Required:    required,
+		},
+		{
+			Name:      "kms-key-arn",
+			Usage:     `The KMS Key ARN. It's required if the configured signature client is "KMS"`,
+			OptType:   types.String,
+			ConfigKey: kmsKeyARN,
+			Required:  required,
+		},
+	}
+	return awsOpts
+}
+
+func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
+	opts := config.ConfigOptions{}
+	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))
+	opts = append(opts, DistributionAccountSignatureClientProviderOption(&scOpts.Type))
+	opts = append(opts, DistributionAccountPrivateKeyOption(&scOpts.DistributionAccountSecretKey))
+	opts = append(opts, AWSOptions(&scOpts.AWSRegion, &scOpts.KMSKeyARN, false)...)
+	return opts
 }
