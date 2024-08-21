@@ -27,8 +27,6 @@ type Configs struct {
 	EndLedger            int
 	LogLevel             logrus.Level
 	AppTracker           sentry.SentryTracker
-	SentryDsn            string
-	StellarEnvironment   string
 }
 
 func Ingest(cfg Configs) error {

@@ -2,6 +2,7 @@ package httperror
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,20 +11,20 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestErrorResponseRender(t *testing.T) {
 	appTrackerMock := apptracker.MockAppTracker{}
-	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
+	appTrackerMock.On("CaptureException", errors.New("error"))
+	defer appTrackerMock.AssertExpectations(t)
 	testCases := []struct {
 		in                   ErrorResponse
 		want                 ErrorResponse
 		expectedResponseBody string
 	}{
 		{
-			in:                   *InternalServerError(context.Background(), "", nil, nil, &appTrackerMock),
+			in:                   *InternalServerError(context.Background(), "", errors.New("error"), nil, &appTrackerMock),
 			want:                 ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 			expectedResponseBody: `{"error": "An error occurred while processing this request."}`,
 		},
@@ -59,13 +60,14 @@ func TestErrorResponseRender(t *testing.T) {
 
 func TestErrorHandler(t *testing.T) {
 	appTrackerMock := apptracker.MockAppTracker{}
-	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
+	appTrackerMock.On("CaptureException", errors.New("error"))
+	defer appTrackerMock.AssertExpectations(t)
 	testCases := []struct {
 		in   ErrorHandler
 		want ErrorResponse
 	}{
 		{
-			in:   ErrorHandler{*InternalServerError(context.Background(), "", nil, nil, &appTrackerMock)},
+			in:   ErrorHandler{*InternalServerError(context.Background(), "", errors.New("error"), nil, &appTrackerMock)},
 			want: ErrorResponse{Status: http.StatusInternalServerError, Error: "An error occurred while processing this request."},
 		},
 		{

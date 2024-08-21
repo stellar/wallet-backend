@@ -63,7 +63,11 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 
 func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
 	log.Ctx(ctx).Error(err)
-	appTracker.CaptureException(err)
+	if appTracker != nil {
+		appTracker.CaptureException(err)
+	} else {
+		log.Warn("App Tracker is nil")
+	}
 
 	return &ErrorResponse{
 		Status: http.StatusInternalServerError,

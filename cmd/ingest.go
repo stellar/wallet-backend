@@ -17,12 +17,14 @@ type ingestCmd struct{}
 
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
+	var sentryDSN string
+	var stellarEnvironment string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
-		utils.SentryDSNOption(&cfg.SentryDsn),
-		utils.StellarEnvironmentOption(&cfg.StellarEnvironment),
+		utils.SentryDSNOption(&sentryDSN),
+		utils.StellarEnvironmentOption(&stellarEnvironment),
 		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",
@@ -71,12 +73,17 @@ func (c *ingestCmd) Command() *cobra.Command {
 		Use:   "ingest",
 		Short: "Run Ingestion service",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			utils.DefaultPersistentPreRunE(cfgOpts)
-			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
-			err := cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
+			if err := cfgOpts.RequireE(); err != nil {
+				return fmt.Errorf("requiring values of config options: %w", err)
+			}
+			if err := cfgOpts.SetValues(); err != nil {
+				return fmt.Errorf("setting values of config options: %w", err)
+			}
+			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
 			if err != nil {
 				log.Fatalf("Error initializing App Tracker: %s", err.Error())
 			}
+			cfg.AppTracker = appTracker
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {

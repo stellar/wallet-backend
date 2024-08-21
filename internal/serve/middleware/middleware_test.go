@@ -20,8 +20,8 @@ import (
 
 func TestSignatureMiddleware(t *testing.T) {
 	signatureVerifierMock := auth.MockSignatureVerifier{}
-	appTrackerMock := apptracker.MockAppTracker{}
 	defer signatureVerifierMock.AssertExpectations(t)
+	appTrackerMock := apptracker.MockAppTracker{}
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -145,16 +145,17 @@ func TestRecoverHandler(t *testing.T) {
 
 	// setup
 	r := chi.NewRouter()
-	r.Use(RecoverHandlerWrapper(&appTrackerMock))
+	errString := "test panic"
+	r.Use(RecoverHandler(&appTrackerMock))
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		panic("test panic")
+		panic(errString)
 	})
 
 	// test
 	req, err := http.NewRequest("GET", "/", nil)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
-	appTrackerMock.On("CaptureException", mock.Anything).Return(nil)
+	appTrackerMock.On("CaptureException", errors.New("panic: "+errString))
 	r.ServeHTTP(rr, req)
 
 	// assert response

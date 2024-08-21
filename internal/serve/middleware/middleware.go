@@ -51,34 +51,30 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier, appTracker ap
 }
 
 // RecoverHandler is a middleware that recovers from panics and logs the error.
-func RecoverHandler(next http.Handler, appTracker apptracker.AppTracker) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		defer func() {
-			r := recover()
-			if r == nil {
-				return
-			}
-			err, ok := r.(error)
-			if !ok {
-				err = fmt.Errorf("panic: %v", r)
-			}
-
-			// No need to recover when the client has disconnected:
-			if errors.Is(err, http.ErrAbortHandler) {
-				panic(err)
-			}
-
-			ctx := req.Context()
-			log.Ctx(ctx).WithStack(err).Error(err)
-			httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
-		}()
-
-		next.ServeHTTP(rw, req)
-	})
-}
-
-func RecoverHandlerWrapper(appTracker apptracker.AppTracker) func(http.Handler) http.Handler {
+func RecoverHandler(appTracker apptracker.AppTracker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return RecoverHandler(next, appTracker)
+		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					return
+				}
+				err, ok := r.(error)
+				if !ok {
+					err = fmt.Errorf("panic: %v", r)
+				}
+
+				// No need to recover when the client has disconnected:
+				if errors.Is(err, http.ErrAbortHandler) {
+					panic(err)
+				}
+
+				ctx := req.Context()
+				log.Ctx(ctx).WithStack(err).Error(err)
+				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
+			}()
+
+			next.ServeHTTP(rw, req)
+		})
 	}
 }

@@ -22,6 +22,8 @@ func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
 	var distributionAccountPrivateKey string
+	var sentryDSN string
+	var stellarEnvironment string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
@@ -30,8 +32,8 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
 		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
-		utils.SentryDSNOption(&cfg.SentryDsn),
-		utils.StellarEnvironmentOption(&cfg.StellarEnvironment),
+		utils.SentryDSNOption(&sentryDSN),
+		utils.StellarEnvironmentOption(&stellarEnvironment),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -104,7 +106,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
 			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
-			error := cfg.AppTracker.InitTracker(cfg.SentryDsn, cfg.StellarEnvironment)
+			error := cfg.AppTracker.InitTracker(sentryDSN, stellarEnvironment)
 			if error != nil {
 				return fmt.Errorf("initializing App Tracker: %w", err)
 			}

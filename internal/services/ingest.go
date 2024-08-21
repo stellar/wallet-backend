@@ -109,7 +109,11 @@ func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
 		case <-ticker.C:
 			warn := fmt.Sprintf("ingestion service stale for over %s", alertAfter)
 			log.Warn(warn)
-			tracker.CaptureMessage(warn)
+			if tracker != nil {
+				tracker.CaptureMessage(warn)
+			} else {
+				log.Warn("App Tracker is nil")
+			}
 			ticker.Reset(alertAfter)
 		case <-heartbeat:
 			ticker.Reset(alertAfter)

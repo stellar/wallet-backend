@@ -60,9 +60,7 @@ type Configs struct {
 	ChannelAccountSignatureClient      signing.SignatureClient
 
 	// Error Tracker
-	AppTracker         sentry.SentryTracker
-	SentryDsn          string
-	StellarEnvironment string
+	AppTracker sentry.SentryTracker
 }
 
 type handlerDeps struct {
@@ -169,7 +167,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
-	mux.Use(middleware.RecoverHandlerWrapper(deps.AppTracker))
+	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
 
