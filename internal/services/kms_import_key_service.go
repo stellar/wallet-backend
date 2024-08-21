@@ -15,16 +15,20 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
-var ErrInvalidPrivateKeyProvided = errors.New("invalid private key provided")
+var (
+	ErrInvalidPrivateKeyProvided   = errors.New("invalid private key provided")
+	ErrMismatchDistributionAccount = errors.New("mismatch distribution account")
+)
 
 type KMSImportService interface {
 	ImportDistributionAccountKey(ctx context.Context, distributionAccountSeed string) error
 }
 
 type kmsImportService struct {
-	client       kmsiface.KMSAPI
-	kmsKeyARN    string
-	keypairStore store.KeypairStore
+	client                       kmsiface.KMSAPI
+	kmsKeyARN                    string
+	keypairStore                 store.KeypairStore
+	distributionAccountPublicKey string
 }
 
 var _ KMSImportService = (*kmsImportService)(nil)
@@ -37,6 +41,10 @@ func (s *kmsImportService) ImportDistributionAccountKey(ctx context.Context, dis
 	kp, err := keypair.ParseFull(distributionAccountSeed)
 	if err != nil {
 		return fmt.Errorf("parsing distribution private key: %s", err)
+	}
+
+	if kp.Address() != s.distributionAccountPublicKey {
+		return ErrMismatchDistributionAccount
 	}
 
 	input := kms.EncryptInput{
@@ -60,7 +68,7 @@ func (s *kmsImportService) ImportDistributionAccountKey(ctx context.Context, dis
 	return nil
 }
 
-func NewKMSImportService(client kmsiface.KMSAPI, kmsKeyARN string, keypairStore store.KeypairStore) (*kmsImportService, error) {
+func NewKMSImportService(client kmsiface.KMSAPI, kmsKeyARN string, keypairStore store.KeypairStore, distributionAccountPublicKey string) (*kmsImportService, error) {
 	if client == nil {
 		return nil, fmt.Errorf("kms cannot be nil")
 	}
@@ -74,9 +82,14 @@ func NewKMSImportService(client kmsiface.KMSAPI, kmsKeyARN string, keypairStore 
 		return nil, fmt.Errorf("keypair store cannot be nil")
 	}
 
+	if !strkey.IsValidEd25519PublicKey(distributionAccountPublicKey) {
+		return nil, fmt.Errorf("invalid distribution account public key provided")
+	}
+
 	return &kmsImportService{
-		kmsKeyARN:    kmsKeyARN,
-		client:       client,
-		keypairStore: keypairStore,
+		kmsKeyARN:                    kmsKeyARN,
+		client:                       client,
+		keypairStore:                 keypairStore,
+		distributionAccountPublicKey: distributionAccountPublicKey,
 	}, nil
 }

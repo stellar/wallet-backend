@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -15,9 +16,10 @@ import (
 )
 
 type kmsCommandConfig struct {
-	databaseURL string
-	kmsKeyARN   string
-	awsRegion   string
+	databaseURL                  string
+	kmsKeyARN                    string
+	awsRegion                    string
+	distributionAccountPublicKey string
 }
 
 type distributionAccountCmd struct{}
@@ -37,6 +39,7 @@ func kmsCommand() *cobra.Command {
 	cfg := kmsCommandConfig{}
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.databaseURL),
+		utils.DistributionAccountPublicKeyOption(&cfg.distributionAccountPublicKey),
 	}
 	cfgOpts = append(cfgOpts, utils.AWSOptions(&cfg.awsRegion, &cfg.kmsKeyARN, true)...)
 
@@ -69,7 +72,7 @@ func kmsCommand() *cobra.Command {
 				return fmt.Errorf("getting kms client: %w", err)
 			}
 
-			kmsImportService, err = services.NewKMSImportService(kmsClient, cfg.kmsKeyARN, store.NewKeypairModel(dbConnectionPool))
+			kmsImportService, err = services.NewKMSImportService(kmsClient, cfg.kmsKeyARN, store.NewKeypairModel(dbConnectionPool), cfg.distributionAccountPublicKey)
 			if err != nil {
 				return fmt.Errorf("instantiating kms import service: %w", err)
 			}
@@ -92,6 +95,9 @@ func kmsCommand() *cobra.Command {
 
 			err = kmsImportService.ImportDistributionAccountKey(ctx, distributionAccountSeed)
 			if err != nil {
+				if errors.Is(err, services.ErrMismatchDistributionAccount) {
+					return fmt.Errorf("the private key provided doesn't belong to the configured distribution account public key")
+				}
 				return fmt.Errorf("importing distribution account seed: %w", err)
 			}
 
