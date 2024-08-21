@@ -105,11 +105,11 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("instantiating env signature client: %w", err)
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
-			cfg.AppTracker = sentry.SentryTracker{FlushFreq: 5}
-			error := cfg.AppTracker.InitTracker(sentryDSN, stellarEnvironment)
-			if error != nil {
+			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
+			if err != nil {
 				return fmt.Errorf("initializing App Tracker: %w", err)
 			}
+			cfg.AppTracker = *appTracker
 
 			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {
