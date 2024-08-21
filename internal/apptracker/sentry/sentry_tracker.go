@@ -16,19 +16,19 @@ var (
 	RecoverFunc          = sentry.Recover
 )
 
-type sentryTracker struct {
+type SentryTracker struct {
 	FlushFreq int64
 }
 
-func (s *sentryTracker) CaptureMessage(message string) {
+func (s *SentryTracker) CaptureMessage(message string) {
 	captureMessageFunc(message)
 }
 
-func (s *sentryTracker) CaptureException(exception error) {
+func (s *SentryTracker) CaptureException(exception error) {
 	captureExceptionFunc(exception)
 }
 
-func NewSentryTracker(dsn string, env string, flushFreq int) (*sentryTracker, error) {
+func NewSentryTracker(dsn string, env string, flushFreq int) (*SentryTracker, error) {
 	if err := InitFunc(sentry.ClientOptions{
 		Dsn:         dsn,
 		Environment: env,
@@ -37,6 +37,6 @@ func NewSentryTracker(dsn string, env string, flushFreq int) (*sentryTracker, er
 	}
 	defer FlushFunc(time.Second * time.Duration(flushFreq))
 	defer RecoverFunc()
-	return &sentryTracker{FlushFreq: int64(flushFreq)}, nil
+	return &SentryTracker{FlushFreq: int64(flushFreq)}, nil
 
 }

@@ -83,7 +83,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			if err != nil {
 				log.Fatalf("Error initializing App Tracker: %s", err.Error())
 			}
-			cfg.AppTracker = appTracker
+			cfg.AppTracker = *appTracker
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
