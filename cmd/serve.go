@@ -13,7 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 type serveCmd struct{}
@@ -30,7 +30,6 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
-		utils.DistributionAccountPrivateKeyOption(&distributionAccountPrivateKey),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
@@ -84,6 +83,11 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 	}
+
+	// Distribution Account Signature Client options
+	signatureClientOpts := utils.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
+
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run Wallet Backend server",
@@ -100,9 +104,11 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
-			signatureClient, err := signing.NewEnvSignatureClient(distributionAccountPrivateKey, cfg.NetworkPassphrase)
+			signatureClientOpts.DBConnectionPool = dbConnectionPool
+			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
+			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
 			if err != nil {
-				return fmt.Errorf("instantiating env signature client: %w", err)
+				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
@@ -111,7 +117,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			}
 			cfg.AppTracker = *appTracker
 
-			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &channelaccounts.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
+			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &signingutils.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {
 				return fmt.Errorf("instantiating channel account db signature client: %w", err)
 			}

@@ -24,7 +24,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -134,8 +135,8 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonClient:                      &horizonClient,
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountStore:                channelaccounts.NewChannelAccountModel(dbConnectionPool),
-		PrivateKeyEncrypter:                &channelaccounts.DefaultPrivateKeyEncrypter{},
+		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
+		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
 	})
 	if err != nil {

@@ -9,7 +9,8 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/wallet-backend/internal/signing/channelaccounts"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +19,8 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
-	channelAccountStore := channelaccounts.ChannelAccountStoreMock{}
+	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
+	channelAccountStore := store.ChannelAccountStoreMock{}
 	sc := channelAccountDBSignatureClient{
 		networkPassphrase:    network.TestNetworkPassphrase,
 		encryptionPassphrase: "test",
@@ -30,7 +31,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Run("returns_error_when_couldn't_get_an_idle_channel_account", func(t *testing.T) {
 		channelAccountStore.
 			On("GetIdleChannelAccount", ctx, time.Minute).
-			Return(nil, channelaccounts.ErrNoIdleChannelAccountAvailable).
+			Return(nil, store.ErrNoIdleChannelAccountAvailable).
 			Times(6).
 			On("Count", ctx).
 			Return(5, nil).
@@ -40,7 +41,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
 
 		publicKey, err := sc.GetAccountPublicKey(ctx)
-		assert.ErrorIs(t, err, channelaccounts.ErrNoIdleChannelAccountAvailable)
+		assert.ErrorIs(t, err, store.ErrNoIdleChannelAccountAvailable)
 		assert.Empty(t, publicKey)
 
 		entries := getEntries()
@@ -54,7 +55,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Run("returns_error_when_there's_no_channel_account_configured", func(t *testing.T) {
 		channelAccountStore.
 			On("GetIdleChannelAccount", ctx, time.Minute).
-			Return(nil, channelaccounts.ErrNoIdleChannelAccountAvailable).
+			Return(nil, store.ErrNoIdleChannelAccountAvailable).
 			Times(6).
 			On("Count", ctx).
 			Return(0, nil).
@@ -64,7 +65,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
 
 		publicKey, err := sc.GetAccountPublicKey(ctx)
-		assert.ErrorIs(t, err, channelaccounts.ErrNoChannelAccountConfigured)
+		assert.ErrorIs(t, err, store.ErrNoChannelAccountConfigured)
 		assert.Empty(t, publicKey)
 
 		entries := getEntries()
@@ -79,7 +80,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		channelAccountPublicKey := keypair.MustRandom().Address()
 		channelAccountStore.
 			On("GetIdleChannelAccount", ctx, time.Minute).
-			Return(&channelaccounts.ChannelAccount{PublicKey: channelAccountPublicKey}, nil).
+			Return(&store.ChannelAccount{PublicKey: channelAccountPublicKey}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
@@ -96,8 +97,8 @@ func TestChannelAccountDBSignatureNetworkPassphrase(t *testing.T) {
 
 func TestChannelAccountDBSignatureClientSignStellarTransaction(t *testing.T) {
 	ctx := context.Background()
-	privateKeyEncrypter := channelaccounts.DefaultPrivateKeyEncrypter{}
-	channelAccountStore := channelaccounts.ChannelAccountStoreMock{}
+	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
+	channelAccountStore := store.ChannelAccountStoreMock{}
 	passphrase := "test"
 	sc := channelAccountDBSignatureClient{
 		networkPassphrase:    network.TestNetworkPassphrase,
@@ -137,13 +138,13 @@ func TestChannelAccountDBSignatureClientSignStellarTransaction(t *testing.T) {
 		encryptedPrivateKey, err := privateKeyEncrypter.Encrypt(ctx, channelAccount.Seed(), passphrase)
 		require.NoError(t, err)
 
-		chAcc := channelaccounts.ChannelAccount{
+		chAcc := store.ChannelAccount{
 			PublicKey:           channelAccount.Address(),
 			EncryptedPrivateKey: encryptedPrivateKey,
 		}
 		channelAccountStore.
 			On("GetAllByPublicKey", ctx, nil, []string{channelAccount.Address()}).
-			Return([]*channelaccounts.ChannelAccount{&chAcc}, nil).
+			Return([]*store.ChannelAccount{&chAcc}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
