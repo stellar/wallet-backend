@@ -3,8 +3,8 @@ module github.com/stellar/wallet-backend
 go 1.22.0
 
 require (
-	github.com/getsentry/sentry-go v0.28.1
 	github.com/aws/aws-sdk-go v1.45.26
+	github.com/getsentry/sentry-go v0.28.1
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-playground/validator/v10 v10.20.0
 	github.com/jmoiron/sqlx v1.3.5
