@@ -21,7 +21,6 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
-	var distributionAccountPrivateKey string
 	var sentryDSN string
 	var stellarEnvironment string
 	cfgOpts := config.ConfigOptions{
