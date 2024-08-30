@@ -17,4 +17,4 @@ CREATE INDEX idx_last_updated ON tss_transaction_submission_tries(last_updated);
 DROP INDEX IF EXISTS idx_original_transaction_xdr;
 DROP INDEX IF EXISTS idx_try_transaction_xdr;
 DROP INDEX IF EXISTS idx_last_updated;
-DROP TABLE tss_transaction_submission_tries
+DROP TABLE tss_transaction_submission_tries;

@@ -16,4 +16,4 @@ CREATE INDEX idx_claimed_until ON tss_transactions(claimed_until);
 
 DROP INDEX IF EXISTS idx_tx_current_status;
 DROP INDEX IF EXISTS idx_claimed_until;
-DROP TABLE tss_transactions
+DROP TABLE tss_transactions;
