@@ -1,7 +1,7 @@
 -- +migrate Up
 
 CREATE TABLE tss_transactions (
-    transaction_hash VARCHAR(70) PRIMARY KEY
+    transaction_hash VARCHAR(70) PRIMARY KEY,
     transaction_xdr VARCHAR(400),
     webhook_url VARCHAR(250),
     current_status VARCHAR(50),
