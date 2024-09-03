@@ -20,8 +20,8 @@ type RPCSendTxResponse struct {
 }
 
 type Payload struct {
-	// the transaction xdr submitted by the client
-	TransactionXdr string
+	// the hash of the transaction xdr submitted by the client - the id of the transaction submitted by a client
+	TransactionHash string
 	// relevant fields in an RPC sendTransaction response
 	RpcSubmitTxResponse RPCSendTxResponse
 	// relevant fields in the transaction list inside the RPC getTransactions response
