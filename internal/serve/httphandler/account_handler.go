@@ -12,8 +12,47 @@ import (
 )
 
 type AccountHandler struct {
+	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	SupportedAssets           []entities.Asset
+}
+
+type AccountRegistrationRequest struct {
+	Address string `json:"address" validate:"required,public_key"`
+}
+
+func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var reqParams AccountRegistrationRequest
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	if httpErr != nil {
+		httpErr.Render(w)
+		return
+	}
+
+	err := h.AccountService.RegisterAccount(ctx, reqParams.Address)
+	if err != nil {
+		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		return
+	}
+}
+
+func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var reqParams AccountRegistrationRequest
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	if httpErr != nil {
+		httpErr.Render(w)
+		return
+	}
+
+	err := h.AccountService.DeregisterAccount(ctx, reqParams.Address)
+	if err != nil {
+		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		return
+	}
 }
 
 type SponsorAccountCreationRequest struct {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -10,26 +11,47 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 )
 
-type PaymentService struct {
-	Models        *data.Models
-	ServerBaseURL string
+type PaymentService interface {
+	GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID string, sort data.SortOrder, limit int) ([]data.Payment, entities.Pagination, error)
 }
 
-func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID string, sort data.SortOrder, limit int) ([]data.Payment, entities.Pagination, error) {
-	payments, prevExists, nextExists, err := s.Models.Payments.GetPaymentsPaginated(ctx, address, beforeID, afterID, sort, limit)
+var _ PaymentService = (*paymentService)(nil)
+
+type paymentService struct {
+	models        *data.Models
+	serverBaseURL string
+}
+
+func NewPaymentService(models *data.Models, serverBaseURL string) (*paymentService, error) {
+	if models == nil {
+		return nil, errors.New("models cannot be nil")
+	}
+
+	if _, err := url.ParseRequestURI(serverBaseURL); err != nil {
+		return nil, fmt.Errorf("invalid URL %s: %w", serverBaseURL, err)
+	}
+
+	return &paymentService{
+		models:        models,
+		serverBaseURL: serverBaseURL,
+	}, nil
+}
+
+func (s *paymentService) GetPaymentsPaginated(ctx context.Context, address string, beforeID, afterID string, sort data.SortOrder, limit int) ([]data.Payment, entities.Pagination, error) {
+	payments, prevExists, nextExists, err := s.models.Payments.GetPaymentsPaginated(ctx, address, beforeID, afterID, sort, limit)
 	if err != nil {
 		return nil, entities.Pagination{}, fmt.Errorf("getting payments: %w", err)
 	}
 
 	self, prev, next := "", "", ""
-	self, err = buildURL(s.ServerBaseURL, address, beforeID, afterID, sort, limit)
+	self, err = buildURL(s.serverBaseURL, address, beforeID, afterID, sort, limit)
 	if err != nil {
 		return nil, entities.Pagination{}, fmt.Errorf("building self link: %w", err)
 	}
 
 	if prevExists {
 		firstElementID := data.FirstPaymentOperationID(payments)
-		prev, err = buildURL(s.ServerBaseURL, address, firstElementID, "", sort, limit)
+		prev, err = buildURL(s.serverBaseURL, address, firstElementID, "", sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building prev link: %w", err)
 		}
@@ -37,7 +59,7 @@ func (s *PaymentService) GetPaymentsPaginated(ctx context.Context, address strin
 
 	if nextExists {
 		lastElementID := data.LastPaymentOperationID(payments)
-		next, err = buildURL(s.ServerBaseURL, address, "", lastElementID, sort, limit)
+		next, err = buildURL(s.serverBaseURL, address, "", lastElementID, sort, limit)
 		if err != nil {
 			return nil, entities.Pagination{}, fmt.Errorf("building next link: %w", err)
 		}
