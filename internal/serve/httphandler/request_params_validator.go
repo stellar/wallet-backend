@@ -28,6 +28,15 @@ func DecodeQueryAndValidate(ctx context.Context, req *http.Request, reqQuery int
 	return ValidateRequestParams(ctx, reqQuery)
 }
 
+func DecodePathAndValidate(ctx context.Context, req *http.Request, reqPath interface{}) *httperror.ErrorResponse {
+	err := httpdecode.DecodePath(req, reqPath)
+	if err != nil {
+		return httperror.BadRequest("Invalid request path.", nil)
+	}
+
+	return ValidateRequestParams(ctx, reqPath)
+}
+
 func ValidateRequestParams(ctx context.Context, reqParams interface{}) *httperror.ErrorResponse {
 	val := validators.NewValidator()
 	if err := val.StructCtx(ctx, reqParams); err != nil {
