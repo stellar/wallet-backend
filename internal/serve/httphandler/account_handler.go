@@ -36,6 +36,8 @@ func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) 
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
 	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +55,8 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 		httperror.InternalServerError(ctx, "", err, nil).Render(w)
 		return
 	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 type SponsorAccountCreationRequest struct {
