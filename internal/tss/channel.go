@@ -1,6 +1,6 @@
 package tss
 
-type RPCIngestTxResponse struct {
+type RPCGetIngestTxResponse struct {
 	// a status that indicated whether this transaction failed or successly made it to the ledger
 	Status string
 	// the raw TransactionEnvelope XDR for this transaction
@@ -25,7 +25,7 @@ type Payload struct {
 	// relevant fields in an RPC sendTransaction response
 	RpcSubmitTxResponse RPCSendTxResponse
 	// relevant fields in the transaction list inside the RPC getTransactions response
-	RpcIngestTxResponse RPCIngestTxResponse
+	RpcGetIngestTxResponse RPCGetIngestTxResponse
 }
 
 type Channel interface {
