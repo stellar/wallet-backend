@@ -6,14 +6,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
+	tssErr "github.com/stellar/wallet-backend/internal/tss/errors"
+)
+
+var (
+	RpcPost                 = http.Post
+	UnMarshalRPCResponse    = io.ReadAll
+	UnMarshalJSON           = parseJSONBody
+	callRPC                 = sendRPCRequest
+	UnMarshalErrorResultXdr = parseErrorResultXdr
 )
 
 type transactionService struct {
@@ -32,7 +41,51 @@ type TransactionServiceOptions struct {
 	BaseFee                            int64
 }
 
-func (o *TransactionServiceOptions) Validate() error {
+func parseJSONBody(body []byte) (map[string]interface{}, error) {
+	var res map[string]interface{}
+	err := json.Unmarshal(body, &res)
+	if err != nil {
+		return nil, fmt.Errorf(err.Error())
+	}
+	return res, nil
+}
+
+func parseErrorResultXdr(errorResultXdr string) (string, error) {
+	errorResult := xdr.TransactionResult{}
+	err := errorResult.UnmarshalBinary([]byte(errorResultXdr))
+	if err != nil {
+		return "", fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", errorResultXdr)
+	}
+	return errorResult.Result.Code.String(), nil
+}
+
+func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  method,
+		"params":  params,
+	}
+	jsonData, _ := json.Marshal(payload)
+
+	resp, err := RpcPost(rpcUrl, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf(method+": sending POST request to rpc: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := UnMarshalRPCResponse(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf(method+": unmarshalling rpc response: %v", err)
+	}
+	res, err := UnMarshalJSON(body)
+	if err != nil {
+		return nil, fmt.Errorf(method+": parsing rpc response JSON: %v", err)
+	}
+	return res, nil
+}
+
+func (o *TransactionServiceOptions) ValidateOptions() error {
 	if o.DistributionAccountSignatureClient == nil {
 		return fmt.Errorf("distribution account signature client cannot be nil")
 	}
@@ -58,11 +111,11 @@ func (o *TransactionServiceOptions) Validate() error {
 func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(origTxXdr)
 	if err != nil {
-		return nil, fmt.Errorf("deserializing the transaction xdr: %w", err)
+		return nil, tssErr.OriginalXdrMalformed
 	}
 	originalTx, txEmpty := genericTx.Transaction()
-	if txEmpty {
-		return nil, fmt.Errorf("empty transaction: %w", err)
+	if !txEmpty {
+		return nil, tssErr.OriginalXdrMalformed
 	}
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
@@ -70,7 +123,7 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 	}
 	channelAccount, err := t.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: channelAccountPublicKey})
 	if err != nil {
-		return nil, fmt.Errorf("getting channel account details: %w", err)
+		return nil, fmt.Errorf("getting channel account details from horizon: %w", err)
 	}
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
@@ -95,6 +148,7 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 	if err != nil {
 		return nil, fmt.Errorf("getting distribution account public key: %w", err)
 	}
+
 	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      tx,
@@ -105,6 +159,7 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 	if err != nil {
 		return nil, fmt.Errorf("building fee-bump transaction %w", err)
 	}
+
 	feeBumpTx, err = t.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
 	if err != nil {
 		return nil, fmt.Errorf("signing the fee bump transaction with distribution account: %w", err)
@@ -113,59 +168,57 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 }
 
 func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "sendTransaction",
-		"params": map[string]string{
-			"transaction": transactionXdr,
-		},
-	}
-	jsonData, _ := json.Marshal(payload)
-
-	resp, err := http.Post(t.RpcUrl, "application/json", bytes.NewBuffer(jsonData))
+	rpcResponse, err := callRPC(t.RpcUrl, "sendTransaction", map[string]string{"transaction": transactionXdr})
 	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("sending POST request to rpc: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("reading rpc response: %v", err)
-	}
-	var res map[string]interface{}
-	err = json.Unmarshal(body, &res)
-	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("parsing rpc response JSON: %v", err)
+		return tss.RPCSendTxResponse{}, fmt.Errorf(err.Error())
 	}
 
 	sendTxResponse := tss.RPCSendTxResponse{}
-	if result, ok := res["result"].(map[string]interface{}); ok {
-		if val, exists := result["errorResultXdr"].(string); exists {
-			errorResult := xdr.TransactionResult{}
-			errorResult.UnmarshalBinary([]byte(val))
-			sendTxResponse.ErrorCode = errorResult.Result.Code.String()
-		}
+	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
 		if val, exists := result["status"].(string); exists {
 			sendTxResponse.Status = val
 		}
+		if val, exists := result["errorResultXdr"].(string); exists {
+			errorCode, err := UnMarshalErrorResultXdr(val)
+			if err != nil {
+				return sendTxResponse, fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", val)
+			}
+			sendTxResponse.ErrorCode = errorCode
+		}
 	}
-	fmt.Println(sendTxResponse)
-	prettyResponse, err := json.MarshalIndent(res, "", "    ")
-	if err != nil {
-		log.Fatalf("Error formatting rpc JSON response: %v", err)
-	}
-	fmt.Println(string(prettyResponse))
 	return sendTxResponse, nil
 }
 
-func NewTransactionService(opts TransactionServiceOptions) (*transactionService, error) {
-	/*
-		if err := opts.Validate(); err != nil {
-			return nil, err
-		}
-	*/
+func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
+	rpcResponse, err := callRPC(t.RpcUrl, "getTransaction", map[string]string{"hash": transactionHash})
+	if err != nil {
+		return tss.RPCGetIngestTxResponse{}, fmt.Errorf(err.Error())
+	}
 
+	getIngestTxResponse := tss.RPCGetIngestTxResponse{}
+	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
+		if status, exists := result["status"].(string); exists {
+			getIngestTxResponse.Status = status
+		}
+		if envelopeXdr, exists := result["envelopeXdr"].(string); exists {
+			getIngestTxResponse.EnvelopeXdr = envelopeXdr
+		}
+		if resultXdr, exists := result["resultXdr"].(string); exists {
+			getIngestTxResponse.ResultXdr = resultXdr
+		}
+		if createdAt, exists := result["createdAt"].(string); exists {
+			// we can supress erroneous createdAt errors as this is not an important field
+			createdAtInt, _ := strconv.ParseInt(createdAt, 10, 64)
+			getIngestTxResponse.CreatedAt = createdAtInt
+		}
+	}
+	return getIngestTxResponse, nil
+}
+
+func NewTransactionService(opts TransactionServiceOptions) (*transactionService, error) {
+	if err := opts.ValidateOptions(); err != nil {
+		return nil, err
+	}
 	return &transactionService{
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
