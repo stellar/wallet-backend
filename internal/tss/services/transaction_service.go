@@ -41,6 +41,29 @@ type TransactionServiceOptions struct {
 	BaseFee                            int64
 }
 
+func (o *TransactionServiceOptions) ValidateOptions() error {
+	if o.DistributionAccountSignatureClient == nil {
+		return fmt.Errorf("distribution account signature client cannot be nil")
+	}
+
+	if o.ChannelAccountSignatureClient == nil {
+		return fmt.Errorf("channel account signature client cannot be nil")
+	}
+
+	if o.HorizonClient == nil {
+		return fmt.Errorf("horizon client cannot be nil")
+	}
+
+	if o.RpcUrl == "" {
+		return fmt.Errorf("rpc url cannot be empty")
+	}
+
+	if o.BaseFee < int64(txnbuild.MinBaseFee) {
+		return fmt.Errorf("base fee is lower than the minimum network fee")
+	}
+	return nil
+}
+
 func parseJSONBody(body []byte) (map[string]interface{}, error) {
 	var res map[string]interface{}
 	err := json.Unmarshal(body, &res)
@@ -83,29 +106,6 @@ func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map
 		return nil, fmt.Errorf(method+": parsing rpc response JSON: %v", err)
 	}
 	return res, nil
-}
-
-func (o *TransactionServiceOptions) ValidateOptions() error {
-	if o.DistributionAccountSignatureClient == nil {
-		return fmt.Errorf("distribution account signature client cannot be nil")
-	}
-
-	if o.ChannelAccountSignatureClient == nil {
-		return fmt.Errorf("channel account signature client cannot be nil")
-	}
-
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
-	}
-
-	if o.RpcUrl == "" {
-		return fmt.Errorf("rpc url cannot be empty")
-	}
-
-	if o.BaseFee < int64(txnbuild.MinBaseFee) {
-		return fmt.Errorf("base fee is lower than the minimum network fee")
-	}
-	return nil
 }
 
 func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {

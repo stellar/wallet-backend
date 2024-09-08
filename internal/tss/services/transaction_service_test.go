@@ -41,8 +41,67 @@ func buildTestTransaction() *txnbuild.Transaction {
 	return tx
 }
 
-func TestValidate(t *testing.T) {
+func TestValidateOptions(t *testing.T) {
+	t.Run("return_error_when_distribution_signature_client_null", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: nil,
+			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			HorizonClient:                      &horizonclient.MockClient{},
+			RpcUrl:                             "http://localhost:8000/soroban/rpc",
+			BaseFee:                            114,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "distribution account signature client cannot be nil", err.Error())
 
+	})
+
+	t.Run("return_error_when_channel_signature_client_null", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
+			ChannelAccountSignatureClient:      nil,
+			HorizonClient:                      &horizonclient.MockClient{},
+			RpcUrl:                             "http://localhost:8000/soroban/rpc",
+			BaseFee:                            114,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "channel account signature client cannot be nil", err.Error())
+	})
+
+	t.Run("return_error_when_horizon_client_null", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
+			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			HorizonClient:                      nil,
+			RpcUrl:                             "http://localhost:8000/soroban/rpc",
+			BaseFee:                            114,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "horizon client cannot be nil", err.Error())
+	})
+
+	t.Run("return_error_when_rpc_url_empty", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
+			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			HorizonClient:                      &horizonclient.MockClient{},
+			RpcUrl:                             "",
+			BaseFee:                            114,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "rpc url cannot be empty", err.Error())
+	})
+
+	t.Run("return_error_when_base_fee_too_low", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
+			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			HorizonClient:                      &horizonclient.MockClient{},
+			RpcUrl:                             "http://localhost:8000/soroban/rpc",
+			BaseFee:                            txnbuild.MinBaseFee - 10,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "base fee is lower than the minimum network fee", err.Error())
+	})
 }
 
 func TestSignAndBuildNewTransaction(t *testing.T) {
