@@ -25,10 +25,8 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	service := &PaymentService{
-		Models:        models,
-		ServerBaseURL: "http://testing.com",
-	}
+	service, err := NewPaymentService(models, "http://testing.com")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	dbPayments := []data.Payment{

@@ -67,7 +67,9 @@ type handlerDeps struct {
 	SupportedAssets   []entities.Asset
 
 	// Services
+	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
+	PaymentService            services.PaymentService
 }
 
 func Serve(cfg Configs) error {
@@ -110,6 +112,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonURL: cfg.HorizonClientURL,
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
+
+	accountService, err := services.NewAccountService(models)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
+	}
+
 	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
@@ -121,6 +129,11 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
+	}
+
+	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
 	}
 
 	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
@@ -141,7 +154,9 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
 		SupportedAssets:           cfg.SupportedAssets,
+		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
+		PaymentService:            paymentService,
 	}, nil
 }
 
@@ -168,18 +183,28 @@ func handler(deps handlerDeps) http.Handler {
 	mux.Group(func(r chi.Router) {
 		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
 
-		r.Route("/payments", func(r chi.Router) {
-			handler := &httphandler.PaymentHandler{
-				Models: deps.Models,
+		r.Route("/accounts", func(r chi.Router) {
+			handler := &httphandler.AccountHandler{
+				AccountService:            deps.AccountService,
+				AccountSponsorshipService: deps.AccountSponsorshipService,
+				SupportedAssets:           deps.SupportedAssets,
 			}
 
-			r.Post("/subscribe", handler.SubscribeAddress)
-			r.Post("/unsubscribe", handler.UnsubscribeAddress)
+			r.Post("/{address}", handler.RegisterAccount)
+			r.Delete("/{address}", handler.DeregisterAccount)
+		})
+
+		r.Route("/payments", func(r chi.Router) {
+			handler := &httphandler.PaymentHandler{
+				PaymentService: deps.PaymentService,
+			}
+
 			r.Get("/", handler.GetPayments)
 		})
 
 		r.Route("/tx", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
+				AccountService:            deps.AccountService,
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
 			}
