@@ -16,7 +16,7 @@ const (
 
 type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
-	Status string
+	Status RPCTXStatus
 	// The raw TransactionEnvelope XDR for this transaction
 	EnvelopeXDR string
 	// The raw TransactionResult XDR of the envelopeXdr

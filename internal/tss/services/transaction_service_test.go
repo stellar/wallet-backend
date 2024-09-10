@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/tss"
 	tssErr "github.com/stellar/wallet-backend/internal/tss/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -468,7 +469,7 @@ func TestSendTransaction(t *testing.T) {
 	})
 	t.Run("error_unmarshaling_error_result_xdr", func(t *testing.T) {
 		errorResultXdr := "AAAAAAAAAGT////7AAAAAA=="
-		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": "ERROR", "errorResultXdr": errorResultXdr}}
+		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": tss.ErrorStatus, "errorResultXdr": errorResultXdr}}
 		mockCallRPC.
 			On("callRPC", rpcUrl, "sendTransaction", map[string]string{"transaction": txXdr}).
 			Return(rpcResponse, nil).
@@ -480,13 +481,13 @@ func TestSendTransaction(t *testing.T) {
 			Once()
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
-		assert.Equal(t, rpcSendTxResponse.Status, "ERROR")
+		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
 		assert.Empty(t, rpcSendTxResponse.ErrorCode)
 		assert.Equal(t, "SendTransaction: unable to unmarshal errorResultXdr: "+errorResultXdr, err.Error())
 	})
 	t.Run("return_send_tx_response", func(t *testing.T) {
 		errorResultXdr := "AAAAAAAAAGT////7AAAAAA=="
-		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": "ERROR", "errorResultXdr": errorResultXdr}}
+		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": tss.ErrorStatus, "errorResultXdr": errorResultXdr}}
 		mockCallRPC.
 			On("callRPC", rpcUrl, "sendTransaction", map[string]string{"transaction": txXdr}).
 			Return(rpcResponse, nil).
@@ -498,7 +499,7 @@ func TestSendTransaction(t *testing.T) {
 			Once()
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
-		assert.Equal(t, rpcSendTxResponse.Status, "ERROR")
+		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
 		assert.Equal(t, rpcSendTxResponse.ErrorCode, "txError")
 		assert.Empty(t, err)
 	})
@@ -529,16 +530,16 @@ func TestGetTransaction(t *testing.T) {
 	})
 
 	t.Run("returns_resp_with_status", func(t *testing.T) {
-		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": "ERROR"}}
+		rpcResponse := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "result": map[string]interface{}{"status": tss.SuccessStatus}}
 		mockCallRPC.
 			On("callRPC", rpcUrl, "getTransaction", map[string]string{"hash": txHash}).
 			Return(rpcResponse, nil).
 			Once()
 
 		getIngestTxResponse, err := txService.GetTransaction(txHash)
-		assert.Equal(t, getIngestTxResponse.Status, "ERROR")
-		assert.Empty(t, getIngestTxResponse.EnvelopeXdr)
-		assert.Empty(t, getIngestTxResponse.ResultXdr)
+		assert.Equal(t, getIngestTxResponse.Status, tss.SuccessStatus)
+		assert.Empty(t, getIngestTxResponse.EnvelopeXDR)
+		assert.Empty(t, getIngestTxResponse.ResultXDR)
 		assert.Empty(t, getIngestTxResponse.CreatedAt)
 		assert.Empty(t, err)
 	})
@@ -552,8 +553,8 @@ func TestGetTransaction(t *testing.T) {
 
 		getIngestTxResponse, err := txService.GetTransaction(txHash)
 		assert.Empty(t, getIngestTxResponse.Status)
-		assert.Equal(t, getIngestTxResponse.EnvelopeXdr, "abcd")
-		assert.Empty(t, getIngestTxResponse.ResultXdr)
+		assert.Equal(t, getIngestTxResponse.EnvelopeXDR, "abcd")
+		assert.Empty(t, getIngestTxResponse.ResultXDR)
 		assert.Empty(t, getIngestTxResponse.CreatedAt)
 		assert.Empty(t, err)
 	})
@@ -567,8 +568,8 @@ func TestGetTransaction(t *testing.T) {
 
 		getIngestTxResponse, err := txService.GetTransaction(txHash)
 		assert.Empty(t, getIngestTxResponse.Status)
-		assert.Empty(t, getIngestTxResponse.EnvelopeXdr)
-		assert.Equal(t, getIngestTxResponse.ResultXdr, "abcd")
+		assert.Empty(t, getIngestTxResponse.EnvelopeXDR)
+		assert.Equal(t, getIngestTxResponse.ResultXDR, "abcd")
 		assert.Empty(t, getIngestTxResponse.CreatedAt)
 		assert.Empty(t, err)
 	})
@@ -582,8 +583,8 @@ func TestGetTransaction(t *testing.T) {
 
 		getIngestTxResponse, err := txService.GetTransaction(txHash)
 		assert.Empty(t, getIngestTxResponse.Status)
-		assert.Empty(t, getIngestTxResponse.EnvelopeXdr)
-		assert.Empty(t, getIngestTxResponse.ResultXdr)
+		assert.Empty(t, getIngestTxResponse.EnvelopeXDR)
+		assert.Empty(t, getIngestTxResponse.ResultXDR)
 		assert.Equal(t, getIngestTxResponse.CreatedAt, int64(1234))
 		assert.Empty(t, err)
 	})

@@ -175,7 +175,7 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 
 	sendTxResponse := tss.RPCSendTxResponse{}
 	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
-		if val, exists := result["status"].(string); exists {
+		if val, exists := result["status"].(tss.RPCTXStatus); exists {
 			sendTxResponse.Status = val
 		}
 		if val, exists := result["errorResultXdr"].(string); exists {
@@ -197,14 +197,14 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 
 	getIngestTxResponse := tss.RPCGetIngestTxResponse{}
 	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
-		if status, exists := result["status"].(string); exists {
+		if status, exists := result["status"].(tss.RPCTXStatus); exists {
 			getIngestTxResponse.Status = status
 		}
 		if envelopeXdr, exists := result["envelopeXdr"].(string); exists {
-			getIngestTxResponse.EnvelopeXdr = envelopeXdr
+			getIngestTxResponse.EnvelopeXDR = envelopeXdr
 		}
 		if resultXdr, exists := result["resultXdr"].(string); exists {
-			getIngestTxResponse.ResultXdr = resultXdr
+			getIngestTxResponse.ResultXDR = resultXdr
 		}
 		if createdAt, exists := result["createdAt"].(string); exists {
 			// we can supress erroneous createdAt errors as this is not an important field
