@@ -1,21 +1,21 @@
 -- +migrate Up
 
 CREATE TABLE tss_transactions (
-    transaction_hash VARCHAR(70) PRIMARY KEY,
-    transaction_xdr VARCHAR(400),
-    webhook_url VARCHAR(250),
-    current_status VARCHAR(50),
-    creation_time TIMESTAMPTZ DEFAULT NOW(),
-    last_updated_time TIMESTAMPTZ DEFAULT NOW(),
+    transaction_hash TEXT PRIMARY KEY,
+    transaction_xdr TEXT,
+    webhook_url TEXT,
+    current_status TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     claimed_until TIMESTAMPTZ
 );
 
 CREATE TABLE tss_transaction_submission_tries (
-    original_transaction_hash VARCHAR(70),
-    try_transaction_hash VARCHAR(70),
-    try_transaction_xdr VARCHAR(400),
-    status VARCHAR(50),
-    last_updated TIMESTAMPTZ DEFAULT NOW()
+    original_transaction_hash TEXT,
+    try_transaction_hash TEXT,
+    try_transaction_xdr TEXT,
+    status TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_tx_current_status ON tss_transactions(current_status);
