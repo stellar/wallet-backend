@@ -12,47 +12,8 @@ import (
 )
 
 type PaymentHandler struct {
-	Models     *data.Models
-	Service    *services.PaymentService
-	AppTracker apptracker.AppTracker
-}
-
-type PaymentsSubscribeRequest struct {
-	Address string `json:"address" validate:"required,public_key"`
-}
-
-func (h PaymentHandler) SubscribeAddress(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var reqBody PaymentsSubscribeRequest
-	httpErr := DecodeJSONAndValidate(ctx, r, &reqBody, h.AppTracker)
-	if httpErr != nil {
-		httpErr.Render(w)
-		return
-	}
-
-	err := h.Models.Account.Insert(ctx, reqBody.Address)
-	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
-		return
-	}
-}
-
-func (h PaymentHandler) UnsubscribeAddress(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var reqBody PaymentsSubscribeRequest
-	httpErr := DecodeJSONAndValidate(ctx, r, &reqBody, h.AppTracker)
-	if httpErr != nil {
-		httpErr.Render(w)
-		return
-	}
-
-	err := h.Models.Account.Delete(ctx, reqBody.Address)
-	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
-		return
-	}
+	PaymentService services.PaymentService
+	AppTracker     apptracker.AppTracker
 }
 
 type PaymentsRequest struct {
@@ -78,7 +39,7 @@ func (h PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payments, pagination, err := h.Service.GetPaymentsPaginated(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
+	payments, pagination, err := h.PaymentService.GetPaymentsPaginated(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
 	if err != nil {
 		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
