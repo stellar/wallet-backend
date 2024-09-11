@@ -43,6 +43,6 @@ type Payload struct {
 }
 
 type Channel interface {
-	send(payload Payload)
-	receive(payload Payload)
+	Send(payload Payload)
+	Receive(payload Payload)
 }
