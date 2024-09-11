@@ -14,7 +14,6 @@ import (
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/apptracker"
-	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -61,7 +60,7 @@ type Configs struct {
 	ChannelAccountSignatureClient      signing.SignatureClient
 
 	// Error Tracker
-	AppTracker sentry.SentryTracker
+	AppTracker apptracker.AppTracker
 }
 
 type handlerDeps struct {
@@ -163,7 +162,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
-		AppTracker:                &cfg.AppTracker,
+		AppTracker:                cfg.AppTracker,
 	}, nil
 }
 

@@ -84,7 +84,6 @@ func TestNewSentryTracker_Success(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, tracker)
-	assert.Equal(t, int64(5), tracker.FlushFreq)
 
 	mockSentry.AssertCalled(t, "Init", mock.Anything)
 	mockSentry.AssertCalled(t, "Flush", time.Second*5)

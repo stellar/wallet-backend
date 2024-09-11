@@ -27,7 +27,7 @@ func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
 		return
@@ -35,7 +35,7 @@ func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) 
 
 	err := h.AccountService.RegisterAccount(ctx, reqParams.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
 	}
 
@@ -46,7 +46,7 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 
 	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
 		return
@@ -54,7 +54,7 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 
 	err := h.AccountService.DeregisterAccount(ctx, reqParams.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
 	}
 

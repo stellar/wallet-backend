@@ -81,9 +81,9 @@ func (c *ingestCmd) Command() *cobra.Command {
 			}
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
 			if err != nil {
-				log.Fatalf("Error initializing App Tracker: %s", err.Error())
+				return fmt.Errorf("initializing app tracker: %w", err)
 			}
-			cfg.AppTracker = *appTracker
+			cfg.AppTracker = appTracker
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {

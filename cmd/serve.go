@@ -114,7 +114,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("initializing App Tracker: %w", err)
 			}
-			cfg.AppTracker = *appTracker
+			cfg.AppTracker = appTracker
 
 			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &signingutils.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {

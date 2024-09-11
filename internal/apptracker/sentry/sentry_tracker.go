@@ -16,9 +16,7 @@ var (
 	RecoverFunc          = sentry.Recover
 )
 
-type SentryTracker struct {
-	FlushFreq int64
-}
+type SentryTracker struct{}
 
 func (s *SentryTracker) CaptureMessage(message string) {
 	captureMessageFunc(message)
@@ -37,6 +35,6 @@ func NewSentryTracker(dsn string, env string, flushFreq int) (*SentryTracker, er
 	}
 	defer FlushFunc(time.Second * time.Duration(flushFreq))
 	defer RecoverFunc()
-	return &SentryTracker{FlushFreq: int64(flushFreq)}, nil
+	return &SentryTracker{}, nil
 
 }
