@@ -1,4 +1,4 @@
-package tss_services
+package utils
 
 import (
 	"bytes"
