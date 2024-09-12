@@ -6,6 +6,7 @@ import (
 )
 
 type TransactionService interface {
+	NetworkPassPhrase() string
 	SignAndBuildNewTransaction(origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
 	SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error)
 	GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error)

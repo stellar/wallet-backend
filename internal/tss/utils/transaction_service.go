@@ -124,6 +124,10 @@ func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map
 	return res, nil
 }
 
+func (t *transactionService) NetworkPassPhrase() string {
+	return t.DistributionAccountSignatureClient.NetworkPassphrase()
+}
+
 func (t *transactionService) SignAndBuildNewTransaction(origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(origTxXdr)
 	if err != nil {

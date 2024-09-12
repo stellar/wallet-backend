@@ -44,7 +44,7 @@ func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 		// TODO: log error
 		return
 	}
-	feeBumpTxHash, err := feeBumpTx.HashHex("need network pass")
+	feeBumpTxHash, err := feeBumpTx.HashHex(p.txService.NetworkPassPhrase())
 	if err != nil {
 		// TODO: log error
 		return
