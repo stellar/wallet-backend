@@ -482,7 +482,7 @@ func TestSendTransaction(t *testing.T) {
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
 		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
-		assert.Empty(t, rpcSendTxResponse.ErrorCode)
+		assert.Empty(t, rpcSendTxResponse.Code)
 		assert.Equal(t, "SendTransaction: unable to unmarshal errorResultXdr: "+errorResultXdr, err.Error())
 	})
 	t.Run("return_send_tx_response", func(t *testing.T) {
@@ -500,7 +500,7 @@ func TestSendTransaction(t *testing.T) {
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
 		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
-		assert.Equal(t, rpcSendTxResponse.ErrorCode, "txError")
+		assert.Equal(t, rpcSendTxResponse.Code, "txError")
 		assert.Empty(t, err)
 	})
 }
