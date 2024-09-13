@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -20,6 +21,7 @@ type IngestManager struct {
 	LedgerBackend     ledgerbackend.LedgerBackend
 	NetworkPassphrase string
 	LedgerCursorName  string
+	AppTracker        apptracker.AppTracker
 }
 
 func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
@@ -52,7 +54,7 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	}
 
 	heartbeat := make(chan any)
-	go trackServiceHealth(heartbeat)
+	go trackServiceHealth(heartbeat, m.AppTracker)
 
 	for ; end == 0 || ingestLedger <= end; ingestLedger++ {
 		log.Ctx(ctx).Infof("waiting for ledger %d", ingestLedger)
@@ -98,7 +100,7 @@ func (m *IngestManager) maybePrepareRange(ctx context.Context, from, to uint32) 
 	return nil
 }
 
-func trackServiceHealth(heartbeat chan any) {
+func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
 	const alertAfter = time.Second * 60
 	ticker := time.NewTicker(alertAfter)
 
@@ -107,8 +109,11 @@ func trackServiceHealth(heartbeat chan any) {
 		case <-ticker.C:
 			warn := fmt.Sprintf("ingestion service stale for over %s", alertAfter)
 			log.Warn(warn)
-			// TODO: track in Sentry
-			// sentry.CaptureMessage(warn)
+			if tracker != nil {
+				tracker.CaptureMessage(warn)
+			} else {
+				log.Warn("App Tracker is nil")
+			}
 			ticker.Reset(alertAfter)
 		case <-heartbeat:
 			ticker.Reset(alertAfter)
