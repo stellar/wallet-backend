@@ -27,7 +27,7 @@ func TestBuildOriginalTransaction(t *testing.T) {
 
 		buf := strings.Builder{}
 		enc := xdr3.NewEncoder(&buf)
-		caOp.EncodeTo(enc)
+		_ = caOp.EncodeTo(enc)
 
 		caOpXDR := buf.String()
 		caOpXDRBase64 := base64.StdEncoding.EncodeToString([]byte(caOpXDR))
@@ -48,7 +48,7 @@ func TestBuildOriginalTransaction(t *testing.T) {
 
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		op.EncodeTo(enc)
+		_ = op.EncodeTo(enc)
 
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))

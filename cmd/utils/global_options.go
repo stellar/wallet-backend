@@ -109,6 +109,26 @@ func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigO
 	}
 }
 
+func SentryDSNOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:      "tracker-dsn",
+		Usage:     "The Sentry DSN",
+		OptType:   types.String,
+		ConfigKey: configKey,
+		Required:  true,
+	}
+}
+
+func StellarEnvironmentOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:      "stellar-environment",
+		Usage:     "The Stellar Environment",
+		OptType:   types.String,
+		ConfigKey: configKey,
+		Required:  true,
+	}
+}
+
 func DistributionAccountPublicKeyOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:           "distribution-account-public-key",

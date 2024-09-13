@@ -20,7 +20,10 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 		}
 		dec := xdr3.NewDecoder(strings.NewReader(string(decodedBytes)))
 		var decodedOp xdr.Operation
-		dec.Decode(&decodedOp)
+		_, err = dec.Decode(&decodedOp)
+		if err != nil {
+			return nil, fmt.Errorf("decoding xdr into xdr Operation: %w", err)
+		}
 		// for now, we assume that all operations are Payment operations
 		paymentOp := txnbuild.Payment{}
 		err = paymentOp.FromXDR(decodedOp)

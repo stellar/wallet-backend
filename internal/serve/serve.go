@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -66,6 +67,8 @@ type Configs struct {
 	RpcUrl                            string
 	RPCCallerServiceChannelBufferSize int
 	RPCCallerServiceChannelMaxWorkers int
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 type handlerDeps struct {
@@ -82,6 +85,7 @@ type handlerDeps struct {
 	// TSS
 	RpcCallerServiceChannel tss.Channel
 	RpcCallerService        tssservices.Service
+	AppTracker              apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -196,8 +200,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
-		RpcCallerServiceChannel:   rpcCallerServiceChannel,
-		RpcCallerService:          rpcCallerService,
+		AppTracker:                cfg.AppTracker,
+		// TSS
+		RpcCallerServiceChannel: rpcCallerServiceChannel,
+		RpcCallerService:        rpcCallerService,
 	}, nil
 }
 
@@ -216,19 +222,20 @@ func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
-	mux.Use(middleware.RecoverHandler)
+	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier))
+		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier, deps.AppTracker))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
 				AccountService:            deps.AccountService,
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
+				AppTracker:                deps.AppTracker,
 			}
 
 			r.Post("/{address}", handler.RegisterAccount)
@@ -238,6 +245,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentHandler{
 				PaymentService: deps.PaymentService,
+				AppTracker:     deps.AppTracker,
 			}
 
 			r.Get("/", handler.GetPayments)
@@ -248,6 +256,7 @@ func handler(deps handlerDeps) http.Handler {
 				AccountService:            deps.AccountService,
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
+				AppTracker:                deps.AppTracker,
 			}
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)

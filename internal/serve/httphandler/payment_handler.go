@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/stellar/go/support/render/httpjson"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
@@ -12,6 +13,7 @@ import (
 
 type PaymentHandler struct {
 	PaymentService services.PaymentService
+	AppTracker     apptracker.AppTracker
 }
 
 type PaymentsRequest struct {
@@ -31,7 +33,7 @@ func (h PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	reqQuery := PaymentsRequest{Sort: data.DESC, Limit: 50}
-	httpErr := DecodeQueryAndValidate(ctx, r, &reqQuery)
+	httpErr := DecodeQueryAndValidate(ctx, r, &reqQuery, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
 		return
@@ -39,7 +41,7 @@ func (h PaymentHandler) GetPayments(w http.ResponseWriter, r *http.Request) {
 
 	payments, pagination, err := h.PaymentService.GetPaymentsPaginated(ctx, reqQuery.Address, reqQuery.BeforeID, reqQuery.AfterID, reqQuery.Sort, reqQuery.Limit)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
 	}
 

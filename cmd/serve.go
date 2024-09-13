@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/cmd/utils"
+	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/serve"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -20,6 +21,8 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
+	var sentryDSN string
+	var stellarEnvironment string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
@@ -30,6 +33,8 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.RPCCallerServiceChannelBufferSizeOption(&cfg.RPCCallerServiceChannelBufferSize),
 		utils.RPCCallerServiceMaxWorkersOption(&cfg.RPCCallerServiceChannelMaxWorkers),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
+		utils.SentryDSNOption(&sentryDSN),
+		utils.StellarEnvironmentOption(&stellarEnvironment),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -108,6 +113,11 @@ func (c *serveCmd) Command() *cobra.Command {
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 			cfg.DistributionAccountSignatureClient = signatureClient
+			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
+			if err != nil {
+				return fmt.Errorf("initializing App Tracker: %w", err)
+			}
+			cfg.AppTracker = appTracker
 
 			channelAccountSignatureClient, err := signing.NewChannelAccountDBSignatureClient(dbConnectionPool, cfg.NetworkPassphrase, &signingutils.DefaultPrivateKeyEncrypter{}, cfg.EncryptionPassphrase)
 			if err != nil {
