@@ -31,6 +31,7 @@ type transactionService struct {
 	HorizonClient                      horizonclient.ClientInterface
 	RpcUrl                             string
 	BaseFee                            int64
+	Ctx                                context.Context
 }
 
 type TransactionServiceOptions struct {
@@ -39,6 +40,7 @@ type TransactionServiceOptions struct {
 	HorizonClient                      horizonclient.ClientInterface
 	RpcUrl                             string
 	BaseFee                            int64
+	Ctx                                context.Context
 }
 
 func (o *TransactionServiceOptions) ValidateOptions() error {
@@ -64,6 +66,20 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 	return nil
 }
 
+func NewTransactionService(opts TransactionServiceOptions) (TransactionService, error) {
+	if err := opts.ValidateOptions(); err != nil {
+		return nil, err
+	}
+	return &transactionService{
+		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
+		HorizonClient:                      opts.HorizonClient,
+		RpcUrl:                             opts.RpcUrl,
+		BaseFee:                            opts.BaseFee,
+		Ctx:                                opts.Ctx,
+	}, nil
+}
+
 func parseJSONBody(body []byte) (map[string]interface{}, error) {
 	var res map[string]interface{}
 	err := json.Unmarshal(body, &res)
@@ -73,13 +89,16 @@ func parseJSONBody(body []byte) (map[string]interface{}, error) {
 	return res, nil
 }
 
-func parseErrorResultXdr(errorResultXdr string) (string, error) {
+func parseErrorResultXdr(errorResultXdr string) (tss.RPCTXCode, error) {
 	errorResult := xdr.TransactionResult{}
 	err := errorResult.UnmarshalBinary([]byte(errorResultXdr))
+
 	if err != nil {
-		return "", fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", errorResultXdr)
 	}
-	return errorResult.Result.Code.String(), nil
+	return tss.RPCTXCode{
+		TxResultCode: errorResult.Result.Code,
+	}, nil
 }
 
 func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map[string]interface{}, error) {
@@ -108,7 +127,11 @@ func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map
 	return res, nil
 }
 
-func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
+func (t *transactionService) NetworkPassPhrase() string {
+	return t.DistributionAccountSignatureClient.NetworkPassphrase()
+}
+
+func (t *transactionService) SignAndBuildNewTransaction(origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(origTxXdr)
 	if err != nil {
 		return nil, tssErr.OriginalXdrMalformed
@@ -117,7 +140,7 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 	if !txEmpty {
 		return nil, tssErr.OriginalXdrMalformed
 	}
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
+	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(t.Ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
@@ -139,12 +162,12 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 	if err != nil {
 		return nil, fmt.Errorf("building transaction: %w", err)
 	}
-	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
+	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(t.Ctx, tx, channelAccountPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
 	}
 	// wrap the transaction in a fee bump tx, signed by the distribution account
-	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(t.Ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting distribution account public key: %w", err)
 	}
@@ -160,7 +183,7 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 		return nil, fmt.Errorf("building fee-bump transaction %w", err)
 	}
 
-	feeBumpTx, err = t.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
+	feeBumpTx, err = t.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(t.Ctx, feeBumpTx)
 	if err != nil {
 		return nil, fmt.Errorf("signing the fee bump transaction with distribution account: %w", err)
 	}
@@ -169,24 +192,25 @@ func (t *transactionService) SignAndBuildNewTransaction(ctx context.Context, ori
 
 func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
 	rpcResponse, err := callRPC(t.RpcUrl, "sendTransaction", map[string]string{"transaction": transactionXdr})
+	sendTxResponse := tss.RPCSendTxResponse{}
+	sendTxResponse.TransactionXDR = transactionXdr
 	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf(err.Error())
+		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
+		return sendTxResponse, fmt.Errorf(err.Error())
 	}
 
-	sendTxResponse := tss.RPCSendTxResponse{}
 	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
 		if val, exists := result["status"].(tss.RPCTXStatus); exists {
 			sendTxResponse.Status = val
 		}
 		if val, exists := result["errorResultXdr"].(string); exists {
-			errorCode, err := UnMarshalErrorResultXdr(val)
-			if err != nil {
-				return sendTxResponse, fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", val)
-			}
-			sendTxResponse.ErrorCode = errorCode
+			sendTxResponse.Code, err = UnMarshalErrorResultXdr(val)
+		}
+		if hash, exists := result["hash"].(string); exists {
+			sendTxResponse.TransactionHash = hash
 		}
 	}
-	return sendTxResponse, nil
+	return sendTxResponse, err
 }
 
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
@@ -213,17 +237,4 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 		}
 	}
 	return getIngestTxResponse, nil
-}
-
-func NewTransactionService(opts TransactionServiceOptions) (*transactionService, error) {
-	if err := opts.ValidateOptions(); err != nil {
-		return nil, err
-	}
-	return &transactionService{
-		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
-		HorizonClient:                      opts.HorizonClient,
-		RpcUrl:                             opts.RpcUrl,
-		BaseFee:                            opts.BaseFee,
-	}, nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssErr "github.com/stellar/wallet-backend/internal/tss/errors"
@@ -118,12 +119,13 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 		HorizonClient:                      &horizonClient,
 		RpcUrl:                             "http://localhost:8000/soroban/rpc",
 		BaseFee:                            114,
+		Ctx:                                context.Background(),
 	})
 
 	txStr, _ := buildTestTransaction().Base64()
 
 	t.Run("malformed_transaction_string", func(t *testing.T) {
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), "abcd")
+		feeBumpTx, err := txService.SignAndBuildNewTransaction("abcd")
 		assert.Empty(t, feeBumpTx)
 		assert.ErrorIs(t, tssErr.OriginalXdrMalformed, err)
 	})
@@ -134,7 +136,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Empty(t, feeBumpTx)
 		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
 	})
@@ -153,7 +155,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return(horizon.Account{}, errors.New("horizon down")).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Empty(t, feeBumpTx)
 		assert.Equal(t, "getting channel account details from horizon: horizon down", err.Error())
 	})
@@ -175,7 +177,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Empty(t, feeBumpTx)
 		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
 	})
@@ -203,7 +205,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Empty(t, feeBumpTx)
 		assert.Equal(t, "getting distribution account public key: client down", err.Error())
 	})
@@ -234,7 +236,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return(horizon.Account{AccountID: account.Address(), Sequence: 1}, nil).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Empty(t, feeBumpTx)
 		assert.Equal(t, "signing the fee bump transaction with distribution account: unable to sign", err.Error())
 	})
@@ -272,7 +274,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 			Return(horizon.Account{AccountID: account.Address(), Sequence: 1}, nil).
 			Once()
 
-		feeBumpTx, err := txService.SignAndBuildNewTransaction(context.Background(), txStr)
+		feeBumpTx, err := txService.SignAndBuildNewTransaction(txStr)
 		assert.Equal(t, feeBumpTx, testFeeBumpTx)
 		assert.Empty(t, err)
 	})
@@ -436,9 +438,9 @@ type MockUnMarshalErrorResultXdr struct {
 	mock.Mock
 }
 
-func (m *MockUnMarshalErrorResultXdr) UnMarshalErrorResultXdr(errorResultXdr string) (string, error) {
+func (m *MockUnMarshalErrorResultXdr) UnMarshalErrorResultXdr(errorResultXdr string) (tss.RPCTXCode, error) {
 	args := m.Called(errorResultXdr)
-	return args.String(0), args.Error(1)
+	return args.Get(0).(tss.RPCTXCode), args.Error(1)
 }
 
 func TestSendTransaction(t *testing.T) {
@@ -464,7 +466,8 @@ func TestSendTransaction(t *testing.T) {
 			Return(nil, errors.New("unable to reach rpc server")).
 			Once()
 
-		_, err := txService.SendTransaction(txXdr)
+		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
+		assert.Equal(t, rpcSendTxResponse.Code.OtherCodes, tss.RPCFailCode)
 		assert.Equal(t, "unable to reach rpc server", err.Error())
 	})
 	t.Run("error_unmarshaling_error_result_xdr", func(t *testing.T) {
@@ -477,13 +480,13 @@ func TestSendTransaction(t *testing.T) {
 
 		mockUnMarshalErrorResultXdr.
 			On("UnMarshalErrorResultXdr", errorResultXdr).
-			Return("", errors.New("unable to unmarshal")).
+			Return(tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, errors.New("unable to unmarshal")).
 			Once()
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
 		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
-		assert.Empty(t, rpcSendTxResponse.ErrorCode)
-		assert.Equal(t, "SendTransaction: unable to unmarshal errorResultXdr: "+errorResultXdr, err.Error())
+		assert.Equal(t, rpcSendTxResponse.Code.OtherCodes, tss.UnMarshalBinaryCode)
+		assert.Equal(t, "unable to unmarshal", err.Error())
 	})
 	t.Run("return_send_tx_response", func(t *testing.T) {
 		errorResultXdr := "AAAAAAAAAGT////7AAAAAA=="
@@ -495,12 +498,12 @@ func TestSendTransaction(t *testing.T) {
 
 		mockUnMarshalErrorResultXdr.
 			On("UnMarshalErrorResultXdr", errorResultXdr).
-			Return("txError", nil).
+			Return(tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}, nil).
 			Once()
 
 		rpcSendTxResponse, err := txService.SendTransaction(txXdr)
 		assert.Equal(t, rpcSendTxResponse.Status, tss.ErrorStatus)
-		assert.Equal(t, rpcSendTxResponse.ErrorCode, "txError")
+		assert.Equal(t, rpcSendTxResponse.Code.TxResultCode, xdr.TransactionResultCodeTxSuccess)
 		assert.Empty(t, err)
 	})
 }
