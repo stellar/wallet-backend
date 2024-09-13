@@ -1,11 +1,25 @@
 package tss
 
+import "github.com/stellar/go/xdr"
+
 type RPCTXStatus string
-type RPCTXCode string
+type OtherCodes int32
+
+type TransactionResultCode int32
 
 const (
-	NewCode RPCTXCode = "NEW"
+	// Do not use NoCode
+	NoCode OtherCodes = 0
+	// These values need to not overlap the values in xdr.TransactionResultCode
+	NewCode             OtherCodes = 100
+	RPCFailCode         OtherCodes = 101
+	UnMarshalBinaryCode OtherCodes = 102
 )
+
+type RPCTXCode struct {
+	TxResultCode xdr.TransactionResultCode
+	OtherCodes   OtherCodes
+}
 
 const (
 	// Brand new transaction, not sent to RPC yet
@@ -44,7 +58,7 @@ type RPCSendTxResponse struct {
 }
 
 type Payload struct {
-	ClientID string
+	WebhookURL string
 	// The hash of the transaction xdr submitted by the client - the id of the transaction submitted by a client
 	TransactionHash string
 	// The xdr of the transaction

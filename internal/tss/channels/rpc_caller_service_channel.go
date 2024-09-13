@@ -8,6 +8,14 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
+type RPCCallerServiceChannelConfigs struct {
+	Store     tss_store.Store
+	TxService utils.TransactionService
+	// add pool configs here
+	MaxBufferSize int
+	MaxWorkers    int
+}
+
 type rpcCallerServicePool struct {
 	pool *pond.WorkerPool
 	// some pool config, make a config struct for it
@@ -16,13 +24,14 @@ type rpcCallerServicePool struct {
 	store             tss_store.Store
 }
 
-func NewRPCCallerServiceChannel(store tss_store.Store, txService utils.TransactionService) (tss.Channel, error) {
-	pool := pond.New(10, 0, pond.MinWorkers(10))
+func NewRPCCallerServiceChannel(cfg RPCCallerServiceChannelConfigs) tss.Channel {
+	// use cfg to build pool
+	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
 	return &rpcCallerServicePool{
 		pool:      pool,
-		txService: txService,
-		store:     store,
-	}, nil
+		txService: cfg.TxService,
+		store:     cfg.Store,
+	}
 }
 
 func (p *rpcCallerServicePool) Send(payload tss.Payload) {
@@ -32,13 +41,16 @@ func (p *rpcCallerServicePool) Send(payload tss.Payload) {
 }
 
 func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
-	// maybe: why is sqlsqlExec db.SQLExecuter being passed GetAllByPublicKey in channel_accounts_model.go ?
-	err := p.store.UpsertTransaction(payload.ClientID, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
+	err := p.store.UpsertTransaction(payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
 	if err != nil {
 		// TODO: log error
 		return
 	}
 
+	/*
+		The reason we return on each error we encounter is so that the transaction status
+		stays at NEW, so that it can be picked up for re-processing when this pool is restarted.
+	*/
 	feeBumpTx, err := p.txService.SignAndBuildNewTransaction(payload.TransactionXDR)
 	if err != nil {
 		// TODO: log error
@@ -56,55 +68,36 @@ func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 		return
 	}
 
-	err = p.store.UpsertTry(payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.NewCode)
+	err = p.store.UpsertTry(payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXCode{OtherCodes: tss.NewCode})
 	if err != nil {
 		// TODO: log error
 		return
 	}
-	rpcSendResp, err := p.trySendTransaction(feeBumpTxXDR)
-	if err != nil {
-		// reset the status of the transaction back to NEW so it can be re-processed again
-		err = p.store.UpsertTransaction(payload.ClientID, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
-		if err != nil {
-			// TODO: log error
-		}
-		// TODO: log error
-		return
-	}
-
-	err = p.processRPCSendTxResponse(payload, rpcSendResp)
-	if err != nil {
-		// reset the status of the transaction back to NEW so it can be re-processed again
-		err = p.store.UpsertTransaction(payload.ClientID, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
-		if err != nil {
-			// TODO: log error
-		}
-		// TODO: log error
-	}
-}
-
-func (p *rpcCallerServicePool) trySendTransaction(feeBumpTxXDR string) (tss.RPCSendTxResponse, error) {
 	rpcSendResp, err := p.txService.SendTransaction(feeBumpTxXDR)
-	if err != nil {
-		return tss.RPCSendTxResponse{}, err
-	}
-	return rpcSendResp, nil
-}
 
-func (p *rpcCallerServicePool) processRPCSendTxResponse(payload tss.Payload, resp tss.RPCSendTxResponse) error {
-	err := p.store.UpsertTry(payload.TransactionHash, resp.TransactionHash, resp.TransactionXDR, resp.Code)
-	if err != nil {
-		return err
+	// if the rpc submitTransaction fails, or we cannot unmarshal it's response, we return because we want to retry this transaction
+	if rpcSendResp.Code.OtherCodes == tss.RPCFailCode || rpcSendResp.Code.OtherCodes == tss.UnMarshalBinaryCode {
+		// TODO: log here
+		return
 	}
-	err = p.store.UpsertTransaction(payload.TransactionHash, resp.TransactionHash, resp.TransactionXDR, resp.Status)
+
+	err = p.store.UpsertTry(payload.TransactionHash, rpcSendResp.TransactionHash, rpcSendResp.TransactionXDR, rpcSendResp.Code)
 	if err != nil {
-		return err
+		// TODO: log error
+		return
 	}
-	payload.RpcSubmitTxResponse = resp
-	if resp.Status == tss.TryAgainLaterStatus || resp.Status == tss.ErrorStatus {
+
+	err = p.store.UpsertTransaction(payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, rpcSendResp.Status)
+	if err != nil {
+		// TODO: log error
+		return
+	}
+
+	// route the payload to the Error handler service
+	payload.RpcSubmitTxResponse = rpcSendResp
+	if rpcSendResp.Status == tss.TryAgainLaterStatus || rpcSendResp.Status == tss.ErrorStatus {
 		p.errHandlerService.ProcessPayload(payload)
 	}
-	return nil
 }
 
 func (p *rpcCallerServicePool) Stop() {

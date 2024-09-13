@@ -24,6 +24,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/tss"
+	tsschannel "github.com/stellar/wallet-backend/internal/tss/channels"
+	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
+	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -57,6 +62,10 @@ type Configs struct {
 	HorizonClientURL                   string
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+	// TSS
+	RpcUrl                            string
+	RPCCallerServiceChannelBufferSize int
+	RPCCallerServiceChannelMaxWorkers int
 }
 
 type handlerDeps struct {
@@ -70,6 +79,9 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
+	// TSS
+	RpcCallerServiceChannel tss.Channel
+	RpcCallerService        tssservices.Service
 }
 
 func Serve(cfg Configs) error {
@@ -87,6 +99,7 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
+			deps.RpcCallerServiceChannel.Stop()
 		},
 	})
 
@@ -150,6 +163,32 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
+	// TSS
+	ctx := context.Background()
+	txServiceOpts := tssutils.TransactionServiceOptions{
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
+		HorizonClient:                      &horizonClient,
+		RpcUrl:                             cfg.RpcUrl,
+		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+		Ctx:                                ctx,
+	}
+	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
+	}
+
+	// re-use same context as above??
+	store := tssstore.NewStore(ctx, dbConnectionPool)
+	tssChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
+		Store:         store,
+		TxService:     tssTxService,
+		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+	}
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(tssChannelConfigs)
+	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)
+
 	return handlerDeps{
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
@@ -157,6 +196,8 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
+		RpcCallerServiceChannel:   rpcCallerServiceChannel,
+		RpcCallerService:          rpcCallerService,
 	}, nil
 }
 

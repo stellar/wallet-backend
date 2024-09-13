@@ -89,13 +89,16 @@ func parseJSONBody(body []byte) (map[string]interface{}, error) {
 	return res, nil
 }
 
-func parseErrorResultXdr(errorResultXdr string) (string, error) {
+func parseErrorResultXdr(errorResultXdr string) (tss.RPCTXCode, error) {
 	errorResult := xdr.TransactionResult{}
 	err := errorResult.UnmarshalBinary([]byte(errorResultXdr))
+
 	if err != nil {
-		return "", fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", errorResultXdr)
 	}
-	return errorResult.Result.Code.String(), nil
+	return tss.RPCTXCode{
+		TxResultCode: errorResult.Result.Code,
+	}, nil
 }
 
 func sendRPCRequest(rpcUrl string, method string, params map[string]string) (map[string]interface{}, error) {
@@ -189,28 +192,25 @@ func (t *transactionService) SignAndBuildNewTransaction(origTxXdr string) (*txnb
 
 func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
 	rpcResponse, err := callRPC(t.RpcUrl, "sendTransaction", map[string]string{"transaction": transactionXdr})
-	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf(err.Error())
-	}
-
 	sendTxResponse := tss.RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXdr
+	if err != nil {
+		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
+		return sendTxResponse, fmt.Errorf(err.Error())
+	}
+
 	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
 		if val, exists := result["status"].(tss.RPCTXStatus); exists {
 			sendTxResponse.Status = val
 		}
 		if val, exists := result["errorResultXdr"].(string); exists {
-			errorCode, err := UnMarshalErrorResultXdr(val)
-			if err != nil {
-				return sendTxResponse, fmt.Errorf("SendTransaction: unable to unmarshal errorResultXdr: %s", val)
-			}
-			sendTxResponse.Code = tss.RPCTXCode(errorCode)
+			sendTxResponse.Code, err = UnMarshalErrorResultXdr(val)
 		}
 		if hash, exists := result["hash"].(string); exists {
 			sendTxResponse.TransactionHash = hash
 		}
 	}
-	return sendTxResponse, nil
+	return sendTxResponse, err
 }
 
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
