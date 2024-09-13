@@ -6,6 +6,7 @@ import (
 
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -15,6 +16,7 @@ type AccountHandler struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	SupportedAssets           []entities.Asset
+	AppTracker                apptracker.AppTracker
 }
 
 type AccountRegistrationRequest struct {
@@ -25,7 +27,7 @@ func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
 		return
@@ -33,7 +35,7 @@ func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) 
 
 	err := h.AccountService.RegisterAccount(ctx, reqParams.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
 	}
 
@@ -44,7 +46,7 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 
 	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams)
+	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
 		return
@@ -52,7 +54,7 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 
 	err := h.AccountService.DeregisterAccount(ctx, reqParams.Address)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil).Render(w)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
 		return
 	}
 
@@ -77,7 +79,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 	ctx := req.Context()
 
 	var reqBody SponsorAccountCreationRequest
-	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody)
+	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
 		return
@@ -101,7 +103,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 			return
 		}
 
-		httperror.InternalServerError(ctx, "", err, nil).Render(rw)
+		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(rw)
 		return
 	}
 
@@ -116,7 +118,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 	ctx := req.Context()
 
 	var reqBody CreateFeeBumpTransactionRequest
-	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody)
+	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
 		return
@@ -143,7 +145,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 			httperror.BadRequest(err.Error(), nil).Render(rw)
 			return
 		default:
-			httperror.InternalServerError(ctx, "", err, nil).Render(rw)
+			httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(rw)
 			return
 		}
 	}

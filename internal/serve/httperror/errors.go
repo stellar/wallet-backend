@@ -6,6 +6,7 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/httpjson"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 )
 
 type ErrorResponse struct {
@@ -60,9 +61,13 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 	}
 }
 
-func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}) *ErrorResponse {
-	// TODO: track error in Sentry
+func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
 	log.Ctx(ctx).Error(err)
+	if appTracker != nil {
+		appTracker.CaptureException(err)
+	} else {
+		log.Warn("App Tracker is nil")
+	}
 
 	return &ErrorResponse{
 		Status: http.StatusInternalServerError,

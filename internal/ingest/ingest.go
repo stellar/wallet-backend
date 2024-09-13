@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -25,6 +26,7 @@ type Configs struct {
 	StartLedger          int
 	EndLedger            int
 	LogLevel             logrus.Level
+	AppTracker           apptracker.AppTracker
 }
 
 func Ingest(cfg Configs) error {
@@ -68,6 +70,7 @@ func setupDeps(cfg Configs) (*services.IngestManager, error) {
 		LedgerCursorName:  cfg.LedgerCursorName,
 		LedgerBackend:     ledgerBackend,
 		PaymentModel:      models.Payments,
+		AppTracker:        cfg.AppTracker,
 	}, nil
 }
 
