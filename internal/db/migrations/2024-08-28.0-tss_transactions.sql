@@ -1,7 +1,7 @@
 -- +migrate Up
 
 CREATE TABLE tss_transactions (
-    transaction_hash TEXT PRIMARY_KEY,
+    transaction_hash TEXT PRIMARY KEY,
     transaction_xdr TEXT,
     webhook_url TEXT,
     current_status TEXT,
@@ -11,7 +11,7 @@ CREATE TABLE tss_transactions (
 );
 
 CREATE TABLE tss_transaction_submission_tries (
-    try_transaction_hash TEXT PRIMARY_KEY,
+    try_transaction_hash TEXT PRIMARY KEY,
     original_transaction_hash TEXT,
     try_transaction_xdr TEXT,
     status INTEGER,
