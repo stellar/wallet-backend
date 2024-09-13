@@ -11,7 +11,7 @@ CREATE TABLE tss_transactions (
 );
 
 CREATE TABLE tss_transaction_submission_tries (
-    try_transaction_hash TEXT PRIMARY_KEY,
+    try_transaction_hash TEXT PRIMARY KEY,
     original_transaction_hash TEXT,
     try_transaction_xdr TEXT,
     status INTEGER,
