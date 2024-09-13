@@ -2,20 +2,20 @@
 
 CREATE TABLE tss_transactions (
     transaction_hash TEXT PRIMARY KEY,
-    transaction_xdr TEXT,
-    webhook_url TEXT,
-    current_status TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    transaction_xdr TEXT NOT NULL,
+    webhook_url TEXT  NOT NULL,
+    current_status TEXT  NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     claimed_until TIMESTAMPTZ
 );
 
 CREATE TABLE tss_transaction_submission_tries (
     try_transaction_hash TEXT PRIMARY KEY,
-    original_transaction_hash TEXT,
-    try_transaction_xdr TEXT,
-    status INTEGER,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    original_transaction_hash TEXT  NOT NULL,
+    try_transaction_xdr TEXT  NOT NULL,
+    status INTEGER  NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
 CREATE INDEX idx_tx_current_status ON tss_transactions(current_status);
