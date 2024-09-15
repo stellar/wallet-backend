@@ -21,28 +21,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func buildTestTransaction() *txnbuild.Transaction {
-	accountToSponsor := keypair.MustRandom()
-
-	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: accountToSponsor.Address(),
-			Sequence:  124,
-		},
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.Payment{
-				Destination: keypair.MustRandom().Address(),
-				Amount:      "14",
-				Asset:       txnbuild.NativeAsset{},
-			},
-		},
-		BaseFee:       104,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-	})
-	return tx
-}
-
 func TestValidateOptions(t *testing.T) {
 	t.Run("return_error_when_distribution_signature_client_null", func(t *testing.T) {
 		opts := TransactionServiceOptions{
@@ -122,7 +100,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 		Ctx:                                context.Background(),
 	})
 
-	txStr, _ := buildTestTransaction().Base64()
+	txStr, _ := BuildTestTransaction().Base64()
 
 	t.Run("malformed_transaction_string", func(t *testing.T) {
 		feeBumpTx, err := txService.SignAndBuildNewTransaction("abcd")
@@ -212,7 +190,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 
 	t.Run("horizon_client_sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(account.Address(), nil).
@@ -243,7 +221,7 @@ func TestSignAndBuildNewTransaction(t *testing.T) {
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		testFeeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 			txnbuild.FeeBumpTransactionParams{
 				Inner:      signedTx,
@@ -457,7 +435,7 @@ func TestSendTransaction(t *testing.T) {
 		RpcUrl:                             "http://localhost:8000/soroban/rpc",
 		BaseFee:                            114,
 	})
-	txXdr, _ := buildTestTransaction().Base64()
+	txXdr, _ := BuildTestTransaction().Base64()
 	rpcUrl := "http://localhost:8000/soroban/rpc"
 
 	t.Run("call_rpc_returns_error", func(t *testing.T) {
@@ -519,7 +497,7 @@ func TestGetTransaction(t *testing.T) {
 		RpcUrl:                             "http://localhost:8000/soroban/rpc",
 		BaseFee:                            114,
 	})
-	txHash, _ := buildTestTransaction().HashHex("abcd")
+	txHash, _ := BuildTestTransaction().HashHex("abcd")
 	rpcUrl := "http://localhost:8000/soroban/rpc"
 
 	t.Run("call_rpc_returns_error", func(t *testing.T) {

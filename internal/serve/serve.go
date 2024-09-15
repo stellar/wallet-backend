@@ -184,11 +184,13 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	// re-use same context as above??
 	store := tssstore.NewStore(ctx, dbConnectionPool)
+	errorHandlerService := tssservices.NewErrorHandlerService(nil)
 	tssChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
-		Store:         store,
-		TxService:     tssTxService,
-		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		Store:             store,
+		TxService:         tssTxService,
+		ErrHandlerService: errorHandlerService,
+		MaxBufferSize:     cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:        cfg.RPCCallerServiceChannelMaxWorkers,
 	}
 	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(tssChannelConfigs)
 	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)

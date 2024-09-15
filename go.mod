@@ -3,6 +3,7 @@ module github.com/stellar/wallet-backend
 go 1.22.0
 
 require (
+	github.com/alitto/pond v1.9.2
 	github.com/aws/aws-sdk-go v1.45.26
 	github.com/getsentry/sentry-go v0.28.1
 	github.com/go-chi/chi v4.1.2+incompatible
@@ -29,7 +30,6 @@ require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/Masterminds/squirrel v1.5.4 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
-	github.com/alitto/pond v1.9.2 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect

@@ -43,7 +43,7 @@ func (s *store) UpsertTransaction(webhookURL string, txHash string, txXDR string
 func (s *store) UpsertTry(txHash string, feeBumpTxHash string, feeBumpTxXDR string, status tss.RPCTXCode) error {
 	const q = `
 	INSERT INTO 
-		tss_transaction_submission_tries (try_transaction_hash, original_transaction_hash, try_transaction_xdr, status)
+		tss_transaction_submission_tries (original_transaction_hash, try_transaction_hash, try_transaction_xdr, status)
 	VALUES
 		($1, $2, $3, $4)
 	ON CONFLICT (try_transaction_hash) 
