@@ -25,7 +25,6 @@ type HTTPClient interface {
 }
 
 type TransactionService interface {
-	NetworkPassphrase() string
 	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
 	SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error)
 	GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error)
@@ -123,11 +122,6 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 		return nil, fmt.Errorf("%s: parsing RPC response JSON", method)
 	}
 	return res, nil
-}
-
-// nolint:deadcode
-func (t *transactionService) NetworkPassphrase() string {
-	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
 func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
