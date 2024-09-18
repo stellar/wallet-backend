@@ -8,6 +8,8 @@ type rpcCallerService struct {
 	channel tss.Channel
 }
 
+var _ Service = (*rpcCallerService)(nil)
+
 func NewRPCCallerService(channel tss.Channel) Service {
 	return &rpcCallerService{
 		channel: channel,

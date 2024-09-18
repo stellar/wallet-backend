@@ -23,7 +23,7 @@ func TestSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(context.Background(), dbConnectionPool)
+	store := store.NewStore(dbConnectionPool)
 	txServiceMock := utils.TransactionServiceMock{}
 	cfgs := RPCCallerServiceChannelConfigs{
 		Store:         store,
@@ -37,7 +37,7 @@ func TestSend(t *testing.T) {
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
 	txServiceMock.
-		On("SignAndBuildNewTransaction", payload.TransactionXDR).
+		On("SignAndBuildNewFeeBumpTransaction", payload.TransactionXDR).
 		Return(nil, errors.New("signing failed"))
 	channel.Send(payload)
 	channel.Stop()
@@ -55,7 +55,7 @@ func TestReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(context.Background(), dbConnectionPool)
+	store := store.NewStore(dbConnectionPool)
 	txServiceMock := utils.TransactionServiceMock{}
 	errHandlerService := tss_services.MockService{}
 	cfgs := RPCCallerServiceChannelConfigs{
@@ -75,7 +75,7 @@ func TestReceive(t *testing.T) {
 
 	t.Run("fail_on_tx_build_and_sign", func(t *testing.T) {
 		txServiceMock.
-			On("SignAndBuildNewTransaction", payload.TransactionXDR).
+			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 			Return(nil, errors.New("signing failed")).
 			Once()
 		channel.Receive(payload)
@@ -91,10 +91,10 @@ func TestReceive(t *testing.T) {
 		sendResp := tss.RPCSendTxResponse{}
 		sendResp.Code.OtherCodes = tss.RPCFailCode
 		txServiceMock.
-			On("SignAndBuildNewTransaction", payload.TransactionXDR).
+			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 			Return(feeBumpTx, nil).
 			Once().
-			On("NetworkPassPhrase").
+			On("NetworkPassphrase").
 			Return(networkPass).
 			Once().
 			On("SendTransaction", txXDR).
@@ -121,10 +121,10 @@ func TestReceive(t *testing.T) {
 		sendResp := tss.RPCSendTxResponse{}
 		sendResp.Code.OtherCodes = tss.UnMarshalBinaryCode
 		txServiceMock.
-			On("SignAndBuildNewTransaction", payload.TransactionXDR).
+			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 			Return(feeBumpTx, nil).
 			Once().
-			On("NetworkPassPhrase").
+			On("NetworkPassphrase").
 			Return(networkPass).
 			Once().
 			On("SendTransaction", txXDR).
@@ -154,10 +154,10 @@ func TestReceive(t *testing.T) {
 		sendResp.TransactionXDR = feeBumpTxXDR
 		sendResp.Code.TxResultCode = xdr.TransactionResultCodeTxTooEarly
 		txServiceMock.
-			On("SignAndBuildNewTransaction", payload.TransactionXDR).
+			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 			Return(feeBumpTx, nil).
 			Once().
-			On("NetworkPassPhrase").
+			On("NetworkPassphrase").
 			Return(networkPass).
 			Once().
 			On("SendTransaction", feeBumpTxXDR).

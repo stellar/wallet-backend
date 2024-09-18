@@ -18,9 +18,9 @@ func TestUpsertTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(context.Background(), dbConnectionPool)
+	store := NewStore(dbConnectionPool)
 	t.Run("insert", func(t *testing.T) {
-		_ = store.UpsertTransaction("www.stellar.org", "hash", "xdr", tss.NewStatus)
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.NewStatus)
 
 		var status string
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, "hash")
@@ -29,8 +29,8 @@ func TestUpsertTransaction(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		_ = store.UpsertTransaction("www.stellar.org", "hash", "xdr", tss.NewStatus)
-		_ = store.UpsertTransaction("www.stellar.org", "hash", "xdr", tss.SuccessStatus)
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.NewStatus)
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.SuccessStatus)
 
 		var status string
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, "hash")
@@ -51,10 +51,10 @@ func TestUpsertTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(context.Background(), dbConnectionPool)
+	store := NewStore(dbConnectionPool)
 	t.Run("insert", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
-		_ = store.UpsertTry("hash", "feebumptxhash", "feebumptxxdr", code)
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
 
 		var status int
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT status FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`, "feebumptxhash")
@@ -64,9 +64,9 @@ func TestUpsertTry(t *testing.T) {
 
 	t.Run("update_other_code", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
-		_ = store.UpsertTry("hash", "feebumptxhash", "feebumptxxdr", code)
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
 		code = tss.RPCTXCode{OtherCodes: tss.RPCFailCode}
-		_ = store.UpsertTry("hash", "feebumptxhash", "feebumptxxdr", code)
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
 		var status int
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT status FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`, "feebumptxhash")
 		require.NoError(t, err)
@@ -80,9 +80,9 @@ func TestUpsertTry(t *testing.T) {
 
 	t.Run("update_tx_code", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
-		_ = store.UpsertTry("hash", "feebumptxhash", "feebumptxxdr", code)
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
 		code = tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}
-		_ = store.UpsertTry("hash", "feebumptxhash", "feebumptxxdr", code)
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
 		var status int
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT status FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`, "feebumptxhash")
 		require.NoError(t, err)

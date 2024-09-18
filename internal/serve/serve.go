@@ -168,14 +168,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	// TSS
-	ctx := context.Background()
 	txServiceOpts := tssutils.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		RpcUrl:                             cfg.RpcUrl,
+		RPCURL:                             cfg.RpcUrl,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
-		Ctx:                                ctx,
 	}
 	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
 	if err != nil {
@@ -183,7 +181,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 
 	// re-use same context as above??
-	store := tssstore.NewStore(ctx, dbConnectionPool)
+	store := tssstore.NewStore(dbConnectionPool)
 	errorHandlerService := tssservices.NewErrorHandlerService(nil)
 	tssChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
 		Store:             store,

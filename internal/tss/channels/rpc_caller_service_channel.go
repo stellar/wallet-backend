@@ -1,6 +1,8 @@
 package channels
 
 import (
+	"context"
+
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/tss"
@@ -18,7 +20,7 @@ type RPCCallerServiceChannelConfigs struct {
 }
 
 type rpcCallerServicePool struct {
-	pool              WorkerPool
+	pool              *pond.WorkerPool
 	txService         utils.TransactionService
 	errHandlerService tss_services.Service
 	store             tss_store.Store
@@ -42,7 +44,9 @@ func (p *rpcCallerServicePool) Send(payload tss.Payload) {
 
 func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 
-	err := p.store.UpsertTransaction(payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
+	ctx := context.Background()
+
+	err := p.store.UpsertTransaction(ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)
 	if err != nil {
 		log.Errorf("RPCCallerService: Unable to upsert transaction into transactions table: %s", err.Error())
 		return
@@ -52,12 +56,12 @@ func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 		stays at NEW, so that it does not progress any further and
 		can be picked up for re-processing when this pool is restarted.
 	*/
-	feeBumpTx, err := p.txService.SignAndBuildNewTransaction(payload.TransactionXDR)
+	feeBumpTx, err := p.txService.SignAndBuildNewFeeBumpTransaction(ctx, payload.TransactionXDR)
 	if err != nil {
 		log.Errorf("RPCCallerService: Unable to sign/build transaction: %s", err.Error())
 		return
 	}
-	feeBumpTxHash, err := feeBumpTx.HashHex(p.txService.NetworkPassPhrase())
+	feeBumpTxHash, err := feeBumpTx.HashHex(p.txService.NetworkPassphrase())
 	if err != nil {
 		log.Errorf("RPCCallerService: Unable to hashhex fee bump transaction: %s", err.Error())
 		return
@@ -68,14 +72,14 @@ func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 		log.Errorf("RPCCallerService: Unable to base64 fee bump transaction: %s", err.Error())
 		return
 	}
-	err = p.store.UpsertTry(payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXCode{OtherCodes: tss.NewCode})
+	err = p.store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXCode{OtherCodes: tss.NewCode})
 	if err != nil {
 		log.Errorf("RPCCallerService: Unable to upsert try in tries table: %s", err.Error())
 		return
 	}
 	rpcSendResp, rpcErr := p.txService.SendTransaction(feeBumpTxXDR)
 
-	err = p.store.UpsertTry(payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, rpcSendResp.Code)
+	err = p.store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, rpcSendResp.Code)
 	if err != nil {
 		log.Errorf("RPCCallerService: Unable to upsert try in tries table: %s", err.Error())
 		return
@@ -86,7 +90,7 @@ func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
 		return
 	}
 
-	err = p.store.UpsertTransaction(payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, rpcSendResp.Status)
+	err = p.store.UpsertTransaction(ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, rpcSendResp.Status)
 	if err != nil {
 		log.Errorf("RPCCallerService:Unable to do the final update of tx in the transactions table: %s", err.Error())
 		return

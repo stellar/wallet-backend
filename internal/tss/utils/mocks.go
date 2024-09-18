@@ -1,10 +1,24 @@
 package utils
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stretchr/testify/mock"
 )
+
+type MockHTTPClient struct {
+	mock.Mock
+}
+
+func (s *MockHTTPClient) Post(url, contentType string, body io.Reader) (resp *http.Response, err error) {
+	args := s.Called(url, contentType, body)
+	return args.Get(0).(*http.Response), args.Error(1)
+}
 
 type TransactionServiceMock struct {
 	mock.Mock
@@ -12,13 +26,14 @@ type TransactionServiceMock struct {
 
 var _ TransactionService = (*TransactionServiceMock)(nil)
 
-func (t *TransactionServiceMock) NetworkPassPhrase() string {
+func (t *TransactionServiceMock) NetworkPassphrase() string {
 	args := t.Called()
 	return args.String(0)
 }
 
-func (t *TransactionServiceMock) SignAndBuildNewTransaction(origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
-	args := t.Called(origTxXdr)
+func (t *TransactionServiceMock) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
+	fmt.Println("INSIDE SignAndBuildNewFeeBumpTransaction mock")
+	args := t.Called(ctx, origTxXdr)
 	if result := args.Get(0); result != nil {
 		return result.(*txnbuild.FeeBumpTransaction), args.Error(1)
 	}

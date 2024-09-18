@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	OriginalXdrMalformed = errors.New("transaction string is malformed")
+	OriginalXDRMalformed = errors.New("transaction string is malformed")
 )
