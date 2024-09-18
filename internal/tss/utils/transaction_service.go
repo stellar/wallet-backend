@@ -125,6 +125,7 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 	return res, nil
 }
 
+// nolint:deadcode
 func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
@@ -254,7 +255,6 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 			getIngestTxResponse.ResultXDR = resultXDR
 		}
 		if createdAt, exists := result["createdAt"].(string); exists {
-			// we can supress erroneous createdAt errors as this is not an important field
 			createdAtInt, e := strconv.ParseInt(createdAt, 10, 64)
 			if e != nil {
 				getIngestTxResponse.Status = tss.ErrorStatus
