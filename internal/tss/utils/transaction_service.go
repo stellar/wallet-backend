@@ -93,37 +93,6 @@ func NewTransactionService(opts TransactionServiceOptions) (*transactionService,
 	}, nil
 }
 
-func (t *transactionService) sendRPCRequest(method string, params map[string]string) (map[string]interface{}, error) {
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  method,
-		"params":  params,
-	}
-	jsonData, err := json.Marshal(payload)
-
-	if err != nil {
-		return nil, fmt.Errorf("marshaling payload")
-	}
-
-	resp, err := t.HTTPClient.Post(t.RPCURL, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("%s: unmarshaling RPC response", method)
-	}
-	var res map[string]interface{}
-	err = json.Unmarshal(body, &res)
-	if err != nil {
-		return nil, fmt.Errorf("%s: parsing RPC response JSON", method)
-	}
-	return res, nil
-}
-
 func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(origTxXdr)
 	if err != nil {
@@ -203,6 +172,37 @@ func (t *transactionService) parseErrorResultXDR(errorResultXdr string) (tss.RPC
 	return tss.RPCTXCode{
 		TxResultCode: errorResult.Result.Code,
 	}, nil
+}
+
+func (t *transactionService) sendRPCRequest(method string, params map[string]string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  method,
+		"params":  params,
+	}
+	jsonData, err := json.Marshal(payload)
+
+	if err != nil {
+		return nil, fmt.Errorf("marshaling payload")
+	}
+
+	resp, err := t.HTTPClient.Post(t.RPCURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: unmarshaling RPC response", method)
+	}
+	var res map[string]interface{}
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return nil, fmt.Errorf("%s: parsing RPC response JSON", method)
+	}
+	return res, nil
 }
 
 func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
