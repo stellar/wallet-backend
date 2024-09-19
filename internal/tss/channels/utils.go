@@ -12,7 +12,6 @@ import (
 func SignAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload, store store.Store, txService utils.TransactionService) (tss.RPCSendTxResponse, error) {
 	feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(ctx, payload.TransactionXDR)
 	if err != nil {
-		fmt.Println("JERE")
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to sign/build transaction: %s", channelName, err.Error())
 	}
 	feeBumpTxHash, err := feeBumpTx.HashHex(txService.NetworkPassphrase())

@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/stellar/wallet-backend/internal/tss"
@@ -26,8 +25,6 @@ func NewErrorHandlerService(cfg ErrorHandlerServiceConfigs) *errorHandlerService
 
 func (p *errorHandlerService) ProcessPayload(payload tss.Payload) {
 	if payload.RpcSubmitTxResponse.Status == tss.TryAgainLaterStatus {
-		fmt.Println("TRY AGAIN LATER")
-		fmt.Println(payload)
 		p.JitterChannel.Send(payload)
 	} else {
 		if slices.Contains(tss.NonJitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {

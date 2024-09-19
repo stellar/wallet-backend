@@ -2,7 +2,6 @@ package channels
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
@@ -61,7 +60,6 @@ func (p *rpcErrorHandlerServiceJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
-		fmt.Println(i)
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
 		sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
 		rpcSendResp, err := SignAndSubmitTransaction(ctx, "ErrorHandlerServiceJitterChannel", payload, p.Store, p.TxService)
