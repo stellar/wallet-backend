@@ -25,6 +25,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/tss"
+	tsschannel "github.com/stellar/wallet-backend/internal/tss/channels"
+	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
+	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
+	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -61,6 +67,17 @@ type Configs struct {
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
+
+	// TSS
+	RPCURL                                               string
+	ErrorHandlerServiceJitterChannelBufferSize           int
+	ErrorHandlerServiceJitterChannelMaxWorkers           int
+	ErrorHandlerServiceNonJitterChannelBufferSize        int
+	ErrorHandlerServiceNonJitterChannelMaxWorkers        int
+	ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS int
+	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
+	ErrorHandlerServiceJitterChannelMaxRetries           int
+	ErrorHandlerServiceNonJitterChannelMaxRetries        int
 }
 
 type handlerDeps struct {
@@ -75,6 +92,10 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	AppTracker                apptracker.AppTracker
+
+	// TSS
+	ErrorHandlerServiceJitterChannel    tss.Channel
+	ErrorHandlerServiceNonJitterChannel tss.Channel
 }
 
 func Serve(cfg Configs) error {
@@ -92,6 +113,8 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
+			deps.ErrorHandlerServiceJitterChannel.Stop()
+			deps.ErrorHandlerServiceNonJitterChannel.Stop()
 		},
 	})
 
@@ -155,14 +178,69 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
+	// TSS
+	txServiceOpts := tssutils.TransactionServiceOptions{
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
+		HorizonClient:                      &horizonClient,
+		RPCURL:                             cfg.RPCURL,
+		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+	}
+	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
+
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
+	}
+
+	store := tssstore.NewStore(dbConnectionPool)
+
+	jitterChannelOpts := tsschannel.RPCErrorHandlerServiceJitterChannelConfigs{
+		Store:                store,
+		TxService:            tssTxService,
+		MaxBufferSize:        cfg.ErrorHandlerServiceJitterChannelBufferSize,
+		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
+		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
+		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+	}
+
+	jitterChannel := tsschannel.NewErrorHandlerServiceJitterChannel(jitterChannelOpts)
+
+	nonJitterChannelOpts := tsschannel.RPCErrorHandlerServiceNonJitterChannelConfigs{
+		Store:             store,
+		TxService:         tssTxService,
+		MaxBufferSize:     cfg.ErrorHandlerServiceNonJitterChannelBufferSize,
+		MaxWorkers:        cfg.ErrorHandlerServiceNonJitterChannelMaxWorkers,
+		MaxRetries:        cfg.ErrorHandlerServiceNonJitterChannelMaxRetries,
+		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS,
+	}
+
+	nonJitterChannel := tsschannel.NewErrorHandlerServiceNonJitterChannel(nonJitterChannelOpts)
+
+	errHandlerService := tssservices.NewErrorHandlerService(tssservices.ErrorHandlerServiceConfigs{
+		JitterChannel:    jitterChannel,
+		NonJitterChannel: nonJitterChannel,
+	})
+
+	webhookHandlerService := tssservices.NewWebhookHandlerService(nil)
+
+	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
+		ErrorHandlerService:   errHandlerService,
+		WebhookHandlerService: webhookHandlerService,
+	})
+
+	jitterChannel.SetRouter(router)
+	nonJitterChannel.SetRouter(router)
+
 	return handlerDeps{
-		Models:                    models,
-		SignatureVerifier:         signatureVerifier,
-		SupportedAssets:           cfg.SupportedAssets,
-		AccountService:            accountService,
-		AccountSponsorshipService: accountSponsorshipService,
-		PaymentService:            paymentService,
-		AppTracker:                cfg.AppTracker,
+		Models:                              models,
+		SignatureVerifier:                   signatureVerifier,
+		SupportedAssets:                     cfg.SupportedAssets,
+		AccountService:                      accountService,
+		AccountSponsorshipService:           accountSponsorshipService,
+		PaymentService:                      paymentService,
+		AppTracker:                          cfg.AppTracker,
+		ErrorHandlerServiceJitterChannel:    jitterChannel,
+		ErrorHandlerServiceNonJitterChannel: nonJitterChannel,
 	}, nil
 }
 

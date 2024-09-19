@@ -35,6 +35,17 @@ const (
 	SuccessStatus  RPCTXStatus = "SUCCESS"
 )
 
+var NonJitterErrorCodes = []xdr.TransactionResultCode{
+	xdr.TransactionResultCodeTxTooEarly,
+	xdr.TransactionResultCodeTxTooLate,
+	xdr.TransactionResultCodeTxBadSeq,
+}
+
+var JitterErrorCodes = []xdr.TransactionResultCode{
+	xdr.TransactionResultCodeTxInsufficientFee,
+	xdr.TransactionResultCodeTxInternalError,
+}
+
 type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
 	Status RPCTXStatus
