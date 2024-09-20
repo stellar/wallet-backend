@@ -27,6 +27,7 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tsschannel "github.com/stellar/wallet-backend/internal/tss/channels"
+	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -168,12 +169,14 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	// TSS
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
 	txServiceOpts := tssutils.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
 		RPCURL:                             cfg.RpcUrl,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+		HTTPClient:                         &httpClient,
 	}
 	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
 	if err != nil {
@@ -183,12 +186,17 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	// re-use same context as above??
 	store := tssstore.NewStore(dbConnectionPool)
 	errorHandlerService := tssservices.NewErrorHandlerService(nil)
+	webhookHandlerService := tssservices.NewWebhookHandlerService(nil)
+	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
+		ErrorHandlerService:   errorHandlerService,
+		WebhookHandlerService: webhookHandlerService,
+	})
 	tssChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
-		Store:             store,
-		TxService:         tssTxService,
-		ErrHandlerService: errorHandlerService,
-		MaxBufferSize:     cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:        cfg.RPCCallerServiceChannelMaxWorkers,
+		Store:         store,
+		TxService:     tssTxService,
+		Router:        router,
+		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	}
 	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(tssChannelConfigs)
 	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)
