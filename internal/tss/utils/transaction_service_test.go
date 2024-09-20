@@ -373,7 +373,7 @@ func TestSendRPCRequest(t *testing.T) {
 		assert.Equal(t, "sendTransaction: parsing RPC response JSON", err.Error())
 	})
 
-	t.Run("returns_rpc_response", func(t *testing.T) {
+	t.Run("response_has_no_result_field", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(`{"status": "success"}`)),
@@ -385,7 +385,103 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, resp, map[string]interface{}{"status": "success"})
+		assert.Empty(t, resp)
+		assert.Equal(t, "sendTransaction: response missing result field", err.Error())
+	})
+
+	t.Run("response_has_status_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "PENDING", resp.Status)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_envelopexdr_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"envelopeXdr": "exdr"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "exdr", resp.EnvelopeXDR)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_resultxdr_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"resultXdr": "rxdr"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "rxdr", resp.ResultXDR)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_errorresultxdr_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "exdr"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "exdr", resp.ErrorResultXDR)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_hash_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"hash": "hash"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "hash", resp.Hash)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_createdat_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"createdAt": "1234"}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.sendRPCRequest(method, params)
+
+		assert.Equal(t, "1234", resp.CreatedAt)
 		assert.Empty(t, err)
 	})
 }
@@ -420,59 +516,9 @@ func TestSendTransaction(t *testing.T) {
 		resp, err := txService.SendTransaction("ABCD")
 
 		assert.Equal(t, tss.RPCFailCode, resp.Code.OtherCodes)
-		assert.Equal(t, "sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
+		assert.Equal(t, "RPC fail: sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
 
 	})
-
-	t.Run("response_has_no_result_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"foo": "bar"}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.SendTransaction("ABCD")
-
-		assert.Equal(t, tss.RPCFailCode, resp.Code.OtherCodes)
-		assert.Equal(t, "RPC response has no result field", err.Error())
-
-	})
-
-	t.Run("response_has_status_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING"}}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.SendTransaction("ABCD")
-
-		assert.Equal(t, tss.PendingStatus, resp.Status)
-		assert.Empty(t, err)
-	})
-
-	t.Run("response_has_hash_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"hash": "xyz"}}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.SendTransaction("ABCD")
-
-		assert.Equal(t, "xyz", resp.TransactionHash)
-		assert.Empty(t, err)
-	})
-
 	t.Run("response_has_unparsable_errorResultXdr", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
@@ -535,78 +581,13 @@ func TestGetTransaction(t *testing.T) {
 		resp, err := txService.GetTransaction("XYZ")
 
 		assert.Equal(t, tss.ErrorStatus, resp.Status)
-		assert.Equal(t, "getTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
+		assert.Equal(t, "RPC Fail: getTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
 
 	})
-
-	t.Run("response_has_no_result_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"foo": "bar"}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.GetTransaction("XYZ")
-
-		assert.Equal(t, tss.ErrorStatus, resp.Status)
-		assert.Equal(t, "RPC response has no result field", err.Error())
-	})
-
-	t.Run("response_has_status_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "SUCCESS"}}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.GetTransaction("XYZ")
-
-		assert.Equal(t, tss.SuccessStatus, resp.Status)
-		assert.Empty(t, err)
-	})
-
-	t.Run("response_has_envelopeXdr_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"envelopeXdr": "envelopeABCD"}}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.GetTransaction("XYZ")
-
-		assert.Equal(t, "envelopeABCD", resp.EnvelopeXDR)
-		assert.Empty(t, err)
-	})
-
-	t.Run("response_has_resultXdr_field", func(t *testing.T) {
-		httpResponse := &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"resultXdr": "resultABCD"}}`)),
-		}
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(httpResponse, nil).
-			Once()
-
-		resp, err := txService.GetTransaction("XYZ")
-
-		assert.Equal(t, "resultABCD", resp.ResultXDR)
-		assert.Empty(t, err)
-	})
-
 	t.Run("unable_to_parse_createdAt", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"createdAt": "ABCD"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "SUCCESS", "createdAt": "ABCD"}}`)),
 		}
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
@@ -616,9 +597,8 @@ func TestGetTransaction(t *testing.T) {
 		resp, err := txService.GetTransaction("XYZ")
 
 		assert.Equal(t, tss.ErrorStatus, resp.Status)
-		assert.Equal(t, "cannot parse createdAt", err.Error())
+		assert.Equal(t, "unable to parse createAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax", err.Error())
 	})
-
 	t.Run("response_has_createdAt_field", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
