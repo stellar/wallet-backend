@@ -42,7 +42,7 @@ func TestNonJitterSend(t *testing.T) {
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
 	txServiceMock.
-		On("SignAndBuildNewFeeBumpTransaction", payload.TransactionXDR).
+		On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 		Return(nil, errors.New("signing failed"))
 
 	_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.NewStatus)

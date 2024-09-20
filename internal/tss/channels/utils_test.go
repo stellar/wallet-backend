@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSignAndSubmitTransaction(t *testing.T) {
+func TestBuildAndSubmitTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -40,7 +40,7 @@ func TestSignAndSubmitTransaction(t *testing.T) {
 			Return(nil, errors.New("signing failed")).
 			Once()
 
-		_, err := SignAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
+		_, err := BuildAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
 
 		assert.Equal(t, "channel: Unable to sign/build transaction: signing failed", err.Error())
 
@@ -64,7 +64,7 @@ func TestSignAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, errors.New("RPC Fail")).
 			Once()
 
-		_, err := SignAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
+		_, err := BuildAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
 
 		assert.Equal(t, "channel: RPC fail: RPC Fail", err.Error())
 
@@ -93,7 +93,7 @@ func TestSignAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, errors.New("unable to unmarshal")).
 			Once()
 
-		_, err := SignAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
+		_, err := BuildAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
 
 		assert.Equal(t, "channel: RPC fail: unable to unmarshal", err.Error())
 
@@ -124,7 +124,7 @@ func TestSignAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, nil).
 			Once()
 
-		resp, err := SignAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
+		resp, err := BuildAndSubmitTransaction(context.Background(), "channel", payload, store, &txServiceMock)
 
 		assert.Equal(t, tss.TryAgainLaterStatus, resp.Status)
 		assert.Equal(t, xdr.TransactionResultCodeTxInsufficientFee, resp.Code.TxResultCode)
