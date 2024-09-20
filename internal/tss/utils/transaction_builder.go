@@ -18,10 +18,7 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 		if err != nil {
 			return nil, fmt.Errorf("decoding Operation XDR string")
 		}
-		//dec := xdr3.NewDecoder(strings.NewReader(string(decodedBytes)))
 		var decodedOp xdr.Operation
-		//_, err = dec.Decode(&decodedOp)
-
 		_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &decodedOp)
 
 		if err != nil {
