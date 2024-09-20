@@ -41,7 +41,6 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: keypair.MustRandom().Address(),
 		},
-		//IncrementSequenceNum: true,
 		Operations:    operations,
 		BaseFee:       104,
 		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
