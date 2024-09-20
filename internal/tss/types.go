@@ -80,6 +80,19 @@ type Payload struct {
 	RpcGetIngestTxResponse RPCGetIngestTxResponse
 }
 
+type RPCResult struct {
+	Status         string `json:"status"`
+	EnvelopeXDR    string `json:"envelopeXdr"`
+	ResultXDR      string `json:"resultXdr"`
+	ErrorResultXDR string `json:"errorResultXdr"`
+	Hash           string `json:"hash"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+type RPCResponse struct {
+	RPCResult `json:"result"`
+}
+
 type Channel interface {
 	Send(payload Payload)
 	Receive(payload Payload)
