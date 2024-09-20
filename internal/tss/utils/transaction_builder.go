@@ -1,9 +1,9 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
-	"strings"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/keypair"
@@ -18,9 +18,12 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 		if err != nil {
 			return nil, fmt.Errorf("decoding Operation XDR string")
 		}
-		dec := xdr3.NewDecoder(strings.NewReader(string(decodedBytes)))
+		//dec := xdr3.NewDecoder(strings.NewReader(string(decodedBytes)))
 		var decodedOp xdr.Operation
-		_, err = dec.Decode(&decodedOp)
+		//_, err = dec.Decode(&decodedOp)
+
+		_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &decodedOp)
+
 		if err != nil {
 			return nil, fmt.Errorf("decoding xdr into xdr Operation: %w", err)
 		}
@@ -40,12 +43,11 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: keypair.MustRandom().Address(),
-			Sequence:  123,
 		},
-		IncrementSequenceNum: true,
-		Operations:           operations,
-		BaseFee:              104,
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		//IncrementSequenceNum: true,
+		Operations:    operations,
+		BaseFee:       104,
+		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 	})
 	return tx, nil
 }

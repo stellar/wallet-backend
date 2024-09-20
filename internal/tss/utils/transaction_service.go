@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/clients/horizonclient"
@@ -37,7 +36,6 @@ type transactionService struct {
 	RPCURL                             string
 	BaseFee                            int64
 	HTTPClient                         HTTPClient
-	Ctx                                context.Context
 }
 
 var _ TransactionService = (*transactionService)(nil)
@@ -116,7 +114,7 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 			Operations:    originalTx.Operations(),
 			BaseFee:       int64(t.BaseFee),
 			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(10),
+				TimeBounds: txnbuild.NewTimeout(300),
 			},
 			IncrementSequenceNum: true,
 		},
@@ -153,28 +151,22 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 }
 
 func (t *transactionService) parseErrorResultXDR(errorResultXdr string) (tss.RPCTXCode, error) {
-
-	//errorResult := xdr.TransactionResult{}
-	unMarshallErr := "unable to unmarshal errorResultXdr: %s"
-	//err := errorResult.UnmarshalBinary([]byte(errorResultXdr))
-
+	unMarshalErr := "unable to unmarshal errorResultXdr: %s"
 	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXdr)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshallErr, errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
 	}
-	dec := xdr3.NewDecoder(strings.NewReader(string(decodedBytes)))
 	var errorResult xdr.TransactionResult
-	_, err = dec.Decode(&errorResult)
-
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshallErr, errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
 	}
 	return tss.RPCTXCode{
 		TxResultCode: errorResult.Result.Code,
 	}, nil
 }
 
-func (t *transactionService) sendRPCRequest(method string, params map[string]string) (map[string]interface{}, error) {
+func (t *transactionService) sendRPCRequest(method string, params map[string]string) (tss.RPCResponse, error) {
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -184,23 +176,26 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 	jsonData, err := json.Marshal(payload)
 
 	if err != nil {
-		return nil, fmt.Errorf("marshaling payload")
+		return tss.RPCResponse{}, fmt.Errorf("marshaling payload")
 	}
 
 	resp, err := t.HTTPClient.Post(t.RPCURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
+		return tss.RPCResponse{}, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%s: unmarshaling RPC response", method)
+		return tss.RPCResponse{}, fmt.Errorf("%s: unmarshaling RPC response", method)
 	}
-	var res map[string]interface{}
+	var res tss.RPCResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
-		return nil, fmt.Errorf("%s: parsing RPC response JSON", method)
+		return tss.RPCResponse{}, fmt.Errorf("%s: parsing RPC response JSON", method)
+	}
+	if res.RPCResult == (tss.RPCResult{}) {
+		return tss.RPCResponse{}, fmt.Errorf("%s: response missing result field", method)
 	}
 	return res, nil
 }
@@ -211,56 +206,28 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 	sendTxResponse.TransactionXDR = transactionXdr
 	if err != nil {
 		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
-		return sendTxResponse, fmt.Errorf(err.Error())
+		return sendTxResponse, fmt.Errorf("RPC fail: %s", err.Error())
 	}
-
-	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
-		if val, exists := result["status"].(string); exists {
-			sendTxResponse.Status = tss.RPCTXStatus(val)
-		}
-		if val, exists := result["errorResultXdr"].(string); exists {
-			sendTxResponse.Code, err = t.parseErrorResultXDR(val)
-		}
-		if hash, exists := result["hash"].(string); exists {
-			sendTxResponse.TransactionHash = hash
-		}
-	} else {
-		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
-		return sendTxResponse, fmt.Errorf("RPC response has no result field")
-	}
+	sendTxResponse.Status = tss.RPCTXStatus(rpcResponse.RPCResult.Status)
+	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ErrorResultXDR)
+	sendTxResponse.TransactionHash = rpcResponse.RPCResult.Hash
 	return sendTxResponse, err
 }
 
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
 	rpcResponse, err := t.sendRPCRequest("getTransaction", map[string]string{"hash": transactionHash})
 	if err != nil {
-		return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf(err.Error())
+		return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
 	}
-
 	getIngestTxResponse := tss.RPCGetIngestTxResponse{}
-	if result, ok := rpcResponse["result"].(map[string]interface{}); ok {
-		if status, exists := result["status"].(string); exists {
-			getIngestTxResponse.Status = tss.RPCTXStatus(status)
+	getIngestTxResponse.Status = tss.RPCTXStatus(rpcResponse.RPCResult.Status)
+	getIngestTxResponse.EnvelopeXDR = rpcResponse.RPCResult.EnvelopeXDR
+	getIngestTxResponse.ResultXDR = rpcResponse.RPCResult.ResultXDR
+	if getIngestTxResponse.Status != tss.NotFoundStatus {
+		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(rpcResponse.RPCResult.CreatedAt, 10, 64)
+		if err != nil {
+			return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("unable to parse createAt: %s", err.Error())
 		}
-		if envelopeXDR, exists := result["envelopeXdr"].(string); exists {
-			getIngestTxResponse.EnvelopeXDR = envelopeXDR
-		}
-		if resultXDR, exists := result["resultXdr"].(string); exists {
-			getIngestTxResponse.ResultXDR = resultXDR
-		}
-		if createdAt, exists := result["createdAt"].(string); exists {
-			createdAtInt, e := strconv.ParseInt(createdAt, 10, 64)
-			if e != nil {
-				getIngestTxResponse.Status = tss.ErrorStatus
-				err = fmt.Errorf("cannot parse createdAt")
-			} else {
-				getIngestTxResponse.CreatedAt = createdAtInt
-			}
-		}
-	} else {
-		getIngestTxResponse.Status = tss.ErrorStatus
-		return getIngestTxResponse, fmt.Errorf("RPC response has no result field")
-
 	}
-	return getIngestTxResponse, err
+	return getIngestTxResponse, nil
 }
