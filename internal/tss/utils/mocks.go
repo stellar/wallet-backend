@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -32,7 +31,6 @@ func (t *TransactionServiceMock) NetworkPassphrase() string {
 }
 
 func (t *TransactionServiceMock) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
-	fmt.Println("INSIDE SignAndBuildNewFeeBumpTransaction mock")
 	args := t.Called(ctx, origTxXdr)
 	if result := args.Get(0); result != nil {
 		return result.(*txnbuild.FeeBumpTransaction), args.Error(1)

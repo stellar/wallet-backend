@@ -37,7 +37,7 @@ func TestSend(t *testing.T) {
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
 	txServiceMock.
-		On("SignAndBuildNewFeeBumpTransaction", payload.TransactionXDR).
+		On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 		Return(nil, errors.New("signing failed"))
 	channel.Send(payload)
 	channel.Stop()
