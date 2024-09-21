@@ -21,6 +21,13 @@ type RPCTXCode struct {
 	OtherCodes   OtherCodes
 }
 
+func (c RPCTXCode) Code() int {
+	if c.OtherCodes != NoCode {
+		return int(c.OtherCodes)
+	}
+	return int(c.TxResultCode)
+}
+
 const (
 	// Brand new transaction, not sent to RPC yet
 	NewStatus RPCTXStatus = "NEW"

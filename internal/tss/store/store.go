@@ -58,14 +58,7 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
     	status = $4,
     	updated_at = NOW();
 	`
-	var st int
-	// if this value is set, it takes precedence over the code from RPC
-	if status.OtherCodes != tss.NoCode {
-		st = int(status.OtherCodes)
-	} else {
-		st = int(status.TxResultCode)
-	}
-	_, err := s.DB.ExecContext(ctx, q, txHash, feeBumpTxHash, feeBumpTxXDR, st)
+	_, err := s.DB.ExecContext(ctx, q, txHash, feeBumpTxHash, feeBumpTxXDR, status.Code())
 	if err != nil {
 		return fmt.Errorf("inserting/updating tss try: %w", err)
 	}
