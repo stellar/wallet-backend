@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	tss_store "github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
-	"golang.org/x/exp/rand"
 )
 
 type RPCErrorHandlerServiceJitterChannelConfigs struct {
@@ -31,12 +30,6 @@ type rpcErrorHandlerServiceJitterPool struct {
 	Router               router.Router
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
-}
-
-func jitter(dur time.Duration) time.Duration {
-	halfDur := int64(dur / 2)
-	delta := rand.Int63n(halfDur) - halfDur/2
-	return dur + time.Duration(delta)
 }
 
 func NewErrorHandlerServiceJitterChannel(cfg RPCErrorHandlerServiceJitterChannelConfigs) *rpcErrorHandlerServiceJitterPool {

@@ -23,28 +23,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func buildTestTransaction() *txnbuild.Transaction {
-	accountToSponsor := keypair.MustRandom()
-
-	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: accountToSponsor.Address(),
-			Sequence:  124,
-		},
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.Payment{
-				Destination: keypair.MustRandom().Address(),
-				Amount:      "14",
-				Asset:       txnbuild.NativeAsset{},
-			},
-		},
-		BaseFee:       104,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-	})
-	return tx
-}
-
 func TestValidateOptions(t *testing.T) {
 	t.Run("return_error_when_distribution_signature_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
@@ -141,7 +119,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		HTTPClient:                         &MockHTTPClient{},
 	})
 
-	txStr, _ := buildTestTransaction().Base64()
+	txStr, _ := BuildTestTransaction().Base64()
 
 	t.Run("malformed_transaction_string", func(t *testing.T) {
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), "abcd")
@@ -231,7 +209,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("horizon_client_sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(account.Address(), nil).
@@ -262,7 +240,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		testFeeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 			txnbuild.FeeBumpTransactionParams{
 				Inner:      signedTx,
@@ -295,6 +273,39 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)
 		assert.Equal(t, feeBumpTx, testFeeBumpTx)
+		assert.Empty(t, err)
+	})
+}
+
+func TestParseErrorResultXDR(t *testing.T) {
+	distributionAccountSignatureClient := signing.SignatureClientMock{}
+	defer distributionAccountSignatureClient.AssertExpectations(t)
+	channelAccountSignatureClient := signing.SignatureClientMock{}
+	defer channelAccountSignatureClient.AssertExpectations(t)
+	horizonClient := horizonclient.MockClient{}
+	defer horizonClient.AssertExpectations(t)
+	txService, _ := NewTransactionService(TransactionServiceOptions{
+		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
+		HorizonClient:                      &horizonClient,
+		RPCURL:                             "http://localhost:8000/soroban/rpc",
+		BaseFee:                            114,
+		HTTPClient:                         &MockHTTPClient{},
+	})
+
+	t.Run("errorResultXdr_empty", func(t *testing.T) {
+		_, err := txService.parseErrorResultXDR("")
+		assert.Equal(t, "unable to unmarshal errorResultXdr: ", err.Error())
+	})
+
+	t.Run("errorResultXdr_invalid", func(t *testing.T) {
+		_, err := txService.parseErrorResultXDR("ABCD")
+		assert.Equal(t, "unable to unmarshal errorResultXdr: ABCD", err.Error())
+	})
+
+	t.Run("errorResultXdr_valid", func(t *testing.T) {
+		resp, err := txService.parseErrorResultXDR("AAAAAAAAAMj////9AAAAAA==")
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.TxResultCode)
 		assert.Empty(t, err)
 	})
 }
@@ -383,10 +394,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(httpResponse, nil).
 			Once()
 
-		resp, err := txService.sendRPCRequest(method, params)
-
+		resp, _ := txService.sendRPCRequest(method, params)
 		assert.Empty(t, resp)
-		assert.Equal(t, "sendTransaction: response missing result field", err.Error())
 	})
 
 	t.Run("response_has_status_field", func(t *testing.T) {
@@ -515,6 +524,7 @@ func TestSendTransaction(t *testing.T) {
 
 		resp, err := txService.SendTransaction("ABCD")
 
+		assert.Equal(t, tss.ErrorStatus, resp.Status)
 		assert.Equal(t, tss.RPCFailCode, resp.Code.OtherCodes)
 		assert.Equal(t, "RPC fail: sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
 
@@ -522,7 +532,7 @@ func TestSendTransaction(t *testing.T) {
 	t.Run("response_has_unparsable_errorResultXdr", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "ABC123"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "ERROR", "errorResultXdr": "ABC123"}}`)),
 		}
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
@@ -531,13 +541,30 @@ func TestSendTransaction(t *testing.T) {
 
 		resp, err := txService.SendTransaction("ABCD")
 
+		assert.Equal(t, tss.ErrorStatus, resp.Status)
 		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
 		assert.Equal(t, "unable to unmarshal errorResultXdr: ABC123", err.Error())
+	})
+	t.Run("response_has_empty_errorResultXdr_wth_status", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING", "errorResultXdr": ""}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.SendTransaction("ABCD")
+
+		assert.Equal(t, tss.PendingStatus, resp.Status)
+		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
+		assert.Equal(t, "unable to unmarshal errorResultXdr: ", err.Error())
 	})
 	t.Run("response_has_errorResultXdr", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "AAAAAAAAAMj////9AAAAAA=="}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "ERROR", "errorResultXdr": "AAAAAAAAAMj////9AAAAAA=="}}`)),
 		}
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
@@ -546,6 +573,7 @@ func TestSendTransaction(t *testing.T) {
 
 		resp, err := txService.SendTransaction("ABCD")
 
+		assert.Equal(t, tss.ErrorStatus, resp.Status)
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
 		assert.Empty(t, err)
 	})
@@ -599,10 +627,10 @@ func TestGetTransaction(t *testing.T) {
 		assert.Equal(t, tss.ErrorStatus, resp.Status)
 		assert.Equal(t, "unable to parse createAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax", err.Error())
 	})
-	t.Run("response_has_createdAt_field", func(t *testing.T) {
+	t.Run("response_has_createdAt_resultXdr_field", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"result": {"createdAt": "1234567"}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "FAILED", "resultXdr": "AAAAAAAAAMj////9AAAAAA==", "createdAt": "1234567"}}`)),
 		}
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
@@ -611,6 +639,8 @@ func TestGetTransaction(t *testing.T) {
 
 		resp, err := txService.GetTransaction("XYZ")
 
+		assert.Equal(t, tss.FailedStatus, resp.Status)
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
 		assert.Equal(t, int64(1234567), resp.CreatedAt)
 		assert.Empty(t, err)
 	})

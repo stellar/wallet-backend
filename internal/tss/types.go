@@ -49,6 +49,9 @@ var JitterErrorCodes = []xdr.TransactionResultCode{
 type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
 	Status RPCTXStatus
+	// The error code that is derived by deserialzing the ResultXdr string in the sendTransaction response
+	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
+	Code RPCTXCode
 	// The raw TransactionEnvelope XDR for this transaction
 	EnvelopeXDR string
 	// The raw TransactionResult XDR of the envelopeXdr
@@ -91,6 +94,15 @@ type RPCResult struct {
 
 type RPCResponse struct {
 	RPCResult `json:"result"`
+}
+
+type TSSResponse struct {
+	TransactionHash       string `json:"tx_hash"`
+	TransactionResultCode string `json:"tx_result_code"`
+	Status                string `json:"status"`
+	CreatedAt             int64  `json:"created_at"`
+	EnvelopeXDR           string `json:"envelopeXdr"`
+	ResultXDR             string `json:"resultXdr"`
 }
 
 type Channel interface {

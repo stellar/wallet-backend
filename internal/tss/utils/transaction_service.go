@@ -199,9 +199,6 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 	if err != nil {
 		return tss.RPCResponse{}, fmt.Errorf("%s: parsing RPC response JSON", method)
 	}
-	if res.RPCResult == (tss.RPCResult{}) {
-		return tss.RPCResponse{}, fmt.Errorf("%s: response missing result field", method)
-	}
 	return res, nil
 }
 
@@ -210,6 +207,7 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 	sendTxResponse := tss.RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXdr
 	if err != nil {
+		sendTxResponse.Status = tss.ErrorStatus
 		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
 		return sendTxResponse, fmt.Errorf("RPC fail: %s", err.Error())
 	}
@@ -234,5 +232,6 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 			return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("unable to parse createAt: %s", err.Error())
 		}
 	}
-	return getIngestTxResponse, nil
+	getIngestTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ResultXDR)
+	return getIngestTxResponse, err
 }

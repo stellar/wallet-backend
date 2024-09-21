@@ -2,12 +2,20 @@ package channels
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
+	"golang.org/x/exp/rand"
 	"golang.org/x/net/context"
 )
+
+func jitter(dur time.Duration) time.Duration {
+	halfDur := int64(dur / 2)
+	delta := rand.Int63n(halfDur) - halfDur/2
+	return dur + time.Duration(delta)
+}
 
 func BuildAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload, store store.Store, txService utils.TransactionService) (tss.RPCSendTxResponse, error) {
 	feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(ctx, payload.TransactionXDR)

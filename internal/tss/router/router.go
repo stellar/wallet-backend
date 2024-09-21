@@ -59,7 +59,9 @@ func (r *router) Route(payload tss.Payload) {
 				r.WebhookHandlerService.ProcessPayload(payload)
 			}
 		}
+		// if Code.OtherCodes = {RPCFailCode, UnMarshall, do nothing, as this should be rare. Let the ticker task take care of this}
 	default:
+		// PENDING = wait to ingest this transaction via getTransactions()
 		return
 	}
 }
