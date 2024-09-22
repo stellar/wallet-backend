@@ -41,6 +41,10 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMSOption(&cfg.ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS),
 		utils.ErrorHandlerServiceJitterChannelMaxRetriesOptions(&cfg.ErrorHandlerServiceJitterChannelMaxRetries),
 		utils.ErrorHandlerServiceNonJitterChannelMaxRetriesOption(&cfg.ErrorHandlerServiceNonJitterChannelMaxRetries),
+		utils.WebhookHandlerServiceChannelMaxBufferSizeOption(&cfg.WebhookHandlerServiceChannelMaxBufferSize),
+		utils.WebhookHandlerServiceChannelMaxWorkersOptions(&cfg.WebhookHandlerServiceChannelMaxWorkers),
+		utils.WebhookHandlerServiceChannelMaxRetriesOption(&cfg.WebhookHandlerServiceChannelMaxRetries),
+		utils.WebhookHandlerServiceChannelMinWaitBtwnRetriesMSOption(&cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",

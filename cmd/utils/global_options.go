@@ -232,6 +232,50 @@ func ErrorHandlerServiceNonJitterChannelMaxRetriesOption(configKey *int) *config
 	}
 }
 
+func WebhookHandlerServiceChannelMaxBufferSizeOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "webhook-service-channel-max-buffer-size",
+		Usage:       "Set the buffer size of the webhook serive channel.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 100,
+		Required:    true,
+	}
+}
+
+func WebhookHandlerServiceChannelMaxWorkersOptions(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "webhook-service-channel-max-workers",
+		Usage:       "Set the max number of workers for the webhook serive channel.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 10,
+		Required:    true,
+	}
+}
+
+func WebhookHandlerServiceChannelMaxRetriesOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "webhook-service-channel-max-retries",
+		Usage:       "Set the max number of times to ping a webhook before quitting.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 3,
+		Required:    true,
+	}
+}
+
+func WebhookHandlerServiceChannelMinWaitBtwnRetriesMSOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "webhook-service-channel-min-wait-between-retries",
+		Usage:       "The minumum amout of time to wait before repining the webhook url",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 10,
+		Required:    true,
+	}
+}
+
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
 	awsOpts := config.ConfigOptions{
 		{

@@ -78,6 +78,10 @@ type Configs struct {
 	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
 	ErrorHandlerServiceJitterChannelMaxRetries           int
 	ErrorHandlerServiceNonJitterChannelMaxRetries        int
+	WebhookHandlerServiceChannelMaxBufferSize            int
+	WebhookHandlerServiceChannelMaxWorkers               int
+	WebhookHandlerServiceChannelMaxRetries               int
+	WebhookHandlerServiceChannelMinWaitBtwnRetriesMS     int
 }
 
 type handlerDeps struct {
@@ -96,6 +100,7 @@ type handlerDeps struct {
 	// TSS
 	ErrorHandlerServiceJitterChannel    tss.Channel
 	ErrorHandlerServiceNonJitterChannel tss.Channel
+	WebhookHandlerServiceChannel        tss.Channel
 }
 
 func Serve(cfg Configs) error {
@@ -115,6 +120,7 @@ func Serve(cfg Configs) error {
 			log.Info("Stopping Wallet Backend server")
 			deps.ErrorHandlerServiceJitterChannel.Stop()
 			deps.ErrorHandlerServiceNonJitterChannel.Stop()
+			deps.WebhookHandlerServiceChannel.Stop()
 		},
 	})
 
@@ -179,12 +185,15 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	// TSS
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+
 	txServiceOpts := tssutils.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
 		RPCURL:                             cfg.RPCURL,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+		HTTPClient:                         &httpClient,
 	}
 	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
 
@@ -221,7 +230,18 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		NonJitterChannel: nonJitterChannel,
 	})
 
-	webhookHandlerService := tssservices.NewWebhookHandlerService(nil)
+	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
+	webhookHandlerServiceChannelOps := tsschannel.WebhookHandlerServiceChannelConfigs{
+		HTTPClient:           &httpClient,
+		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
+		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
+		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
+		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
+	}
+
+	webhookCallerServiceChannel := tsschannel.NewWebhookHandlerServiceChannel(webhookHandlerServiceChannelOps)
+
+	webhookHandlerService := tssservices.NewWebhookHandlerService(webhookCallerServiceChannel)
 
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
 		ErrorHandlerService:   errHandlerService,
@@ -241,6 +261,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AppTracker:                          cfg.AppTracker,
 		ErrorHandlerServiceJitterChannel:    jitterChannel,
 		ErrorHandlerServiceNonJitterChannel: nonJitterChannel,
+		WebhookHandlerServiceChannel:        webhookCallerServiceChannel,
 	}, nil
 }
 
