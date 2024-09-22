@@ -29,7 +29,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
-		utils.RPCURLOption(&cfg.RpcUrl),
+		utils.RPCURLOption(&cfg.RPCURL),
 		utils.RPCCallerServiceChannelBufferSizeOption(&cfg.RPCCallerServiceChannelBufferSize),
 		utils.RPCCallerServiceMaxWorkersOption(&cfg.RPCCallerServiceChannelMaxWorkers),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),

@@ -65,7 +65,7 @@ type Configs struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// TSS
-	RpcUrl                            string
+	RPCURL                            string
 	RPCCallerServiceChannelBufferSize int
 	RPCCallerServiceChannelMaxWorkers int
 	// Error Tracker
@@ -84,8 +84,8 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	// TSS
-	RpcCallerServiceChannel tss.Channel
-	RpcCallerService        tssservices.Service
+	RPCCallerServiceChannel tss.Channel
+	RPCCallerService        tssservices.Service
 	AppTracker              apptracker.AppTracker
 }
 
@@ -104,7 +104,7 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
-			deps.RpcCallerServiceChannel.Stop()
+			deps.RPCCallerServiceChannel.Stop()
 		},
 	})
 
@@ -174,7 +174,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		RPCURL:                             cfg.RpcUrl,
+		RPCURL:                             cfg.RPCURL,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
 		HTTPClient:                         &httpClient,
 	}
@@ -210,8 +210,8 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		PaymentService:            paymentService,
 		AppTracker:                cfg.AppTracker,
 		// TSS
-		RpcCallerServiceChannel: rpcCallerServiceChannel,
-		RpcCallerService:        rpcCallerService,
+		RPCCallerServiceChannel: rpcCallerServiceChannel,
+		RPCCallerService:        rpcCallerService,
 	}, nil
 }
 
