@@ -29,7 +29,7 @@ type rpcCallerServicePool struct {
 	Router            router.Router
 }
 
-func NewRPCCallerServiceChannel(cfg RPCCallerServiceChannelConfigs) tss.Channel {
+func NewRPCCallerServiceChannel(cfg RPCCallerServiceChannelConfigs) *rpcCallerServicePool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
 	return &rpcCallerServicePool{
 		Pool:      pool,

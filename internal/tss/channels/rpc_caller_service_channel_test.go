@@ -36,9 +36,23 @@ func TestSend(t *testing.T) {
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
+	networkPass := "passphrase"
+
+	feeBumpTx := utils.BuildTestFeeBumpTransaction()
+	feeBumpTxXDR, _ := feeBumpTx.Base64()
+	sendResp := tss.RPCSendTxResponse{}
+	sendResp.Code.OtherCodes = tss.RPCFailCode
 	txServiceMock.
 		On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
-		Return(nil, errors.New("signing failed"))
+		Return(feeBumpTx, nil).
+		Once().
+		On("NetworkPassphrase").
+		Return(networkPass).
+		Once().
+		On("SendTransaction", feeBumpTxXDR).
+		Return(sendResp, errors.New("RPC Fail")).
+		Once()
+
 	channel.Send(payload)
 	channel.Stop()
 
@@ -46,6 +60,12 @@ func TestSend(t *testing.T) {
 	err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, payload.TransactionHash)
 	require.NoError(t, err)
 	assert.Equal(t, status, string(tss.NewStatus))
+
+	var tryStatus int
+	feeBumpTxHash, _ := feeBumpTx.HashHex(networkPass)
+	err = dbConnectionPool.GetContext(context.Background(), &tryStatus, `SELECT status FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`, feeBumpTxHash)
+	require.NoError(t, err)
+	assert.Equal(t, int(tss.RPCFailCode), tryStatus)
 }
 
 func TestReceive(t *testing.T) {
