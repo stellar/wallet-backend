@@ -65,7 +65,7 @@ func (p *webhookHandlerServicePool) Receive(payload tss.Payload) {
 			return
 		}
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
-		sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
+		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
 	}
 }
 
