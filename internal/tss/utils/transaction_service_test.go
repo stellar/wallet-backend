@@ -23,28 +23,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-func buildTestTransaction() *txnbuild.Transaction {
-	accountToSponsor := keypair.MustRandom()
-
-	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: accountToSponsor.Address(),
-			Sequence:  124,
-		},
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.Payment{
-				Destination: keypair.MustRandom().Address(),
-				Amount:      "14",
-				Asset:       txnbuild.NativeAsset{},
-			},
-		},
-		BaseFee:       104,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-	})
-	return tx
-}
-
 func TestValidateOptions(t *testing.T) {
 	t.Run("return_error_when_distribution_signature_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
@@ -141,7 +119,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		HTTPClient:                         &MockHTTPClient{},
 	})
 
-	txStr, _ := buildTestTransaction().Base64()
+	txStr, _ := BuildTestTransaction().Base64()
 
 	t.Run("malformed_transaction_string", func(t *testing.T) {
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), "abcd")
@@ -231,7 +209,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("horizon_client_sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(account.Address(), nil).
@@ -262,7 +240,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := buildTestTransaction()
+		signedTx := BuildTestTransaction()
 		testFeeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 			txnbuild.FeeBumpTransactionParams{
 				Inner:      signedTx,
