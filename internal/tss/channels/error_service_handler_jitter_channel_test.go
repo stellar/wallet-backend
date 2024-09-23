@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -75,14 +74,6 @@ func TestJitterReceive(t *testing.T) {
 	}
 	channel := NewErrorHandlerServiceJitterChannel(cfg)
 
-	// mock out the sleep function (time.Sleep) so we can check the args it was called with
-	mockSleep := MockSleep{}
-	defer mockSleep.AssertExpectations(t)
-	sleep = mockSleep.Sleep
-	defer func() {
-		sleep = time.Sleep
-	}()
-
 	mockRouter := router.MockRouter{}
 	defer mockRouter.AssertExpectations(t)
 	channel.SetRouter(&mockRouter)
@@ -101,11 +92,6 @@ func TestJitterReceive(t *testing.T) {
 		txServiceMock.
 			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
 			Return(nil, errors.New("sign tx failed")).
-			Once()
-
-		mockSleep.
-			On("Sleep", mock.AnythingOfType("time.Duration")).
-			Return().
 			Once()
 
 		channel.Receive(payload)
@@ -131,11 +117,6 @@ func TestJitterReceive(t *testing.T) {
 			Once().
 			On("SendTransaction", feeBumpTxXDR).
 			Return(sendResp, nil).
-			Once()
-
-		mockSleep.
-			On("Sleep", mock.AnythingOfType("time.Duration")).
-			Return().
 			Once()
 
 		mockRouter.
@@ -191,11 +172,6 @@ func TestJitterReceive(t *testing.T) {
 			Return().
 			Once()
 
-		mockSleep.
-			On("Sleep", mock.AnythingOfType("time.Duration")).
-			Return().
-			Twice()
-
 		channel.Receive(payload)
 
 		var txStatus string
@@ -232,11 +208,6 @@ func TestJitterReceive(t *testing.T) {
 			On("Route", mock.AnythingOfType("tss.Payload")).
 			Return().
 			Once()
-
-		mockSleep.
-			On("Sleep", mock.AnythingOfType("time.Duration")).
-			Return().
-			Times(3)
 
 		channel.Receive(payload)
 

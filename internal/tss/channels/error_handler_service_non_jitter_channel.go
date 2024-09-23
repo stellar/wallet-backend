@@ -53,7 +53,7 @@ func (p *rpcErrorHandlerServiceNonJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
-		sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
+		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
 		rpcSendResp, err := BuildAndSubmitTransaction(ctx, "ErrorHandlerServiceNonJitterChannel", payload, p.Store, p.TxService)
 		if err != nil {
 			log.Errorf(err.Error())
