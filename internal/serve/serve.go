@@ -65,14 +65,9 @@ type Configs struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// TSS
-	RPCURL                            string
-	RPCCallerServiceChannelBufferSize int
-	RPCCallerServiceChannelMaxWorkers int
-	// Error Tracker
-	AppTracker apptracker.AppTracker
-
-	// TSS
 	RPCURL                                               string
+	RPCCallerServiceChannelBufferSize                    int
+	RPCCallerServiceChannelMaxWorkers                    int
 	ErrorHandlerServiceJitterChannelBufferSize           int
 	ErrorHandlerServiceJitterChannelMaxWorkers           int
 	ErrorHandlerServiceNonJitterChannelBufferSize        int
@@ -81,6 +76,8 @@ type Configs struct {
 	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
 	ErrorHandlerServiceJitterChannelMaxRetries           int
 	ErrorHandlerServiceNonJitterChannelMaxRetries        int
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 type handlerDeps struct {
