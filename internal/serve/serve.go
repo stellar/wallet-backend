@@ -64,12 +64,10 @@ type Configs struct {
 	HorizonClientURL                   string
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
-
 	// TSS
 	RPCURL                                               string
+	RPCCallerServiceChannelBufferSize                    int
+	RPCCallerServiceChannelMaxWorkers                    int
 	ErrorHandlerServiceJitterChannelBufferSize           int
 	ErrorHandlerServiceJitterChannelMaxWorkers           int
 	ErrorHandlerServiceNonJitterChannelBufferSize        int
@@ -82,6 +80,8 @@ type Configs struct {
 	WebhookHandlerServiceChannelMaxWorkers               int
 	WebhookHandlerServiceChannelMaxRetries               int
 	WebhookHandlerServiceChannelMinWaitBtwnRetriesMS     int
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 type handlerDeps struct {
@@ -95,12 +95,14 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
-	AppTracker                apptracker.AppTracker
-
 	// TSS
+	RPCCallerServiceChannel             tss.Channel
+	RPCCallerService                    tssservices.Service
 	ErrorHandlerServiceJitterChannel    tss.Channel
 	ErrorHandlerServiceNonJitterChannel tss.Channel
 	WebhookHandlerServiceChannel        tss.Channel
+
+	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -118,6 +120,7 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
+			deps.RPCCallerServiceChannel.Stop()
 			deps.ErrorHandlerServiceJitterChannel.Stop()
 			deps.ErrorHandlerServiceNonJitterChannel.Stop()
 			deps.WebhookHandlerServiceChannel.Stop()
@@ -196,12 +199,20 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HTTPClient:                         &httpClient,
 	}
 	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
-
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
 
 	store := tssstore.NewStore(dbConnectionPool)
+
+	rpcCallerServiceChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
+		Store:         store,
+		TxService:     tssTxService,
+		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+	}
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(rpcCallerServiceChannelConfigs)
+	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)
 
 	jitterChannelOpts := tsschannel.RPCErrorHandlerServiceJitterChannelConfigs{
 		Store:                store,
@@ -250,6 +261,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	jitterChannel.SetRouter(router)
 	nonJitterChannel.SetRouter(router)
+	rpcCallerServiceChannel.SetRouter(router)
 
 	return handlerDeps{
 		Models:                              models,
@@ -259,6 +271,8 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountSponsorshipService:           accountSponsorshipService,
 		PaymentService:                      paymentService,
 		AppTracker:                          cfg.AppTracker,
+		RPCCallerServiceChannel:             rpcCallerServiceChannel,
+		RPCCallerService:                    rpcCallerService,
 		ErrorHandlerServiceJitterChannel:    jitterChannel,
 		ErrorHandlerServiceNonJitterChannel: nonJitterChannel,
 		WebhookHandlerServiceChannel:        webhookCallerServiceChannel,
