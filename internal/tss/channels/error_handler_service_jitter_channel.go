@@ -61,7 +61,7 @@ func (p *rpcErrorHandlerServiceJitterPool) Receive(payload tss.Payload) {
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
-		sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
+		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
 		rpcSendResp, err := BuildAndSubmitTransaction(ctx, "ErrorHandlerServiceJitterChannel", payload, p.Store, p.TxService)
 		if err != nil {
 			log.Errorf(err.Error())
