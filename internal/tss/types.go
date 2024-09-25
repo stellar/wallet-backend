@@ -1,8 +1,10 @@
 package tss
 
-import "github.com/stellar/go/xdr"
+import (
+	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/entities"
+)
 
-type RPCTXStatus string
 type OtherCodes int32
 
 type TransactionResultCode int32
@@ -13,7 +15,7 @@ const (
 	// These values need to not overlap the values in xdr.TransactionResultCode
 	NewCode             OtherCodes = 100
 	RPCFailCode         OtherCodes = 101
-	UnMarshalBinaryCode OtherCodes = 102
+	UnmarshalBinaryCode OtherCodes = 102
 )
 
 type RPCTXCode struct {
@@ -21,23 +23,9 @@ type RPCTXCode struct {
 	OtherCodes   OtherCodes
 }
 
-const (
-	// Brand new transaction, not sent to RPC yet
-	NewStatus RPCTXStatus = "NEW"
-	// RPC sendTransaction statuses
-	PendingStatus       RPCTXStatus = "PENDING"
-	DuplicateStatus     RPCTXStatus = "DUPLICATE"
-	TryAgainLaterStatus RPCTXStatus = "TRY_AGAIN_LATER"
-	ErrorStatus         RPCTXStatus = "ERROR"
-	// RPC getTransaction(s) statuses
-	NotFoundStatus RPCTXStatus = "NOT_FOUND"
-	FailedStatus   RPCTXStatus = "FAILED"
-	SuccessStatus  RPCTXStatus = "SUCCESS"
-)
-
 type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
-	Status RPCTXStatus
+	Status entities.RPCStatus
 	// The raw TransactionEnvelope XDR for this transaction
 	EnvelopeXDR string
 	// The raw TransactionResult XDR of the envelopeXdr
@@ -51,7 +39,7 @@ type RPCSendTxResponse struct {
 	TransactionHash string
 	TransactionXDR  string
 	// The status of an RPC sendTransaction call. Can be one of [PENDING, DUPLICATE, TRY_AGAIN_LATER, ERROR]
-	Status RPCTXStatus
+	Status entities.RPCStatus
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
 	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code RPCTXCode
@@ -67,19 +55,6 @@ type Payload struct {
 	RpcSubmitTxResponse RPCSendTxResponse
 	// Relevant fields in the transaction list inside the RPC getTransactions response
 	RpcGetIngestTxResponse RPCGetIngestTxResponse
-}
-
-type RPCResult struct {
-	Status         string `json:"status"`
-	EnvelopeXDR    string `json:"envelopeXdr"`
-	ResultXDR      string `json:"resultXdr"`
-	ErrorResultXDR string `json:"errorResultXdr"`
-	Hash           string `json:"hash"`
-	CreatedAt      string `json:"createdAt"`
-}
-
-type RPCResponse struct {
-	RPCResult `json:"result"`
 }
 
 type Channel interface {

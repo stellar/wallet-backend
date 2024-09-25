@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
@@ -150,19 +151,19 @@ func (t *transactionService) parseErrorResultXDR(errorResultXdr string) (tss.RPC
 	unMarshalErr := "unable to unmarshal errorResultXdr: %s"
 	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXdr)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnmarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
 	}
 	var errorResult xdr.TransactionResult
 	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
+		return tss.RPCTXCode{OtherCodes: tss.UnmarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
 	}
 	return tss.RPCTXCode{
 		TxResultCode: errorResult.Result.Code,
 	}, nil
 }
 
-func (t *transactionService) sendRPCRequest(method string, params map[string]string) (tss.RPCResponse, error) {
+func (t *transactionService) sendRPCRequest(method string, params map[string]string) (entities.RPCResponse, error) {
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -172,27 +173,25 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 	jsonData, err := json.Marshal(payload)
 
 	if err != nil {
-		return tss.RPCResponse{}, fmt.Errorf("marshaling payload")
+		return entities.RPCResponse{}, fmt.Errorf("marshaling payload")
 	}
 
 	resp, err := t.HTTPClient.Post(t.RPCURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return tss.RPCResponse{}, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
+		return entities.RPCResponse{}, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return tss.RPCResponse{}, fmt.Errorf("%s: unmarshaling RPC response", method)
+		return entities.RPCResponse{}, fmt.Errorf("%s: unmarshaling RPC response", method)
 	}
-	var res tss.RPCResponse
+	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
-		return tss.RPCResponse{}, fmt.Errorf("%s: parsing RPC response JSON", method)
+		return entities.RPCResponse{}, fmt.Errorf("%s: parsing RPC response JSON", method)
 	}
-	if res.RPCResult == (tss.RPCResult{}) {
-		return tss.RPCResponse{}, fmt.Errorf("%s: response missing result field", method)
-	}
+
 	return res, nil
 }
 
@@ -204,9 +203,9 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
 		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
 	}
-	sendTxResponse.Status = tss.RPCTXStatus(rpcResponse.RPCResult.Status)
-	sendTxResponse.TransactionHash = rpcResponse.RPCResult.Hash
-	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ErrorResultXDR)
+	sendTxResponse.Status = entities.RPCStatus(rpcResponse.Result.Status)
+	sendTxResponse.TransactionHash = rpcResponse.Result.Hash
+	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.Result.ErrorResultXDR)
 	if err != nil {
 		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
 	}
@@ -216,17 +215,17 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
 	rpcResponse, err := t.sendRPCRequest("getTransaction", map[string]string{"hash": transactionHash})
 	if err != nil {
-		return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
+		return tss.RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
 	}
 	getIngestTxResponse := tss.RPCGetIngestTxResponse{
-		Status:      tss.RPCTXStatus(rpcResponse.RPCResult.Status),
-		EnvelopeXDR: rpcResponse.RPCResult.EnvelopeXDR,
-		ResultXDR:   rpcResponse.RPCResult.ResultXDR,
+		Status:      entities.RPCStatus(rpcResponse.Result.Status),
+		EnvelopeXDR: rpcResponse.Result.EnvelopeXDR,
+		ResultXDR:   rpcResponse.Result.ResultXDR,
 	}
-	if getIngestTxResponse.Status != tss.NotFoundStatus {
-		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(rpcResponse.RPCResult.CreatedAt, 10, 64)
+	if getIngestTxResponse.Status != entities.NotFoundStatus {
+		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(rpcResponse.Result.CreatedAt, 10, 64)
 		if err != nil {
-			return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("unable to parse createAt: %w", err)
+			return tss.RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createAt: %w", err)
 		}
 	}
 	return getIngestTxResponse, nil

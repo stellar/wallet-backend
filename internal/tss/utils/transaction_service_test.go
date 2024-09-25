@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
@@ -380,7 +381,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "PENDING", resp.Status)
+		assert.Equal(t, "PENDING", resp.Result.Status)
 		assert.Empty(t, err)
 	})
 
@@ -396,7 +397,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "exdr", resp.EnvelopeXDR)
+		assert.Equal(t, "exdr", resp.Result.EnvelopeXDR)
 		assert.Empty(t, err)
 	})
 
@@ -412,7 +413,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "rxdr", resp.ResultXDR)
+		assert.Equal(t, "rxdr", resp.Result.ResultXDR)
 		assert.Empty(t, err)
 	})
 
@@ -428,7 +429,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "exdr", resp.ErrorResultXDR)
+		assert.Equal(t, "exdr", resp.Result.ErrorResultXDR)
 		assert.Empty(t, err)
 	})
 
@@ -444,7 +445,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "hash", resp.Hash)
+		assert.Equal(t, "hash", resp.Result.Hash)
 		assert.Empty(t, err)
 	})
 
@@ -460,7 +461,7 @@ func TestSendRPCRequest(t *testing.T) {
 
 		resp, err := txService.sendRPCRequest(method, params)
 
-		assert.Equal(t, "1234", resp.CreatedAt)
+		assert.Equal(t, "1234", resp.Result.CreatedAt)
 		assert.Empty(t, err)
 	})
 }
@@ -510,8 +511,8 @@ func TestSendTransaction(t *testing.T) {
 
 		resp, err := txService.SendTransaction("ABCD")
 
-		assert.Equal(t, tss.PendingStatus, resp.Status)
-		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
+		assert.Equal(t, entities.PendingStatus, resp.Status)
+		assert.Equal(t, tss.UnmarshalBinaryCode, resp.Code.OtherCodes)
 		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ", err.Error())
 
 	})
@@ -527,7 +528,7 @@ func TestSendTransaction(t *testing.T) {
 
 		resp, err := txService.SendTransaction("ABCD")
 
-		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
+		assert.Equal(t, tss.UnmarshalBinaryCode, resp.Code.OtherCodes)
 		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ABC123", err.Error())
 	})
 	t.Run("response_has_errorResultXdr", func(t *testing.T) {
@@ -576,7 +577,7 @@ func TestGetTransaction(t *testing.T) {
 
 		resp, err := txService.GetTransaction("XYZ")
 
-		assert.Equal(t, tss.ErrorStatus, resp.Status)
+		assert.Equal(t, entities.ErrorStatus, resp.Status)
 		assert.Equal(t, "RPC Fail: getTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
 
 	})
@@ -592,7 +593,7 @@ func TestGetTransaction(t *testing.T) {
 
 		resp, err := txService.GetTransaction("XYZ")
 
-		assert.Equal(t, tss.ErrorStatus, resp.Status)
+		assert.Equal(t, entities.ErrorStatus, resp.Status)
 		assert.Equal(t, "unable to parse createAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax", err.Error())
 	})
 	t.Run("response_has_createdAt_field", func(t *testing.T) {
