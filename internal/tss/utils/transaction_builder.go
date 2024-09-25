@@ -42,7 +42,6 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 			AccountID: keypair.MustRandom().Address(),
 		},
 		Operations:    operations,
-		BaseFee:       104,
 		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 	})
 	if err != nil {
