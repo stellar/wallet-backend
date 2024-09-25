@@ -7,6 +7,10 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+type HTTPClient interface {
+	Post(url string, t string, body io.Reader) (resp *http.Response, err error)
+}
+
 type MockHTTPClient struct {
 	mock.Mock
 }

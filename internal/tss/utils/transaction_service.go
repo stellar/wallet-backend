@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
@@ -17,11 +16,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
-
-type HTTPClient interface {
-	Post(url string, t string, body io.Reader) (resp *http.Response, err error)
-}
 
 type TransactionService interface {
 	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
@@ -35,7 +31,7 @@ type transactionService struct {
 	HorizonClient                      horizonclient.ClientInterface
 	RPCURL                             string
 	BaseFee                            int64
-	HTTPClient                         HTTPClient
+	HTTPClient                         utils.HTTPClient
 }
 
 var _ TransactionService = (*transactionService)(nil)
@@ -46,7 +42,7 @@ type TransactionServiceOptions struct {
 	HorizonClient                      horizonclient.ClientInterface
 	RPCURL                             string
 	BaseFee                            int64
-	HTTPClient                         HTTPClient
+	HTTPClient                         utils.HTTPClient
 }
 
 func (o *TransactionServiceOptions) ValidateOptions() error {

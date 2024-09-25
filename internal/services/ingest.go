@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -16,19 +17,69 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-type IngestManager struct {
-	PaymentModel      *data.PaymentModel
-	LedgerBackend     ledgerbackend.LedgerBackend
-	NetworkPassphrase string
-	LedgerCursorName  string
-	AppTracker        apptracker.AppTracker
+type IngestService interface {
+	Run(ctx context.Context, start, end uint32) error
 }
 
-func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
+var _ IngestService = (*ingestService)(nil)
+
+type ingestService struct {
+	models            *data.Models
+	ledgerBackend     ledgerbackend.LedgerBackend
+	networkPassphrase string
+	ledgerCursorName  string
+	appTracker        apptracker.AppTracker
+	httpClient        utils.HTTPClient
+	rpcURL            string
+}
+
+func NewIngestService(
+	models *data.Models,
+	ledgerBackend ledgerbackend.LedgerBackend,
+	networkPassphrase string,
+	ledgerCursorName string,
+	appTracker apptracker.AppTracker,
+	httpClient utils.HTTPClient,
+	rpcURL string,
+) (*ingestService, error) {
+	if models == nil {
+		return nil, errors.New("models cannot be nil")
+	}
+	if ledgerBackend == nil {
+		return nil, errors.New("ledgerBackend cannot be nil")
+	}
+	if networkPassphrase == "" {
+		return nil, errors.New("networkPassphrase cannot be nil")
+	}
+	if ledgerCursorName == "" {
+		return nil, errors.New("ledgerCursorName cannot be nil")
+	}
+	if appTracker == nil {
+		return nil, errors.New("appTracker cannot be nil")
+	}
+	if httpClient == nil {
+		return nil, errors.New("httpClient cannot be nil")
+	}
+	if rpcURL == "" {
+		return nil, errors.New("rpcURL cannot be nil")
+	}
+
+	return &ingestService{
+		models:            models,
+		ledgerBackend:     ledgerBackend,
+		networkPassphrase: networkPassphrase,
+		ledgerCursorName:  ledgerCursorName,
+		appTracker:        appTracker,
+		httpClient:        httpClient,
+		rpcURL:            rpcURL,
+	}, nil
+}
+
+func (m *ingestService) Run(ctx context.Context, start, end uint32) error {
 	var ingestLedger uint32
 
 	if start == 0 {
-		lastSyncedLedger, err := m.PaymentModel.GetLatestLedgerSynced(ctx, m.LedgerCursorName)
+		lastSyncedLedger, err := m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
 			return fmt.Errorf("getting last ledger synced: %w", err)
 		}
@@ -54,12 +105,12 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	}
 
 	heartbeat := make(chan any)
-	go trackServiceHealth(heartbeat, m.AppTracker)
+	go trackServiceHealth(heartbeat, m.appTracker)
 
 	for ; end == 0 || ingestLedger <= end; ingestLedger++ {
 		log.Ctx(ctx).Infof("waiting for ledger %d", ingestLedger)
 
-		ledgerMeta, err := m.LedgerBackend.GetLedger(ctx, ingestLedger)
+		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ingestLedger)
 		if err != nil {
 			return fmt.Errorf("getting ledger meta for ledger %d: %w", ingestLedger, err)
 		}
@@ -77,7 +128,7 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	return nil
 }
 
-func (m *IngestManager) maybePrepareRange(ctx context.Context, from, to uint32) error {
+func (m *ingestService) maybePrepareRange(ctx context.Context, from, to uint32) error {
 	var ledgerRange ledgerbackend.Range
 	if to == 0 {
 		ledgerRange = ledgerbackend.UnboundedRange(from)
@@ -85,13 +136,13 @@ func (m *IngestManager) maybePrepareRange(ctx context.Context, from, to uint32) 
 		ledgerRange = ledgerbackend.BoundedRange(from, to)
 	}
 
-	prepared, err := m.LedgerBackend.IsPrepared(ctx, ledgerRange)
+	prepared, err := m.ledgerBackend.IsPrepared(ctx, ledgerRange)
 	if err != nil {
 		return fmt.Errorf("checking prepared range: %w", err)
 	}
 
 	if !prepared {
-		err = m.LedgerBackend.PrepareRange(ctx, ledgerRange)
+		err = m.ledgerBackend.PrepareRange(ctx, ledgerRange)
 		if err != nil {
 			return fmt.Errorf("preparing range: %w", err)
 		}
@@ -121,8 +172,8 @@ func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
 	}
 }
 
-func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledgerMeta xdr.LedgerCloseMeta) (err error) {
-	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.NetworkPassphrase, ledgerMeta)
+func (m *ingestService) processLedger(ctx context.Context, ledger uint32, ledgerMeta xdr.LedgerCloseMeta) (err error) {
+	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, ledgerMeta)
 	if err != nil {
 		return fmt.Errorf("creating ledger reader: %w", err)
 	}
@@ -130,7 +181,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 	ledgerCloseTime := time.Unix(int64(ledgerMeta.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime), 0).UTC()
 	ledgerSequence := ledgerMeta.LedgerSequence()
 
-	return db.RunInTransaction(ctx, m.PaymentModel.DB, nil, func(dbTx db.Transaction) error {
+	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
 		for {
 			tx, err := reader.Read()
 			if err == io.EOF {
@@ -176,14 +227,14 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 					continue
 				}
 
-				err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
+				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
 				if err != nil {
 					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
 				}
 			}
 		}
 
-		err = m.PaymentModel.UpdateLatestLedgerSynced(ctx, m.LedgerCursorName, ledger)
+		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ledger)
 		if err != nil {
 			return err
 		}

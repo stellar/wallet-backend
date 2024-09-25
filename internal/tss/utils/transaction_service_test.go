@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
+	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -31,7 +32,7 @@ func TestValidateOptions(t *testing.T) {
 			HorizonClient:                      &horizonclient.MockClient{},
 			RPCURL:                             "http://localhost:8000/soroban/rpc",
 			BaseFee:                            114,
-			HTTPClient:                         &MockHTTPClient{},
+			HTTPClient:                         &utils.MockHTTPClient{},
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "distribution account signature client cannot be nil", err.Error())
@@ -45,7 +46,7 @@ func TestValidateOptions(t *testing.T) {
 			HorizonClient:                      &horizonclient.MockClient{},
 			RPCURL:                             "http://localhost:8000/soroban/rpc",
 			BaseFee:                            114,
-			HTTPClient:                         &MockHTTPClient{},
+			HTTPClient:                         &utils.MockHTTPClient{},
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "channel account signature client cannot be nil", err.Error())
@@ -58,7 +59,7 @@ func TestValidateOptions(t *testing.T) {
 			HorizonClient:                      nil,
 			RPCURL:                             "http://localhost:8000/soroban/rpc",
 			BaseFee:                            114,
-			HTTPClient:                         &MockHTTPClient{},
+			HTTPClient:                         &utils.MockHTTPClient{},
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "horizon client cannot be nil", err.Error())
@@ -71,7 +72,7 @@ func TestValidateOptions(t *testing.T) {
 			HorizonClient:                      &horizonclient.MockClient{},
 			RPCURL:                             "",
 			BaseFee:                            114,
-			HTTPClient:                         &MockHTTPClient{},
+			HTTPClient:                         &utils.MockHTTPClient{},
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "rpc url cannot be empty", err.Error())
@@ -84,7 +85,7 @@ func TestValidateOptions(t *testing.T) {
 			HorizonClient:                      &horizonclient.MockClient{},
 			RPCURL:                             "http://localhost:8000/soroban/rpc",
 			BaseFee:                            txnbuild.MinBaseFee - 10,
-			HTTPClient:                         &MockHTTPClient{},
+			HTTPClient:                         &utils.MockHTTPClient{},
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "base fee is lower than the minimum network fee", err.Error())
@@ -116,7 +117,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		HorizonClient:                      &horizonClient,
 		RPCURL:                             "http://localhost:8000/soroban/rpc",
 		BaseFee:                            114,
-		HTTPClient:                         &MockHTTPClient{},
+		HTTPClient:                         &utils.MockHTTPClient{},
 	})
 
 	txStr, _ := BuildTestTransaction().Base64()
@@ -288,7 +289,7 @@ func (e *errorReader) Close() error {
 }
 
 func TestSendRPCRequest(t *testing.T) {
-	mockHTTPClient := MockHTTPClient{}
+	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://localhost:8000/soroban/rpc"
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &signing.SignatureClientMock{},
@@ -465,7 +466,7 @@ func TestSendRPCRequest(t *testing.T) {
 }
 
 func TestSendTransaction(t *testing.T) {
-	mockHTTPClient := MockHTTPClient{}
+	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://localhost:8000/soroban/rpc"
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &signing.SignatureClientMock{},
@@ -547,7 +548,7 @@ func TestSendTransaction(t *testing.T) {
 }
 
 func TestGetTransaction(t *testing.T) {
-	mockHTTPClient := MockHTTPClient{}
+	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://localhost:8000/soroban/rpc"
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &signing.SignatureClientMock{},
