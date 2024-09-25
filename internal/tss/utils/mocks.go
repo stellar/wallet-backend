@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/tss"
+
 	"github.com/stretchr/testify/mock"
 )
 

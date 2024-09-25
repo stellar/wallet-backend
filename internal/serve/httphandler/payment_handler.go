@@ -21,7 +21,7 @@ type PaymentsRequest struct {
 	AfterID  string         `query:"afterId"`
 	BeforeID string         `query:"beforeId"`
 	Sort     data.SortOrder `query:"sort" validate:"oneof=ASC DESC"`
-	Limit    int            `query:"limit" validate:"gt=0"`
+	Limit    int            `query:"limit" validate:"gt=0,lte=200"`
 }
 
 type PaymentsResponse struct {

@@ -497,6 +497,23 @@ func TestSendTransaction(t *testing.T) {
 		assert.Equal(t, "RPC fail: sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
 
 	})
+	t.Run("response_has_empty_errorResultXdr", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING", "errorResultXdr": ""}}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(httpResponse, nil).
+			Once()
+
+		resp, err := txService.SendTransaction("ABCD")
+
+		assert.Equal(t, tss.PendingStatus, resp.Status)
+		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
+		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ", err.Error())
+
+	})
 	t.Run("response_has_unparsable_errorResultXdr", func(t *testing.T) {
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
@@ -510,7 +527,7 @@ func TestSendTransaction(t *testing.T) {
 		resp, err := txService.SendTransaction("ABCD")
 
 		assert.Equal(t, tss.UnMarshalBinaryCode, resp.Code.OtherCodes)
-		assert.Equal(t, "unable to unmarshal errorResultXdr: ABC123", err.Error())
+		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ABC123", err.Error())
 	})
 	t.Run("response_has_errorResultXdr", func(t *testing.T) {
 		httpResponse := &http.Response{

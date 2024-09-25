@@ -51,7 +51,7 @@ func msgForFieldError(fieldError validator.FieldError) string {
 				log.Errorf(`Error parsing "gt" param %q to integer: %s`, fieldError.Param(), err.Error())
 				return "Should have at least 1 element" // Fallback to this error message
 			}
-			return fmt.Sprintf("Should have at least %d element", v+1) // For instance, if "gt" is 0 (zero) then it should have at least 1 element
+			return fmt.Sprintf("Should have at least %d element(s)", v+1) // For instance, if "gt" is 0 (zero) then it should have at least 1 element
 		}
 		return fmt.Sprintf("Should be greater than %s", fieldError.Param())
 	case "gte":
@@ -61,9 +61,29 @@ func msgForFieldError(fieldError validator.FieldError) string {
 				log.Errorf(`Error parsing "gte" param %q to integer: %s`, fieldError.Param(), err.Error())
 				return "Should have at least 1 element" // Fallback to this error message
 			}
-			return fmt.Sprintf("Should have at least %d element", v)
+			return fmt.Sprintf("Should have at least %d element(s)", v)
 		}
 		return fmt.Sprintf("Should be greater than or equal to %s", fieldError.Param())
+	case "lt":
+		if fieldError.Kind() == reflect.Slice || fieldError.Kind() == reflect.Array {
+			v, err := strconv.Atoi(fieldError.Param())
+			if err != nil {
+				log.Errorf(`Error parsing "lt" param %q to integer: %s`, fieldError.Param(), err.Error())
+				return "Should have at most 1 element" // Fallback to this error message
+			}
+			return fmt.Sprintf("Should have at most %d element(s)", v-1)
+		}
+		return fmt.Sprintf("Should be less than %s", fieldError.Param())
+	case "lte":
+		if fieldError.Kind() == reflect.Slice || fieldError.Kind() == reflect.Array {
+			v, err := strconv.Atoi(fieldError.Param())
+			if err != nil {
+				log.Errorf(`Error parsing "lte" param %q to integer: %s`, fieldError.Param(), err.Error())
+				return "Should have at most 1 element" // Fallback to this error message
+			}
+			return fmt.Sprintf("Should have at most %d element(s)", v)
+		}
+		return fmt.Sprintf("Should be less than or equal to %s", fieldError.Param())
 	default:
 		return "Invalid value"
 	}

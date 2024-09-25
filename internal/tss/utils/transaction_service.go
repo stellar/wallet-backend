@@ -211,12 +211,15 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 	sendTxResponse.TransactionXDR = transactionXdr
 	if err != nil {
 		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
-		return sendTxResponse, fmt.Errorf("RPC fail: %s", err.Error())
+		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
 	}
 	sendTxResponse.Status = tss.RPCTXStatus(rpcResponse.RPCResult.Status)
-	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ErrorResultXDR)
 	sendTxResponse.TransactionHash = rpcResponse.RPCResult.Hash
-	return sendTxResponse, err
+	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ErrorResultXDR)
+	if err != nil {
+		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
+	}
+	return sendTxResponse, nil
 }
 
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
@@ -224,14 +227,15 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 	if err != nil {
 		return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
 	}
-	getIngestTxResponse := tss.RPCGetIngestTxResponse{}
-	getIngestTxResponse.Status = tss.RPCTXStatus(rpcResponse.RPCResult.Status)
-	getIngestTxResponse.EnvelopeXDR = rpcResponse.RPCResult.EnvelopeXDR
-	getIngestTxResponse.ResultXDR = rpcResponse.RPCResult.ResultXDR
+	getIngestTxResponse := tss.RPCGetIngestTxResponse{
+		Status:      tss.RPCTXStatus(rpcResponse.RPCResult.Status),
+		EnvelopeXDR: rpcResponse.RPCResult.EnvelopeXDR,
+		ResultXDR:   rpcResponse.RPCResult.ResultXDR,
+	}
 	if getIngestTxResponse.Status != tss.NotFoundStatus {
 		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(rpcResponse.RPCResult.CreatedAt, 10, 64)
 		if err != nil {
-			return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("unable to parse createAt: %s", err.Error())
+			return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("unable to parse createAt: %w", err)
 		}
 	}
 	return getIngestTxResponse, nil

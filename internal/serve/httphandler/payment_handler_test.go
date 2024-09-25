@@ -233,7 +233,7 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})
 
-	t.Run("invalid_params", func(t *testing.T) {
+	t.Run("invalid_params_1", func(t *testing.T) {
 		// Prepare request
 		req, err := http.NewRequest(http.MethodGet, "/payments?address=12345&limit=0&sort=BS", nil)
 		require.NoError(t, err)
@@ -254,6 +254,30 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 				"limit": "Should be greater than 0",
 				"address": "Invalid public key provided",
 				"sort": "Unexpected value \"BS\". Expected one of the following values: ASC, DESC"
+			}
+		}`
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("invalid_params_2", func(t *testing.T) {
+		// Prepare request
+		req, err := http.NewRequest(http.MethodGet, "/payments?limit=210", nil)
+		require.NoError(t, err)
+
+		// Serve request
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		// Assert 400 response
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+
+		resp := rr.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		expectedRespBody := `{
+			"error": "Validation error.",
+			"extras": {
+				"limit": "Should be less than or equal to 200"
 			}
 		}`
 		assert.JSONEq(t, expectedRespBody, string(respBody))
