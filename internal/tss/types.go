@@ -1,9 +1,45 @@
 package tss
 
 import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"strconv"
+
+	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
 )
+
+type RPCGetIngestTxResponse struct {
+	// A status that indicated whether this transaction failed or successly made it to the ledger
+	Status entities.RPCStatus
+	// The raw TransactionEnvelope XDR for this transaction
+	EnvelopeXDR string
+	// The raw TransactionResult XDR of the envelopeXdr
+	ResultXDR string
+	// The unix timestamp of when the transaction was included in the ledger
+	CreatedAt int64
+}
+
+func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
+	if err != nil {
+		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
+	}
+
+	getIngestTxResponse := RPCGetIngestTxResponse{
+		Status:      entities.RPCStatus(result.Status),
+		EnvelopeXDR: result.EnvelopeXDR,
+		ResultXDR:   result.ResultXDR,
+	}
+	if getIngestTxResponse.Status != entities.NotFoundStatus {
+		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(result.CreatedAt, 10, 64)
+		if err != nil {
+			return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createdAt: %w", err)
+		}
+	}
+	return getIngestTxResponse, nil
+}
 
 type OtherCodes int32
 
@@ -23,17 +59,6 @@ type RPCTXCode struct {
 	OtherCodes   OtherCodes
 }
 
-type RPCGetIngestTxResponse struct {
-	// A status that indicated whether this transaction failed or successly made it to the ledger
-	Status entities.RPCStatus
-	// The raw TransactionEnvelope XDR for this transaction
-	EnvelopeXDR string
-	// The raw TransactionResult XDR of the envelopeXdr
-	ResultXDR string
-	// The unix timestamp of when the transaction was included in the ledger
-	CreatedAt int64
-}
-
 type RPCSendTxResponse struct {
 	// The hash of the transaction submitted to RPC
 	TransactionHash string
@@ -43,6 +68,38 @@ type RPCSendTxResponse struct {
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
 	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code RPCTXCode
+}
+
+func parseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTransactionResult, err error) (RPCSendTxResponse, error) {
+	sendTxResponse := RPCSendTxResponse{}
+	sendTxResponse.TransactionXDR = transactionXDR
+	if err != nil {
+		sendTxResponse.Code.OtherCodes = RPCFailCode
+		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
+	}
+	sendTxResponse.Status = entities.RPCStatus(result.Status)
+	sendTxResponse.TransactionHash = result.Hash
+	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
+	if err != nil {
+		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
+	}
+	return sendTxResponse, nil
+}
+
+func parseSendTransactionErrorXDR(errorResultXDR string) (RPCTXCode, error) {
+	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
+	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXDR)
+	if err != nil {
+		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
+	}
+	var errorResult xdr.TransactionResult
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
+	if err != nil {
+		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
+	}
+	return RPCTXCode{
+		TxResultCode: errorResult.Result.Code,
+	}, nil
 }
 
 type Payload struct {

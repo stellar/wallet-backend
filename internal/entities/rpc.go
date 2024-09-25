@@ -1,5 +1,9 @@
 package entities
 
+import (
+	"encoding/json"
+)
+
 type RPCStatus string
 
 const (
@@ -20,13 +24,20 @@ type RPCEntry struct {
 	LastModifiedLedgerSeq int64  `json:"lastModifiedLedgerSeq"`
 }
 
-type RPCResult struct {
+type RPCResponse struct {
+	Result  json.RawMessage `json:"result"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      int64           `json:"id"`
+}
+
+type RPCGetLedgerEntriesResult struct {
+	Entries []RPCEntry `json:"entries"`
+}
+
+type RPCGetTransactionResult struct {
 	Status                string `json:"status"`
 	LatestLedger          int64  `json:"latestLedger"`
 	LatestLedgerCloseTime string `json:"latestLedgerCloseTime"`
-	// sendTransaction fields
-	Hash string `json:"hash"`
-	// getTransaction fields
 	OldestLedger          string `json:"oldestLedger"`
 	OldestLedgerCloseTime string `json:"oldestLedgerCloseTime"`
 	ApplicationOrder      string `json:"applicationOrder"`
@@ -36,12 +47,12 @@ type RPCResult struct {
 	Ledger                string `json:"ledger"`
 	CreatedAt             string `json:"createdAt"`
 	ErrorResultXDR        string `json:"errorResultXdr"`
-	// getLedgerEntries fields
-	Entries []RPCEntry `json:"entries"`
 }
 
-type RPCResponse struct {
-	Result  RPCResult `json:"result"`
-	JSONRPC string    `json:"jsonrpc"`
-	ID      int64     `json:"id"`
+type RPCSendTransactionResult struct {
+	Status                string `json:"status"`
+	LatestLedger          int64  `json:"latestLedger"`
+	LatestLedgerCloseTime string `json:"latestLedgerCloseTime"`
+	Hash                  string `json:"hash"`
+	ErrorResultXDR        string `json:"errorResultXdr"`
 }

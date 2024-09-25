@@ -1,38 +1,24 @@
 package utils
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
-	"strconv"
 
-	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/tss"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type TransactionService interface {
 	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
-	SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error)
-	GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error)
 }
 
 type transactionService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	HorizonClient                      horizonclient.ClientInterface
-	RPCURL                             string
 	BaseFee                            int64
-	HTTPClient                         utils.HTTPClient
 }
 
 var _ TransactionService = (*transactionService)(nil)
@@ -41,9 +27,7 @@ type TransactionServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	HorizonClient                      horizonclient.ClientInterface
-	RPCURL                             string
 	BaseFee                            int64
-	HTTPClient                         utils.HTTPClient
 }
 
 func (o *TransactionServiceOptions) ValidateOptions() error {
@@ -59,16 +43,8 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 		return fmt.Errorf("horizon client cannot be nil")
 	}
 
-	if o.RPCURL == "" {
-		return fmt.Errorf("rpc url cannot be empty")
-	}
-
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
-	}
-
-	if o.HTTPClient == nil {
-		return fmt.Errorf("http client cannot be nil")
 	}
 
 	return nil
@@ -82,9 +58,7 @@ func NewTransactionService(opts TransactionServiceOptions) (*transactionService,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
 		HorizonClient:                      opts.HorizonClient,
-		RPCURL:                             opts.RPCURL,
 		BaseFee:                            opts.BaseFee,
-		HTTPClient:                         opts.HTTPClient,
 	}, nil
 }
 
@@ -145,88 +119,4 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 		return nil, fmt.Errorf("signing the fee bump transaction with distribution account: %w", err)
 	}
 	return feeBumpTx, nil
-}
-
-func (t *transactionService) parseErrorResultXDR(errorResultXdr string) (tss.RPCTXCode, error) {
-	unMarshalErr := "unable to unmarshal errorResultXdr: %s"
-	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXdr)
-	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnmarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
-	}
-	var errorResult xdr.TransactionResult
-	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
-	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnmarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
-	}
-	return tss.RPCTXCode{
-		TxResultCode: errorResult.Result.Code,
-	}, nil
-}
-
-func (t *transactionService) sendRPCRequest(method string, params map[string]string) (entities.RPCResponse, error) {
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  method,
-		"params":  params,
-	}
-	jsonData, err := json.Marshal(payload)
-
-	if err != nil {
-		return entities.RPCResponse{}, fmt.Errorf("marshaling payload")
-	}
-
-	resp, err := t.HTTPClient.Post(t.RPCURL, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return entities.RPCResponse{}, fmt.Errorf("%s: sending POST request to rpc: %v", method, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return entities.RPCResponse{}, fmt.Errorf("%s: unmarshaling RPC response", method)
-	}
-	var res entities.RPCResponse
-	err = json.Unmarshal(body, &res)
-	if err != nil {
-		return entities.RPCResponse{}, fmt.Errorf("%s: parsing RPC response JSON", method)
-	}
-
-	return res, nil
-}
-
-func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
-	rpcResponse, err := t.sendRPCRequest("sendTransaction", map[string]string{"transaction": transactionXdr})
-	sendTxResponse := tss.RPCSendTxResponse{}
-	sendTxResponse.TransactionXDR = transactionXdr
-	if err != nil {
-		sendTxResponse.Code.OtherCodes = tss.RPCFailCode
-		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
-	}
-	sendTxResponse.Status = entities.RPCStatus(rpcResponse.Result.Status)
-	sendTxResponse.TransactionHash = rpcResponse.Result.Hash
-	sendTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.Result.ErrorResultXDR)
-	if err != nil {
-		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
-	}
-	return sendTxResponse, nil
-}
-
-func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
-	rpcResponse, err := t.sendRPCRequest("getTransaction", map[string]string{"hash": transactionHash})
-	if err != nil {
-		return tss.RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
-	}
-	getIngestTxResponse := tss.RPCGetIngestTxResponse{
-		Status:      entities.RPCStatus(rpcResponse.Result.Status),
-		EnvelopeXDR: rpcResponse.Result.EnvelopeXDR,
-		ResultXDR:   rpcResponse.Result.ResultXDR,
-	}
-	if getIngestTxResponse.Status != entities.NotFoundStatus {
-		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(rpcResponse.Result.CreatedAt, 10, 64)
-		if err != nil {
-			return tss.RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createAt: %w", err)
-		}
-	}
-	return getIngestTxResponse, nil
 }
