@@ -38,7 +38,7 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
     	current_status = $4,
     	updated_at = NOW();
 	`
-	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, string(status))
+	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, status.Status())
 	if err != nil {
 		return fmt.Errorf("inserting/updatig tss transaction: %w", err)
 	}

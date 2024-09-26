@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -9,13 +10,12 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
+	"github.com/stellar/wallet-backend/internal/tss/services"
 	tss_store "github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
-type RPCErrorHandlerServiceNonJitterChannelConfigs struct {
-	Store             tss_store.Store
-	TxService         utils.TransactionService
+type ErrorNonJitterChannelConfigs struct {
+	TxManager         services.TransactionManager
 	Router            router.Router
 	MaxBufferSize     int
 	MaxWorkers        int
@@ -23,45 +23,52 @@ type RPCErrorHandlerServiceNonJitterChannelConfigs struct {
 	WaitBtwnRetriesMS int
 }
 
-type rpcErrorHandlerServiceNonJitterPool struct {
+type errorNonJitterPool struct {
 	Pool              *pond.WorkerPool
-	TxService         utils.TransactionService
+	TxManager         services.TransactionManager
 	Store             tss_store.Store
 	Router            router.Router
 	MaxRetries        int
 	WaitBtwnRetriesMS int
 }
 
-func NewErrorHandlerServiceNonJitterChannel(cfg RPCErrorHandlerServiceNonJitterChannelConfigs) *rpcErrorHandlerServiceNonJitterPool {
+var ErrorNonJitterChannelName = "ErrorNonJitterChannel"
+
+func NewErrorNonJitterChannel(cfg ErrorNonJitterChannelConfigs) *errorNonJitterPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &rpcErrorHandlerServiceNonJitterPool{
+	return &errorNonJitterPool{
 		Pool:              pool,
-		TxService:         cfg.TxService,
-		Store:             cfg.Store,
+		TxManager:         cfg.TxManager,
+		Router:            cfg.Router,
 		MaxRetries:        cfg.MaxRetries,
 		WaitBtwnRetriesMS: cfg.WaitBtwnRetriesMS,
 	}
 }
 
-func (p *rpcErrorHandlerServiceNonJitterPool) Send(payload tss.Payload) {
+func (p *errorNonJitterPool) Send(payload tss.Payload) {
 	p.Pool.Submit(func() {
 		p.Receive(payload)
 	})
 }
 
-func (p *rpcErrorHandlerServiceNonJitterPool) Receive(payload tss.Payload) {
+func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
+		fmt.Println(i)
 		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
-		rpcSendResp, err := BuildAndSubmitTransaction(ctx, "ErrorHandlerServiceNonJitterChannel", payload, p.Store, p.TxService)
+		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("%s: Unable to sign and submit transaction: %e", ErrorNonJitterChannelName, err)
 			return
 		}
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			p.Router.Route(payload)
+			if err != nil {
+				log.Errorf("%s: Unable to route payload: %e", ErrorNonJitterChannelName, err)
+				return
+			}
 			return
 		}
 	}
@@ -72,10 +79,10 @@ func (p *rpcErrorHandlerServiceNonJitterPool) Receive(payload tss.Payload) {
 	}
 }
 
-func (p *rpcErrorHandlerServiceNonJitterPool) SetRouter(router router.Router) {
+func (p *errorNonJitterPool) SetRouter(router router.Router) {
 	p.Router = router
 }
 
-func (p *rpcErrorHandlerServiceNonJitterPool) Stop() {
+func (p *errorNonJitterPool) Stop() {
 	p.Pool.StopAndWait()
 }
