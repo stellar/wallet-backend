@@ -22,6 +22,7 @@ type RPCGetIngestTxResponse struct {
 	CreatedAt int64
 }
 
+//nolint:unused
 func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
 	if err != nil {
 		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
