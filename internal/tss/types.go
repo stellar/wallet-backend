@@ -43,6 +43,7 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 }
 
 type OtherStatus string
+
 type OtherCodes int32
 
 type TransactionResultCode int32
@@ -101,14 +102,12 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 	sendTxResponse := RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXDR
 	if err != nil {
-		fmt.Println("RPC FAIL ON THIS?")
 		sendTxResponse.Status.RPCStatus = entities.ErrorStatus
 		sendTxResponse.Code.OtherCodes = RPCFailCode
 		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
 	}
 	sendTxResponse.Status.RPCStatus = entities.RPCStatus(result.Status)
 	sendTxResponse.TransactionHash = result.Hash
-	fmt.Println("abt to call parse")
 	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
 	if err != nil {
 		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
