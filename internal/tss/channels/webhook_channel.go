@@ -9,7 +9,8 @@ import (
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/tss"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
+	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type WebhookHandlerServiceChannelConfigs struct {
@@ -47,7 +48,7 @@ func (p *webhookHandlerServicePool) Send(payload tss.Payload) {
 }
 
 func (p *webhookHandlerServicePool) Receive(payload tss.Payload) {
-	resp := utils.PayloadTOTSSResponse(payload)
+	resp := tssutils.PayloadTOTSSResponse(payload)
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
 		log.Errorf("WebhookHandlerServiceChannel: error marshaling payload: %s", err.Error())

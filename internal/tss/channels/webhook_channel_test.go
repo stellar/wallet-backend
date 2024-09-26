@@ -9,7 +9,8 @@ import (
 	"testing"
 
 	"github.com/stellar/wallet-backend/internal/tss"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
+	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func TestWebhookHandlerServiceChannel(t *testing.T) {
@@ -25,7 +26,7 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.org"
-	jsonData, _ := json.Marshal(utils.PayloadTOTSSResponse(payload))
+	jsonData, _ := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
 
 	httpResponse1 := &http.Response{
 		StatusCode: http.StatusBadGateway,

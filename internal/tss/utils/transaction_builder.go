@@ -37,13 +37,15 @@ func BuildOriginalTransaction(txOpXDRs []string) (*txnbuild.Transaction, error) 
 		operations = append(operations, &paymentOp)
 	}
 
-	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: keypair.MustRandom().Address(),
 		},
 		Operations:    operations,
-		BaseFee:       104,
 		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot create new transaction: %w", err)
+	}
 	return tx, nil
 }
