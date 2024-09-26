@@ -84,7 +84,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
 	distributionAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: distributionAccountPublicKey})
 	if err != nil {
-		return fmt.Errorf("getting account detail of channel account: %w", err)
+		return fmt.Errorf("getting account detail of distribution account: %w", err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
