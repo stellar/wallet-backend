@@ -106,7 +106,7 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 		sendTxResponse.Code.OtherCodes = RPCFailCode
 		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
 	}
-	sendTxResponse.Status.RPCStatus = entities.RPCStatus(result.Status)
+	sendTxResponse.Status.RPCStatus = result.Status
 	sendTxResponse.TransactionHash = result.Hash
 	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
 	if err != nil {

@@ -35,24 +35,24 @@ type RPCGetLedgerEntriesResult struct {
 }
 
 type RPCGetTransactionResult struct {
-	Status                string `json:"status"`
-	LatestLedger          int64  `json:"latestLedger"`
-	LatestLedgerCloseTime string `json:"latestLedgerCloseTime"`
-	OldestLedger          string `json:"oldestLedger"`
-	OldestLedgerCloseTime string `json:"oldestLedgerCloseTime"`
-	ApplicationOrder      string `json:"applicationOrder"`
-	EnvelopeXDR           string `json:"envelopeXdr"`
-	ResultXDR             string `json:"resultXdr"`
-	ResultMetaXDR         string `json:"resultMetaXdr"`
-	Ledger                string `json:"ledger"`
-	CreatedAt             string `json:"createdAt"`
-	ErrorResultXDR        string `json:"errorResultXdr"`
+	Status                RPCStatus `json:"status"`
+	LatestLedger          int64     `json:"latestLedger"`
+	LatestLedgerCloseTime string    `json:"latestLedgerCloseTime"`
+	OldestLedger          int64     `json:"oldestLedger"`
+	OldestLedgerCloseTime string    `json:"oldestLedgerCloseTime"`
+	ApplicationOrder      int64     `json:"applicationOrder"`
+	EnvelopeXDR           string    `json:"envelopeXdr"`
+	ResultXDR             string    `json:"resultXdr"`
+	ResultMetaXDR         string    `json:"resultMetaXdr"`
+	Ledger                int64     `json:"ledger"`
+	CreatedAt             string    `json:"createdAt"`
+	ErrorResultXDR        string    `json:"errorResultXdr"`
 }
 
 type RPCSendTransactionResult struct {
-	Status                string `json:"status"`
-	LatestLedger          int64  `json:"latestLedger"`
-	LatestLedgerCloseTime string `json:"latestLedgerCloseTime"`
-	Hash                  string `json:"hash"`
-	ErrorResultXDR        string `json:"errorResultXdr"`
+	Status                RPCStatus `json:"status"`
+	LatestLedger          int64     `json:"latestLedger"`
+	LatestLedgerCloseTime string    `json:"latestLedgerCloseTime"`
+	Hash                  string    `json:"hash"`
+	ErrorResultXDR        string    `json:"errorResultXdr"`
 }
