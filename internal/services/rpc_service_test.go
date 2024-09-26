@@ -1,314 +1,257 @@
 package services
 
-// type errorReader struct{}
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
 
-// func (e *errorReader) Read(p []byte) (n int, err error) {
-// 	return 0, fmt.Errorf("read error")
-// }
+	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
 
-// func (e *errorReader) Close() error {
-// 	return nil
-// }
+type errorReader struct{}
 
-// func TestSendRPCRequest(t *testing.T) {
-// 	mockHTTPClient := utils.MockHTTPClient{}
-// 	rpcURL := "http://localhost:8000/soroban/rpc"
-// 	rpcService := NewRPCService(rpcURL, &mockHTTPClient)
-// 	method := "sendTransaction"
-// 	params := map[string]string{"transaction": "ABCD"}
-// 	payload := map[string]interface{}{
-// 		"jsonrpc": "2.0",
-// 		"id":      1,
-// 		"method":  method,
-// 		"params":  params,
-// 	}
-// 	jsonData, _ := json.Marshal(payload)
-// 	t.Run("rpc_post_call_fails", func(t *testing.T) {
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(&http.Response{}, errors.New("RPC Connection fail")).
-// 			Once()
+func (e *errorReader) Read(p []byte) (n int, err error) {
+	return 0, fmt.Errorf("read error")
+}
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+func (e *errorReader) Close() error {
+	return nil
+}
 
-// 		assert.Empty(t, resp)
-// 		assert.Equal(t, "sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
-// 	})
+func TestSendRPCRequest(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
-// 	t.Run("unmarshaling_rpc_response_fails", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(&errorReader{}),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+	t.Run("successful", func(t *testing.T) {
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+					"testValue": "theTestValue"
+				}
+			}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&httpResponse, nil).
+			Once()
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		require.NoError(t, err)
 
-// 		assert.Empty(t, resp)
-// 		assert.Equal(t, "sendTransaction: unmarshaling RPC response", err.Error())
-// 	})
+		var resultStruct struct {
+			TestValue string `json:"testValue"`
+		}
+		err = json.Unmarshal(resp, &resultStruct)
+		require.NoError(t, err)
 
-// 	t.Run("unmarshaling_json_fails", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{invalid-json`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		assert.Equal(t, "theTestValue", resultStruct.TestValue)
+	})
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+	t.Run("rpc_post_call_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
 
-// 		assert.Empty(t, resp)
-// 		assert.Equal(t, "sendTransaction: parsing RPC response JSON", err.Error())
-// 	})
+		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		assert.Nil(t, resp)
+		assert.Equal(t, "sending POST request to RPC: connection failed", err.Error())
+	})
 
-// 	t.Run("response_has_no_result_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"status": "success"}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+	t.Run("unmarshaling_rpc_response_fails", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(&errorReader{}),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(httpResponse, nil).
+			Once()
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		assert.Nil(t, resp)
+		assert.Equal(t, "unmarshaling RPC response: read error", err.Error())
+	})
 
-// 		assert.Empty(t, resp)
-// 		assert.Equal(t, "sendTransaction: response missing result field", err.Error())
-// 	})
+	t.Run("unmarshaling_json_fails", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{invalid-json`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(httpResponse, nil).
+			Once()
 
-// 	t.Run("response_has_status_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		assert.Nil(t, resp)
+		assert.Equal(t, "parsing RPC response JSON: invalid character 'i' looking for beginning of object key string", err.Error())
+	})
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+	t.Run("response_has_no_result_field", func(t *testing.T) {
+		httpResponse := &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"status": "success"}`)),
+		}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(httpResponse, nil).
+			Once()
 
-// 		assert.Equal(t, "PENDING", resp.Result.Status)
-// 		assert.Empty(t, err)
-// 	})
+		result, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		assert.Empty(t, result)
+		assert.Equal(t, `response {"status": "success"} missing result field`, err.Error())
+	})
+}
 
-// 	t.Run("response_has_envelopexdr_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"envelopeXdr": "exdr"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+func TestSendTransaction(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+	t.Run("successful", func(t *testing.T) {
+		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
 
-// 		assert.Equal(t, "exdr", resp.Result.EnvelopeXDR)
-// 		assert.Empty(t, err)
-// 	})
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "sendTransaction",
+			"params": map[string]string{
+				"transaction": transactionXDR,
+			},
+		}
+		jsonData, _ := json.Marshal(payload)
 
-// 	t.Run("response_has_resultxdr_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"resultXdr": "rxdr"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+					"status": "PENDING",
+					"hash": "d8ec9b68780314ffdfdfc2194b1b35dd27d7303c3bceaef6447e31631a1419dc",
+					"latestLedger": 2553978,
+					"latestLedgerCloseTime": "1700159337"
+				}
+			}`)),
+		}
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&httpResponse, nil).
+			Once()
 
-// 		assert.Equal(t, "rxdr", resp.Result.ResultXDR)
-// 		assert.Empty(t, err)
-// 	})
+		result, err := rpcService.SendTransaction(transactionXDR)
+		require.NoError(t, err)
 
-// 	t.Run("response_has_errorresultxdr_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "exdr"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		assert.Equal(t, entities.RPCSendTransactionResult{
+			Status:                "PENDING",
+			Hash:                  "d8ec9b68780314ffdfdfc2194b1b35dd27d7303c3bceaef6447e31631a1419dc",
+			LatestLedger:          2553978,
+			LatestLedgerCloseTime: "1700159337",
+		}, result)
+	})
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
 
-// 		assert.Equal(t, "exdr", resp.Result.ErrorResultXDR)
-// 		assert.Empty(t, err)
-// 	})
+		result, err := rpcService.SendTransaction("XDR")
+		require.Error(t, err)
 
-// 	t.Run("response_has_hash_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"hash": "hash"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		assert.Equal(t, entities.RPCSendTransactionResult{}, result)
+		assert.Equal(t, "sending sendTransaction request: sending POST request to RPC: connection failed", err.Error())
+	})
+}
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+func TestGetTransaction(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
-// 		assert.Equal(t, "hash", resp.Result.Hash)
-// 		assert.Empty(t, err)
-// 	})
+	t.Run("successful", func(t *testing.T) {
+		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 
-// 	t.Run("response_has_createdat_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"createdAt": "1234"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "getTransaction",
+			"params": map[string]string{
+				"hash": transactionHash,
+			},
+		}
+		jsonData, _ := json.Marshal(payload)
 
-// 		resp, err := rpcService.sendRPCRequest(method, params)
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+					"status": "SUCCESS",
+					"latestLedger": 2540076,
+					"latestLedgerCloseTime": "1700086333",
+					"oldestLedger": 2538637,
+					"oldestLedgerCloseTime": "1700078796",
+					"applicationOrder": 1,
+					"envelopeXdr": "AAAAAgAAAADGFY14/R1KD0VGtTbi5Yp4d7LuMW0iQbLM/AUiGKj5owCpsoQAJY3OAAAjqgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAARc2V0X2N1cnJlbmN5X3JhdGUAAAAAAAACAAAADwAAAANldXIAAAAACQAAAAAAAAAAAAAAAAARCz4AAAABAAAAAAAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAARc2V0X2N1cnJlbmN5X3JhdGUAAAAAAAACAAAADwAAAANldXIAAAAACQAAAAAAAAAAAAAAAAARCz4AAAAAAAAAAQAAAAAAAAABAAAAB4408vVXuLU3mry897TfPpYjjsSN7n42REos241RddYdAAAAAQAAAAYAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAAUAAAAAQFvcYAAAImAAAAHxAAAAAAAAAACAAAAARio+aMAAABATbFMyom/TUz87wHex0LoYZA8jbNJkXbaDSgmOdk+wSBFJuMuta+/vSlro0e0vK2+1FqD/zWHZeYig4pKmM3rDA==",
+					"resultXdr": "AAAAAAARFy8AAAAAAAAAAQAAAAAAAAAYAAAAAMu8SHUN67hTUJOz3q+IrH9M/4dCVXaljeK6x1Ss20YWAAAAAA==",
+					"resultMetaXdr": "AAAAAwAAAAAAAAACAAAAAwAmwiAAAAAAAAAAAMYVjXj9HUoPRUa1NuLlinh3su4xbSJBssz8BSIYqPmjAAAAFUHZob0AJY3OAAAjqQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAACbCHwAAAABlVUH3AAAAAAAAAAEAJsIgAAAAAAAAAADGFY14/R1KD0VGtTbi5Yp4d7LuMW0iQbLM/AUiGKj5owAAABVB2aG9ACWNzgAAI6oAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAmwiAAAAAAZVVB/AAAAAAAAAABAAAAAgAAAAMAJsIfAAAABgAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAAUAAAAAQAAABMAAAAAjjTy9Ve4tTeavLz3tN8+liOOxI3ufjZESizbjVF11h0AAAABAAAABQAAABAAAAABAAAAAQAAAA8AAAAJQ29yZVN0YXRlAAAAAAAAEQAAAAEAAAAGAAAADwAAAAVhZG1pbgAAAAAAABIAAAAAAAAAADn1LT+CCK/HiHMChoEi/AtPrkos4XRR2E45Pr25lb3/AAAADwAAAAljb2xfdG9rZW4AAAAAAAASAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAADwAAAAxvcmFjbGVfYWRtaW4AAAASAAAAAAAAAADGFY14/R1KD0VGtTbi5Yp4d7LuMW0iQbLM/AUiGKj5owAAAA8AAAAKcGFuaWNfbW9kZQAAAAAAAAAAAAAAAAAPAAAAEHByb3RvY29sX21hbmFnZXIAAAASAAAAAAAAAAAtSfyAwmj05lZ0WduHsQYQZgvahCNVtZyqS2HRC99kyQAAAA8AAAANc3RhYmxlX2lzc3VlcgAAAAAAABIAAAAAAAAAAEM5BlXva0R5UN6SCMY+6evwJa4mY/f062z0TKLnqN4wAAAAEAAAAAEAAAACAAAADwAAAAhDdXJyZW5jeQAAAA8AAAADZXVyAAAAABEAAAABAAAABQAAAA8AAAAGYWN0aXZlAAAAAAAAAAAAAQAAAA8AAAAIY29udHJhY3QAAAASAAAAAUGpebFxuPbvxZFzOxh8TWAxUwFgraPxPuJEY/8yhiYEAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA2V1cgAAAAAPAAAAC2xhc3RfdXBkYXRlAAAAAAUAAAAAZVVBvgAAAA8AAAAEcmF0ZQAAAAkAAAAAAAAAAAAAAAAAEQb8AAAAEAAAAAEAAAACAAAADwAAAAhDdXJyZW5jeQAAAA8AAAADdXNkAAAAABEAAAABAAAABQAAAA8AAAAGYWN0aXZlAAAAAAAAAAAAAQAAAA8AAAAIY29udHJhY3QAAAASAAAAATUEqdkvrE2LnSiwOwed3v4VEaulOEiS1rxQw6rJkfxCAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA3VzZAAAAAAPAAAAC2xhc3RfdXBkYXRlAAAAAAUAAAAAZVVB9wAAAA8AAAAEcmF0ZQAAAAkAAAAAAAAAAAAAAAAAEnzuAAAAEAAAAAEAAAACAAAADwAAAApWYXVsdHNJbmZvAAAAAAAPAAAAA2V1cgAAAAARAAAAAQAAAAgAAAAPAAAADGRlbm9taW5hdGlvbgAAAA8AAAADZXVyAAAAAA8AAAAKbG93ZXN0X2tleQAAAAAAEAAAAAEAAAACAAAADwAAAARTb21lAAAAEQAAAAEAAAADAAAADwAAAAdhY2NvdW50AAAAABIAAAAAAAAAAGKaH7iFUU2kfGOJGONeYuJ2U2QUeQ+zOEfYZvAoeHDsAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA2V1cgAAAAAPAAAABWluZGV4AAAAAAAACQAAAAAAAAAAAAAAA7msoAAAAAAPAAAADG1pbl9jb2xfcmF0ZQAAAAkAAAAAAAAAAAAAAAAAp9jAAAAADwAAABFtaW5fZGVidF9jcmVhdGlvbgAAAAAAAAkAAAAAAAAAAAAAAAA7msoAAAAADwAAABBvcGVuaW5nX2NvbF9yYXRlAAAACQAAAAAAAAAAAAAAAACveeAAAAAPAAAACXRvdGFsX2NvbAAAAAAAAAkAAAAAAAAAAAAAAAlQL5AAAAAADwAAAAp0b3RhbF9kZWJ0AAAAAAAJAAAAAAAAAAAAAAAAlQL5AAAAAA8AAAAMdG90YWxfdmF1bHRzAAAABQAAAAAAAAABAAAAEAAAAAEAAAACAAAADwAAAApWYXVsdHNJbmZvAAAAAAAPAAAAA3VzZAAAAAARAAAAAQAAAAgAAAAPAAAADGRlbm9taW5hdGlvbgAAAA8AAAADdXNkAAAAAA8AAAAKbG93ZXN0X2tleQAAAAAAEAAAAAEAAAACAAAADwAAAARTb21lAAAAEQAAAAEAAAADAAAADwAAAAdhY2NvdW50AAAAABIAAAAAAAAAAGKaH7iFUU2kfGOJGONeYuJ2U2QUeQ+zOEfYZvAoeHDsAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA3VzZAAAAAAPAAAABWluZGV4AAAAAAAACQAAAAAAAAAAAAAAA7msoAAAAAAPAAAADG1pbl9jb2xfcmF0ZQAAAAkAAAAAAAAAAAAAAAAAp9jAAAAADwAAABFtaW5fZGVidF9jcmVhdGlvbgAAAAAAAAkAAAAAAAAAAAAAAAA7msoAAAAADwAAABBvcGVuaW5nX2NvbF9yYXRlAAAACQAAAAAAAAAAAAAAAACveeAAAAAPAAAACXRvdGFsX2NvbAAAAAAAAAkAAAAAAAAAAAAAABF2WS4AAAAADwAAAAp0b3RhbF9kZWJ0AAAAAAAJAAAAAAAAAAAAAAAA7msoAAAAAA8AAAAMdG90YWxfdmF1bHRzAAAABQAAAAAAAAACAAAAAAAAAAEAJsIgAAAABgAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAAUAAAAAQAAABMAAAAAjjTy9Ve4tTeavLz3tN8+liOOxI3ufjZESizbjVF11h0AAAABAAAABQAAABAAAAABAAAAAQAAAA8AAAAJQ29yZVN0YXRlAAAAAAAAEQAAAAEAAAAGAAAADwAAAAVhZG1pbgAAAAAAABIAAAAAAAAAADn1LT+CCK/HiHMChoEi/AtPrkos4XRR2E45Pr25lb3/AAAADwAAAAljb2xfdG9rZW4AAAAAAAASAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAADwAAAAxvcmFjbGVfYWRtaW4AAAASAAAAAAAAAADGFY14/R1KD0VGtTbi5Yp4d7LuMW0iQbLM/AUiGKj5owAAAA8AAAAKcGFuaWNfbW9kZQAAAAAAAAAAAAAAAAAPAAAAEHByb3RvY29sX21hbmFnZXIAAAASAAAAAAAAAAAtSfyAwmj05lZ0WduHsQYQZgvahCNVtZyqS2HRC99kyQAAAA8AAAANc3RhYmxlX2lzc3VlcgAAAAAAABIAAAAAAAAAAEM5BlXva0R5UN6SCMY+6evwJa4mY/f062z0TKLnqN4wAAAAEAAAAAEAAAACAAAADwAAAAhDdXJyZW5jeQAAAA8AAAADZXVyAAAAABEAAAABAAAABQAAAA8AAAAGYWN0aXZlAAAAAAAAAAAAAQAAAA8AAAAIY29udHJhY3QAAAASAAAAAUGpebFxuPbvxZFzOxh8TWAxUwFgraPxPuJEY/8yhiYEAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA2V1cgAAAAAPAAAAC2xhc3RfdXBkYXRlAAAAAAUAAAAAZVVB/AAAAA8AAAAEcmF0ZQAAAAkAAAAAAAAAAAAAAAAAEQs+AAAAEAAAAAEAAAACAAAADwAAAAhDdXJyZW5jeQAAAA8AAAADdXNkAAAAABEAAAABAAAABQAAAA8AAAAGYWN0aXZlAAAAAAAAAAAAAQAAAA8AAAAIY29udHJhY3QAAAASAAAAATUEqdkvrE2LnSiwOwed3v4VEaulOEiS1rxQw6rJkfxCAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA3VzZAAAAAAPAAAAC2xhc3RfdXBkYXRlAAAAAAUAAAAAZVVB9wAAAA8AAAAEcmF0ZQAAAAkAAAAAAAAAAAAAAAAAEnzuAAAAEAAAAAEAAAACAAAADwAAAApWYXVsdHNJbmZvAAAAAAAPAAAAA2V1cgAAAAARAAAAAQAAAAgAAAAPAAAADGRlbm9taW5hdGlvbgAAAA8AAAADZXVyAAAAAA8AAAAKbG93ZXN0X2tleQAAAAAAEAAAAAEAAAACAAAADwAAAARTb21lAAAAEQAAAAEAAAADAAAADwAAAAdhY2NvdW50AAAAABIAAAAAAAAAAGKaH7iFUU2kfGOJGONeYuJ2U2QUeQ+zOEfYZvAoeHDsAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA2V1cgAAAAAPAAAABWluZGV4AAAAAAAACQAAAAAAAAAAAAAAA7msoAAAAAAPAAAADG1pbl9jb2xfcmF0ZQAAAAkAAAAAAAAAAAAAAAAAp9jAAAAADwAAABFtaW5fZGVidF9jcmVhdGlvbgAAAAAAAAkAAAAAAAAAAAAAAAA7msoAAAAADwAAABBvcGVuaW5nX2NvbF9yYXRlAAAACQAAAAAAAAAAAAAAAACveeAAAAAPAAAACXRvdGFsX2NvbAAAAAAAAAkAAAAAAAAAAAAAAAlQL5AAAAAADwAAAAp0b3RhbF9kZWJ0AAAAAAAJAAAAAAAAAAAAAAAAlQL5AAAAAA8AAAAMdG90YWxfdmF1bHRzAAAABQAAAAAAAAABAAAAEAAAAAEAAAACAAAADwAAAApWYXVsdHNJbmZvAAAAAAAPAAAAA3VzZAAAAAARAAAAAQAAAAgAAAAPAAAADGRlbm9taW5hdGlvbgAAAA8AAAADdXNkAAAAAA8AAAAKbG93ZXN0X2tleQAAAAAAEAAAAAEAAAACAAAADwAAAARTb21lAAAAEQAAAAEAAAADAAAADwAAAAdhY2NvdW50AAAAABIAAAAAAAAAAGKaH7iFUU2kfGOJGONeYuJ2U2QUeQ+zOEfYZvAoeHDsAAAADwAAAAxkZW5vbWluYXRpb24AAAAPAAAAA3VzZAAAAAAPAAAABWluZGV4AAAAAAAACQAAAAAAAAAAAAAAA7msoAAAAAAPAAAADG1pbl9jb2xfcmF0ZQAAAAkAAAAAAAAAAAAAAAAAp9jAAAAADwAAABFtaW5fZGVidF9jcmVhdGlvbgAAAAAAAAkAAAAAAAAAAAAAAAA7msoAAAAADwAAABBvcGVuaW5nX2NvbF9yYXRlAAAACQAAAAAAAAAAAAAAAACveeAAAAAPAAAACXRvdGFsX2NvbAAAAAAAAAkAAAAAAAAAAAAAABF2WS4AAAAADwAAAAp0b3RhbF9kZWJ0AAAAAAAJAAAAAAAAAAAAAAAA7msoAAAAAA8AAAAMdG90YWxfdmF1bHRzAAAABQAAAAAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAAAAAABAAAAFQAAAAEAAAAAAAAAAAAAAAIAAAAAAAAAAwAAAA8AAAAHZm5fY2FsbAAAAAANAAAAIIYTsCPkS9fGaZO3KiOaUUX9C/eoxPIvtMd3pIbgYdnFAAAADwAAABFzZXRfY3VycmVuY3lfcmF0ZQAAAAAAABAAAAABAAAAAgAAAA8AAAADZXVyAAAAAAkAAAAAAAAAAAAAAAAAEQs+AAAAAQAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAARc2V0X2N1cnJlbmN5X3JhdGUAAAAAAAABAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAACnJlYWRfZW50cnkAAAAAAAUAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAAt3cml0ZV9lbnRyeQAAAAAFAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAQbGVkZ2VyX3JlYWRfYnl0ZQAAAAUAAAAAAACJaAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAABFsZWRnZXJfd3JpdGVfYnl0ZQAAAAAAAAUAAAAAAAAHxAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAA1yZWFkX2tleV9ieXRlAAAAAAAABQAAAAAAAABUAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAADndyaXRlX2tleV9ieXRlAAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAOcmVhZF9kYXRhX2J5dGUAAAAAAAUAAAAAAAAH6AAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAA93cml0ZV9kYXRhX2J5dGUAAAAABQAAAAAAAAfEAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAADnJlYWRfY29kZV9ieXRlAAAAAAAFAAAAAAAAgYAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAPd3JpdGVfY29kZV9ieXRlAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAAplbWl0X2V2ZW50AAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAPZW1pdF9ldmVudF9ieXRlAAAAAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAAhjcHVfaW5zbgAAAAUAAAAAATLTQAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAAhtZW1fYnl0ZQAAAAUAAAAAACqhewAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAABFpbnZva2VfdGltZV9uc2VjcwAAAAAAAAUAAAAAABFfSQAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAAA9tYXhfcndfa2V5X2J5dGUAAAAABQAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAACAAAADwAAAAxjb3JlX21ldHJpY3MAAAAPAAAAEG1heF9yd19kYXRhX2J5dGUAAAAFAAAAAAAAB+gAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAIAAAAPAAAADGNvcmVfbWV0cmljcwAAAA8AAAAQbWF4X3J3X2NvZGVfYnl0ZQAAAAUAAAAAAACBgAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAgAAAA8AAAAMY29yZV9tZXRyaWNzAAAADwAAABNtYXhfZW1pdF9ldmVudF9ieXRlAAAAAAUAAAAAAAAAAA==",
+					"ledger": 2540064,
+					"createdAt": "1700086268"
+				}
+			}`)),
+		}
 
-// 		assert.Equal(t, "1234", resp.Result.CreatedAt)
-// 		assert.Empty(t, err)
-// 	})
-// }
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&httpResponse, nil).
+			Once()
 
-// func TestSendTransaction(t *testing.T) {
-// 	mockHTTPClient := utils.MockHTTPClient{}
-// 	rpcURL := "http://localhost:8000/soroban/rpc"
-// 	rpcService := NewRPCService(rpcURL, &mockHTTPClient)
-// 	method := "sendTransaction"
-// 	params := map[string]string{"transaction": "ABCD"}
-// 	payload := map[string]interface{}{
-// 		"jsonrpc": "2.0",
-// 		"id":      1,
-// 		"method":  method,
-// 		"params":  params,
-// 	}
-// 	jsonData, _ := json.Marshal(payload)
+		result, err := rpcService.GetTransaction(transactionHash)
+		require.NoError(t, err)
 
-// 	t.Run("rpc_request_fails", func(t *testing.T) {
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(&http.Response{}, errors.New("RPC Connection fail")).
-// 			Once()
+		assert.Equal(t, entities.RPCGetTransactionResult{
+			Status:                "SUCCESS",
+			LatestLedger:          2540076,
+			LatestLedgerCloseTime: "1700086333",
+			OldestLedger:          2538637,
+			OldestLedgerCloseTime: "1700078796",
+			ApplicationOrder:      1,
+			EnvelopeXDR:           "AAAAAgAAAADGFY14/R1KD0VGtTbi5Yp4d7LuMW0iQbLM/AUiGKj5owCpsoQAJY3OAAAjqgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAARc2V0X2N1cnJlbmN5X3JhdGUAAAAAAAACAAAADwAAAANldXIAAAAACQAAAAAAAAAAAAAAAAARCz4AAAABAAAAAAAAAAAAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAARc2V0X2N1cnJlbmN5X3JhdGUAAAAAAAACAAAADwAAAANldXIAAAAACQAAAAAAAAAAAAAAAAARCz4AAAAAAAAAAQAAAAAAAAABAAAAB4408vVXuLU3mry897TfPpYjjsSN7n42REos241RddYdAAAAAQAAAAYAAAABhhOwI+RL18Zpk7cqI5pRRf0L96jE8i+0x3ekhuBh2cUAAAAUAAAAAQFvcYAAAImAAAAHxAAAAAAAAAACAAAAARio+aMAAABATbFMyom/TUz87wHex0LoYZA8jbNJkXbaDSgmOdk+wSBFJuMuta+/vSlro0e0vK2+1FqD/zWHZeYig4pKmM3rDA==",
+			ResultXDR:             "AAAAAAARFy8AAAAAAAAAAQAAAAAAAAAYAAAAAMu8SHUN67hTUJOz3q+IrH9M/4dCVXaljeK6x1Ss20YWAAAAAA==",
+			ResultMetaXDR:         "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",
+			Ledger:                2540064,
+			CreatedAt:             "1700086268",
+			ErrorResultXDR:        "",
+		}, result)
+	})
 
-// 		resp, err := rpcService.SendTransaction("ABCD")
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
 
-// 		assert.Equal(t, tss.RPCFailCode, resp.Code.OtherCodes)
-// 		assert.Equal(t, "RPC fail: sendTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
+		result, err := rpcService.GetTransaction("hash")
+		require.Error(t, err)
 
-// 	})
-// 	t.Run("response_has_empty_errorResultXdr", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "PENDING", "errorResultXdr": ""}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
-
-// 		resp, err := rpcService.SendTransaction("ABCD")
-
-// 		assert.Equal(t, entities.PendingStatus, resp.Status)
-// 		assert.Equal(t, tss.UnmarshalBinaryCode, resp.Code.OtherCodes)
-// 		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ", err.Error())
-
-// 	})
-// 	t.Run("response_has_unparsable_errorResultXdr", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "ABC123"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
-
-// 		resp, err := rpcService.SendTransaction("ABCD")
-
-// 		assert.Equal(t, tss.UnmarshalBinaryCode, resp.Code.OtherCodes)
-// 		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXdr: ABC123", err.Error())
-// 	})
-// 	t.Run("response_has_errorResultXdr", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"errorResultXdr": "AAAAAAAAAMj////9AAAAAA=="}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
-
-// 		resp, err := rpcService.SendTransaction("ABCD")
-
-// 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
-// 		assert.Empty(t, err)
-// 	})
-// }
-
-// func TestGetTransaction(t *testing.T) {
-// 	mockHTTPClient := utils.MockHTTPClient{}
-// 	rpcURL := "http://localhost:8000/soroban/rpc"
-// 	rpcService := NewRPCService(rpcURL, &mockHTTPClient)
-// 	method := "getTransaction"
-// 	params := map[string]string{"hash": "XYZ"}
-// 	payload := map[string]interface{}{
-// 		"jsonrpc": "2.0",
-// 		"id":      1,
-// 		"method":  method,
-// 		"params":  params,
-// 	}
-// 	jsonData, _ := json.Marshal(payload)
-
-// 	t.Run("rpc_request_fails", func(t *testing.T) {
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(&http.Response{}, errors.New("RPC Connection fail")).
-// 			Once()
-
-// 		resp, err := rpcService.GetTransaction("XYZ")
-
-// 		assert.Equal(t, entities.ErrorStatus, resp.Status)
-// 		assert.Equal(t, "RPC Fail: getTransaction: sending POST request to rpc: RPC Connection fail", err.Error())
-
-// 	})
-// 	t.Run("unable_to_parse_createdAt", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "SUCCESS", "createdAt": "ABCD"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
-
-// 		resp, err := rpcService.GetTransaction("XYZ")
-
-// 		assert.Equal(t, entities.ErrorStatus, resp.Status)
-// 		assert.Equal(t, "unable to parse createAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax", err.Error())
-// 	})
-// 	t.Run("response_has_createdAt_field", func(t *testing.T) {
-// 		httpResponse := &http.Response{
-// 			StatusCode: http.StatusOK,
-// 			Body:       io.NopCloser(strings.NewReader(`{"result": {"createdAt": "1234567"}}`)),
-// 		}
-// 		mockHTTPClient.
-// 			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-// 			Return(httpResponse, nil).
-// 			Once()
-
-// 		resp, err := rpcService.GetTransaction("XYZ")
-
-// 		assert.Equal(t, int64(1234567), resp.CreatedAt)
-// 		assert.Empty(t, err)
-// 	})
-// }
+		assert.Equal(t, entities.RPCGetTransactionResult{}, result)
+		assert.Equal(t, "sending getTransaction request: sending POST request to RPC: connection failed", err.Error())
+	})
+}

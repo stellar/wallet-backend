@@ -50,17 +50,6 @@ func TestValidateOptions(t *testing.T) {
 		assert.Equal(t, "horizon client cannot be nil", err.Error())
 	})
 
-	t.Run("return_error_when_rpc_url_empty", func(t *testing.T) {
-		opts := TransactionServiceOptions{
-			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
-			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
-			HorizonClient:                      &horizonclient.MockClient{},
-			BaseFee:                            114,
-		}
-		err := opts.ValidateOptions()
-		assert.Equal(t, "rpc url cannot be empty", err.Error())
-	})
-
 	t.Run("return_error_when_base_fee_too_low", func(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
@@ -70,17 +59,6 @@ func TestValidateOptions(t *testing.T) {
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "base fee is lower than the minimum network fee", err.Error())
-	})
-
-	t.Run("return_error_http_client_nil", func(t *testing.T) {
-		opts := TransactionServiceOptions{
-			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
-			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
-			HorizonClient:                      &horizonclient.MockClient{},
-			BaseFee:                            114,
-		}
-		err := opts.ValidateOptions()
-		assert.Equal(t, "http client cannot be nil", err.Error())
 	})
 }
 
