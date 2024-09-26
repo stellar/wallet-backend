@@ -51,11 +51,11 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	// Open DB connection pool
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to the database: %w", err)
+		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
 	models, err := data.NewModels(dbConnectionPool)
 	if err != nil {
-		return nil, fmt.Errorf("error creating models for Serve: %w", err)
+		return nil, fmt.Errorf("creating models: %w", err)
 	}
 
 	// Setup Captive Core backend
@@ -69,8 +69,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating rpc service: %w", err)
+	}
 
-	ingestService, err := services.NewIngestService(models, ledgerBackend, cfg.NetworkPassphrase, cfg.LedgerCursorName, cfg.AppTracker, httpClient, cfg.RPCURL)
+	ingestService, err := services.NewIngestService(models, ledgerBackend, cfg.NetworkPassphrase, cfg.LedgerCursorName, cfg.AppTracker, rpcService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

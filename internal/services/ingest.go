@@ -29,8 +29,7 @@ type ingestService struct {
 	networkPassphrase string
 	ledgerCursorName  string
 	appTracker        apptracker.AppTracker
-	httpClient        utils.HTTPClient
-	rpcURL            string
+	rpcService        RPCService
 }
 
 func NewIngestService(
@@ -39,8 +38,7 @@ func NewIngestService(
 	networkPassphrase string,
 	ledgerCursorName string,
 	appTracker apptracker.AppTracker,
-	httpClient utils.HTTPClient,
-	rpcURL string,
+	rpcService RPCService,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -57,11 +55,8 @@ func NewIngestService(
 	if appTracker == nil {
 		return nil, errors.New("appTracker cannot be nil")
 	}
-	if httpClient == nil {
-		return nil, errors.New("httpClient cannot be nil")
-	}
-	if rpcURL == "" {
-		return nil, errors.New("rpcURL cannot be nil")
+	if rpcService == nil {
+		return nil, errors.New("rpcService cannot be nil")
 	}
 
 	return &ingestService{
@@ -70,8 +65,7 @@ func NewIngestService(
 		networkPassphrase: networkPassphrase,
 		ledgerCursorName:  ledgerCursorName,
 		appTracker:        appTracker,
-		httpClient:        httpClient,
-		rpcURL:            rpcURL,
+		rpcService:        rpcService,
 	}, nil
 }
 

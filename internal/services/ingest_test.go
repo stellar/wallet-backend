@@ -29,6 +29,7 @@ func TestProcessLedger(t *testing.T) {
 		networkPassphrase: network.TestNetworkPassphrase,
 		ledgerCursorName:  "last_synced_ledger",
 		ledgerBackend:     nil,
+		rpcService:        nil,
 	}
 
 	ctx := context.Background()
