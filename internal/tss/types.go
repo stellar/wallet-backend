@@ -1,8 +1,46 @@
 package tss
 
-import "github.com/stellar/go/xdr"
+import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"strconv"
 
-type RPCTXStatus string
+	xdr3 "github.com/stellar/go-xdr/xdr3"
+	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/entities"
+)
+
+type RPCGetIngestTxResponse struct {
+	// A status that indicated whether this transaction failed or successly made it to the ledger
+	Status entities.RPCStatus
+	// The raw TransactionEnvelope XDR for this transaction
+	EnvelopeXDR string
+	// The raw TransactionResult XDR of the envelopeXdr
+	ResultXDR string
+	// The unix timestamp of when the transaction was included in the ledger
+	CreatedAt int64
+}
+
+func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
+	if err != nil {
+		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
+	}
+
+	getIngestTxResponse := RPCGetIngestTxResponse{
+		Status:      entities.RPCStatus(result.Status),
+		EnvelopeXDR: result.EnvelopeXDR,
+		ResultXDR:   result.ResultXDR,
+	}
+	if getIngestTxResponse.Status != entities.NotFoundStatus {
+		getIngestTxResponse.CreatedAt, err = strconv.ParseInt(result.CreatedAt, 10, 64)
+		if err != nil {
+			return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createdAt: %w", err)
+		}
+	}
+	return getIngestTxResponse, nil
+}
+
 type OtherCodes int32
 
 type TransactionResultCode int32
@@ -13,7 +51,7 @@ const (
 	// These values need to not overlap the values in xdr.TransactionResultCode
 	NewCode             OtherCodes = 100
 	RPCFailCode         OtherCodes = 101
-	UnMarshalBinaryCode OtherCodes = 102
+	UnmarshalBinaryCode OtherCodes = 102
 )
 
 type RPCTXCode struct {
@@ -21,40 +59,47 @@ type RPCTXCode struct {
 	OtherCodes   OtherCodes
 }
 
-const (
-	// Brand new transaction, not sent to RPC yet
-	NewStatus RPCTXStatus = "NEW"
-	// RPC sendTransaction statuses
-	PendingStatus       RPCTXStatus = "PENDING"
-	DuplicateStatus     RPCTXStatus = "DUPLICATE"
-	TryAgainLaterStatus RPCTXStatus = "TRY_AGAIN_LATER"
-	ErrorStatus         RPCTXStatus = "ERROR"
-	// RPC getTransaction(s) statuses
-	NotFoundStatus RPCTXStatus = "NOT_FOUND"
-	FailedStatus   RPCTXStatus = "FAILED"
-	SuccessStatus  RPCTXStatus = "SUCCESS"
-)
-
-type RPCGetIngestTxResponse struct {
-	// A status that indicated whether this transaction failed or successly made it to the ledger
-	Status RPCTXStatus
-	// The raw TransactionEnvelope XDR for this transaction
-	EnvelopeXDR string
-	// The raw TransactionResult XDR of the envelopeXdr
-	ResultXDR string
-	// The unix timestamp of when the transaction was included in the ledger
-	CreatedAt int64
-}
-
 type RPCSendTxResponse struct {
 	// The hash of the transaction submitted to RPC
 	TransactionHash string
 	TransactionXDR  string
 	// The status of an RPC sendTransaction call. Can be one of [PENDING, DUPLICATE, TRY_AGAIN_LATER, ERROR]
-	Status RPCTXStatus
+	Status entities.RPCStatus
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
 	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code RPCTXCode
+}
+
+func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTransactionResult, err error) (RPCSendTxResponse, error) {
+	sendTxResponse := RPCSendTxResponse{}
+	sendTxResponse.TransactionXDR = transactionXDR
+	if err != nil {
+		sendTxResponse.Code.OtherCodes = RPCFailCode
+		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
+	}
+	sendTxResponse.Status = entities.RPCStatus(result.Status)
+	sendTxResponse.TransactionHash = result.Hash
+	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
+	if err != nil {
+		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
+	}
+	return sendTxResponse, nil
+}
+
+func parseSendTransactionErrorXDR(errorResultXDR string) (RPCTXCode, error) {
+	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
+	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXDR)
+	if err != nil {
+		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
+	}
+	var errorResult xdr.TransactionResult
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
+	if err != nil {
+		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
+	}
+	return RPCTXCode{
+		TxResultCode: errorResult.Result.Code,
+	}, nil
 }
 
 type Payload struct {
@@ -67,19 +112,6 @@ type Payload struct {
 	RpcSubmitTxResponse RPCSendTxResponse
 	// Relevant fields in the transaction list inside the RPC getTransactions response
 	RpcGetIngestTxResponse RPCGetIngestTxResponse
-}
-
-type RPCResult struct {
-	Status         string `json:"status"`
-	EnvelopeXDR    string `json:"envelopeXdr"`
-	ResultXDR      string `json:"resultXdr"`
-	ErrorResultXDR string `json:"errorResultXdr"`
-	Hash           string `json:"hash"`
-	CreatedAt      string `json:"createdAt"`
-}
-
-type RPCResponse struct {
-	RPCResult `json:"result"`
 }
 
 type Channel interface {
