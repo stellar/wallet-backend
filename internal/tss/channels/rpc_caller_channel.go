@@ -13,7 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/store"
 )
 
-type RPCCallerServiceChannelConfigs struct {
+type RPCCallerChannelConfigs struct {
 	TxManager     services.TransactionManager
 	Router        router.Router
 	Store         store.Store
@@ -21,18 +21,18 @@ type RPCCallerServiceChannelConfigs struct {
 	MaxWorkers    int
 }
 
-type rpcCallerServicePool struct {
+type rpcCallerPool struct {
 	Pool      *pond.WorkerPool
 	TxManager services.TransactionManager
 	Router    router.Router
 	Store     store.Store
 }
 
-var ChannelName = "RPCCallerServiceChannel"
+var RPCCallerChannelName = "RPCCallerChannel"
 
-func NewRPCCallerChannel(cfg RPCCallerServiceChannelConfigs) *rpcCallerServicePool {
+func NewRPCCallerChannel(cfg RPCCallerChannelConfigs) *rpcCallerPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &rpcCallerServicePool{
+	return &rpcCallerPool{
 		Pool:      pool,
 		TxManager: cfg.TxManager,
 		Store:     cfg.Store,
@@ -41,41 +41,41 @@ func NewRPCCallerChannel(cfg RPCCallerServiceChannelConfigs) *rpcCallerServicePo
 
 }
 
-func (p *rpcCallerServicePool) Send(payload tss.Payload) {
+func (p *rpcCallerPool) Send(payload tss.Payload) {
 	p.Pool.Submit(func() {
 		p.Receive(payload)
 	})
 }
 
-func (p *rpcCallerServicePool) Receive(payload tss.Payload) {
+func (p *rpcCallerPool) Receive(payload tss.Payload) {
 
 	ctx := context.Background()
 	// Create a new transaction record in the transactions table.
 	err := p.Store.UpsertTransaction(ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 
 	if err != nil {
-		log.Errorf("RPCCallerChannel: Unable to upsert transaction into transactions table: %e", err)
+		log.Errorf("%s: Unable to upsert transaction into transactions table: %e", RPCCallerChannelName, err)
 		return
 	}
-	rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ChannelName, payload)
+	rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, RPCCallerChannelName, payload)
 
 	if err != nil {
-		log.Errorf("RPCCallerChannel: Unable to sign and submit transaction: %e", err)
+		log.Errorf("%s: Unable to sign and submit transaction: %e", RPCCallerChannelName, err)
 		return
 	}
 	payload.RpcSubmitTxResponse = rpcSendResp
 	if rpcSendResp.Status.RPCStatus == entities.TryAgainLaterStatus || rpcSendResp.Status.RPCStatus == entities.ErrorStatus {
 		err = p.Router.Route(payload)
 		if err != nil {
-			log.Errorf("RPCCallerChannel: Unable to route payload: %e", err)
+			log.Errorf("%s: Unable to route payload: %e", RPCCallerChannelName, err)
 		}
 	}
 }
 
-func (p *rpcCallerServicePool) SetRouter(router router.Router) {
+func (p *rpcCallerPool) SetRouter(router router.Router) {
 	p.Router = router
 }
 
-func (p *rpcCallerServicePool) Stop() {
+func (p *rpcCallerPool) Stop() {
 	p.Pool.StopAndWait()
 }

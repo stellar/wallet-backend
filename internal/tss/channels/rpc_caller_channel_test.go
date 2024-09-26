@@ -24,7 +24,7 @@ func TestSend(t *testing.T) {
 	store := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
-	cfgs := RPCCallerServiceChannelConfigs{
+	cfgs := RPCCallerChannelConfigs{
 		Store:         store,
 		TxManager:     &txManagerMock,
 		Router:        &routerMock,
@@ -43,7 +43,7 @@ func TestSend(t *testing.T) {
 	payload.RpcSubmitTxResponse = rpcResp
 
 	txManagerMock.
-		On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+		On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
 		Return(rpcResp, nil).
 		Once()
 
@@ -67,7 +67,7 @@ func TestReceivee(t *testing.T) {
 	store := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
-	cfgs := RPCCallerServiceChannelConfigs{
+	cfgs := RPCCallerChannelConfigs{
 		Store:         store,
 		TxManager:     &txManagerMock,
 		Router:        &routerMock,
@@ -82,7 +82,7 @@ func TestReceivee(t *testing.T) {
 
 	t.Run("build_and_submit_tx_fail", func(t *testing.T) {
 		txManagerMock.
-			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
 			Return(tss.RPCSendTxResponse{}, errors.New("build tx failed")).
 			Once()
 
@@ -98,7 +98,7 @@ func TestReceivee(t *testing.T) {
 		payload.RpcSubmitTxResponse = rpcResp
 
 		txManagerMock.
-			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
 			Return(rpcResp, nil).
 			Once()
 
@@ -113,7 +113,7 @@ func TestReceivee(t *testing.T) {
 		payload.RpcSubmitTxResponse = rpcResp
 
 		txManagerMock.
-			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
 			Return(rpcResp, nil).
 			Once()
 
