@@ -98,6 +98,7 @@ type handlerDeps struct {
 	RPCCallerChannel      tss.Channel
 	ErrorJitterChannel    tss.Channel
 	ErrorNonJitterChannel tss.Channel
+	WebhookChannel        tss.Channel
 	TSSRouter             tssrouter.Router
 	AppTracker            apptracker.AppTracker
 }
@@ -121,6 +122,7 @@ func Serve(cfg Configs) error {
 			deps.ErrorJitterChannel.Stop()
 			deps.ErrorNonJitterChannel.Stop()
 			deps.RPCCallerChannel.Stop()
+			deps.WebhookChannel.Stop()
 		},
 	})
 
@@ -235,11 +237,22 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(errorNonJitterChannelConfigs)
 
+	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
+	webhookChannelConfigs := tsschannel.WebhookChannelConfigs{
+		HTTPClient:           &httpClient,
+		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
+		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
+		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
+		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
+	}
+
+	webhookChannel := tsschannel.NewWebhookChannel(webhookChannelConfigs)
+
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
 		ErrorNonJitterChannel: errorNonJitterChannel,
-		WebhookChannel:        nil,
+		WebhookChannel:        webhookChannel,
 	})
 
 	rpcCallerChannel.SetRouter(router)
@@ -258,6 +271,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
 		ErrorNonJitterChannel: errorNonJitterChannel,
+		WebhookChannel:        webhookChannel,
 		TSSRouter:             router,
 	}, nil
 }

@@ -15,14 +15,14 @@ import (
 
 func TestWebhookHandlerServiceChannel(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	cfg := WebhookHandlerServiceChannelConfigs{
+	cfg := WebhookChannelConfigs{
 		HTTPClient:           &mockHTTPClient,
 		MaxBufferSize:        1,
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 5,
 	}
-	channel := NewWebhookHandlerServiceChannel(cfg)
+	channel := NewWebhookChannel(cfg)
 
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.org"
