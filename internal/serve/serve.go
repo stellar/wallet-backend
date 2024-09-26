@@ -197,7 +197,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	}
-	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(tssChannelConfigs)
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tssChannelConfigs)
 
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
 		RPCCallerChannel:      rpcCallerServiceChannel,

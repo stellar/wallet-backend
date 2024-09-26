@@ -31,7 +31,7 @@ func TestSend(t *testing.T) {
 		MaxBufferSize: 10,
 		MaxWorkers:    10,
 	}
-	channel := NewRPCCallerServiceChannel(cfgs)
+	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = "hash"
@@ -74,7 +74,7 @@ func TestReceivee(t *testing.T) {
 		MaxBufferSize: 10,
 		MaxWorkers:    10,
 	}
-	channel := NewRPCCallerServiceChannel(cfgs)
+	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = "hash"
