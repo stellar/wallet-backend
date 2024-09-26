@@ -75,7 +75,6 @@ func (r *rpcService) sendRPCRequest(method string, params map[string]string) (js
 		"params":  params,
 	}
 	jsonData, err := json.Marshal(payload)
-
 	if err != nil {
 		return nil, fmt.Errorf("marshaling payload")
 	}
@@ -95,6 +94,10 @@ func (r *rpcService) sendRPCRequest(method string, params map[string]string) (js
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
+	}
+
+	if res.Result == nil {
+		return nil, fmt.Errorf("response %s missing result field", string(body))
 	}
 
 	return res.Result, nil

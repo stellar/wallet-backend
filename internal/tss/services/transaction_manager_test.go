@@ -60,7 +60,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 
 	t.Run("rpc_call_fail", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		sendResp := entities.RPCSendTransactionResult{Status: string(entities.ErrorStatus)}
+		sendResp := entities.RPCSendTransactionResult{Status: entities.ErrorStatus}
 
 		txServiceMock.
 			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
@@ -92,7 +92,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	t.Run("rpc_resp_empty_errorresult_xdr", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
-			Status:         string(entities.PendingStatus),
+			Status:         entities.PendingStatus,
 			ErrorResultXDR: "",
 		}
 
@@ -127,7 +127,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	t.Run("rpc_resp_has_unparsable_errorresult_xdr", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
-			Status:         string(entities.ErrorStatus),
+			Status:         entities.ErrorStatus,
 			ErrorResultXDR: "ABCD",
 		}
 
@@ -160,7 +160,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	t.Run("rpc_returns_response", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
-			Status:         string(entities.ErrorStatus),
+			Status:         entities.ErrorStatus,
 			ErrorResultXDR: "AAAAAAAAAMj////9AAAAAA==",
 		}
 
