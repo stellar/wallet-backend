@@ -70,7 +70,7 @@ type RPCSendTxResponse struct {
 	Code RPCTXCode
 }
 
-func parseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTransactionResult, err error) (RPCSendTxResponse, error) {
+func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTransactionResult, err error) (RPCSendTxResponse, error) {
 	sendTxResponse := RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXDR
 	if err != nil {
