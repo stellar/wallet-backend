@@ -30,7 +30,6 @@ import (
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
-	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -85,7 +84,7 @@ type handlerDeps struct {
 	PaymentService            services.PaymentService
 	// TSS
 	RPCCallerServiceChannel tss.Channel
-	RPCCallerService        tssservices.Service
+	TSSRouter               tssrouter.Router
 	AppTracker              apptracker.AppTracker
 }
 
@@ -169,37 +168,45 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	// TSS
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	txServiceOpts := tssutils.TransactionServiceOptions{
+	txServiceOpts := tssservices.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		RPCURL:                             cfg.RPCURL,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
-		HTTPClient:                         &httpClient,
 	}
-	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
+	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
+	}
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
 	// re-use same context as above??
 	store := tssstore.NewStore(dbConnectionPool)
-	errorHandlerService := tssservices.NewErrorHandlerService(nil)
-	webhookHandlerService := tssservices.NewWebhookHandlerService(nil)
-	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
-		ErrorHandlerService:   errorHandlerService,
-		WebhookHandlerService: webhookHandlerService,
+	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
+		TxService:  tssTxService,
+		RPCService: rpcService,
+		Store:      store,
 	})
 	tssChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
+		TxManager:     txManager,
 		Store:         store,
-		TxService:     tssTxService,
-		Router:        router,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	}
 	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(tssChannelConfigs)
-	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)
+
+	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
+		RPCCallerChannel:      rpcCallerServiceChannel,
+		ErrorJitterChannel:    nil,
+		ErrorNonJitterChannel: nil,
+		WebhookChannel:        nil,
+	})
+
+	rpcCallerServiceChannel.SetRouter(router)
 
 	return handlerDeps{
 		Models:                    models,
@@ -211,7 +218,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		// TSS
 		RPCCallerServiceChannel: rpcCallerServiceChannel,
-		RPCCallerService:        rpcCallerService,
+		TSSRouter:               router,
 	}, nil
 }
 

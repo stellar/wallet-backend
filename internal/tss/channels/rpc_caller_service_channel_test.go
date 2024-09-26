@@ -5,15 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
+	"github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,10 +22,12 @@ func TestSend(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store := store.NewStore(dbConnectionPool)
-	txServiceMock := utils.TransactionServiceMock{}
+	txManagerMock := services.TransactionManagerMock{}
+	routerMock := router.MockRouter{}
 	cfgs := RPCCallerServiceChannelConfigs{
 		Store:         store,
-		TxService:     &txServiceMock,
+		TxManager:     &txManagerMock,
+		Router:        &routerMock,
 		MaxBufferSize: 10,
 		MaxWorkers:    10,
 	}
@@ -36,38 +36,100 @@ func TestSend(t *testing.T) {
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
-	networkPass := "passphrase"
 
-	feeBumpTx := utils.BuildTestFeeBumpTransaction()
-	feeBumpTxXDR, _ := feeBumpTx.Base64()
-	sendResp := tss.RPCSendTxResponse{}
-	sendResp.Code.OtherCodes = tss.RPCFailCode
-	txServiceMock.
-		On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
-		Return(feeBumpTx, nil).
-		Once().
-		On("NetworkPassphrase").
-		Return(networkPass).
-		Once().
-		On("SendTransaction", feeBumpTxXDR).
-		Return(sendResp, errors.New("RPC Fail")).
+	rpcResp := tss.RPCSendTxResponse{
+		Status: tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
+	}
+	payload.RpcSubmitTxResponse = rpcResp
+
+	txManagerMock.
+		On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+		Return(rpcResp, nil).
+		Once()
+
+	routerMock.
+		On("Route", payload).
+		Return(nil).
 		Once()
 
 	channel.Send(payload)
 	channel.Stop()
 
-	var status string
-	err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, payload.TransactionHash)
-	require.NoError(t, err)
-	assert.Equal(t, status, string(tss.NewStatus))
-
-	var tryStatus int
-	feeBumpTxHash, _ := feeBumpTx.HashHex(networkPass)
-	err = dbConnectionPool.GetContext(context.Background(), &tryStatus, `SELECT status FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`, feeBumpTxHash)
-	require.NoError(t, err)
-	assert.Equal(t, int(tss.RPCFailCode), tryStatus)
+	routerMock.AssertCalled(t, "Route", payload)
 }
 
+func TestReceivee(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store := store.NewStore(dbConnectionPool)
+	txManagerMock := services.TransactionManagerMock{}
+	routerMock := router.MockRouter{}
+	cfgs := RPCCallerServiceChannelConfigs{
+		Store:         store,
+		TxManager:     &txManagerMock,
+		Router:        &routerMock,
+		MaxBufferSize: 10,
+		MaxWorkers:    10,
+	}
+	channel := NewRPCCallerServiceChannel(cfgs)
+	payload := tss.Payload{}
+	payload.WebhookURL = "www.stellar.com"
+	payload.TransactionHash = "hash"
+	payload.TransactionXDR = "xdr"
+
+	t.Run("build_and_submit_tx_fail", func(t *testing.T) {
+		txManagerMock.
+			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			Return(tss.RPCSendTxResponse{}, errors.New("build tx failed")).
+			Once()
+
+		channel.Receive(payload)
+
+		routerMock.AssertNotCalled(t, "Route", payload)
+	})
+
+	t.Run("payload_not_routed", func(t *testing.T) {
+		rpcResp := tss.RPCSendTxResponse{
+			Status: tss.RPCTXStatus{RPCStatus: entities.PendingStatus},
+		}
+		payload.RpcSubmitTxResponse = rpcResp
+
+		txManagerMock.
+			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			Return(rpcResp, nil).
+			Once()
+
+		channel.Receive(payload)
+
+		routerMock.AssertNotCalled(t, "Route", payload)
+	})
+	t.Run("payload_routed", func(t *testing.T) {
+		rpcResp := tss.RPCSendTxResponse{
+			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
+		}
+		payload.RpcSubmitTxResponse = rpcResp
+
+		txManagerMock.
+			On("BuildAndSubmitTransaction", context.Background(), ChannelName, payload).
+			Return(rpcResp, nil).
+			Once()
+
+		routerMock.
+			On("Route", payload).
+			Return(nil).
+			Once()
+
+		channel.Receive(payload)
+
+		routerMock.AssertCalled(t, "Route", payload)
+	})
+
+}
+
+/*
 func TestReceive(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -76,13 +138,20 @@ func TestReceive(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store := store.NewStore(dbConnectionPool)
-	txServiceMock := utils.TransactionServiceMock{}
+	txServiceMock := services.TransactionServiceMock{}
 	defer txServiceMock.AssertExpectations(t)
 	routerMock := router.MockRouter{}
 	defer routerMock.AssertExpectations(t)
+	rpcServiceMock := services.RPCServiceMock{}
+	defer rpcServiceMock.AssertExpectations(t)
+	txManager := services.NewTransactionManager(services.TransactionManagerConfigs{
+		TxService:  &txServiceMock,
+		RPCService: &rpcServiceMock,
+		Store:      store,
+	})
 	cfgs := RPCCallerServiceChannelConfigs{
 		Store:         store,
-		TxService:     &txServiceMock,
+		TxManager:     txManager,
 		Router:        &routerMock,
 		MaxBufferSize: 1,
 		MaxWorkers:    1,
@@ -205,3 +274,4 @@ func TestReceive(t *testing.T) {
 	})
 
 }
+*/

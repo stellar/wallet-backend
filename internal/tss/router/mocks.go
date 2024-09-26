@@ -11,6 +11,7 @@ type MockRouter struct {
 
 var _ Router = (*MockRouter)(nil)
 
-func (r *MockRouter) Route(payload tss.Payload) {
-	r.Called(payload)
+func (r *MockRouter) Route(payload tss.Payload) error {
+	args := r.Called(payload)
+	return args.Error(0)
 }
