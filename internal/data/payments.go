@@ -156,6 +156,10 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 }
 
 func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string, address string, sort SortOrder, payments []Payment) (bool, bool, error) {
+	if len(payments) == 0 {
+		return false, false, nil
+	}
+
 	firstElementID := FirstPaymentOperationID(payments)
 	lastElementID := LastPaymentOperationID(payments)
 

@@ -30,7 +30,6 @@ import (
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
-	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -92,12 +91,9 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	// TSS
-	RPCCallerServiceChannel             tss.Channel
-	RPCCallerService                    tssservices.Service
-	ErrorHandlerServiceJitterChannel    tss.Channel
-	ErrorHandlerServiceNonJitterChannel tss.Channel
-
-	AppTracker apptracker.AppTracker
+	RPCCallerServiceChannel tss.Channel
+	TSSRouter               tssrouter.Router
+	AppTracker              apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -182,30 +178,44 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	// TSS
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	txServiceOpts := tssutils.TransactionServiceOptions{
+	txServiceOpts := tssservices.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		RPCURL:                             cfg.RPCURL,
 		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
-		HTTPClient:                         &httpClient,
 	}
-	tssTxService, err := tssutils.NewTransactionService(txServiceOpts)
+	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
+	}
 
 	store := tssstore.NewStore(dbConnectionPool)
-
-	rpcCallerServiceChannelConfigs := tsschannel.RPCCallerServiceChannelConfigs{
+	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
+		TxService:  tssTxService,
+		RPCService: rpcService,
+		Store:      store,
+	})
+	tssChannelConfigs := tsschannel.RPCCallerChannelConfigs{
+		TxManager:     txManager,
 		Store:         store,
-		TxService:     tssTxService,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	}
-	rpcCallerServiceChannel := tsschannel.NewRPCCallerServiceChannel(rpcCallerServiceChannelConfigs)
-	rpcCallerService := tssservices.NewRPCCallerService(rpcCallerServiceChannel)
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tssChannelConfigs)
+
+	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
+		RPCCallerChannel:      rpcCallerServiceChannel,
+		ErrorJitterChannel:    nil,
+		ErrorNonJitterChannel: nil,
+		WebhookChannel:        nil,
+	})
+
+	rpcCallerServiceChannel.SetRouter(router)
 
 	jitterChannelOpts := tsschannel.RPCErrorHandlerServiceJitterChannelConfigs{
 		Store:                store,
@@ -246,17 +256,16 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	rpcCallerServiceChannel.SetRouter(router)
 
 	return handlerDeps{
-		Models:                              models,
-		SignatureVerifier:                   signatureVerifier,
-		SupportedAssets:                     cfg.SupportedAssets,
-		AccountService:                      accountService,
-		AccountSponsorshipService:           accountSponsorshipService,
-		PaymentService:                      paymentService,
-		AppTracker:                          cfg.AppTracker,
-		RPCCallerServiceChannel:             rpcCallerServiceChannel,
-		RPCCallerService:                    rpcCallerService,
-		ErrorHandlerServiceJitterChannel:    jitterChannel,
-		ErrorHandlerServiceNonJitterChannel: nonJitterChannel,
+		Models:                    models,
+		SignatureVerifier:         signatureVerifier,
+		SupportedAssets:           cfg.SupportedAssets,
+		AccountService:            accountService,
+		AccountSponsorshipService: accountSponsorshipService,
+		PaymentService:            paymentService,
+		AppTracker:                cfg.AppTracker,
+		// TSS
+		RPCCallerServiceChannel: rpcCallerServiceChannel,
+		TSSRouter:               router,
 	}, nil
 }
 
