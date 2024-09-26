@@ -64,7 +64,7 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 		}
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
-			p.Router.Route(payload)
+			err := p.Router.Route(payload)
 			if err != nil {
 				log.Errorf("%s: Unable to route payload: %e", ErrorNonJitterChannelName, err)
 				return
