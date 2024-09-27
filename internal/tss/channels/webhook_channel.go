@@ -9,10 +9,11 @@ import (
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/tss"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
+	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-type WebhookHandlerServiceChannelConfigs struct {
+type WebhookChannelConfigs struct {
 	HTTPClient           utils.HTTPClient
 	MaxBufferSize        int
 	MaxWorkers           int
@@ -20,18 +21,18 @@ type WebhookHandlerServiceChannelConfigs struct {
 	MinWaitBtwnRetriesMS int
 }
 
-type webhookHandlerServicePool struct {
+type webhookPool struct {
 	Pool                 *pond.WorkerPool
 	HTTPClient           utils.HTTPClient
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
 }
 
-var _ tss.Channel = (*webhookHandlerServicePool)(nil)
+var _ tss.Channel = (*webhookPool)(nil)
 
-func NewWebhookHandlerServiceChannel(cfg WebhookHandlerServiceChannelConfigs) *webhookHandlerServicePool {
+func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &webhookHandlerServicePool{
+	return &webhookPool{
 		Pool:                 pool,
 		HTTPClient:           cfg.HTTPClient,
 		MaxRetries:           cfg.MaxRetries,
@@ -40,14 +41,14 @@ func NewWebhookHandlerServiceChannel(cfg WebhookHandlerServiceChannelConfigs) *w
 
 }
 
-func (p *webhookHandlerServicePool) Send(payload tss.Payload) {
+func (p *webhookPool) Send(payload tss.Payload) {
 	p.Pool.Submit(func() {
 		p.Receive(payload)
 	})
 }
 
-func (p *webhookHandlerServicePool) Receive(payload tss.Payload) {
-	resp := utils.PayloadTOTSSResponse(payload)
+func (p *webhookPool) Receive(payload tss.Payload) {
+	resp := tssutils.PayloadTOTSSResponse(payload)
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
 		log.Errorf("WebhookHandlerServiceChannel: error marshaling payload: %s", err.Error())
@@ -69,6 +70,6 @@ func (p *webhookHandlerServicePool) Receive(payload tss.Payload) {
 	}
 }
 
-func (p *webhookHandlerServicePool) Stop() {
+func (p *webhookPool) Stop() {
 	p.Pool.StopAndWait()
 }

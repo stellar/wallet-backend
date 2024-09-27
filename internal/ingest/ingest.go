@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/ingest/ledgerbackend"
@@ -15,7 +17,21 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
+	tssservices "github.com/stellar/wallet-backend/internal/tss/utils"
 )
+
+// Change configs to have router, transactionservice, StartingLedger, store (to look up the transaction xdr/hash to change status), AppTracker
+
+type RPCConfigs struct {
+	LedgerCursorName string
+	RPCCursorName    string
+	StartLedger      int
+	StartCursor      string
+	DatabaseURL      string
+	LogLevel         logrus.Level
+	AppTracker       apptracker.AppTracker
+	RPCURL           string
+}
 
 type Configs struct {
 	DatabaseURL          string
@@ -27,6 +43,21 @@ type Configs struct {
 	EndLedger            int
 	LogLevel             logrus.Level
 	AppTracker           apptracker.AppTracker
+}
+
+func RPCIngest(cfg RPCConfigs) error {
+	ctx := context.Background()
+
+	manager, err := setupRPCDeps(cfg)
+	if err != nil {
+		log.Ctx(ctx).Fatalf("Error setting up dependencies for ingest: %v", err)
+	}
+
+	if err = manager.Run(ctx, uint32(cfg.StartLedger), cfg.StartCursor); err != nil {
+		log.Ctx(ctx).Fatalf("Running ingest from start ledger: %d, start cursor: %d: %v", cfg.StartLedger, cfg.StartCursor, err)
+	}
+
+	return nil
 }
 
 func Ingest(cfg Configs) error {
@@ -42,6 +73,28 @@ func Ingest(cfg Configs) error {
 	}
 
 	return nil
+}
+
+func setupRPCDeps(cfg RPCConfigs) (*services.RPCIngestManager, error) {
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to the database: %w", err)
+	}
+	models, err := data.NewModels(dbConnectionPool)
+	if err != nil {
+		return nil, fmt.Errorf("error creating models for Serve: %w", err)
+	}
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	txServiceOpts := tssservices.TransactionServiceOptions{RPCURL: cfg.RPCURL, HTTPClient: &httpClient}
+
+	txService, err := tssservices.NewTransactionService(txServiceOpts)
+	return &services.RPCIngestManager{
+		PaymentModel:       models.Payments,
+		AppTracker:         cfg.AppTracker,
+		TransactionService: txService,
+		LedgerCursorName:   cfg.LedgerCursorName,
+		RPCCursorName:      cfg.RPCCursorName,
+	}, nil
 }
 
 func setupDeps(cfg Configs) (*services.IngestManager, error) {

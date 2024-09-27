@@ -16,6 +16,14 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+type RPCIngestManager struct {
+	RPCService       RPCService
+	PaymentModel     *data.PaymentModel
+	AppTracker       apptracker.AppTracker
+	LedgerCursorName string
+	RPCCursorName    string
+}
+
 type IngestManager struct {
 	PaymentModel      *data.PaymentModel
 	LedgerBackend     ledgerbackend.LedgerBackend
@@ -23,6 +31,51 @@ type IngestManager struct {
 	LedgerCursorName  string
 	AppTracker        apptracker.AppTracker
 }
+
+/*
+func (m *RPCIngestManager) Run(ctx context.Context, startLedger uint32, startCursor string) error {
+	heartbeat := make(chan any)
+	go trackServiceHealth(heartbeat, m.AppTracker)
+	cursor := ""
+	ledger := 0
+	if startCursor != "" {
+		cursor = startCursor
+	} else if startLedger != 0 {
+		ledger = int(startLedger)
+	} else {
+		lastSyncedCursor, err := m.PaymentModel.GetLatestLedgerSynced(ctx, m.RPCCursorName)
+		if err != nil {
+			return fmt.Errorf("getting last cursor synced: %w", err)
+		}
+		if lastSyncedCursor == 0 {
+			lastSyncedLedger, err := m.PaymentModel.GetLatestLedgerSynced(ctx, m.LedgerCursorName)
+			if err != nil {
+				return fmt.Errorf("getting last ledger synced: %w", err)
+			}
+			ledger = int(lastSyncedLedger)
+		}
+		cursor = strconv.FormatUint(uint64(lastSyncedCursor), 10)
+	}
+
+	for {
+		time.Sleep(10)
+		txns, cursor, err := m.TransactionService.GetTransactions(ledger, cursor, 200)
+		if err != nil {
+			return fmt.Errorf("getTransactions: %w", err)
+		}
+		heartbeat <- true
+		iCursor, err := strconv.ParseUint(cursor, 10, 32)
+		if err != nil {
+			return fmt.Errorf("cannot convert cursor to int: %s", err.Error())
+		}
+		err = m.PaymentModel.UpdateLatestLedgerSynced(ctx, m.RPCCursorName, uint32(iCursor))
+		if err != nil {
+			return err
+		}
+		m.processGetTransactionsResponse(ctx, txns)
+	}
+}
+*/
 
 func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	var ingestLedger uint32
@@ -121,6 +174,66 @@ func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
 	}
 }
 
+/*
+func (m *RPCIngestManager) processGetTransactionsResponse(ctx context.Context, txns []tss.RPCGetIngestTxResponse) (err error) {
+	return db.RunInTransaction(ctx, m.PaymentModel.DB, nil, func(dbTx db.Transaction) error {
+		for _, tx := range txns {
+			if tx.Status != tss.SuccessStatus {
+				continue
+			}
+
+			genericTx, err := txnbuild.TransactionFromXDR(tx.EnvelopeXDR)
+			if err != nil {
+				return fmt.Errorf("deserializing envelope xdr: %w", err)
+			}
+			txEnvelopeXDR, err := genericTx.ToXDR()
+			if err != nil {
+				return fmt.Errorf("generic transaction cannot be unpacked into a transaction")
+			}
+			txResultXDR, err := m.TransactionService.UnmarshalTransactionResultXDR(tx.ResultXDR)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal transacation result xdr: %s", err.Error())
+			}
+
+			txHash := ""
+
+			txMemo, txMemoType := utils.Memo(txEnvelopeXDR.Memo(), "")
+			if txMemo != nil {
+				*txMemo = utils.SanitizeUTF8(*txMemo)
+			}
+			txEnvelopeXDR.SourceAccount()
+			for idx, op := range txEnvelopeXDR.Operations() {
+				opIdx := idx + 1
+
+				payment := data.Payment{
+					OperationID:     utils.OperationID(int32(tx.Ledger), int32(tx.ApplicationOrder), int32(opIdx)),
+					OperationType:   op.Body.Type.String(),
+					TransactionID:   utils.TransactionID(int32(tx.Ledger), int32(tx.ApplicationOrder)),
+					TransactionHash: txHash,
+					FromAddress:     utils.SourceAccountRPC(op, txEnvelopeXDR),
+					CreatedAt:       time.Unix(tx.CreatedAt, 0),
+					Memo:            txMemo,
+					MemoType:        txMemoType,
+				}
+
+				switch op.Body.Type {
+				case xdr.OperationTypePayment:
+					fillPayment(&payment, op.Body)
+				case xdr.OperationTypePathPaymentStrictSend:
+					fillPathSendRPC(&payment, op.Body, txResultXDR, opIdx)
+				case xdr.OperationTypePathPaymentStrictReceive:
+					fillPathReceiveRPC(&payment, op.Body, txResultXDR, opIdx)
+				default:
+					continue
+				}
+			}
+
+		}
+		return nil
+	})
+}
+*/
+
 func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledgerMeta xdr.LedgerCloseMeta) (err error) {
 	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.NetworkPassphrase, ledgerMeta)
 	if err != nil {
@@ -144,6 +257,9 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 				continue
 			}
 
+			// tx = deserialized envelopeXdr tx.Envelope.Memo() is now envelope.Memo()
+			// tx.Index = applicationOrder - GetTransactions has to return this. May have to update GetTransaction to get this too
+			// cant I just use the transaction hash here?
 			txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
 			txMemo, txMemoType := utils.Memo(tx.Envelope.Memo(), txHash)
 			// The memo field is subject to user input, so we sanitize before persisting in the database
@@ -205,6 +321,20 @@ func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 	payment.DestAmount = payment.SrcAmount
 }
 
+func fillPathSendRPC(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
+	pathOp := operation.MustPathPaymentStrictSendOp()
+	result := utils.OperationResultRPC(txResult, operationIdx).MustPathPaymentStrictSendResult()
+	payment.ToAddress = pathOp.Destination.Address()
+	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
+	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
+	payment.SrcAssetType = pathOp.SendAsset.Type.String()
+	payment.SrcAmount = int64(pathOp.SendAmount)
+	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
+	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.DestAssetType = pathOp.DestAsset.Type.String()
+	payment.DestAmount = int64(result.DestAmount())
+}
+
 func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
 	pathOp := operation.MustPathPaymentStrictSendOp()
 	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictSendResult()
@@ -217,6 +347,20 @@ func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transactio
 	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
 	payment.DestAssetType = pathOp.DestAsset.Type.String()
 	payment.DestAmount = int64(result.DestAmount())
+}
+
+func fillPathReceiveRPC(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
+	pathOp := operation.MustPathPaymentStrictReceiveOp()
+	result := utils.OperationResultRPC(txResult, operationIdx).MustPathPaymentStrictReceiveResult()
+	payment.ToAddress = pathOp.Destination.Address()
+	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
+	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
+	payment.SrcAssetType = pathOp.SendAsset.Type.String()
+	payment.SrcAmount = int64(result.SendAmount())
+	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
+	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
+	payment.DestAssetType = pathOp.DestAsset.Type.String()
+	payment.DestAmount = int64(pathOp.DestAmount)
 }
 
 func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {

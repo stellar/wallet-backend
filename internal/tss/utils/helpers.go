@@ -9,8 +9,8 @@ import (
 func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
 	response := tss.TSSResponse{}
 	response.TransactionHash = payload.TransactionHash
-	if payload.RpcSubmitTxResponse.Status != "" {
-		response.Status = string(payload.RpcSubmitTxResponse.Status)
+	if payload.RpcSubmitTxResponse.Status.Status() != "" {
+		response.Status = string(payload.RpcSubmitTxResponse.Status.Status())
 		response.TransactionResultCode = payload.RpcSubmitTxResponse.Code.TxResultCode.String()
 		response.EnvelopeXDR = payload.RpcSubmitTxResponse.TransactionXDR
 	} else if payload.RpcGetIngestTxResponse.Status != "" {

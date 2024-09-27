@@ -7,6 +7,7 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,7 @@ func TestUpsertTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 	store := NewStore(dbConnectionPool)
 	t.Run("insert", func(t *testing.T) {
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.NewStatus)
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 
 		var status string
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, "hash")
@@ -29,13 +30,13 @@ func TestUpsertTransaction(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.NewStatus)
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.SuccessStatus)
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
 
 		var status string
 		err = dbConnectionPool.GetContext(context.Background(), &status, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, "hash")
 		require.NoError(t, err)
-		assert.Equal(t, status, string(tss.SuccessStatus))
+		assert.Equal(t, status, string(entities.SuccessStatus))
 
 		var numRows int
 		err = dbConnectionPool.GetContext(context.Background(), &numRows, `SELECT count(*) FROM tss_transactions WHERE transaction_hash = $1`, "hash")

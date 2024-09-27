@@ -12,6 +12,12 @@ func OperationID(ledgerNumber, txNumber, opNumber int32) string {
 	return toid.New(ledgerNumber, txNumber, opNumber).String()
 }
 
+func OperationResultRPC(txResult xdr.TransactionResult, opNumber int) *xdr.OperationResultTr {
+	results, _ := txResult.OperationResults()
+	tr := results[opNumber-1].MustTr()
+	return &tr
+}
+
 func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
 	results, _ := tx.Result.OperationResults()
 	tr := results[opNumber-1].MustTr()
@@ -60,6 +66,15 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	// TODO: track in Sentry
 	// sentry.CaptureException(fmt.Errorf("failed to parse memo for type %q and transaction %s", memoType.String(), txHash))
 	return nil, memoType.String()
+}
+
+func SourceAccountRPC(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string {
+	account := op.SourceAccount
+	if account != nil {
+		return account.ToAccountId().Address()
+	}
+
+	return txEnvelope.SourceAccount().ToAccountId().Address()
 }
 
 func SourceAccount(op xdr.Operation, tx ingest.LedgerTransaction) string {

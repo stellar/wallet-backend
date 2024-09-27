@@ -1,5 +1,7 @@
 package utils
 
+/*
+
 import (
 	"bytes"
 	"context"
@@ -23,11 +25,15 @@ type HTTPClient interface {
 	Post(url string, t string, body io.Reader) (resp *http.Response, err error)
 }
 
+var PageLimit = 200
+
 type TransactionService interface {
 	NetworkPassphrase() string
+	UnmarshalTransactionResultXDR(transactionResultXDR string) (xdr.TransactionResult, error)
 	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
 	SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error)
 	GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error)
+	GetTransactions(startLedger int, startCursor string, limit int) ([]tss.RPCGetIngestTxResponse, string, error)
 }
 
 type transactionService struct {
@@ -155,23 +161,31 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	return feeBumpTx, nil
 }
 
-func (t *transactionService) parseErrorResultXDR(errorResultXdr string) (tss.RPCTXCode, error) {
+func (t *transactionService) UnmarshalTransactionResultXDR(transactionResultXDR string) (xdr.TransactionResult, error) {
 	unMarshalErr := "unable to unmarshal errorResultXdr: %s"
-	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXdr)
+	decodedBytes, err := base64.StdEncoding.DecodeString(transactionResultXDR)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
+		return xdr.TransactionResult{}, fmt.Errorf(unMarshalErr, transactionResultXDR)
 	}
-	var errorResult xdr.TransactionResult
-	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
+	var txResult xdr.TransactionResult
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &txResult)
 	if err != nil {
-		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf(unMarshalErr, errorResultXdr)
+		return xdr.TransactionResult{}, fmt.Errorf(unMarshalErr, transactionResultXDR)
+	}
+	return txResult, nil
+}
+
+func (t *transactionService) parseErrorResultXDR(txResultXdr string) (tss.RPCTXCode, error) {
+	txResult, err := t.UnmarshalTransactionResultXDR(txResultXdr)
+	if err != nil {
+		return tss.RPCTXCode{OtherCodes: tss.UnMarshalBinaryCode}, fmt.Errorf("parse error result xdr: %s", err.Error())
 	}
 	return tss.RPCTXCode{
-		TxResultCode: errorResult.Result.Code,
+		TxResultCode: txResult.Result.Code,
 	}, nil
 }
 
-func (t *transactionService) sendRPCRequest(method string, params map[string]string) (tss.RPCResponse, error) {
+func (t *transactionService) sendRPCRequest(method string, params tss.RPCParams) (tss.RPCResponse, error) {
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -203,7 +217,7 @@ func (t *transactionService) sendRPCRequest(method string, params map[string]str
 }
 
 func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
-	rpcResponse, err := t.sendRPCRequest("sendTransaction", map[string]string{"transaction": transactionXdr})
+	rpcResponse, err := t.sendRPCRequest("sendTransaction", tss.RPCParams{Transaction: transactionXdr})
 	sendTxResponse := tss.RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXdr
 	if err != nil {
@@ -218,7 +232,7 @@ func (t *transactionService) SendTransaction(transactionXdr string) (tss.RPCSend
 }
 
 func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
-	rpcResponse, err := t.sendRPCRequest("getTransaction", map[string]string{"hash": transactionHash})
+	rpcResponse, err := t.sendRPCRequest("getTransaction", tss.RPCParams{Hash: transactionHash})
 	if err != nil {
 		return tss.RPCGetIngestTxResponse{Status: tss.ErrorStatus}, fmt.Errorf("RPC Fail: %s", err.Error())
 	}
@@ -235,3 +249,41 @@ func (t *transactionService) GetTransaction(transactionHash string) (tss.RPCGetI
 	getIngestTxResponse.Code, err = t.parseErrorResultXDR(rpcResponse.RPCResult.ResultXDR)
 	return getIngestTxResponse, err
 }
+
+func (t *transactionService) GetTransactions(startLedger int, startCursor string, limit int) ([]tss.RPCGetIngestTxResponse, string, error) {
+	if limit > PageLimit {
+		return []tss.RPCGetIngestTxResponse{}, "", fmt.Errorf("limit cannot exceed")
+	}
+	params := tss.RPCParams{}
+	if startCursor != "" {
+		pagination := tss.Pagination{Cursor: startCursor, Limit: limit}
+		params.Pagination = pagination
+	} else {
+		pagination := tss.Pagination{Limit: limit}
+		params.Pagination = pagination
+		params.StartLedger = startLedger
+	}
+	rpcResponse, err := t.sendRPCRequest("getTransactions", params)
+	if err != nil {
+		return []tss.RPCGetIngestTxResponse{}, "", fmt.Errorf("RPC Fail: %s", err.Error())
+	}
+
+	var transactions []tss.RPCGetIngestTxResponse
+
+	for _, tx := range rpcResponse.RPCResult.Transactions {
+		getIngestTxResponse := tss.RPCGetIngestTxResponse{}
+		getIngestTxResponse.Code, err = t.parseErrorResultXDR(tx.ResultXDR)
+		if err != nil {
+			return []tss.RPCGetIngestTxResponse{}, "", fmt.Errorf("unable to parse resultXdr: %s", err.Error())
+		}
+		getIngestTxResponse.Status = tss.RPCTXStatus(tx.Status)
+		getIngestTxResponse.EnvelopeXDR = tx.EnvelopeXDR
+		getIngestTxResponse.ResultXDR = tx.ResultXDR
+		getIngestTxResponse.CreatedAt = int64(tx.CreatedAt)
+		getIngestTxResponse.Ledger = tx.Ledger
+		getIngestTxResponse.ApplicationOrder = tx.ApplicationOrder
+		transactions = append(transactions, getIngestTxResponse)
+	}
+	return transactions, rpcResponse.RPCResult.Cursor, nil
+}
+*/
