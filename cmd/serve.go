@@ -35,7 +35,6 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
-		utils.RPCURLOption(&cfg.RPCURL),
 		utils.ErrorHandlerServiceJitterChannelBufferSizeOption(&cfg.ErrorHandlerServiceJitterChannelBufferSize),
 		utils.ErrorHandlerServiceJitterChannelMaxWorkersOption(&cfg.ErrorHandlerServiceJitterChannelMaxWorkers),
 		utils.ErrorHandlerServiceNonJitterChannelBufferSizeOption(&cfg.ErrorHandlerServiceNonJitterChannelBufferSize),

@@ -41,6 +41,7 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
 	resultBytes, err := r.sendRPCRequest("getTransaction", entities.RPCParams{Hash: transactionHash})
+
 	if err != nil {
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("sending getTransaction request: %w", err)
 	}
@@ -97,6 +98,7 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 }
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
+
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -118,6 +120,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	if err != nil {
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
+
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
@@ -125,6 +128,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	}
 	fmt.Println("RPC RESULT")
 	fmt.Println(res)
+
 	if res.Result == nil {
 		return nil, fmt.Errorf("response %s missing result field", string(body))
 	}

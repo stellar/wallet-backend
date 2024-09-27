@@ -23,13 +23,13 @@ func TestProcessLedger(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	m := &IngestManager{
-		PaymentModel: &data.PaymentModel{
-			DB: dbConnectionPool,
-		},
-		NetworkPassphrase: network.TestNetworkPassphrase,
-		LedgerCursorName:  "last_synced_ledger",
-		LedgerBackend:     nil,
+	models, _ := data.NewModels(dbConnectionPool)
+	service := &ingestService{
+		models:            models,
+		networkPassphrase: network.TestNetworkPassphrase,
+		ledgerCursorName:  "last_synced_ledger",
+		ledgerBackend:     nil,
+		rpcService:        nil,
 	}
 
 	ctx := context.Background()
@@ -111,12 +111,12 @@ func TestProcessLedger(t *testing.T) {
 
 	// Compute transaction hash and inject into ledger meta
 	components := ledgerMeta.V1.TxSet.V1TxSet.Phases[0].V0Components
-	xdrHash, err := network.HashTransactionInEnvelope((*components)[0].TxsMaybeDiscountedFee.Txs[0], m.NetworkPassphrase)
+	xdrHash, err := network.HashTransactionInEnvelope((*components)[0].TxsMaybeDiscountedFee.Txs[0], service.networkPassphrase)
 	require.NoError(t, err)
 	ledgerMeta.V1.TxProcessing[0].Result.TransactionHash = xdrHash
 
 	// Run ledger ingestion
-	err = m.processLedger(ctx, 1, ledgerMeta)
+	err = service.processLedger(ctx, 1, ledgerMeta)
 	require.NoError(t, err)
 
 	// Assert payment properly persisted to database

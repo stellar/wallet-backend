@@ -21,7 +21,7 @@ func TestParseValidationError(t *testing.T) {
 			RequiredArrayField []string           `validate:"required,gt=0,dive,not_empty"`
 			EnumField          string             `validate:"oneof=foo bar"`
 			PublicKeyField     string             `validate:"public_key"`
-			UnknownTagField    int                `validate:"lte=1"`
+			UnknownTagField    int                `validate:"ne=1"`
 			NestedField        []testStructNested `validate:"dive"`
 		}
 
@@ -35,11 +35,11 @@ func TestParseValidationError(t *testing.T) {
 					RequiredArrayField: []string{},
 					EnumField:          "invalid",
 					PublicKeyField:     "invalid",
-					UnknownTagField:    1,
+					UnknownTagField:    2,
 				},
 				expectedFieldErrors: map[string]interface{}{
 					"requiredField":      "This field is required",
-					"requiredArrayField": "Should have at least 1 element",
+					"requiredArrayField": "Should have at least 1 element(s)",
 					"enumField":          `Unexpected value "invalid". Expected one of the following values: foo, bar`,
 					"publicKeyField":     "Invalid public key provided",
 				},
@@ -50,7 +50,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredArrayField: []string{"bar", ""},
 					EnumField:          "bar",
 					PublicKeyField:     keypair.MustRandom().Address(),
-					UnknownTagField:    1,
+					UnknownTagField:    2,
 				},
 				expectedFieldErrors: map[string]interface{}{
 					"requiredArrayField[1]": "This field cannot be empty",
@@ -62,7 +62,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredArrayField: []string{"bar"},
 					EnumField:          "bar",
 					PublicKeyField:     keypair.MustRandom().Address(),
-					UnknownTagField:    2,
+					UnknownTagField:    1,
 				},
 				expectedFieldErrors: map[string]interface{}{
 					"unknownTagField": "Invalid value",
@@ -74,7 +74,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredArrayField: []string{"bar"},
 					EnumField:          "bar",
 					PublicKeyField:     keypair.MustRandom().Address(),
-					UnknownTagField:    1,
+					UnknownTagField:    2,
 					NestedField: []testStructNested{
 						{
 							NestedRequiredField: "",
@@ -123,8 +123,8 @@ func TestParseValidationError(t *testing.T) {
 		assert.Equal(t, map[string]interface{}{
 			"amountGT":  "Should be greater than 10",
 			"amountGTE": "Should be greater than or equal to 11",
-			"sliceGT":   "Should have at least 3 element",
-			"sliceGTE":  "Should have at least 2 element",
+			"sliceGT":   "Should have at least 3 element(s)",
+			"sliceGTE":  "Should have at least 2 element(s)",
 		}, fieldErrors)
 
 		type testStructInvalid struct {
@@ -134,6 +134,47 @@ func TestParseValidationError(t *testing.T) {
 		stcInvalid := testStructInvalid{
 			InvalidGT:  0,
 			InvalidGTE: 0,
+		}
+		assert.Panics(t, func() {
+			err := val.Struct(stcInvalid)
+			require.Error(t, err)
+		})
+	})
+
+	t.Run("lt_and_lte", func(t *testing.T) {
+		type testStruct struct {
+			AmountLT  int64    `validate:"lt=10"`
+			AmountLTE int64    `validate:"lte=10"`
+			SliceLT   []string `validate:"lt=2"`
+			SliceLTE  []string `validate:"lte=2"`
+		}
+
+		stc := testStruct{
+			AmountLT:  10,
+			AmountLTE: 11,
+			SliceLT:   []string{"a", "b"},
+			SliceLTE:  []string{"a", "b", "c"},
+		}
+		val := NewValidator()
+		err := val.Struct(stc)
+		require.Error(t, err)
+		vErrs, ok := err.(validator.ValidationErrors)
+		require.True(t, ok)
+		fieldErrors := ParseValidationError(vErrs)
+		assert.Equal(t, map[string]interface{}{
+			"amountLT":  "Should be less than 10",
+			"amountLTE": "Should be less than or equal to 10",
+			"sliceLT":   "Should have at most 1 element(s)",
+			"sliceLTE":  "Should have at most 2 element(s)",
+		}, fieldErrors)
+
+		type testStructInvalid struct {
+			InvalidLT  int64 `validate:"lt=a"`
+			InvalidLTE int64 `validate:"lte=a"`
+		}
+		stcInvalid := testStructInvalid{
+			InvalidLT:  0,
+			InvalidLTE: 0,
 		}
 		assert.Panics(t, func() {
 			err := val.Struct(stcInvalid)

@@ -78,6 +78,7 @@ func TestSendRPCRequest(t *testing.T) {
 			Once()
 
 		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		require.NoError(t, err)
 
 		var resultStruct struct {
@@ -96,6 +97,7 @@ func TestSendRPCRequest(t *testing.T) {
 			Once()
 
 		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "sending POST request to RPC: connection failed", err.Error())
 	})
@@ -111,6 +113,7 @@ func TestSendRPCRequest(t *testing.T) {
 			Once()
 
 		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "unmarshaling RPC response: read error", err.Error())
 	})
@@ -126,6 +129,7 @@ func TestSendRPCRequest(t *testing.T) {
 			Once()
 
 		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "parsing RPC response JSON: invalid character 'i' looking for beginning of object key string", err.Error())
 	})
@@ -141,6 +145,7 @@ func TestSendRPCRequest(t *testing.T) {
 			Once()
 
 		result, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Empty(t, result)
 		assert.Equal(t, `response {"status": "success"} missing result field`, err.Error())
 	})
@@ -154,6 +159,7 @@ func TestSendTransaction(t *testing.T) {
 	t.Run("successful", func(t *testing.T) {
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
 		params := entities.RPCParams{Transaction: transactionXDR}
+
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -214,6 +220,7 @@ func TestGetTransaction(t *testing.T) {
 	t.Run("successful", func(t *testing.T) {
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 		params := entities.RPCParams{Hash: transactionHash}
+
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,

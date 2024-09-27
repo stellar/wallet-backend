@@ -279,7 +279,7 @@ func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
 				"error": "Validation error.",
 				"extras": {
 					"address": "Invalid public key provided",
-					"signers": "Should have at least 1 element"
+					"signers": "Should have at least 1 element(s)"
 				}
 			}
 		`

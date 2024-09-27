@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -77,17 +78,70 @@ func (m *RPCIngestManager) Run(ctx context.Context, startLedger uint32, startCur
 }
 */
 
-func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
+// func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
+type IngestService interface {
+	Run(ctx context.Context, start, end uint32) error
+}
+
+var _ IngestService = (*ingestService)(nil)
+
+type ingestService struct {
+	models            *data.Models
+	ledgerBackend     ledgerbackend.LedgerBackend
+	networkPassphrase string
+	ledgerCursorName  string
+	appTracker        apptracker.AppTracker
+	rpcService        RPCService
+}
+
+func NewIngestService(
+	models *data.Models,
+	ledgerBackend ledgerbackend.LedgerBackend,
+	networkPassphrase string,
+	ledgerCursorName string,
+	appTracker apptracker.AppTracker,
+	rpcService RPCService,
+) (*ingestService, error) {
+	if models == nil {
+		return nil, errors.New("models cannot be nil")
+	}
+	if ledgerBackend == nil {
+		return nil, errors.New("ledgerBackend cannot be nil")
+	}
+	if networkPassphrase == "" {
+		return nil, errors.New("networkPassphrase cannot be nil")
+	}
+	if ledgerCursorName == "" {
+		return nil, errors.New("ledgerCursorName cannot be nil")
+	}
+	if appTracker == nil {
+		return nil, errors.New("appTracker cannot be nil")
+	}
+	if rpcService == nil {
+		return nil, errors.New("rpcService cannot be nil")
+	}
+
+	return &ingestService{
+		models:            models,
+		ledgerBackend:     ledgerBackend,
+		networkPassphrase: networkPassphrase,
+		ledgerCursorName:  ledgerCursorName,
+		appTracker:        appTracker,
+		rpcService:        rpcService,
+	}, nil
+}
+
+func (m *ingestService) Run(ctx context.Context, start, end uint32) error {
 	var ingestLedger uint32
 
 	if start == 0 {
-		lastSyncedLedger, err := m.PaymentModel.GetLatestLedgerSynced(ctx, m.LedgerCursorName)
+		lastSyncedLedger, err := m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
 			return fmt.Errorf("getting last ledger synced: %w", err)
 		}
 
 		if lastSyncedLedger == 0 {
-			// Captive Core is not able to process genesis ledger and often has trouble processing ledger 2, so we start ingestion at ledger 3
+			// Captive Core is not able to process genesis ledger (1) and often has trouble processing ledger 2, so we start ingestion at ledger 3
 			log.Ctx(ctx).Info("No last synced ledger cursor found, initializing ingestion at ledger 3")
 			ingestLedger = 3
 		} else {
@@ -107,12 +161,12 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	}
 
 	heartbeat := make(chan any)
-	go trackServiceHealth(heartbeat, m.AppTracker)
+	go trackServiceHealth(heartbeat, m.appTracker)
 
 	for ; end == 0 || ingestLedger <= end; ingestLedger++ {
 		log.Ctx(ctx).Infof("waiting for ledger %d", ingestLedger)
 
-		ledgerMeta, err := m.LedgerBackend.GetLedger(ctx, ingestLedger)
+		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ingestLedger)
 		if err != nil {
 			return fmt.Errorf("getting ledger meta for ledger %d: %w", ingestLedger, err)
 		}
@@ -130,7 +184,7 @@ func (m *IngestManager) Run(ctx context.Context, start, end uint32) error {
 	return nil
 }
 
-func (m *IngestManager) maybePrepareRange(ctx context.Context, from, to uint32) error {
+func (m *ingestService) maybePrepareRange(ctx context.Context, from, to uint32) error {
 	var ledgerRange ledgerbackend.Range
 	if to == 0 {
 		ledgerRange = ledgerbackend.UnboundedRange(from)
@@ -138,13 +192,13 @@ func (m *IngestManager) maybePrepareRange(ctx context.Context, from, to uint32) 
 		ledgerRange = ledgerbackend.BoundedRange(from, to)
 	}
 
-	prepared, err := m.LedgerBackend.IsPrepared(ctx, ledgerRange)
+	prepared, err := m.ledgerBackend.IsPrepared(ctx, ledgerRange)
 	if err != nil {
 		return fmt.Errorf("checking prepared range: %w", err)
 	}
 
 	if !prepared {
-		err = m.LedgerBackend.PrepareRange(ctx, ledgerRange)
+		err = m.ledgerBackend.PrepareRange(ctx, ledgerRange)
 		if err != nil {
 			return fmt.Errorf("preparing range: %w", err)
 		}
@@ -243,7 +297,7 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 	ledgerCloseTime := time.Unix(int64(ledgerMeta.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime), 0).UTC()
 	ledgerSequence := ledgerMeta.LedgerSequence()
 
-	return db.RunInTransaction(ctx, m.PaymentModel.DB, nil, func(dbTx db.Transaction) error {
+	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
 		for {
 			tx, err := reader.Read()
 			if err == io.EOF {
@@ -292,14 +346,14 @@ func (m *IngestManager) processLedger(ctx context.Context, ledger uint32, ledger
 					continue
 				}
 
-				err = m.PaymentModel.AddPayment(ctx, dbTx, payment)
+				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
 				if err != nil {
 					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
 				}
 			}
 		}
 
-		err = m.PaymentModel.UpdateLatestLedgerSynced(ctx, m.LedgerCursorName, ledger)
+		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ledger)
 		if err != nil {
 			return err
 		}
