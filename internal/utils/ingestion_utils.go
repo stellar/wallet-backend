@@ -18,20 +18,8 @@ func OperationResult(txResult xdr.TransactionResult, opNumber int) *xdr.Operatio
 	return &tr
 }
 
-/*
-func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
-	results, _ := tx.Result.OperationResults()
-	tr := results[opNumber-1].MustTr()
-	return &tr
-}
-*/
-
 func TransactionID(ledgerNumber, txNumber int32) string {
 	return toid.New(int32(ledgerNumber), int32(txNumber), 0).String()
-}
-
-func TransactionHash(ledgerMeta xdr.LedgerCloseMeta, txNumber int) string {
-	return ledgerMeta.TransactionHash(txNumber - 1).HexString()
 }
 
 // Memo returns the memo value parsed to string and its type.
