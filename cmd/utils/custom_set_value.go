@@ -2,9 +2,7 @@ package utils
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -79,48 +77,6 @@ func SetConfigOptionStellarPrivateKey(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = privateKey
-
-	return nil
-}
-
-func SetConfigOptionCaptiveCoreBinPath(co *config.ConfigOption) error {
-	binPath := viper.GetString(co.Name)
-
-	fileInfo, err := os.Stat(binPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("binary file %s does not exist", binPath)
-	}
-
-	if fileInfo.IsDir() {
-		return fmt.Errorf("binary file path %s is a directory, not a file", binPath)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = binPath
-
-	return nil
-}
-
-func SetConfigOptionCaptiveCoreConfigDir(co *config.ConfigOption) error {
-	dirPath := viper.GetString(co.Name)
-
-	fileInfo, err := os.Stat(dirPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("captive core configuration files dir %s does not exist", dirPath)
-	}
-
-	if !fileInfo.IsDir() {
-		return fmt.Errorf("captive core configuration files dir %s is not a directory", dirPath)
-	}
-
-	key, ok := co.ConfigKey.(*string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = dirPath
 
 	return nil
 }

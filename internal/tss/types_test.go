@@ -25,9 +25,9 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 			ErrorResultXDR: "",
 		}, nil)
 
-		assert.Equal(t, entities.PendingStatus, resp.Status)
-		assert.Equal(t, UnmarshalBinaryCode, resp.Code.OtherCodes)
-		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXDR: ", err.Error())
+		assert.Equal(t, entities.PendingStatus, resp.Status.RPCStatus)
+		assert.Equal(t, EmptyCode, resp.Code.OtherCodes)
+		assert.Empty(t, err)
 	})
 
 	t.Run("response_has_unparsable_errorResultXdr", func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 		}, nil)
 
 		assert.Equal(t, UnmarshalBinaryCode, resp.Code.OtherCodes)
-		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXDR: ABC123", err.Error())
+		assert.Equal(t, "parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABC123", err.Error())
 	})
 
 	t.Run("response_has_errorResultXdr", func(t *testing.T) {
@@ -76,6 +76,17 @@ func TestParseToRPCGetIngestTxResponse(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, int64(1234567), resp.CreatedAt)
+		assert.Empty(t, err)
+	})
+
+	t.Run("response_has_errorResultXdr", func(t *testing.T) {
+		resp, err := ParseToRPCGetIngestTxResponse(entities.RPCGetTransactionResult{
+			Status:    entities.ErrorStatus,
+			CreatedAt: "1234567",
+			ResultXDR: "AAAAAAAAAMj////9AAAAAA==",
+		}, nil)
+
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
 		assert.Empty(t, err)
 	})
 }

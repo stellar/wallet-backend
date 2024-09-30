@@ -4,50 +4,40 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
-	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type IngestService interface {
-	Run(ctx context.Context, start, end uint32) error
+	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
 }
 
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models            *data.Models
-	ledgerBackend     ledgerbackend.LedgerBackend
-	networkPassphrase string
-	ledgerCursorName  string
-	appTracker        apptracker.AppTracker
-	rpcService        RPCService
+	models           *data.Models
+	ledgerCursorName string
+	appTracker       apptracker.AppTracker
+	rpcService       RPCService
 }
 
 func NewIngestService(
 	models *data.Models,
-	ledgerBackend ledgerbackend.LedgerBackend,
-	networkPassphrase string,
 	ledgerCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
-	}
-	if ledgerBackend == nil {
-		return nil, errors.New("ledgerBackend cannot be nil")
-	}
-	if networkPassphrase == "" {
-		return nil, errors.New("networkPassphrase cannot be nil")
 	}
 	if ledgerCursorName == "" {
 		return nil, errors.New("ledgerCursorName cannot be nil")
@@ -60,89 +50,119 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:            models,
-		ledgerBackend:     ledgerBackend,
-		networkPassphrase: networkPassphrase,
-		ledgerCursorName:  ledgerCursorName,
-		appTracker:        appTracker,
-		rpcService:        rpcService,
+		models:           models,
+		ledgerCursorName: ledgerCursorName,
+		appTracker:       appTracker,
+		rpcService:       rpcService,
 	}, nil
 }
 
-func (m *ingestService) Run(ctx context.Context, start, end uint32) error {
-	var ingestLedger uint32
-
-	if start == 0 {
-		lastSyncedLedger, err := m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
-		if err != nil {
-			return fmt.Errorf("getting last ledger synced: %w", err)
-		}
-
-		if lastSyncedLedger == 0 {
-			// Captive Core is not able to process genesis ledger (1) and often has trouble processing ledger 2, so we start ingestion at ledger 3
-			log.Ctx(ctx).Info("No last synced ledger cursor found, initializing ingestion at ledger 3")
-			ingestLedger = 3
-		} else {
-			ingestLedger = lastSyncedLedger + 1
-		}
-	} else {
-		ingestLedger = start
-	}
-
-	if end != 0 && ingestLedger > end {
-		return fmt.Errorf("starting ledger (%d) may not be greater than ending ledger (%d)", ingestLedger, end)
-	}
-
-	err := m.maybePrepareRange(ctx, ingestLedger, end)
-	if err != nil {
-		return fmt.Errorf("preparing range from %d to %d: %w", ingestLedger, end, err)
-	}
-
+func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	heartbeat := make(chan any)
 	go trackServiceHealth(heartbeat, m.appTracker)
-
-	for ; end == 0 || ingestLedger <= end; ingestLedger++ {
-		log.Ctx(ctx).Infof("waiting for ledger %d", ingestLedger)
-
-		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ingestLedger)
+	if startLedger == 0 {
+		var err error
+		startLedger, err = m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
-			return fmt.Errorf("getting ledger meta for ledger %d: %w", ingestLedger, err)
+			return fmt.Errorf("erorr getting start ledger: %w", err)
 		}
-
-		heartbeat <- true
-
-		err = m.processLedger(ctx, ingestLedger, ledgerMeta)
-		if err != nil {
-			return fmt.Errorf("processing ledger %d: %w", ingestLedger, err)
-		}
-
-		log.Ctx(ctx).Infof("ledger %d successfully processed", ingestLedger)
 	}
-
+	ingestLedger := startLedger
+	for ; endLedger == 0 || ingestLedger <= endLedger; ingestLedger++ {
+		time.Sleep(10 * time.Second)
+		ledgerTransactions, err := m.GetLedgerTransactions(int64(ingestLedger))
+		if err != nil {
+			return fmt.Errorf("getTransactions: %w", err)
+		}
+		heartbeat <- true
+		err = m.ingestPayments(ctx, ledgerTransactions)
+		if err != nil {
+			return fmt.Errorf("error ingesting payments: %w", err)
+		}
+		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, uint32(ingestLedger))
+		if err != nil {
+			return fmt.Errorf("error updating latest synced ledger: %w", err)
+		}
+	}
 	return nil
 }
 
-func (m *ingestService) maybePrepareRange(ctx context.Context, from, to uint32) error {
-	var ledgerRange ledgerbackend.Range
-	if to == 0 {
-		ledgerRange = ledgerbackend.UnboundedRange(from)
-	} else {
-		ledgerRange = ledgerbackend.BoundedRange(from, to)
-	}
+func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
 
-	prepared, err := m.ledgerBackend.IsPrepared(ctx, ledgerRange)
-	if err != nil {
-		return fmt.Errorf("checking prepared range: %w", err)
-	}
-
-	if !prepared {
-		err = m.ledgerBackend.PrepareRange(ctx, ledgerRange)
+	var ledgerTransactions []entities.Transaction
+	var cursor string
+	lastLedgerSeen := ledger
+	for lastLedgerSeen == ledger {
+		getTxnsResp, err := m.rpcService.GetTransactions(ledger, cursor, 50)
 		if err != nil {
-			return fmt.Errorf("preparing range: %w", err)
+			return []entities.Transaction{}, fmt.Errorf("getTransactions: %w", err)
+		}
+		cursor = getTxnsResp.Cursor
+		for _, tx := range getTxnsResp.Transactions {
+			if tx.Ledger == ledger {
+				ledgerTransactions = append(ledgerTransactions, tx)
+				lastLedgerSeen = tx.Ledger
+			} else {
+				lastLedgerSeen = tx.Ledger
+				break
+			}
 		}
 	}
+	return ledgerTransactions, nil
+}
 
-	return nil
+func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
+	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
+		for _, tx := range ledgerTransactions {
+			if tx.Status != entities.SuccessStatus {
+				continue
+			}
+			genericTx, err := txnbuild.TransactionFromXDR(tx.EnvelopeXDR)
+			if err != nil {
+				return fmt.Errorf("deserializing envelope xdr: %w", err)
+			}
+			txEnvelopeXDR, err := genericTx.ToXDR()
+			if err != nil {
+				return fmt.Errorf("generic transaction cannot be unpacked into a transaction")
+			}
+			txResultXDR, err := tss.UnmarshallTransactionResultXDR(tx.ResultXDR)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal transacation result xdr: %s", err.Error())
+			}
+
+			txMemo, txMemoType := utils.Memo(txEnvelopeXDR.Memo(), tx.Hash)
+			if txMemo != nil {
+				*txMemo = utils.SanitizeUTF8(*txMemo)
+			}
+			txEnvelopeXDR.SourceAccount()
+			for idx, op := range txEnvelopeXDR.Operations() {
+				opIdx := idx + 1
+
+				payment := data.Payment{
+					OperationID:     utils.OperationID(int32(tx.Ledger), int32(tx.ApplicationOrder), int32(opIdx)),
+					OperationType:   op.Body.Type.String(),
+					TransactionID:   utils.TransactionID(int32(tx.Ledger), int32(tx.ApplicationOrder)),
+					TransactionHash: tx.Hash,
+					FromAddress:     utils.SourceAccount(op, txEnvelopeXDR),
+					CreatedAt:       time.Unix(tx.CreatedAt, 0),
+					Memo:            txMemo,
+					MemoType:        txMemoType,
+				}
+
+				switch op.Body.Type {
+				case xdr.OperationTypePayment:
+					fillPayment(&payment, op.Body)
+				case xdr.OperationTypePathPaymentStrictSend:
+					fillPathSend(&payment, op.Body, txResultXDR, opIdx)
+				case xdr.OperationTypePathPaymentStrictReceive:
+					fillPathReceive(&payment, op.Body, txResultXDR, opIdx)
+				default:
+					continue
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
@@ -166,77 +186,6 @@ func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {
 	}
 }
 
-func (m *ingestService) processLedger(ctx context.Context, ledger uint32, ledgerMeta xdr.LedgerCloseMeta) (err error) {
-	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, ledgerMeta)
-	if err != nil {
-		return fmt.Errorf("creating ledger reader: %w", err)
-	}
-
-	ledgerCloseTime := time.Unix(int64(ledgerMeta.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime), 0).UTC()
-	ledgerSequence := ledgerMeta.LedgerSequence()
-
-	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
-		for {
-			tx, err := reader.Read()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return fmt.Errorf("reading transaction: %w", err)
-			}
-
-			if !tx.Result.Successful() {
-				continue
-			}
-
-			txHash := utils.TransactionHash(ledgerMeta, int(tx.Index))
-			txMemo, txMemoType := utils.Memo(tx.Envelope.Memo(), txHash)
-			// The memo field is subject to user input, so we sanitize before persisting in the database
-			if txMemo != nil {
-				*txMemo = utils.SanitizeUTF8(*txMemo)
-			}
-
-			for idx, op := range tx.Envelope.Operations() {
-				opIdx := idx + 1
-
-				payment := data.Payment{
-					OperationID:     utils.OperationID(int32(ledgerSequence), int32(tx.Index), int32(opIdx)),
-					OperationType:   op.Body.Type.String(),
-					TransactionID:   utils.TransactionID(int32(ledgerSequence), int32(tx.Index)),
-					TransactionHash: txHash,
-					FromAddress:     utils.SourceAccount(op, tx),
-					CreatedAt:       ledgerCloseTime,
-					Memo:            txMemo,
-					MemoType:        txMemoType,
-				}
-
-				switch op.Body.Type {
-				case xdr.OperationTypePayment:
-					fillPayment(&payment, op.Body)
-				case xdr.OperationTypePathPaymentStrictSend:
-					fillPathSend(&payment, op.Body, tx, opIdx)
-				case xdr.OperationTypePathPaymentStrictReceive:
-					fillPathReceive(&payment, op.Body, tx, opIdx)
-				default:
-					continue
-				}
-
-				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
-				if err != nil {
-					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", ledgerSequence, txHash, tx.Index, payment.OperationID, opIdx, err)
-				}
-			}
-		}
-
-		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ledger)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-}
-
 func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 	paymentOp := operation.MustPaymentOp()
 	payment.ToAddress = paymentOp.Destination.Address()
@@ -250,9 +199,9 @@ func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
 	payment.DestAmount = payment.SrcAmount
 }
 
-func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
+func fillPathSend(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
 	pathOp := operation.MustPathPaymentStrictSendOp()
-	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictSendResult()
+	result := utils.OperationResult(txResult, operationIdx).MustPathPaymentStrictSendResult()
 	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
@@ -264,9 +213,9 @@ func fillPathSend(payment *data.Payment, operation xdr.OperationBody, transactio
 	payment.DestAmount = int64(result.DestAmount())
 }
 
-func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
+func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
 	pathOp := operation.MustPathPaymentStrictReceiveOp()
-	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictReceiveResult()
+	result := utils.OperationResult(txResult, operationIdx).MustPathPaymentStrictReceiveResult()
 	payment.ToAddress = pathOp.Destination.Address()
 	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
 	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
