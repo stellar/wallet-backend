@@ -9,7 +9,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/services/servicesmocks"
+	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
@@ -26,7 +26,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 	store := store.NewStore(dbConnectionPool)
 	txServiceMock := TransactionServiceMock{}
-	rpcServiceMock := servicesmocks.RPCServiceMock{}
+	rpcServiceMock := services.RPCServiceMock{}
 	txManager := NewTransactionManager(TransactionManagerConfigs{
 		TxService:  &txServiceMock,
 		RPCService: &rpcServiceMock,

@@ -36,7 +36,7 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 		}, nil)
 
 		assert.Equal(t, UnmarshalBinaryCode, resp.Code.OtherCodes)
-		assert.Equal(t, "parse error result xdr string: unable to unmarshal errorResultXDR: ABC123", err.Error())
+		assert.Equal(t, "parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABC123", err.Error())
 	})
 
 	t.Run("response_has_errorResultXdr", func(t *testing.T) {

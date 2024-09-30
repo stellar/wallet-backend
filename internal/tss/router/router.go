@@ -59,6 +59,8 @@ func (r *router) Route(payload tss.Payload) error {
 			// Do nothing for PENDING / DUPLICATE statuses
 			return nil
 		}
+	} else if payload.RpcGetIngestTxResponse.Status != "" {
+		channel = r.WebhookChannel
 	}
 	if channel == nil {
 		return fmt.Errorf("payload could not be routed - channel is nil")

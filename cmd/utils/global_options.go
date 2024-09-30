@@ -297,6 +297,30 @@ func WebhookHandlerServiceChannelMinWaitBtwnRetriesMSOption(configKey *int) *con
 	}
 }
 
+func StartLedgerOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "start-ledger",
+		Usage:       "ledger number to start getting transactions from",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 0,
+		Required:    true,
+	}
+
+}
+
+func EndLedgerOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "end-ledger",
+		Usage:       "ledger number to end on",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 0,
+		Required:    true,
+	}
+
+}
+
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
 	awsOpts := config.ConfigOptions{
 		{

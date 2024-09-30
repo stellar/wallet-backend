@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -26,34 +25,6 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 
 func (e *errorReader) Close() error {
 	return nil
-}
-
-func TestRPCCalls(t *testing.T) {
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcURL := "http://localhost:8000/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &httpClient)
-
-	// SendTransaction
-	txXDR := "AAAAAgAAAAAVdLFaRzu3r8PAYnF6HoZDvlLId7GDj5q2gfvqMv8GKgAAAGQAAlQIAAAAAQAAAAEAAAAAAAAAAAAAAABm9fgPAAAAAAAAAAEAAAAAAAAAAQAAAACCUVwoK4/wAdfrrDuA0n4x4DVybhDKwSejzetRpCNoFwAAAAAAAAAAAJiWgAAAAAAAAAAA"
-	resp1, _ := rpcService.SendTransaction(txXDR)
-	fmt.Println("SEND TX RESPONSE")
-	fmt.Println(resp1)
-	//fmt.Println(err)
-
-	// GetTransaction
-	txHash := "784fec9d8ea31d050874bb09340e662394f618a5391c7aa15f8565756304acc1"
-	resp2, _ := rpcService.GetTransaction(txHash)
-	fmt.Println("GET TX RESPONSE")
-	fmt.Println(resp2)
-	//fmt.Println(err.Error())
-
-	// GetTransactions
-	ledger := 152761
-	resp3, err := rpcService.GetTransactions(ledger, "", 50)
-	fmt.Println("GET TXS RESPONSE")
-	fmt.Println(resp3)
-	fmt.Println(err)
-
 }
 
 func TestSendRPCRequest(t *testing.T) {
@@ -285,5 +256,68 @@ func TestGetTransaction(t *testing.T) {
 
 		assert.Equal(t, entities.RPCGetTransactionResult{}, result)
 		assert.Equal(t, "sending getTransaction request: sending POST request to RPC: connection failed", err.Error())
+	})
+}
+
+func TestGetTransactions(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
+
+		result, err := rpcService.GetTransactions(10, "", 5)
+		require.Error(t, err)
+
+		assert.Equal(t, entities.RPCGetTransactionsResult{}, result)
+		assert.Equal(t, "sending getTransactions request: sending POST request to RPC: connection failed", err.Error())
+	})
+
+	t.Run("successful", func(t *testing.T) {
+		params := entities.RPCParams{StartLedger: 10, Pagination: entities.RPCPagination{Limit: 5}}
+
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "getTransactions",
+			"params":  params,
+		}
+		jsonData, _ := json.Marshal(payload)
+
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+    				"transactions": [
+						{
+							"status": "SUCCESS",
+							"applicationOrder": 1,
+							"feeBump": false,
+							"envelopeXdr": "AAAAAgAAAACDz21Q3CTITlGqRus3/96/05EDivbtfJncNQKt64BTbAAAASwAAKkyAAXlMwAAAAEAAAAAAAAAAAAAAABmWeASAAAAAQAAABR3YWxsZXQ6MTcxMjkwNjMzNjUxMAAAAAEAAAABAAAAAIPPbVDcJMhOUapG6zf/3r/TkQOK9u18mdw1Aq3rgFNsAAAAAQAAAABwOSvou8mtwTtCkysVioO35TSgyRir2+WGqO8FShG/GAAAAAFVQUgAAAAAAO371tlrHUfK+AvmQvHje1jSUrvJb3y3wrJ7EplQeqTkAAAAAAX14QAAAAAAAAAAAeuAU2wAAABAn+6A+xXvMasptAm9BEJwf5Y9CLLQtV44TsNqS8ocPmn4n8Rtyb09SBiFoMv8isYgeQU5nAHsIwBNbEKCerusAQ==",
+							"resultXdr": "AAAAAAAAAGT/////AAAAAQAAAAAAAAAB////+gAAAAA=",
+							"resultMetaXdr": "AAAAAwAAAAAAAAACAAAAAwAc0RsAAAAAAAAAAIPPbVDcJMhOUapG6zf/3r/TkQOK9u18mdw1Aq3rgFNsAAAAF0YpYBQAAKkyAAXlMgAAAAsAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAABzRGgAAAABmWd/VAAAAAAAAAAEAHNEbAAAAAAAAAACDz21Q3CTITlGqRus3/96/05EDivbtfJncNQKt64BTbAAAABdGKWAUAACpMgAF5TMAAAALAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAc0RsAAAAAZlnf2gAAAAAAAAAAAAAAAAAAAAA=",
+							"ledger": 1888539,
+							"createdAt": 1717166042
+						}
+					]
+				}
+			}`)),
+		}
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&httpResponse, nil).
+			Once()
+
+		resp, err := rpcService.GetTransactions(10, "", 5)
+		require.Equal(t, entities.RPCStatus("SUCCESS"), resp.Transactions[0].Status)
+		require.Equal(t, int64(1888539), resp.Transactions[0].Ledger)
+		require.NoError(t, err)
 	})
 }

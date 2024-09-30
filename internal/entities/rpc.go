@@ -51,22 +51,23 @@ type RPCGetTransactionResult struct {
 
 type Transaction struct {
 	Status              RPCStatus `json:"status"`
+	Hash                string    `json:"hash"`
 	ApplicationOrder    int64     `json:"applicationOrder"`
 	FeeBump             bool      `json:"feeBump"`
 	EnvelopeXDR         string    `json:"envelopeXdr"`
 	ResultXDR           string    `json:"resultXdr"`
 	ResultMetaXDR       string    `json:"resultMetaXdr"`
+	Ledger              int64     `json:"ledger"`
 	DiagnosticEventsXDR string    `json:"diagnosticEventsXdr"`
-	CreatedAt           string    `json:"createdAt"`
-	ErrorResultXDR      string    `json:"errorResultXdr"`
+	CreatedAt           int64     `json:"createdAt"`
 }
 
 type RPCGetTransactionsResult struct {
 	Transactions          []Transaction `json:"transactions"`
 	LatestLedger          int64         `json:"latestLedger"`
-	LatestLedgerCloseTime string        `json:"latestLedgerCloseTimestamp"`
+	LatestLedgerCloseTime int64         `json:"latestLedgerCloseTimestamp"`
 	OldestLedger          int64         `json:"oldestLedger"`
-	OldestLedgerCloseTime string        `json:"oldestLedgerCloseTimestamp"`
+	OldestLedgerCloseTime int64         `json:"oldestLedgerCloseTimestamp"`
 	Cursor                string        `json:"cursor"`
 }
 
@@ -86,6 +87,6 @@ type RPCPagination struct {
 type RPCParams struct {
 	Transaction string        `json:"transaction,omitempty"`
 	Hash        string        `json:"hash,omitempty"`
-	StartLedger int           `json:"startLedger,omitempty"`
+	StartLedger int64         `json:"startLedger,omitempty"`
 	Pagination  RPCPagination `json:"pagination,omitempty"`
 }

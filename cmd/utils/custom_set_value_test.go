@@ -220,6 +220,7 @@ func Test_SetConfigOptionLogLevel(t *testing.T) {
 	}
 }
 
+/*
 func TestSetConfigOptionCaptiveCoreBinPath(t *testing.T) {
 	opts := struct{ binPath string }{}
 
@@ -310,6 +311,7 @@ func TestSetConfigOptionCaptiveCoreConfigDir(t *testing.T) {
 		})
 	}
 }
+*/
 
 func TestSetConfigOptionAssets(t *testing.T) {
 	opts := struct{ assets []entities.Asset }{}

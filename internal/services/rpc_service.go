@@ -13,6 +13,7 @@ import (
 
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
+	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 }
 
@@ -55,18 +56,16 @@ func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTran
 	return result, nil
 }
 
-func (r *rpcService) GetTransactions(startLedger int, startCursor string, limit int) (entities.RPCGetTransactionsResult, error) {
+func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error) {
 	if limit > PageLimit {
 		return entities.RPCGetTransactionsResult{}, fmt.Errorf("limit cannot exceed")
 	}
 	params := entities.RPCParams{}
 	if startCursor != "" {
-		pagination := entities.RPCPagination{Cursor: startCursor, Limit: limit}
-		params.Pagination = pagination
+		params.Pagination = entities.RPCPagination{Cursor: startCursor, Limit: limit}
 	} else {
-		pagination := entities.RPCPagination{Limit: limit}
-		params.Pagination = pagination
 		params.StartLedger = startLedger
+		params.Pagination = entities.RPCPagination{Limit: limit}
 	}
 	resultBytes, err := r.sendRPCRequest("getTransactions", params)
 	if err != nil {
@@ -109,7 +108,6 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	if err != nil {
 		return nil, fmt.Errorf("marshaling payload")
 	}
-
 	resp, err := r.httpClient.Post(r.rpcURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
@@ -126,8 +124,6 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	if err != nil {
 		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
 	}
-	fmt.Println("RPC RESULT")
-	fmt.Println(res)
 
 	if res.Result == nil {
 		return nil, fmt.Errorf("response %s missing result field", string(body))

@@ -3,145 +3,158 @@ package services
 import (
 	"context"
 	"testing"
-	"time"
 
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
-	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/tss"
+	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
+	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func TestProcessLedger(t *testing.T) {
+func TestGetLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
 	models, _ := data.NewModels(dbConnectionPool)
-	service := &ingestService{
-		models:            models,
-		networkPassphrase: network.TestNetworkPassphrase,
-		ledgerCursorName:  "last_synced_ledger",
-		ledgerBackend:     nil,
-		rpcService:        nil,
-	}
-
-	ctx := context.Background()
-
-	// Insert destination account into subscribed addresses
-	destinationAccount := "GBLI2OE4H3HAW7Z2GXLYZQNQ57XLHJ5OILFPVL33EPA4GDAIQ5F33JGA"
-	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", destinationAccount)
-	require.NoError(t, err)
-
-	ledgerMeta := xdr.LedgerCloseMeta{
-		V: 1,
-		V1: &xdr.LedgerCloseMetaV1{
-			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
-				Header: xdr.LedgerHeader{
-					LedgerSeq: 123,
-					ScpValue: xdr.StellarValue{
-						CloseTime: xdr.TimePoint(time.Date(2024, 5, 28, 11, 0, 0, 0, time.UTC).Unix()),
-					},
-					LedgerVersion: 10,
-				},
-			},
-			TxSet: xdr.GeneralizedTransactionSet{
-				V1TxSet: &xdr.TransactionSetV1{
-					Phases: []xdr.TransactionPhase{
-						{
-							V0Components: &[]xdr.TxSetComponent{
-								{
-									TxsMaybeDiscountedFee: &xdr.TxSetComponentTxsMaybeDiscountedFee{
-										Txs: []xdr.TransactionEnvelope{
-											{
-												Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-												V1: &xdr.TransactionV1Envelope{
-													Tx: xdr.Transaction{
-														SourceAccount: xdr.MustMuxedAddress("GB3H2CRRTO7W5WF54K53A3MRAFEUISHZ7Y5YGRVGRGHUZESLV5VYYWXI"),
-														SeqNum:        321,
-														Memo:          xdr.MemoText("memo_test"),
-														Operations: []xdr.Operation{
-															{
-																SourceAccount: nil,
-																Body: xdr.OperationBody{
-																	Type: xdr.OperationTypePayment,
-																	PaymentOp: &xdr.PaymentOp{
-																		Destination: xdr.MustMuxedAddress(destinationAccount),
-																		Asset: xdr.Asset{
-																			Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
-																			AlphaNum4: &xdr.AlphaNum4{
-																				AssetCode: xdr.AssetCode4([]byte("USDC")),
-																				Issuer:    xdr.MustMuxedAddress("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").ToAccountId(),
-																			},
-																		},
-																		Amount: xdr.Int64(50),
-																	},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			TxProcessing: []xdr.TransactionResultMeta{
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+	tssStore := tssstore.NewStore(dbConnectionPool)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
+		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
+			Cursor: "51",
+			Transactions: []entities.Transaction{
 				{
-					Result: xdr.TransactionResultPair{
-						TransactionHash: xdr.Hash{},
-					},
-					TxApplyProcessing: xdr.TransactionMeta{
-						V: 3,
-					},
+					Status: entities.SuccessStatus,
+					Hash:   "hash1",
+					Ledger: 1,
+				},
+				{
+					Status: entities.FailedStatus,
+					Hash:   "hash2",
+					Ledger: 2,
 				},
 			},
-		},
-	}
+		}
+		mockRPCService.
+			On("GetTransactions", int64(1), "", 50).
+			Return(rpcGetTransactionsResult, nil).
+			Once()
 
-	// Compute transaction hash and inject into ledger meta
-	components := ledgerMeta.V1.TxSet.V1TxSet.Phases[0].V0Components
-	xdrHash, err := network.HashTransactionInEnvelope((*components)[0].TxsMaybeDiscountedFee.Txs[0], service.networkPassphrase)
+		txns, err := ingestService.GetLedgerTransactions(1)
+		assert.Equal(t, 1, len(txns))
+		assert.Equal(t, txns[0].Hash, "hash1")
+		assert.Empty(t, err)
+	})
+
+	t.Run("ledger_transactions_split_between_multiple_gettransactions_calls", func(t *testing.T) {
+		rpcGetTransactionsResult1 := entities.RPCGetTransactionsResult{
+			Cursor: "51",
+			Transactions: []entities.Transaction{
+				{
+					Status: entities.SuccessStatus,
+					Hash:   "hash1",
+					Ledger: 1,
+				},
+				{
+					Status: entities.FailedStatus,
+					Hash:   "hash2",
+					Ledger: 1,
+				},
+			},
+		}
+		rpcGetTransactionsResult2 := entities.RPCGetTransactionsResult{
+			Cursor: "51",
+			Transactions: []entities.Transaction{
+				{
+					Status: entities.SuccessStatus,
+					Hash:   "hash3",
+					Ledger: 1,
+				},
+				{
+					Status: entities.FailedStatus,
+					Hash:   "hash4",
+					Ledger: 2,
+				},
+			},
+		}
+
+		mockRPCService.
+			On("GetTransactions", int64(1), "", 50).
+			Return(rpcGetTransactionsResult1, nil).
+			Once()
+
+		mockRPCService.
+			On("GetTransactions", int64(1), "51", 50).
+			Return(rpcGetTransactionsResult2, nil).
+			Once()
+
+		txns, err := ingestService.GetLedgerTransactions(1)
+		assert.Equal(t, 3, len(txns))
+		assert.Equal(t, txns[0].Hash, "hash1")
+		assert.Equal(t, txns[1].Hash, "hash2")
+		assert.Equal(t, txns[2].Hash, "hash3")
+		assert.Empty(t, err)
+	})
+
+}
+
+func TestProcessTSSTransactions(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
-	ledgerMeta.V1.TxProcessing[0].Result.TransactionHash = xdrHash
+	defer dbConnectionPool.Close()
+	models, _ := data.NewModels(dbConnectionPool)
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+	tssStore := tssstore.NewStore(dbConnectionPool)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 
-	// Run ledger ingestion
-	err = service.processLedger(ctx, 1, ledgerMeta)
-	require.NoError(t, err)
+	t.Run("routes_to_tss_router", func(t *testing.T) {
 
-	// Assert payment properly persisted to database
-	var payment data.Payment
-	query := `SELECT * FROM ingest_payments`
-	err = dbConnectionPool.GetContext(ctx, &payment, query)
-	require.NoError(t, err)
+		transactions := []entities.Transaction{
+			{
+				Status:              entities.SuccessStatus,
+				Hash:                "feebumphash",
+				ApplicationOrder:    1,
+				FeeBump:             true,
+				EnvelopeXDR:         "feebumpxdr",
+				ResultXDR:           "AAAAAAAAAMj////9AAAAAA==",
+				ResultMetaXDR:       "meta",
+				Ledger:              123456,
+				DiagnosticEventsXDR: "diag",
+				CreatedAt:           1695939098,
+			},
+		}
 
-	assert.Equal(t, data.Payment{
-		OperationID:     "528280981505",
-		OperationType:   xdr.OperationTypePayment.String(),
-		TransactionID:   "528280981504",
-		TransactionHash: "c20936e363c85799b31fd321b67aa49ecd88f04fc41297959387e445245080db",
-		FromAddress:     "GB3H2CRRTO7W5WF54K53A3MRAFEUISHZ7Y5YGRVGRGHUZESLV5VYYWXI",
-		ToAddress:       "GBLI2OE4H3HAW7Z2GXLYZQNQ57XLHJ5OILFPVL33EPA4GDAIQ5F33JGA",
-		SrcAssetCode:    "USDC",
-		SrcAssetIssuer:  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-		SrcAssetType:    xdr.AssetTypeAssetTypeCreditAlphanum4.String(),
-		SrcAmount:       50,
-		DestAssetCode:   "USDC",
-		DestAssetIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-		DestAssetType:   xdr.AssetTypeAssetTypeCreditAlphanum4.String(),
-		DestAmount:      50,
-		CreatedAt:       time.Date(2024, 5, 28, 11, 0, 0, 0, time.UTC),
-		Memo:            utils.PointOf("memo_test"),
-		MemoType:        xdr.MemoTypeMemoText.String(),
-	}, payment)
+		tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXCode{OtherCodes: tss.NewCode})
+
+		mockRouter.
+			On("Route", mock.AnythingOfType("tss.Payload")).
+			Return(nil).
+			Once()
+
+		err := ingestService.processTSSTransactions(context.Background(), transactions)
+		assert.Empty(t, err)
+
+		updatedTX, _ := tssStore.GetTransaction(context.Background(), "hash")
+		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)
+		updatedTry, _ := tssStore.GetTry(context.Background(), "feebumphash")
+		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), updatedTry.Code)
+	})
 }

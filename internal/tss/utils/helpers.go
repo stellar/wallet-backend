@@ -18,6 +18,7 @@ func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
 		response.TransactionResultCode = payload.RpcGetIngestTxResponse.Code.TxResultCode.String()
 		response.EnvelopeXDR = payload.RpcGetIngestTxResponse.EnvelopeXDR
 		response.ResultXDR = payload.RpcGetIngestTxResponse.ResultXDR
+		response.CreatedAt = payload.RpcGetIngestTxResponse.CreatedAt
 	}
 	return response
 }
