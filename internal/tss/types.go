@@ -64,13 +64,6 @@ type RPCTXStatus struct {
 	OtherStatus OtherStatus
 }
 
-func (s RPCTXStatus) Status() string {
-	if s.OtherStatus != NoStatus {
-		return string(s.OtherStatus)
-	}
-	return string(s.RPCStatus)
-}
-
 const (
 	// Do not use NoCode
 	NoCode OtherCodes = 0
@@ -84,13 +77,6 @@ const (
 type RPCTXCode struct {
 	TxResultCode xdr.TransactionResultCode
 	OtherCodes   OtherCodes
-}
-
-func (c RPCTXCode) Code() int {
-	if c.OtherCodes != NoCode {
-		return int(c.OtherCodes)
-	}
-	return int(c.TxResultCode)
 }
 
 var FinalErrorCodes = []xdr.TransactionResultCode{
