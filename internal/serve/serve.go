@@ -222,14 +222,6 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
 	})
 
-	errorNonJitterChannelConfigs := tsschannel.ErrorNonJitterChannelConfigs{
-		TxManager:         txManager,
-		MaxBufferSize:     cfg.ErrorHandlerServiceJitterChannelBufferSize,
-		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
-		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
-		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
-	}
-
 	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
 		TxManager:         txManager,
 		MaxBufferSize:     cfg.ErrorHandlerServiceJitterChannelBufferSize,
