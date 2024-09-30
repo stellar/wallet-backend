@@ -41,7 +41,7 @@ func Ingest(cfg Configs) error {
 	}
 
 	if err = ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger)); err != nil {
-		log.Ctx(ctx).Fatalf("Running ingest from %d to %d: %w", cfg.StartLedger, cfg.EndLedger)
+		log.Ctx(ctx).Fatalf("Running ingest from %d to %d: %v", cfg.StartLedger, cfg.EndLedger, err)
 	}
 
 	return nil

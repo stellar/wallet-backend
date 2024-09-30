@@ -141,8 +141,8 @@ func TestProcessTSSTransactions(t *testing.T) {
 			},
 		}
 
-		tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXCode{OtherCodes: tss.NewCode})
+		_ = tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		_ = tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXCode{OtherCodes: tss.NewCode})
 
 		mockRouter.
 			On("Route", mock.AnythingOfType("tss.Payload")).

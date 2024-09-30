@@ -12,17 +12,19 @@ func OperationID(ledgerNumber, txNumber, opNumber int32) string {
 	return toid.New(ledgerNumber, txNumber, opNumber).String()
 }
 
-func OperationResultRPC(txResult xdr.TransactionResult, opNumber int) *xdr.OperationResultTr {
+func OperationResult(txResult xdr.TransactionResult, opNumber int) *xdr.OperationResultTr {
 	results, _ := txResult.OperationResults()
 	tr := results[opNumber-1].MustTr()
 	return &tr
 }
 
+/*
 func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
 	results, _ := tx.Result.OperationResults()
 	tr := results[opNumber-1].MustTr()
 	return &tr
 }
+*/
 
 func TransactionID(ledgerNumber, txNumber int32) string {
 	return toid.New(int32(ledgerNumber), int32(txNumber), 0).String()
