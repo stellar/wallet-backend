@@ -161,7 +161,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 					OperationType:   op.Body.Type.String(),
 					TransactionID:   utils.TransactionID(int32(tx.Ledger), int32(tx.ApplicationOrder)),
 					TransactionHash: tx.Hash,
-					FromAddress:     utils.SourceAccountRPC(op, txEnvelopeXDR),
+					FromAddress:     utils.SourceAccount(op, txEnvelopeXDR),
 					CreatedAt:       time.Unix(tx.CreatedAt, 0),
 					Memo:            txMemo,
 					MemoType:        txMemoType,

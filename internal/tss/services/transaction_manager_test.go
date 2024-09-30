@@ -145,7 +145,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 
 		_, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
-		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to unmarshal errorResultXDR: ABCD", err.Error())
+		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABCD", err.Error())
 
 		var txStatus string
 		err = dbConnectionPool.GetContext(context.Background(), &txStatus, `SELECT current_status FROM tss_transactions WHERE transaction_hash = $1`, payload.TransactionHash)

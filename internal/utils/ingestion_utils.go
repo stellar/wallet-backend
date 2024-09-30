@@ -3,7 +3,6 @@ package utils
 import (
 	"strconv"
 
-	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 )
@@ -58,22 +57,13 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	return nil, memoType.String()
 }
 
-func SourceAccountRPC(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string {
+func SourceAccount(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string {
 	account := op.SourceAccount
 	if account != nil {
 		return account.ToAccountId().Address()
 	}
-
+	txEnvelope.SourceAccount()
 	return txEnvelope.SourceAccount().ToAccountId().Address()
-}
-
-func SourceAccount(op xdr.Operation, tx ingest.LedgerTransaction) string {
-	account := op.SourceAccount
-	if account != nil {
-		return account.ToAccountId().Address()
-	}
-
-	return tx.Envelope.SourceAccount().ToAccountId().Address()
 }
 
 func AssetCode(asset xdr.Asset) string {
