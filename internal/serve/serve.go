@@ -85,7 +85,8 @@ type handlerDeps struct {
 	// TSS
 	RPCCallerServiceChannel tss.Channel
 	TSSRouter               tssrouter.Router
-	AppTracker              apptracker.AppTracker
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -172,7 +173,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+		BaseFee:                            int64(cfg.BaseFee),
 	}
 	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
 	if err != nil {
@@ -184,20 +185,22 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	// re-use same context as above??
-	store := tssstore.NewStore(dbConnectionPool)
+	store, err := tssstore.NewStore(dbConnectionPool)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
+	}
 	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
 		TxService:  tssTxService,
 		RPCService: rpcService,
 		Store:      store,
 	})
-	tssChannelConfigs := tsschannel.RPCCallerChannelConfigs{
+
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
 		TxManager:     txManager,
 		Store:         store,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
-	}
-	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tssChannelConfigs)
+	})
 
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
 		RPCCallerChannel:      rpcCallerServiceChannel,

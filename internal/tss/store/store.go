@@ -19,10 +19,13 @@ type store struct {
 	DB db.ConnectionPool
 }
 
-func NewStore(db db.ConnectionPool) Store {
+func NewStore(db db.ConnectionPool) (Store, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db cannot be nil")
+	}
 	return &store{
 		DB: db,
-	}
+	}, nil
 }
 
 func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash string, txXDR string, status tss.RPCTXStatus) error {
@@ -33,9 +36,9 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
 		($1, $2, $3, $4)
 	ON CONFLICT (transaction_hash) 
 	DO UPDATE SET 
-		transaction_xdr = $2,
-		webhook_url = $3,
-    	current_status = $4,
+		transaction_xdr = EXCLUDED.transaction_xdr,
+		webhook_url = EXCLUDED.webhook_url,
+    	current_status = EXCLUDED.current_status,
     	updated_at = NOW();
 	`
 	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, status.Status())
@@ -53,9 +56,9 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 		($1, $2, $3, $4)
 	ON CONFLICT (try_transaction_hash) 
 	DO UPDATE SET 
-		original_transaction_hash = $1,
-		try_transaction_xdr = $3,
-    	status = $4,
+		original_transaction_hash = EXCLUDED.original_transaction_hash,
+		try_transaction_xdr = EXCLUDED.try_transaction_xdr,
+    	status = EXCLUDED.status,
     	updated_at = NOW();
 	`
 	_, err := s.DB.ExecContext(ctx, q, txHash, feeBumpTxHash, feeBumpTxXDR, status.Code())

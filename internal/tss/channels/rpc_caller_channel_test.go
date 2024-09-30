@@ -21,7 +21,7 @@ func TestSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(dbConnectionPool)
+	store, _ := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
@@ -64,7 +64,7 @@ func TestReceivee(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(dbConnectionPool)
+	store, _ := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
