@@ -3,7 +3,6 @@ package utils
 import (
 	"strconv"
 
-	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 )
@@ -12,18 +11,14 @@ func OperationID(ledgerNumber, txNumber, opNumber int32) string {
 	return toid.New(ledgerNumber, txNumber, opNumber).String()
 }
 
-func OperationResult(tx ingest.LedgerTransaction, opNumber int) *xdr.OperationResultTr {
-	results, _ := tx.Result.OperationResults()
+func OperationResult(txResult xdr.TransactionResult, opNumber int) *xdr.OperationResultTr {
+	results, _ := txResult.OperationResults()
 	tr := results[opNumber-1].MustTr()
 	return &tr
 }
 
 func TransactionID(ledgerNumber, txNumber int32) string {
 	return toid.New(int32(ledgerNumber), int32(txNumber), 0).String()
-}
-
-func TransactionHash(ledgerMeta xdr.LedgerCloseMeta, txNumber int) string {
-	return ledgerMeta.TransactionHash(txNumber - 1).HexString()
 }
 
 // Memo returns the memo value parsed to string and its type.
@@ -62,13 +57,13 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	return nil, memoType.String()
 }
 
-func SourceAccount(op xdr.Operation, tx ingest.LedgerTransaction) string {
+func SourceAccount(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string {
 	account := op.SourceAccount
 	if account != nil {
 		return account.ToAccountId().Address()
 	}
-
-	return tx.Envelope.SourceAccount().ToAccountId().Address()
+	txEnvelope.SourceAccount()
+	return txEnvelope.SourceAccount().ToAccountId().Address()
 }
 
 func AssetCode(asset xdr.Asset) string {
