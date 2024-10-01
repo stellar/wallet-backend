@@ -63,14 +63,14 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorJitterChannelName, payload)
 		if err != nil {
-			log.Errorf("%s: Unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
+			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
 			return
 		}
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.JitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err = p.Router.Route(payload)
 			if err != nil {
-				log.Errorf("%s: Unable to route payload: %e", ErrorJitterChannelName, err)
+				log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
 				return
 			}
 			return
@@ -81,7 +81,7 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		// NOTE: Is this a good idea? Infinite tries per transaction ?
 		err := p.Router.Route(payload)
 		if err != nil {
-			log.Errorf("%s: Unable to route payload: %e", ErrorJitterChannelName, err)
+			log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
 		}
 	}
 }
