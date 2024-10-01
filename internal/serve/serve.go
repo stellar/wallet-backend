@@ -100,6 +100,7 @@ type handlerDeps struct {
 	ErrorNonJitterChannel tss.Channel
 	WebhookChannel        tss.Channel
 	TSSRouter             tssrouter.Router
+	PoolPopulator         tssservices.PoolPopulator
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -116,6 +117,7 @@ func Serve(cfg Configs) error {
 		Handler:    handler(deps),
 		OnStarting: func() {
 			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
+			go deps.PoolPopulator.PopulatePools()
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
@@ -256,6 +258,11 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	errorJitterChannel.SetRouter(router)
 	errorNonJitterChannel.SetRouter(router)
 
+	poolPopulator, err := tssservices.NewPoolPopulator(router, store)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
+	}
+
 	return handlerDeps{
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
@@ -270,6 +277,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		ErrorNonJitterChannel: errorNonJitterChannel,
 		WebhookChannel:        webhookChannel,
 		TSSRouter:             router,
+		PoolPopulator:         poolPopulator,
 	}, nil
 }
 

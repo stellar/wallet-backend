@@ -131,3 +131,16 @@ func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 	}
 	return try, nil
 }
+
+func (s *store) GetTransactionsWithStatus(ctx context.Context, status string) ([]Transaction, error) {
+	q := `SELECT * from tss_transactions where status = $1`
+	var transactions []Transaction
+	err := s.DB.SelectContext(ctx, &transactions, q, status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []Transaction{}, nil
+		}
+		return []Transaction{}, fmt.Errorf("getting transactions: %w", err)
+	}
+	return transactions, nil
+}
