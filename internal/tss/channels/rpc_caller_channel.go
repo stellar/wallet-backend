@@ -29,6 +29,8 @@ type rpcCallerPool struct {
 
 var RPCCallerChannelName = "RPCCallerChannel"
 
+var _ tss.Channel = (*rpcCallerPool)(nil)
+
 func NewRPCCallerChannel(cfg RPCCallerChannelConfigs) *rpcCallerPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
 	return &rpcCallerPool{
