@@ -51,14 +51,14 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	resp := tssutils.PayloadTOTSSResponse(payload)
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
-		log.Errorf("WebhookHandlerServiceChannel: error marshaling payload: %s", err.Error())
+		log.Errorf("WebhookHandlerServiceChannel: error marshaling payload: %w", err)
 		return
 	}
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
 		resp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Errorf("WebhookHandlerServiceChannel: error making POST request to webhook: %s", err.Error())
+			log.Errorf("WebhookHandlerServiceChannel: error making POST request to webhook: %w", err)
 		}
 		defer resp.Body.Close()
 
