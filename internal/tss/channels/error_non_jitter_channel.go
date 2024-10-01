@@ -33,6 +33,8 @@ type errorNonJitterPool struct {
 
 var ErrorNonJitterChannelName = "ErrorNonJitterChannel"
 
+var _ tss.Channel = (*errorNonJitterPool)(nil)
+
 func NewErrorNonJitterChannel(cfg ErrorNonJitterChannelConfigs) *errorNonJitterPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
 	return &errorNonJitterPool{

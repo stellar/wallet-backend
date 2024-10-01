@@ -32,6 +32,8 @@ type errorJitterPool struct {
 
 var ErrorJitterChannelName = "ErrorJitterChannel"
 
+var _ tss.Channel = (*errorJitterPool)(nil)
+
 func jitter(dur time.Duration) time.Duration {
 	halfDur := int64(dur / 2)
 	delta := rand.Int63n(halfDur) - halfDur/2
