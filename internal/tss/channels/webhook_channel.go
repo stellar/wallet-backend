@@ -28,6 +28,8 @@ type webhookPool struct {
 	MinWaitBtwnRetriesMS int
 }
 
+var WebhookChannelName = "WebhookChannel"
+
 var _ tss.Channel = (*webhookPool)(nil)
 
 func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
@@ -51,14 +53,14 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	resp := tssutils.PayloadTOTSSResponse(payload)
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
-		log.Errorf("WebhookHandlerServiceChannel: error marshaling payload: %w", err)
+		log.Errorf("%s: error marshaling payload: %e", WebhookChannelName, err)
 		return
 	}
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
 		resp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Errorf("WebhookHandlerServiceChannel: error making POST request to webhook: %w", err)
+			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
 		}
 		defer resp.Body.Close()
 
