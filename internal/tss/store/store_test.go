@@ -102,7 +102,7 @@ func TestGetTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(dbConnectionPool)
+	store, _ := NewStore(dbConnectionPool)
 	t.Run("transaction_exists", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
@@ -124,7 +124,7 @@ func TestGetTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(dbConnectionPool)
+	store, _ := NewStore(dbConnectionPool)
 	t.Run("try_exists", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
@@ -146,7 +146,7 @@ func TestGetTryByXDR(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(dbConnectionPool)
+	store, _ := NewStore(dbConnectionPool)
 	t.Run("try_exists", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)

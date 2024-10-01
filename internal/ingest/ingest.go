@@ -62,7 +62,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
-	tssStore := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating tss store: %w", err)
+	}
 	tssRouterConfig := tssrouter.RouterConfigs{
 		WebhookChannel: cfg.WebhookChannel,
 	}
