@@ -100,7 +100,8 @@ type handlerDeps struct {
 	ErrorNonJitterChannel tss.Channel
 	WebhookChannel        tss.Channel
 	TSSRouter             tssrouter.Router
-	AppTracker            apptracker.AppTracker
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -191,7 +192,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
-		BaseFee:                            int64(cfg.BaseFee), // Reuse horizon base fee for RPC??
+		BaseFee:                            int64(cfg.BaseFee),
 	}
 	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
 	if err != nil {
@@ -203,39 +204,38 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	store := tssstore.NewStore(dbConnectionPool)
+	store, err := tssstore.NewStore(dbConnectionPool)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
+	}
 	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
 		TxService:  tssTxService,
 		RPCService: rpcService,
 		Store:      store,
 	})
-	rpcCallerChannelConfigs := tsschannel.RPCCallerChannelConfigs{
+
+	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
 		TxManager:     txManager,
 		Store:         store,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
-	}
-	rpcCallerChannel := tsschannel.NewRPCCallerChannel(rpcCallerChannelConfigs)
+	})
 
-	errorJitterChannelConfigs := tsschannel.ErrorJitterChannelConfigs{
+	errorJitterChannel := tsschannel.NewErrorJitterChannel(tsschannel.ErrorJitterChannelConfigs{
 		TxManager:            txManager,
 		MaxBufferSize:        cfg.ErrorHandlerServiceJitterChannelBufferSize,
 		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
-	}
+	})
 
-	errorJitterChannel := tsschannel.NewErrorJitterChannel(errorJitterChannelConfigs)
-
-	errorNonJitterChannelConfigs := tsschannel.ErrorNonJitterChannelConfigs{
+	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
 		TxManager:         txManager,
 		MaxBufferSize:     cfg.ErrorHandlerServiceJitterChannelBufferSize,
 		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
-	}
-
-	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(errorNonJitterChannelConfigs)
+	})
 
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
 	webhookChannelConfigs := tsschannel.WebhookChannelConfigs{

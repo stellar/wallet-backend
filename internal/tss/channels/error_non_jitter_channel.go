@@ -2,7 +2,6 @@ package channels
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
@@ -55,7 +54,6 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
-		fmt.Println(i)
 		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {

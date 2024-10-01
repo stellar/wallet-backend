@@ -21,7 +21,3 @@ func (r *RPCServiceMock) GetTransaction(transactionHash string) (entities.RPCGet
 	args := r.Called(transactionHash)
 	return args.Get(0).(entities.RPCGetTransactionResult), args.Error(1)
 }
-
-type TransactionManagerMock struct {
-	mock.Mock
-}

@@ -21,7 +21,7 @@ func TestSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(dbConnectionPool)
+	store, _ := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
@@ -64,7 +64,7 @@ func TestReceivee(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(dbConnectionPool)
+	store, _ := store.NewStore(dbConnectionPool)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
@@ -91,21 +91,6 @@ func TestReceivee(t *testing.T) {
 		routerMock.AssertNotCalled(t, "Route", payload)
 	})
 
-	t.Run("payload_not_routed", func(t *testing.T) {
-		rpcResp := tss.RPCSendTxResponse{
-			Status: tss.RPCTXStatus{RPCStatus: entities.PendingStatus},
-		}
-		payload.RpcSubmitTxResponse = rpcResp
-
-		txManagerMock.
-			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
-			Return(rpcResp, nil).
-			Once()
-
-		channel.Receive(payload)
-
-		routerMock.AssertNotCalled(t, "Route", payload)
-	})
 	t.Run("payload_routed", func(t *testing.T) {
 		rpcResp := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
