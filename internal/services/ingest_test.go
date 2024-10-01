@@ -29,7 +29,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore := tssstore.NewStore(dbConnectionPool)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
@@ -121,7 +121,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore := tssstore.NewStore(dbConnectionPool)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
