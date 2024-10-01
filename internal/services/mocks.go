@@ -25,7 +25,3 @@ func (r *RPCServiceMock) GetTransactions(startLedger int64, startCursor string, 
 	args := r.Called(startLedger, startCursor, limit)
 	return args.Get(0).(entities.RPCGetTransactionsResult), args.Error(1)
 }
-
-type TransactionManagerMock struct {
-	mock.Mock
-}

@@ -19,7 +19,7 @@ func TestUpsertTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(dbConnectionPool)
+	store, _ := NewStore(dbConnectionPool)
 	t.Run("insert", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 
@@ -52,7 +52,7 @@ func TestUpsertTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := NewStore(dbConnectionPool)
+	store, _ := NewStore(dbConnectionPool)
 	t.Run("insert", func(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)

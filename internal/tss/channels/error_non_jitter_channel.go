@@ -2,7 +2,6 @@ package channels
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
@@ -55,18 +54,17 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
-		fmt.Println(i)
 		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {
-			log.Errorf("%s: Unable to sign and submit transaction: %e", ErrorNonJitterChannelName, err)
+			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorNonJitterChannelName, err)
 			return
 		}
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {
-				log.Errorf("%s: Unable to route payload: %e", ErrorNonJitterChannelName, err)
+				log.Errorf("%s: unable to route payload: %e", ErrorNonJitterChannelName, err)
 				return
 			}
 			return
@@ -77,7 +75,7 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 		// NOTE: Is this a good idea?
 		err := p.Router.Route(payload)
 		if err != nil {
-			log.Errorf("%s: Unable to route payload: %e", ErrorNonJitterChannelName, err)
+			log.Errorf("%s: unable to route payload: %e", ErrorNonJitterChannelName, err)
 			return
 		}
 	}

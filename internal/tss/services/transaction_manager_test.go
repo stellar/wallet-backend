@@ -24,7 +24,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store := store.NewStore(dbConnectionPool)
+	store, _ := store.NewStore(dbConnectionPool)
 	txServiceMock := TransactionServiceMock{}
 	rpcServiceMock := services.RPCServiceMock{}
 	txManager := NewTransactionManager(TransactionManagerConfigs{

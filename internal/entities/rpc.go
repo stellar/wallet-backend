@@ -18,20 +18,10 @@ const (
 	SuccessStatus  RPCStatus = "SUCCESS"
 )
 
-type RPCEntry struct {
-	Key                   string `json:"key"`
-	XDR                   string `json:"xdr"`
-	LastModifiedLedgerSeq int64  `json:"lastModifiedLedgerSeq"`
-}
-
 type RPCResponse struct {
 	Result  json.RawMessage `json:"result"`
 	JSONRPC string          `json:"jsonrpc"`
 	ID      int64           `json:"id"`
-}
-
-type RPCGetLedgerEntriesResult struct {
-	Entries []RPCEntry `json:"entries"`
 }
 
 type RPCGetTransactionResult struct {
