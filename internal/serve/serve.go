@@ -290,7 +290,7 @@ func populatePools(poolPopulator tssservices.PoolPopulator) {
 	for range ticker.C {
 		err := poolPopulator.PopulatePools(context.Background())
 		if err != nil {
-			log.Ctx(ctx).Error("Ensuring the number of channel accounts in the database...")
+			log.Ctx(ctx).Error("Populating pools...")
 		}
 	}
 }
