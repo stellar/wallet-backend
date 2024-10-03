@@ -191,11 +191,11 @@ func (p *poolPopulator) routeErrorTransactions() error {
 
 func (p *poolPopulator) routeFinalTransactions(status tss.RPCTXStatus) error {
 	ctx := context.Background()
-	failedTxns, err := p.Store.GetTransactionsWithStatus(ctx, status)
+	finalTxns, err := p.Store.GetTransactionsWithStatus(ctx, status)
 	if err != nil {
 		return fmt.Errorf("unable to get transactions: %w", err)
 	}
-	for _, txn := range failedTxns {
+	for _, txn := range finalTxns {
 		payload := tss.Payload{
 			TransactionHash: txn.Hash,
 			TransactionXDR:  txn.XDR,
