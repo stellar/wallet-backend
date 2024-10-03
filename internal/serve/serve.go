@@ -117,7 +117,7 @@ func Serve(cfg Configs) error {
 		Handler:    handler(deps),
 		OnStarting: func() {
 			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
-			go deps.PoolPopulator.PopulatePools()
+			go populatePools(deps.PoolPopulator)
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
@@ -241,6 +241,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
 	webhookChannel := tsschannel.NewWebhookChannel(tsschannel.WebhookChannelConfigs{
 		HTTPClient:           &httpClient,
+		Store:                store,
 		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
 		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
 		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
@@ -258,7 +259,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	errorJitterChannel.SetRouter(router)
 	errorNonJitterChannel.SetRouter(router)
 
-	poolPopulator, err := tssservices.NewPoolPopulator(router, store)
+	poolPopulator, err := tssservices.NewPoolPopulator(router, store, rpcService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
 	}
@@ -279,6 +280,19 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		TSSRouter:             router,
 		PoolPopulator:         poolPopulator,
 	}, nil
+}
+
+func populatePools(poolPopulator tssservices.PoolPopulator) {
+	alertAfter := time.Minute * 10
+	ticker := time.NewTicker(alertAfter)
+	ctx := context.Background()
+
+	for range ticker.C {
+		err := poolPopulator.PopulatePools(context.Background())
+		if err != nil {
+			log.Ctx(ctx).Error("Ensuring the number of channel accounts in the database...")
+		}
+	}
 }
 
 func ensureChannelAccounts(channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {

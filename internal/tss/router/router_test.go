@@ -50,6 +50,35 @@ func TestRouter(t *testing.T) {
 
 		errorJitterChannel.AssertCalled(t, "Send", payload)
 	})
+
+	t.Run("status_failure_routes_to_webhook_channel", func(t *testing.T) {
+		payload := tss.Payload{}
+		payload.RpcSubmitTxResponse.Status = tss.RPCTXStatus{RPCStatus: entities.FailedStatus}
+
+		webhookChannel.
+			On("Send", payload).
+			Return().
+			Once()
+
+		_ = router.Route(payload)
+
+		webhookChannel.AssertCalled(t, "Send", payload)
+	})
+
+	t.Run("status_success_routes_to_webhook_channel", func(t *testing.T) {
+		payload := tss.Payload{}
+		payload.RpcSubmitTxResponse.Status = tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}
+
+		webhookChannel.
+			On("Send", payload).
+			Return().
+			Once()
+
+		_ = router.Route(payload)
+
+		webhookChannel.AssertCalled(t, "Send", payload)
+	})
+
 	t.Run("status_error_routes_to_error_jitter_channel", func(t *testing.T) {
 		for _, code := range tss.JitterErrorCodes {
 			payload := tss.Payload{
@@ -119,7 +148,7 @@ func TestRouter(t *testing.T) {
 			webhookChannel.AssertCalled(t, "Send", payload)
 		}
 	})
-	t.Run("get_ingest_resp_always_routes_to_webhook_cbannel", func(t *testing.T) {
+	t.Run("get_ingest_resp_always_routes_to_webhook_channel", func(t *testing.T) {
 		payload := tss.Payload{
 			RpcGetIngestTxResponse: tss.RPCGetIngestTxResponse{
 				Status: entities.SuccessStatus,

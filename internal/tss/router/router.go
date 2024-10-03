@@ -55,6 +55,10 @@ func (r *router) Route(payload tss.Payload) error {
 					channel = r.WebhookChannel
 				}
 			}
+		case string(entities.SuccessStatus):
+			channel = r.WebhookChannel
+		case string(entities.FailedStatus):
+			channel = r.WebhookChannel
 		default:
 			// Do nothing for PENDING / DUPLICATE statuses
 			return nil
