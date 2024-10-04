@@ -56,7 +56,7 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
-		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Microsecond)
+		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Millisecond)
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {
 			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorNonJitterChannelName, err)
@@ -72,14 +72,12 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 			return
 		}
 	}
-	if i == p.MaxRetries {
-		// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
-		// NOTE: Is this a good idea?
-		err := p.Router.Route(payload)
-		if err != nil {
-			log.Errorf("%s: unable to route payload: %e", ErrorNonJitterChannelName, err)
-			return
-		}
+
+	// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
+	err := p.Router.Route(payload)
+	if err != nil {
+		log.Errorf("%s: unable to route payload: %e", ErrorNonJitterChannelName, err)
+		return
 	}
 }
 
