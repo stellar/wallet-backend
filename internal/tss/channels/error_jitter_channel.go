@@ -80,6 +80,7 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 	}
 
 	// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
+	log.Infof("%s: max retry limit reached", ErrorJitterChannelName)
 	err := p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
