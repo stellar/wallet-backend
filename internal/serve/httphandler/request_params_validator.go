@@ -23,9 +23,9 @@ func DecodeJSONAndValidate(ctx context.Context, req *http.Request, reqBody inter
 func DecodeQueryAndValidate(ctx context.Context, req *http.Request, reqQuery interface{}, appTracker apptracker.AppTracker) *httperror.ErrorResponse {
 	err := httpdecode.DecodeQuery(req, reqQuery)
 	if err != nil {
-
 		return httperror.BadRequest("Invalid request URL params.", nil)
 	}
+
 	return ValidateRequestParams(ctx, reqQuery, appTracker)
 }
 
