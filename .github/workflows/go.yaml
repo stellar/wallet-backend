@@ -21,7 +21,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
-          version: v1.58
+          version: v1.61
           args: --timeout=5m
           
       - name: ./gomod.sh
