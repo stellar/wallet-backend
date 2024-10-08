@@ -363,8 +363,8 @@ func handler(deps handlerDeps) http.Handler {
 				NetworkPassphrase: deps.NetworkPassphrase,
 			}
 
-			r.Get("/{transactionhash}", handler.GetTransaction)
-			r.Post("/", handler.SubmitTransactions)
+			r.Get("/transactions/{transactionhash}", handler.GetTransaction)
+			r.Post("/transactions", handler.SubmitTransactions)
 		})
 	})
 

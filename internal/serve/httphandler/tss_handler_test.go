@@ -45,7 +45,7 @@ func TestSubmitTransactions(t *testing.T) {
 		NetworkPassphrase: "testnet passphrase",
 	}
 
-	const endpoint = "/tss"
+	const endpoint = "/tss/transactions"
 
 	t.Run("invalid_request_bodies", func(t *testing.T) {
 		reqBody := `{}`
@@ -152,9 +152,11 @@ func TestGetTransaction(t *testing.T) {
 		NetworkPassphrase: "testnet passphrase",
 	}
 
+	endpoint := "/tss/transactions"
+
 	r := chi.NewRouter()
 	//r.Get("/tss/{transactionhash}", handler.GetTransaction)
-	r.Route("/tss", func(r chi.Router) {
+	r.Route(endpoint, func(r chi.Router) {
 		r.Get("/{transactionhash}", handler.GetTransaction)
 	})
 
@@ -167,7 +169,7 @@ func TestGetTransaction(t *testing.T) {
 		txHash := "hash"
 		ctx := context.Background()
 		_ = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		req, err := http.NewRequest(http.MethodGet, path.Join("/tss", txHash), nil)
+		req, err := http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
 		require.NoError(t, err)
 
 		// Serve request
@@ -189,7 +191,7 @@ func TestGetTransaction(t *testing.T) {
 
 	t.Run("return_empty_transaction", func(t *testing.T) {
 		txHash := "hash"
-		req, err := http.NewRequest(http.MethodGet, path.Join("/tss", txHash), nil)
+		req, err := http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
 		require.NoError(t, err)
 
 		// Serve request
