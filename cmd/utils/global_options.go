@@ -67,6 +67,17 @@ func HorizonClientURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
+func RPCURLOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "rpc-url",
+		Usage:       "The URL of the RPC Server.",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "localhost:8080",
+		Required:    true,
+	}
+}
+
 func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:      "channel-account-encryption-passphrase",

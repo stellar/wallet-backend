@@ -25,6 +25,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
+		utils.RPCURLOption(&cfg.RPCURL),
 		{
 			Name:           "captive-core-bin-path",
 			Usage:          "Path to Captive Core's binary file.",

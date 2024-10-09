@@ -32,6 +32,8 @@ type errorJitterPool struct {
 
 var ErrorJitterChannelName = "ErrorJitterChannel"
 
+var _ tss.Channel = (*errorJitterPool)(nil)
+
 func jitter(dur time.Duration) time.Duration {
 	halfDur := int64(dur / 2)
 	delta := rand.Int63n(halfDur) - halfDur/2
@@ -60,29 +62,29 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
-		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
+		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorJitterChannelName, payload)
 		if err != nil {
-			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
+			log.Errorf("%s: unable to sign and submit transaction: %v", ErrorJitterChannelName, err)
 			return
 		}
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.JitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err = p.Router.Route(payload)
 			if err != nil {
-				log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
+				log.Errorf("%s: unable to route payload: %v", ErrorJitterChannelName, err)
+
 				return
 			}
 			return
 		}
 	}
-	if i == p.MaxRetries {
-		// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
-		// NOTE: Is this a good idea? Infinite tries per transaction ?
-		err := p.Router.Route(payload)
-		if err != nil {
-			log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
-		}
+
+	// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
+	log.Infof("%s: max retry limit reached", ErrorJitterChannelName)
+	err := p.Router.Route(payload)
+	if err != nil {
+		log.Errorf("%s: unable to route payload: %v", ErrorJitterChannelName, err)
 	}
 }
 
