@@ -75,6 +75,11 @@ type Configs struct {
 	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
 	ErrorHandlerServiceJitterChannelMaxRetries           int
 	ErrorHandlerServiceNonJitterChannelMaxRetries        int
+	WebhookHandlerServiceChannelMaxBufferSize            int
+	WebhookHandlerServiceChannelMaxWorkers               int
+	WebhookHandlerServiceChannelMaxRetries               int
+	WebhookHandlerServiceChannelMinWaitBtwnRetriesMS     int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -94,6 +99,7 @@ type handlerDeps struct {
 	RPCCallerChannel      tss.Channel
 	ErrorJitterChannel    tss.Channel
 	ErrorNonJitterChannel tss.Channel
+	WebhookChannel        tss.Channel
 	TSSRouter             tssrouter.Router
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -117,6 +123,7 @@ func Serve(cfg Configs) error {
 			deps.ErrorJitterChannel.Stop()
 			deps.ErrorNonJitterChannel.Stop()
 			deps.RPCCallerChannel.Stop()
+			deps.WebhookChannel.Stop()
 		},
 	})
 
@@ -180,14 +187,14 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-	// TSS
-	txServiceOpts := tssservices.TransactionServiceOptions{
+	// TSS setup
+	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		HorizonClient:                      &horizonClient,
 		BaseFee:                            int64(cfg.BaseFee),
-	}
-	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
+	})
+
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
@@ -230,11 +237,20 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
 	})
 
+	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
+	webhookChannel := tsschannel.NewWebhookChannel(tsschannel.WebhookChannelConfigs{
+		HTTPClient:           &httpClient,
+		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
+		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
+		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
+		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
+	})
+
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
 		ErrorNonJitterChannel: errorNonJitterChannel,
-		WebhookChannel:        nil,
+		WebhookChannel:        webhookChannel,
 	})
 
 	rpcCallerChannel.SetRouter(router)
@@ -253,6 +269,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
 		ErrorNonJitterChannel: errorNonJitterChannel,
+		WebhookChannel:        webhookChannel,
 		TSSRouter:             router,
 	}, nil
 }

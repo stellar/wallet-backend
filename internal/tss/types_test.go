@@ -78,4 +78,15 @@ func TestParseToRPCGetIngestTxResponse(t *testing.T) {
 		assert.Equal(t, int64(1234567), resp.CreatedAt)
 		assert.Empty(t, err)
 	})
+
+	t.Run("response_has_errorResultXdr", func(t *testing.T) {
+		resp, err := ParseToRPCGetIngestTxResponse(entities.RPCGetTransactionResult{
+			Status:    entities.ErrorStatus,
+			CreatedAt: "1234567",
+			ResultXDR: "AAAAAAAAAMj////9AAAAAA==",
+		}, nil)
+
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
+		assert.Empty(t, err)
+	})
 }
