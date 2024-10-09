@@ -51,7 +51,7 @@ func TestRouter(t *testing.T) {
 		errorJitterChannel.AssertCalled(t, "Send", payload)
 	})
 	t.Run("status_error_routes_to_error_jitter_channel", func(t *testing.T) {
-		for _, code := range JitterErrorCodes {
+		for _, code := range tss.JitterErrorCodes {
 			payload := tss.Payload{
 				RpcSubmitTxResponse: tss.RPCSendTxResponse{
 					Status: tss.RPCTXStatus{
@@ -74,7 +74,8 @@ func TestRouter(t *testing.T) {
 		}
 	})
 	t.Run("status_error_routes_to_error_non_jitter_channel", func(t *testing.T) {
-		for _, code := range NonJitterErrorCodes {
+		for _, code := range tss.NonJitterErrorCodes {
+
 			payload := tss.Payload{
 				RpcSubmitTxResponse: tss.RPCSendTxResponse{
 					Status: tss.RPCTXStatus{
@@ -97,7 +98,8 @@ func TestRouter(t *testing.T) {
 		}
 	})
 	t.Run("status_error_routes_to_webhook_channel", func(t *testing.T) {
-		for _, code := range FinalErrorCodes {
+
+		for _, code := range tss.FinalErrorCodes {
 			payload := tss.Payload{
 				RpcSubmitTxResponse: tss.RPCSendTxResponse{
 					Status: tss.RPCTXStatus{

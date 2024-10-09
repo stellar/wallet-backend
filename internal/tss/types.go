@@ -87,6 +87,26 @@ func (c RPCTXCode) Code() int {
 	return int(c.TxResultCode)
 }
 
+var FinalErrorCodes = []xdr.TransactionResultCode{
+	xdr.TransactionResultCodeTxSuccess,
+	xdr.TransactionResultCodeTxFailed,
+	xdr.TransactionResultCodeTxMissingOperation,
+	xdr.TransactionResultCodeTxInsufficientBalance,
+	xdr.TransactionResultCodeTxBadAuthExtra,
+	xdr.TransactionResultCodeTxMalformed,
+}
+
+var NonJitterErrorCodes = []xdr.TransactionResultCode{
+	xdr.TransactionResultCodeTxTooEarly,
+	xdr.TransactionResultCodeTxTooLate,
+	xdr.TransactionResultCodeTxBadSeq,
+}
+
+var JitterErrorCodes = []xdr.TransactionResultCode{
+	xdr.TransactionResultCodeTxInsufficientFee,
+	xdr.TransactionResultCodeTxInternalError,
+}
+
 type RPCSendTxResponse struct {
 	// The hash of the transaction submitted to RPC
 	TransactionHash string

@@ -64,9 +64,17 @@ type Configs struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// TSS
-	RPCURL                            string
-	RPCCallerServiceChannelBufferSize int
-	RPCCallerServiceChannelMaxWorkers int
+	RPCURL                                               string
+	RPCCallerServiceChannelBufferSize                    int
+	RPCCallerServiceChannelMaxWorkers                    int
+	ErrorHandlerServiceJitterChannelBufferSize           int
+	ErrorHandlerServiceJitterChannelMaxWorkers           int
+	ErrorHandlerServiceNonJitterChannelBufferSize        int
+	ErrorHandlerServiceNonJitterChannelMaxWorkers        int
+	ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS int
+	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
+	ErrorHandlerServiceJitterChannelMaxRetries           int
+	ErrorHandlerServiceNonJitterChannelMaxRetries        int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -83,8 +91,10 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	// TSS
-	RPCCallerServiceChannel tss.Channel
-	TSSRouter               tssrouter.Router
+	RPCCallerChannel      tss.Channel
+	ErrorJitterChannel    tss.Channel
+	ErrorNonJitterChannel tss.Channel
+	TSSRouter             tssrouter.Router
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -104,7 +114,9 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
-			deps.RPCCallerServiceChannel.Stop()
+			deps.ErrorJitterChannel.Stop()
+			deps.ErrorNonJitterChannel.Stop()
+			deps.RPCCallerChannel.Stop()
 		},
 	})
 
@@ -195,21 +207,39 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		Store:      store,
 	})
 
-	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
+	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
 		TxManager:     txManager,
 		Store:         store,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	})
 
+	errorJitterChannel := tsschannel.NewErrorJitterChannel(tsschannel.ErrorJitterChannelConfigs{
+		TxManager:            txManager,
+		MaxBufferSize:        cfg.ErrorHandlerServiceJitterChannelBufferSize,
+		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
+		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
+		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+	})
+
+	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
+		TxManager:         txManager,
+		MaxBufferSize:     cfg.ErrorHandlerServiceJitterChannelBufferSize,
+		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
+		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
+		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+	})
+
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
-		RPCCallerChannel:      rpcCallerServiceChannel,
-		ErrorJitterChannel:    nil,
-		ErrorNonJitterChannel: nil,
+		RPCCallerChannel:      rpcCallerChannel,
+		ErrorJitterChannel:    errorJitterChannel,
+		ErrorNonJitterChannel: errorNonJitterChannel,
 		WebhookChannel:        nil,
 	})
 
-	rpcCallerServiceChannel.SetRouter(router)
+	rpcCallerChannel.SetRouter(router)
+	errorJitterChannel.SetRouter(router)
+	errorNonJitterChannel.SetRouter(router)
 
 	return handlerDeps{
 		Models:                    models,
@@ -220,8 +250,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		PaymentService:            paymentService,
 		AppTracker:                cfg.AppTracker,
 		// TSS
-		RPCCallerServiceChannel: rpcCallerServiceChannel,
-		TSSRouter:               router,
+		RPCCallerChannel:      rpcCallerChannel,
+		ErrorJitterChannel:    errorJitterChannel,
+		ErrorNonJitterChannel: errorNonJitterChannel,
+		TSSRouter:             router,
 	}, nil
 }
 

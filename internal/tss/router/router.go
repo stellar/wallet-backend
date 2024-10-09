@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/tss"
 )
@@ -29,26 +28,6 @@ type router struct {
 
 var _ Router = (*router)(nil)
 
-var FinalErrorCodes = []xdr.TransactionResultCode{
-	xdr.TransactionResultCodeTxSuccess,
-	xdr.TransactionResultCodeTxFailed,
-	xdr.TransactionResultCodeTxMissingOperation,
-	xdr.TransactionResultCodeTxInsufficientBalance,
-	xdr.TransactionResultCodeTxBadAuthExtra,
-	xdr.TransactionResultCodeTxMalformed,
-}
-
-var NonJitterErrorCodes = []xdr.TransactionResultCode{
-	xdr.TransactionResultCodeTxTooEarly,
-	xdr.TransactionResultCodeTxTooLate,
-	xdr.TransactionResultCodeTxBadSeq,
-}
-
-var JitterErrorCodes = []xdr.TransactionResultCode{
-	xdr.TransactionResultCodeTxInsufficientFee,
-	xdr.TransactionResultCodeTxInternalError,
-}
-
 func NewRouter(cfg RouterConfigs) Router {
 	return &router{
 		RPCCallerChannel:      cfg.RPCCallerChannel,
@@ -68,11 +47,11 @@ func (r *router) Route(payload tss.Payload) error {
 			channel = r.ErrorJitterChannel
 		case string(entities.ErrorStatus):
 			if payload.RpcSubmitTxResponse.Code.OtherCodes == tss.NoCode {
-				if slices.Contains(JitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				if slices.Contains(tss.JitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorJitterChannel
-				} else if slices.Contains(NonJitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				} else if slices.Contains(tss.NonJitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorNonJitterChannel
-				} else if slices.Contains(FinalErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				} else if slices.Contains(tss.FinalErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.WebhookChannel
 				}
 			}
