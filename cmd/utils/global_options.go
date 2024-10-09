@@ -78,27 +78,6 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
-func RPCCallerServiceChannelBufferSizeOption(configKey *int) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "tss-rpc-caller-service-channel-buffer-size",
-		Usage:       "Set the buffer size for TSS RPC Caller Service channel.",
-		OptType:     types.Int,
-		ConfigKey:   configKey,
-		FlagDefault: 1000,
-	}
-}
-
-func RPCCallerServiceMaxWorkersOption(configKey *int) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "tss-rpc-caller-service-channel-max-workers",
-		Usage:       "Set the maximum number of workers for TSS RPC Caller Service channel.",
-		OptType:     types.Int,
-		ConfigKey:   configKey,
-		FlagDefault: 100,
-	}
-
-}
-
 func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:      "channel-account-encryption-passphrase",
@@ -160,17 +139,6 @@ func DistributionAccountSignatureClientProviderOption(configKey *signing.Signatu
 		ConfigKey:      configKey,
 		FlagDefault:    string(signing.EnvSignatureClientType),
 		Required:       true,
-	}
-}
-
-func RPCURLOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "rpc-url",
-		Usage:       "The URL of the RPC Server.",
-		OptType:     types.String,
-		ConfigKey:   configKey,
-		FlagDefault: "localhost:8080",
-		Required:    true,
 	}
 }
 
