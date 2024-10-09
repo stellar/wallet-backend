@@ -79,6 +79,7 @@ type Configs struct {
 	WebhookHandlerServiceChannelMaxWorkers               int
 	WebhookHandlerServiceChannelMaxRetries               int
 	WebhookHandlerServiceChannelMinWaitBtwnRetriesMS     int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -119,7 +120,6 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
-
 			deps.ErrorJitterChannel.Stop()
 			deps.ErrorNonJitterChannel.Stop()
 			deps.RPCCallerChannel.Stop()
@@ -194,6 +194,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HorizonClient:                      &horizonClient,
 		BaseFee:                            int64(cfg.BaseFee),
 	})
+
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
