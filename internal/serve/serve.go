@@ -25,6 +25,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/tss"
+	tsschannel "github.com/stellar/wallet-backend/internal/tss/channels"
+	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
+	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
+	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 )
 
 // NOTE: perhaps move this to a environment variable.
@@ -58,7 +63,10 @@ type Configs struct {
 	HorizonClientURL                   string
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-
+	// TSS
+	RPCURL                            string
+	RPCCallerServiceChannelBufferSize int
+	RPCCallerServiceChannelMaxWorkers int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -74,7 +82,11 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
-	AppTracker                apptracker.AppTracker
+	// TSS
+	RPCCallerServiceChannel tss.Channel
+	TSSRouter               tssrouter.Router
+	// Error Tracker
+	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -92,6 +104,7 @@ func Serve(cfg Configs) error {
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
+			deps.RPCCallerServiceChannel.Stop()
 		},
 	})
 
@@ -155,6 +168,49 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
+	// TSS
+	txServiceOpts := tssservices.TransactionServiceOptions{
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
+		HorizonClient:                      &horizonClient,
+		BaseFee:                            int64(cfg.BaseFee),
+	}
+	tssTxService, err := tssservices.NewTransactionService(txServiceOpts)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
+	}
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
+	}
+
+	store, err := tssstore.NewStore(dbConnectionPool)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
+	}
+	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
+		TxService:  tssTxService,
+		RPCService: rpcService,
+		Store:      store,
+	})
+
+	rpcCallerServiceChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
+		TxManager:     txManager,
+		Store:         store,
+		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+	})
+
+	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
+		RPCCallerChannel:      rpcCallerServiceChannel,
+		ErrorJitterChannel:    nil,
+		ErrorNonJitterChannel: nil,
+		WebhookChannel:        nil,
+	})
+
+	rpcCallerServiceChannel.SetRouter(router)
+
 	return handlerDeps{
 		Models:                    models,
 		SignatureVerifier:         signatureVerifier,
@@ -163,6 +219,9 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
 		AppTracker:                cfg.AppTracker,
+		// TSS
+		RPCCallerServiceChannel: rpcCallerServiceChannel,
+		TSSRouter:               router,
 	}, nil
 }
 

@@ -26,3 +26,14 @@ func BuildTestTransaction() *txnbuild.Transaction {
 	})
 	return tx
 }
+
+func BuildTestFeeBumpTransaction() *txnbuild.FeeBumpTransaction {
+
+	feeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
+		txnbuild.FeeBumpTransactionParams{
+			Inner:      BuildTestTransaction(),
+			FeeAccount: keypair.MustRandom().Address(),
+			BaseFee:    110,
+		})
+	return feeBumpTx
+}

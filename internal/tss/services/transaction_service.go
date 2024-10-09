@@ -1,4 +1,4 @@
-package utils
+package services
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 )
 
 type TransactionService interface {
+	NetworkPassphrase() string
 	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
 }
 
@@ -60,6 +61,10 @@ func NewTransactionService(opts TransactionServiceOptions) (*transactionService,
 		HorizonClient:                      opts.HorizonClient,
 		BaseFee:                            opts.BaseFee,
 	}, nil
+}
+
+func (t *transactionService) NetworkPassphrase() string {
+	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
 func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {

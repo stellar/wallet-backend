@@ -22,6 +22,7 @@ type RPCGetIngestTxResponse struct {
 	CreatedAt int64
 }
 
+//nolint:unused
 func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
 	if err != nil {
 		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
@@ -41,9 +42,28 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 	return getIngestTxResponse, nil
 }
 
+type OtherStatus string
+
 type OtherCodes int32
 
 type TransactionResultCode int32
+
+const (
+	NewStatus OtherStatus = "NEW"
+	NoStatus  OtherStatus = ""
+)
+
+type RPCTXStatus struct {
+	RPCStatus   entities.RPCStatus
+	OtherStatus OtherStatus
+}
+
+func (s RPCTXStatus) Status() string {
+	if s.OtherStatus != NoStatus {
+		return string(s.OtherStatus)
+	}
+	return string(s.RPCStatus)
+}
 
 const (
 	// Do not use NoCode
@@ -52,6 +72,7 @@ const (
 	NewCode             OtherCodes = 100
 	RPCFailCode         OtherCodes = 101
 	UnmarshalBinaryCode OtherCodes = 102
+	EmptyCode           OtherCodes = 103
 )
 
 type RPCTXCode struct {
@@ -59,12 +80,19 @@ type RPCTXCode struct {
 	OtherCodes   OtherCodes
 }
 
+func (c RPCTXCode) Code() int {
+	if c.OtherCodes != NoCode {
+		return int(c.OtherCodes)
+	}
+	return int(c.TxResultCode)
+}
+
 type RPCSendTxResponse struct {
 	// The hash of the transaction submitted to RPC
 	TransactionHash string
 	TransactionXDR  string
 	// The status of an RPC sendTransaction call. Can be one of [PENDING, DUPLICATE, TRY_AGAIN_LATER, ERROR]
-	Status entities.RPCStatus
+	Status RPCTXStatus
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
 	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code RPCTXCode
@@ -74,10 +102,11 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 	sendTxResponse := RPCSendTxResponse{}
 	sendTxResponse.TransactionXDR = transactionXDR
 	if err != nil {
+		sendTxResponse.Status.RPCStatus = entities.ErrorStatus
 		sendTxResponse.Code.OtherCodes = RPCFailCode
 		return sendTxResponse, fmt.Errorf("RPC fail: %w", err)
 	}
-	sendTxResponse.Status = entities.RPCStatus(result.Status)
+	sendTxResponse.Status.RPCStatus = result.Status
 	sendTxResponse.TransactionHash = result.Hash
 	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
 	if err != nil {
@@ -87,6 +116,11 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 }
 
 func parseSendTransactionErrorXDR(errorResultXDR string) (RPCTXCode, error) {
+	if errorResultXDR == "" {
+		return RPCTXCode{
+			OtherCodes: EmptyCode,
+		}, nil
+	}
 	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
 	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXDR)
 	if err != nil {

@@ -1,4 +1,4 @@
-package utils
+package services
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/signing"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
+	"github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -76,7 +77,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		BaseFee:                            114,
 	})
 
-	txStr, _ := BuildTestTransaction().Base64()
+	txStr, _ := utils.BuildTestTransaction().Base64()
 
 	t.Run("malformed_transaction_string", func(t *testing.T) {
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), "abcd")
@@ -166,7 +167,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("horizon_client_sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := BuildTestTransaction()
+		signedTx := utils.BuildTestTransaction()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(account.Address(), nil).
@@ -197,7 +198,7 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
 		account := keypair.MustRandom()
-		signedTx := BuildTestTransaction()
+		signedTx := utils.BuildTestTransaction()
 		testFeeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 			txnbuild.FeeBumpTransactionParams{
 				Inner:      signedTx,

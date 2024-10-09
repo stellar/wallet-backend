@@ -51,6 +51,8 @@ services:
 
       # Channel Account
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
+      TRACKER_DSN: ${TRACKER_DSN}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
   ingest:
     image: stellar/wallet-backend:development
     depends_on:
@@ -63,6 +65,8 @@ services:
       - ./wallet-backend ingest
     environment:
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
+      TRACKER_DSN: ${TRACKER_DSN}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
 volumes:
   postgres-db:
     driver: local
