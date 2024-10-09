@@ -67,6 +67,16 @@ func HorizonClientURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
+func RPCClientURLOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:      "rpc-url",
+		Usage:     "The URL of the Stellar RPC server which this application will communicate with.",
+		OptType:   types.String,
+		ConfigKey: configKey,
+		Required:  true,
+	}
+}
+
 func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:      "channel-account-encryption-passphrase",
