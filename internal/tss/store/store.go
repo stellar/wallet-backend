@@ -104,7 +104,6 @@ func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, e
 	err := s.DB.GetContext(ctx, &transaction, q, hash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			fmt.Println("empty")
 			return Transaction{}, nil
 		}
 		return Transaction{}, fmt.Errorf("getting transaction: %w", err)
