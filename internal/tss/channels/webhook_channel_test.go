@@ -2,21 +2,34 @@ package channels
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/tss"
+	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebhookHandlerServiceChannel(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store, _ := store.NewStore(dbConnectionPool)
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
 		HTTPClient:           &mockHTTPClient,
+		Store:                store,
 		MaxBufferSize:        1,
 		MaxWorkers:           1,
 		MaxRetries:           3,
@@ -25,6 +38,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	channel := NewWebhookChannel(cfg)
 
 	payload := tss.Payload{}
+	payload.TransactionHash = "hash"
+	payload.TransactionXDR = "xdr"
 	payload.WebhookURL = "www.stellar.org"
 	jsonData, _ := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
 
@@ -52,4 +67,7 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	channel.Stop()
 
 	mockHTTPClient.AssertNumberOfCalls(t, "Post", 2)
+
+	tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+	assert.Equal(t, string(tss.SentStatus), tx.Status)
 }

@@ -206,7 +206,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("error unmarshaling resultxdr: %w", err)
 		}
-		err = m.tssStore.UpsertTry(ctx, tssTry.OrigTxHash, tssTry.Hash, tssTry.XDR, code)
+		err = m.tssStore.UpsertTry(ctx, tssTry.OrigTxHash, tssTry.Hash, tssTry.XDR, status, code, tx.ResultXDR)
 		if err != nil {
 			return fmt.Errorf("error updating try: %w", err)
 		}

@@ -14,7 +14,9 @@ CREATE TABLE tss_transaction_submission_tries (
     try_transaction_hash TEXT PRIMARY KEY,
     original_transaction_hash TEXT  NOT NULL,
     try_transaction_xdr TEXT  NOT NULL,
-    status INTEGER  NOT NULL,
+    status TEXT NOT NULL,
+    code INTEGER  NOT NULL,
+    result_xdr TEXT NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 

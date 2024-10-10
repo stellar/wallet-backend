@@ -26,6 +26,7 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 		}, nil)
 
 		assert.Equal(t, entities.PendingStatus, resp.Status.RPCStatus)
+		assert.Equal(t, "", resp.ErrorResultXDR)
 		assert.Equal(t, EmptyCode, resp.Code.OtherCodes)
 		assert.Empty(t, err)
 	})
@@ -44,6 +45,7 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 			ErrorResultXDR: "AAAAAAAAAMj////9AAAAAA==",
 		}, nil)
 
+		assert.Equal(t, "AAAAAAAAAMj////9AAAAAA==", resp.ErrorResultXDR)
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
 		assert.Empty(t, err)
 	})
