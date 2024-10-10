@@ -95,3 +95,69 @@ func TestUpsertTry(t *testing.T) {
 		assert.Equal(t, numRows, 1)
 	})
 }
+
+func TestGetTransaction(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store, _ := NewStore(dbConnectionPool)
+	t.Run("transaction_exists", func(t *testing.T) {
+		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
+		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
+		tx, err := store.GetTransaction(context.Background(), "hash")
+		assert.Equal(t, "xdr", tx.XDR)
+		assert.Empty(t, err)
+
+	})
+	t.Run("transaction_does_not_exist", func(t *testing.T) {
+		tx, _ := store.GetTransaction(context.Background(), "doesnotexist")
+		assert.Equal(t, Transaction{}, tx)
+		assert.Empty(t, err)
+	})
+}
+
+func TestGetTry(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store, _ := NewStore(dbConnectionPool)
+	t.Run("try_exists", func(t *testing.T) {
+		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
+		try, err := store.GetTry(context.Background(), "feebumptxhash")
+		assert.Equal(t, try.OrigTxHash, "hash")
+		assert.Empty(t, err)
+
+	})
+	t.Run("try_does_not_exist", func(t *testing.T) {
+		try, _ := store.GetTry(context.Background(), "doesnotexist")
+		assert.Equal(t, Try{}, try)
+		assert.Empty(t, err)
+	})
+}
+
+func TestGetTryByXDR(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store, _ := NewStore(dbConnectionPool)
+	t.Run("try_exists", func(t *testing.T) {
+		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
+		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", code)
+		try, err := store.GetTryByXDR(context.Background(), "feebumptxxdr")
+		assert.Equal(t, try.OrigTxHash, "hash")
+		assert.Empty(t, err)
+
+	})
+	t.Run("try_does_not_exist", func(t *testing.T) {
+		try, _ := store.GetTryByXDR(context.Background(), "doesnotexist")
+		assert.Equal(t, Try{}, try)
+		assert.Empty(t, err)
+	})
+}
