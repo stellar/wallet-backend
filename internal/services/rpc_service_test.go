@@ -48,7 +48,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(&httpResponse, nil).
 			Once()
 
-		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		require.NoError(t, err)
 
 		var resultStruct struct {
@@ -66,7 +67,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(&http.Response{}, errors.New("connection failed")).
 			Once()
 
-		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "sending POST request to RPC: connection failed", err.Error())
 	})
@@ -81,7 +83,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(httpResponse, nil).
 			Once()
 
-		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "unmarshaling RPC response: read error", err.Error())
 	})
@@ -96,7 +99,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(httpResponse, nil).
 			Once()
 
-		resp, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Nil(t, resp)
 		assert.Equal(t, "parsing RPC response JSON: invalid character 'i' looking for beginning of object key string", err.Error())
 	})
@@ -111,7 +115,8 @@ func TestSendRPCRequest(t *testing.T) {
 			Return(httpResponse, nil).
 			Once()
 
-		result, err := rpcService.sendRPCRequest("sendTransaction", nil)
+		result, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
+
 		assert.Empty(t, result)
 		assert.Equal(t, `response {"status": "success"} missing result field`, err.Error())
 	})
@@ -124,14 +129,13 @@ func TestSendTransaction(t *testing.T) {
 
 	t.Run("successful", func(t *testing.T) {
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
+		params := entities.RPCParams{Transaction: transactionXDR}
 
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"method":  "sendTransaction",
-			"params": map[string]string{
-				"transaction": transactionXDR,
-			},
+			"params":  params,
 		}
 		jsonData, _ := json.Marshal(payload)
 
@@ -186,14 +190,13 @@ func TestGetTransaction(t *testing.T) {
 
 	t.Run("successful", func(t *testing.T) {
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
+		params := entities.RPCParams{Hash: transactionHash}
 
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"method":  "getTransaction",
-			"params": map[string]string{
-				"hash": transactionHash,
-			},
+			"params":  params,
 		}
 		jsonData, _ := json.Marshal(payload)
 
@@ -253,5 +256,68 @@ func TestGetTransaction(t *testing.T) {
 
 		assert.Equal(t, entities.RPCGetTransactionResult{}, result)
 		assert.Equal(t, "sending getTransaction request: sending POST request to RPC: connection failed", err.Error())
+	})
+}
+
+func TestGetTransactions(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
+
+		result, err := rpcService.GetTransactions(10, "", 5)
+		require.Error(t, err)
+
+		assert.Equal(t, entities.RPCGetTransactionsResult{}, result)
+		assert.Equal(t, "sending getTransactions request: sending POST request to RPC: connection failed", err.Error())
+	})
+
+	t.Run("successful", func(t *testing.T) {
+		params := entities.RPCParams{StartLedger: 10, Pagination: entities.RPCPagination{Limit: 5}}
+
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "getTransactions",
+			"params":  params,
+		}
+		jsonData, _ := json.Marshal(payload)
+
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+    				"transactions": [
+						{
+							"status": "SUCCESS",
+							"applicationOrder": 1,
+							"feeBump": false,
+							"envelopeXdr": "AAAAAgAAAACDz21Q3CTITlGqRus3/96/05EDivbtfJncNQKt64BTbAAAASwAAKkyAAXlMwAAAAEAAAAAAAAAAAAAAABmWeASAAAAAQAAABR3YWxsZXQ6MTcxMjkwNjMzNjUxMAAAAAEAAAABAAAAAIPPbVDcJMhOUapG6zf/3r/TkQOK9u18mdw1Aq3rgFNsAAAAAQAAAABwOSvou8mtwTtCkysVioO35TSgyRir2+WGqO8FShG/GAAAAAFVQUgAAAAAAO371tlrHUfK+AvmQvHje1jSUrvJb3y3wrJ7EplQeqTkAAAAAAX14QAAAAAAAAAAAeuAU2wAAABAn+6A+xXvMasptAm9BEJwf5Y9CLLQtV44TsNqS8ocPmn4n8Rtyb09SBiFoMv8isYgeQU5nAHsIwBNbEKCerusAQ==",
+							"resultXdr": "AAAAAAAAAGT/////AAAAAQAAAAAAAAAB////+gAAAAA=",
+							"resultMetaXdr": "AAAAAwAAAAAAAAACAAAAAwAc0RsAAAAAAAAAAIPPbVDcJMhOUapG6zf/3r/TkQOK9u18mdw1Aq3rgFNsAAAAF0YpYBQAAKkyAAXlMgAAAAsAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAMAAAAAABzRGgAAAABmWd/VAAAAAAAAAAEAHNEbAAAAAAAAAACDz21Q3CTITlGqRus3/96/05EDivbtfJncNQKt64BTbAAAABdGKWAUAACpMgAF5TMAAAALAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAc0RsAAAAAZlnf2gAAAAAAAAAAAAAAAAAAAAA=",
+							"ledger": 1888539,
+							"createdAt": 1717166042
+						}
+					]
+				}
+			}`)),
+		}
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&httpResponse, nil).
+			Once()
+
+		resp, err := rpcService.GetTransactions(10, "", 5)
+		require.Equal(t, entities.RPCStatus("SUCCESS"), resp.Transactions[0].Status)
+		require.Equal(t, int64(1888539), resp.Transactions[0].Ledger)
+		require.NoError(t, err)
 	})
 }
