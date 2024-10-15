@@ -14,6 +14,9 @@ import (
 type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
 	Status entities.RPCStatus
+	// The error code that is derived by deserialzing the ResultXdr string in the sendTransaction response
+	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
+	Code RPCTXCode
 	// The raw TransactionEnvelope XDR for this transaction
 	EnvelopeXDR string
 	// The raw TransactionResult XDR of the envelopeXdr
@@ -29,7 +32,7 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 	}
 
 	getIngestTxResponse := RPCGetIngestTxResponse{
-		Status:      entities.RPCStatus(result.Status),
+		Status:      result.Status,
 		EnvelopeXDR: result.EnvelopeXDR,
 		ResultXDR:   result.ResultXDR,
 	}
@@ -38,6 +41,10 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 		if err != nil {
 			return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createdAt: %w", err)
 		}
+	}
+	getIngestTxResponse.Code, err = parseSendTransactionErrorXDR(result.ResultXDR)
+	if err != nil {
+		return getIngestTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
 	}
 	return getIngestTxResponse, nil
 }
@@ -154,6 +161,15 @@ func parseSendTransactionErrorXDR(errorResultXDR string) (RPCTXCode, error) {
 	return RPCTXCode{
 		TxResultCode: errorResult.Result.Code,
 	}, nil
+}
+
+type TSSResponse struct {
+	TransactionHash       string `json:"tx_hash"`
+	TransactionResultCode string `json:"tx_result_code"`
+	Status                string `json:"status"`
+	CreatedAt             int64  `json:"created_at"`
+	EnvelopeXDR           string `json:"envelopeXdr"`
+	ResultXDR             string `json:"resultXdr"`
 }
 
 type Payload struct {
