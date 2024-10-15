@@ -51,7 +51,7 @@ func (r *router) Route(payload tss.Payload) error {
 					channel = r.ErrorJitterChannel
 				} else if slices.Contains(tss.NonJitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorNonJitterChannel
-				} else if slices.Contains(tss.FinalErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				} else if slices.Contains(tss.FinalCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.WebhookChannel
 				}
 			}

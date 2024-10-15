@@ -93,7 +93,7 @@ func (c RPCTXCode) Code() int {
 	return int(c.TxResultCode)
 }
 
-var FinalErrorCodes = []xdr.TransactionResultCode{
+var FinalCodes = []xdr.TransactionResultCode{
 	xdr.TransactionResultCodeTxSuccess,
 	xdr.TransactionResultCodeTxFailed,
 	xdr.TransactionResultCodeTxMissingOperation,

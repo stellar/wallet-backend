@@ -152,7 +152,6 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 			if txMemo != nil {
 				*txMemo = utils.SanitizeUTF8(*txMemo)
 			}
-			txEnvelopeXDR.SourceAccount()
 			for idx, op := range txEnvelopeXDR.Operations() {
 				opIdx := idx + 1
 

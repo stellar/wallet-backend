@@ -58,7 +58,7 @@ func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTran
 
 func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error) {
 	if limit > PageLimit {
-		return entities.RPCGetTransactionsResult{}, fmt.Errorf("limit cannot exceed")
+		return entities.RPCGetTransactionsResult{}, fmt.Errorf("limit cannot exceed %d", PageLimit)
 	}
 	params := entities.RPCParams{}
 	if startCursor != "" {
