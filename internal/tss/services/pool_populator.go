@@ -151,7 +151,7 @@ func (p *poolPopulator) routeErrorTransactions() error {
 		if err != nil {
 			return fmt.Errorf("gretting latest try for transaction: %w", err)
 		}
-		if slices.Contains(tss.FinalErrorCodes, xdr.TransactionResultCode(try.Code)) {
+		if slices.Contains(tss.FinalCodes, xdr.TransactionResultCode(try.Code)) {
 			// route to webhook channel
 			payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
 				TransactionHash: try.Hash,
