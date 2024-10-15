@@ -62,7 +62,6 @@ func SourceAccount(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string 
 	if account != nil {
 		return account.ToAccountId().Address()
 	}
-	txEnvelope.SourceAccount()
 	return txEnvelope.SourceAccount().ToAccountId().Address()
 }
 

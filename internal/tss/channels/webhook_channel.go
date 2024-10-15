@@ -83,7 +83,7 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 			break
 		}
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
-		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Microsecond)
+		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 	}
 	if !sent {
 		err := p.Store.UpsertTransaction(
