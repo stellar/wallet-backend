@@ -2,6 +2,7 @@ package channels
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -9,12 +10,14 @@ import (
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/tss"
+	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type WebhookChannelConfigs struct {
 	HTTPClient           utils.HTTPClient
+	Store                store.Store
 	MaxBufferSize        int
 	MaxWorkers           int
 	MaxRetries           int
@@ -23,6 +26,7 @@ type WebhookChannelConfigs struct {
 
 type webhookPool struct {
 	Pool                 *pond.WorkerPool
+	Store                store.Store
 	HTTPClient           utils.HTTPClient
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
@@ -36,6 +40,7 @@ func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
 	return &webhookPool{
 		Pool:                 pool,
+		Store:                cfg.Store,
 		HTTPClient:           cfg.HTTPClient,
 		MaxRetries:           cfg.MaxRetries,
 		MinWaitBtwnRetriesMS: cfg.MinWaitBtwnRetriesMS,
@@ -57,19 +62,35 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		return
 	}
 	var i int
+	sent := false
+	ctx := context.Background()
 	for i = 0; i < p.MaxRetries; i++ {
-		resp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
+		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
 			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
 		}
-		defer resp.Body.Close()
+		defer httpResp.Body.Close()
 
-		if resp.StatusCode == http.StatusOK {
-			return
+		if httpResp.StatusCode == http.StatusOK {
+			sent = true
+			err := p.Store.UpsertTransaction(
+				ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.SentStatus})
+			if err != nil {
+				log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+			}
+			break
 		}
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
 		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 	}
+	if !sent {
+		err := p.Store.UpsertTransaction(
+			ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NotSentStatus})
+		if err != nil {
+			log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+		}
+	}
+
 }
 
 func (p *webhookPool) Stop() {

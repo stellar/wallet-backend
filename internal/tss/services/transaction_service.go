@@ -90,7 +90,7 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 			Operations:    originalTx.Operations(),
 			BaseFee:       int64(t.BaseFee),
 			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(300),
+				TimeBounds: txnbuild.NewTimeout(120),
 			},
 			IncrementSequenceNum: true,
 		},

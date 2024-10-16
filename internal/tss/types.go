@@ -55,8 +55,10 @@ type OtherCodes int32
 type TransactionResultCode int32
 
 const (
-	NewStatus OtherStatus = "NEW"
-	NoStatus  OtherStatus = ""
+	NewStatus     OtherStatus = "NEW"
+	NoStatus      OtherStatus = ""
+	SentStatus    OtherStatus = "SENT"
+	NotSentStatus OtherStatus = "NOT_SENT"
 )
 
 type RPCTXStatus struct {
@@ -121,7 +123,8 @@ type RPCSendTxResponse struct {
 	Status RPCTXStatus
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
 	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
-	Code RPCTXCode
+	Code           RPCTXCode
+	ErrorResultXDR string
 }
 
 func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTransactionResult, err error) (RPCSendTxResponse, error) {
@@ -134,6 +137,7 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 	}
 	sendTxResponse.Status.RPCStatus = result.Status
 	sendTxResponse.TransactionHash = result.Hash
+	sendTxResponse.ErrorResultXDR = result.ErrorResultXDR
 	sendTxResponse.Code, err = TransactionResultXDRToCode(result.ErrorResultXDR)
 	if err != nil {
 		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
