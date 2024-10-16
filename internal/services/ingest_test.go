@@ -55,7 +55,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 		txns, err := ingestService.GetLedgerTransactions(1)
 		assert.Equal(t, 1, len(txns))
 		assert.Equal(t, txns[0].Hash, "hash1")
-		assert.Empty(t, err)
+		assert.NoError(t, err)
 	})
 
 	t.Run("ledger_transactions_split_between_multiple_gettransactions_calls", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 		assert.Equal(t, txns[0].Hash, "hash1")
 		assert.Equal(t, txns[1].Hash, "hash2")
 		assert.Equal(t, txns[2].Hash, "hash3")
-		assert.Empty(t, err)
+		assert.NoError(t, err)
 	})
 
 }
@@ -150,7 +150,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 			Once()
 
 		err := ingestService.processTSSTransactions(context.Background(), transactions)
-		assert.Empty(t, err)
+		assert.NoError(t, err)
 
 		updatedTX, _ := tssStore.GetTransaction(context.Background(), "hash")
 		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)

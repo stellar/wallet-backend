@@ -153,7 +153,7 @@ func WebhookHandlerServiceChannelMaxRetriesOption(configKey *int) *config.Config
 func WebhookHandlerServiceChannelMinWaitBtwnRetriesMSOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "webhook-service-channel-min-wait-between-retries",
-		Usage:       "The minumum amout of time to wait before repining the webhook url",
+		Usage:       "The minumum amout of time to wait before resending the payload to the webhook url",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 10,

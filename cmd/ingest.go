@@ -56,7 +56,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 		Use:   "ingest",
 		Short: "Run Ingestion service",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// SET UP WEBHOOK CHANNEL HERE
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)
 			}

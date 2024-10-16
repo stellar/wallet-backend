@@ -68,6 +68,7 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 
 	mockHTTPClient.AssertNumberOfCalls(t, "Post", 2)
 
-	tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+	tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
 	assert.Equal(t, string(tss.SentStatus), tx.Status)
+	assert.NoError(t, err)
 }

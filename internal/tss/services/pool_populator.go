@@ -43,36 +43,34 @@ func NewPoolPopulator(router router.Router, store store.Store, rpcService servic
 }
 
 func (p *poolPopulator) PopulatePools(ctx context.Context) error {
-
-	err := p.routeNewTransactions()
+	err := p.routeNewTransactions(ctx)
 	if err != nil {
 		return fmt.Errorf("error routing new transactions: %w", err)
 	}
 
-	err = p.routeErrorTransactions()
+	err = p.routeErrorTransactions(ctx)
 	if err != nil {
 		return fmt.Errorf("error routing new transactions: %w", err)
 	}
 
-	err = p.routeFinalTransactions(tss.RPCTXStatus{RPCStatus: entities.FailedStatus})
+	err = p.routeFinalTransactions(ctx, tss.RPCTXStatus{RPCStatus: entities.FailedStatus})
 	if err != nil {
 		return fmt.Errorf("error routing failed transactions: %w", err)
 	}
 
-	err = p.routeFinalTransactions(tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
+	err = p.routeFinalTransactions(ctx, tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
 	if err != nil {
 		return fmt.Errorf("error routing successful transactions: %w", err)
 	}
 
-	err = p.routeNotSentTransactions()
+	err = p.routeNotSentTransactions(ctx)
 	if err != nil {
 		return fmt.Errorf("error routing not_sent transactions: %w", err)
 	}
 	return nil
 }
 
-func (p *poolPopulator) routeNewTransactions() error {
-	ctx := context.Background()
+func (p *poolPopulator) routeNewTransactions(ctx context.Context) error {
 	newTxns, err := p.Store.GetTransactionsWithStatus(ctx, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 	if err != nil {
 		return fmt.Errorf("unable to get transactions: %w", err)
@@ -106,7 +104,6 @@ func (p *poolPopulator) routeNewTransactions() error {
 			if getTransactionResult.Status == entities.NotFoundStatus {
 				genericTx, err := txnbuild.TransactionFromXDR(try.XDR)
 				if err != nil {
-					fmt.Println(txn.XDR)
 					return fmt.Errorf("unmarshaling tx from xdr string: %w", err)
 				}
 				feeBumpTx, unpackable := genericTx.FeeBump()
@@ -135,8 +132,7 @@ func (p *poolPopulator) routeNewTransactions() error {
 	return nil
 }
 
-func (p *poolPopulator) routeErrorTransactions() error {
-	ctx := context.Background()
+func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 	errorTxns, err := p.Store.GetTransactionsWithStatus(ctx, tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
 	if err != nil {
 		return fmt.Errorf("unable to get transactions: %w", err)
@@ -151,7 +147,7 @@ func (p *poolPopulator) routeErrorTransactions() error {
 		if err != nil {
 			return fmt.Errorf("gretting latest try for transaction: %w", err)
 		}
-		if slices.Contains(tss.FinalErrorCodes, xdr.TransactionResultCode(try.Code)) {
+		if slices.Contains(tss.FinalCodes, xdr.TransactionResultCode(try.Code)) {
 			// route to webhook channel
 			payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
 				TransactionHash: try.Hash,
@@ -189,8 +185,7 @@ func (p *poolPopulator) routeErrorTransactions() error {
 	return nil
 }
 
-func (p *poolPopulator) routeFinalTransactions(status tss.RPCTXStatus) error {
-	ctx := context.Background()
+func (p *poolPopulator) routeFinalTransactions(ctx context.Context, status tss.RPCTXStatus) error {
 	finalTxns, err := p.Store.GetTransactionsWithStatus(ctx, status)
 	if err != nil {
 		return fmt.Errorf("unable to get transactions: %w", err)
@@ -219,8 +214,7 @@ func (p *poolPopulator) routeFinalTransactions(status tss.RPCTXStatus) error {
 	return nil
 }
 
-func (p *poolPopulator) routeNotSentTransactions() error {
-	ctx := context.Background()
+func (p *poolPopulator) routeNotSentTransactions(ctx context.Context) error {
 	notSentTxns, err := p.Store.GetTransactionsWithStatus(ctx, tss.RPCTXStatus{OtherStatus: tss.NotSentStatus})
 	if err != nil {
 		return fmt.Errorf("unable to get transactions: %w", err)
