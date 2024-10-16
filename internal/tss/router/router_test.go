@@ -161,7 +161,8 @@ func TestRouter(t *testing.T) {
 			Return().
 			Once()
 
-		_ = router.Route(payload)
+		err := router.Route(payload)
+		assert.NoError(t, err)
 
 		webhookChannel.AssertCalled(t, "Send", payload)
 	})

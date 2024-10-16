@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -77,7 +76,6 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 			err := p.Store.UpsertTransaction(
 				ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.SentStatus})
 			if err != nil {
-				fmt.Println(err)
 				log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
 			}
 			break

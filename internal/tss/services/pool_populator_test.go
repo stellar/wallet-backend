@@ -42,7 +42,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeNewTransactions()
+		err := populator.routeNewTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
@@ -74,7 +74,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeNewTransactions()
+		err := populator.routeNewTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
@@ -94,7 +94,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			Return(rpcGetTransacrionResp, nil).
 			Once()
 
-		err := populator.routeNewTransactions()
+		err := populator.routeNewTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 }
@@ -133,7 +133,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeErrorTransactions()
+		err := populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 	t.Run("tx_timebounds_not_exceeded", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
 		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", txXDRStr, tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{OtherCodes: tss.RPCFailCode}, "ABCD")
 
-		err := populator.routeErrorTransactions()
+		err := populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 }
@@ -180,7 +180,7 @@ func TestRouteFinalTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err = populator.routeFinalTransactions(tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
+		err = populator.routeFinalTransactions(context.Background(), tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
 		assert.Empty(t, err)
 	})
 }
@@ -219,7 +219,7 @@ func TestNotSentTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err = populator.routeNotSentTransactions()
+		err = populator.routeNotSentTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 }
