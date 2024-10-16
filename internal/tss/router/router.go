@@ -40,12 +40,12 @@ func NewRouter(cfg RouterConfigs) Router {
 func (r *router) Route(payload tss.Payload) error {
 	var channel tss.Channel
 	if payload.RpcSubmitTxResponse.Status.Status() != "" {
-		switch payload.RpcSubmitTxResponse.Status.Status() {
-		case string(tss.NewStatus):
+		switch payload.RpcSubmitTxResponse.Status {
+		case tss.RPCTXStatus{OtherStatus: tss.NewStatus}:
 			channel = r.RPCCallerChannel
-		case string(entities.TryAgainLaterStatus):
+		case tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus}:
 			channel = r.ErrorJitterChannel
-		case string(entities.ErrorStatus):
+		case tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}:
 			if payload.RpcSubmitTxResponse.Code.OtherCodes == tss.NoCode {
 				if slices.Contains(tss.JitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorJitterChannel
@@ -55,9 +55,9 @@ func (r *router) Route(payload tss.Payload) error {
 					channel = r.WebhookChannel
 				}
 			}
-		case string(entities.SuccessStatus):
+		case tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}:
 			channel = r.WebhookChannel
-		case string(entities.FailedStatus):
+		case tss.RPCTXStatus{RPCStatus: entities.FailedStatus}:
 			channel = r.WebhookChannel
 		default:
 			// Do nothing for PENDING / DUPLICATE statuses
