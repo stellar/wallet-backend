@@ -33,8 +33,9 @@ func TestRouter(t *testing.T) {
 			Return().
 			Once()
 
-		_ = router.Route(payload)
+		err := router.Route(payload)
 
+		assert.NoError(t, err)
 		rpcCallerChannel.AssertCalled(t, "Send", payload)
 	})
 	t.Run("status_try_again_later_routes_to_error_jitter_channel", func(t *testing.T) {
@@ -46,8 +47,9 @@ func TestRouter(t *testing.T) {
 			Return().
 			Once()
 
-		_ = router.Route(payload)
+		err := router.Route(payload)
 
+		assert.NoError(t, err)
 		errorJitterChannel.AssertCalled(t, "Send", payload)
 	})
 
@@ -60,8 +62,9 @@ func TestRouter(t *testing.T) {
 			Return().
 			Once()
 
-		_ = router.Route(payload)
+		err := router.Route(payload)
 
+		assert.NoError(t, err)
 		webhookChannel.AssertCalled(t, "Send", payload)
 	})
 
@@ -74,8 +77,9 @@ func TestRouter(t *testing.T) {
 			Return().
 			Once()
 
-		_ = router.Route(payload)
+		err := router.Route(payload)
 
+		assert.NoError(t, err)
 		webhookChannel.AssertCalled(t, "Send", payload)
 	})
 
@@ -97,8 +101,9 @@ func TestRouter(t *testing.T) {
 				Return().
 				Once()
 
-			_ = router.Route(payload)
+			err := router.Route(payload)
 
+			assert.NoError(t, err)
 			errorJitterChannel.AssertCalled(t, "Send", payload)
 		}
 	})
@@ -120,8 +125,9 @@ func TestRouter(t *testing.T) {
 				Return().
 				Once()
 
-			_ = router.Route(payload)
+			err := router.Route(payload)
 
+			assert.NoError(t, err)
 			errorNonJitterChannel.AssertCalled(t, "Send", payload)
 		}
 	})
@@ -142,8 +148,9 @@ func TestRouter(t *testing.T) {
 				Return().
 				Once()
 
-			_ = router.Route(payload)
+			err := router.Route(payload)
 
+			assert.NoError(t, err)
 			webhookChannel.AssertCalled(t, "Send", payload)
 		}
 	})
@@ -162,8 +169,8 @@ func TestRouter(t *testing.T) {
 			Once()
 
 		err := router.Route(payload)
-		assert.NoError(t, err)
 
+		assert.NoError(t, err)
 		webhookChannel.AssertCalled(t, "Send", payload)
 	})
 	t.Run("nil_channel_does_not_route", func(t *testing.T) {
