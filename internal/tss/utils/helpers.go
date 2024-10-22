@@ -3,7 +3,24 @@ package utils
 import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/wallet-backend/internal/tss"
 )
+
+func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
+	response := tss.TSSResponse{}
+	response.TransactionHash = payload.TransactionHash
+	if payload.RpcSubmitTxResponse.Status.Status() != "" {
+		response.Status = string(payload.RpcSubmitTxResponse.Status.Status())
+		response.TransactionResultCode = payload.RpcSubmitTxResponse.Code.TxResultCode.String()
+		response.EnvelopeXDR = payload.RpcSubmitTxResponse.TransactionXDR
+	} else if payload.RpcGetIngestTxResponse.Status != "" {
+		response.Status = string(payload.RpcGetIngestTxResponse.Status)
+		response.TransactionResultCode = payload.RpcGetIngestTxResponse.Code.TxResultCode.String()
+		response.EnvelopeXDR = payload.RpcGetIngestTxResponse.EnvelopeXDR
+		response.ResultXDR = payload.RpcGetIngestTxResponse.ResultXDR
+	}
+	return response
+}
 
 func BuildTestTransaction() *txnbuild.Transaction {
 	accountToSponsor := keypair.MustRandom()

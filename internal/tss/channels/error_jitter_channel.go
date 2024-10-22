@@ -73,6 +73,7 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 			err = p.Router.Route(payload)
 			if err != nil {
 				log.Errorf("%s: unable to route payload: %v", ErrorJitterChannelName, err)
+
 				return
 			}
 			return
@@ -85,7 +86,6 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %v", ErrorJitterChannelName, err)
 	}
-
 }
 
 func (p *errorJitterPool) SetRouter(router router.Router) {
