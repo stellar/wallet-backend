@@ -5,7 +5,7 @@ go 1.23.2
 require (
 	github.com/alitto/pond v1.9.2
 	github.com/aws/aws-sdk-go v1.55.5
-	github.com/getsentry/sentry-go v0.29.0
+	github.com/getsentry/sentry-go v0.29.1
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-playground/validator/v10 v10.22.1
 	github.com/google/uuid v1.6.0
