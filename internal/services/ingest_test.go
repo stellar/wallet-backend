@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -156,5 +158,60 @@ func TestProcessTSSTransactions(t *testing.T) {
 		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)
 		updatedTry, _ := tssStore.GetTry(context.Background(), "feebumphash")
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), updatedTry.Code)
+	})
+}
+
+func TestIngestPayments(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	models, _ := data.NewModels(dbConnectionPool)
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	// test these 3 test cases: OperationTypePayment, OperationTypePathPaymentStrictSend, OperationTypePathPaymentStrictReceive
+	srcAccount := keypair.MustRandom().Address()
+	destAccount := keypair.MustRandom().Address()
+	t.Run("test_op_payment", func(t *testing.T) {
+		_ = models.Account.Insert(context.Background(), srcAccount)
+		paymentOp := txnbuild.Payment{
+			SourceAccount: srcAccount,
+			Destination:   destAccount,
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+		}
+		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: keypair.MustRandom().Address(),
+			},
+			Operations:    []txnbuild.Operation{&paymentOp},
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		})
+
+		txEnvXDR, _ := transaction.Base64()
+
+		ledgerTransaction := entities.Transaction{
+			Status:           entities.SuccessStatus,
+			Hash:             "abcd",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
+			Ledger:           1,
+		}
+
+		ledgerTransactions := []entities.Transaction{ledgerTransaction}
+
+		err := ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		assert.NoError(t, err)
+
+		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		assert.NoError(t, err)
+		assert.Equal(t, payments[0].TransactionHash, "abcd")
 	})
 }

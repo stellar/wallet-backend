@@ -86,17 +86,20 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		time.Sleep(10 * time.Second)
 		ledgerTransactions, err := m.GetLedgerTransactions(int64(ingestLedger))
 		if err != nil {
-			return fmt.Errorf("getTransactions: %w", err)
+			log.Error("getTransactions: %w", err)
+			continue
 		}
 		heartbeat <- true
 		err = m.ingestPayments(ctx, ledgerTransactions)
 		if err != nil {
 			return fmt.Errorf("error ingesting payments: %w", err)
 		}
+
 		err = m.processTSSTransactions(ctx, ledgerTransactions)
 		if err != nil {
 			return fmt.Errorf("error processing tss transactions: %w", err)
 		}
+
 		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, uint32(ingestLedger))
 		if err != nil {
 			return fmt.Errorf("error updating latest synced ledger: %w", err)
@@ -154,7 +157,6 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 			}
 			for idx, op := range txEnvelopeXDR.Operations() {
 				opIdx := idx + 1
-
 				payment := data.Payment{
 					OperationID:     utils.OperationID(int32(tx.Ledger), int32(tx.ApplicationOrder), int32(opIdx)),
 					OperationType:   op.Body.Type.String(),
@@ -165,7 +167,6 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 					Memo:            txMemo,
 					MemoType:        txMemoType,
 				}
-
 				switch op.Body.Type {
 				case xdr.OperationTypePayment:
 					fillPayment(&payment, op.Body)
@@ -175,6 +176,10 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 					fillPathReceive(&payment, op.Body, txResultXDR, opIdx)
 				default:
 					continue
+				}
+				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
+				if err != nil {
+					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", tx.Ledger, tx.Hash, tx.ApplicationOrder, payment.OperationID, opIdx, err)
 				}
 			}
 		}
@@ -282,7 +287,9 @@ func fillPathSend(payment *data.Payment, operation xdr.OperationBody, txResult x
 	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
 	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
 	payment.DestAssetType = pathOp.DestAsset.Type.String()
-	payment.DestAmount = int64(result.DestAmount())
+	if result != (xdr.PathPaymentStrictSendResult{}) {
+		payment.DestAmount = int64(result.DestAmount())
+	}
 }
 
 func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
@@ -298,19 +305,3 @@ func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, txResul
 	payment.DestAssetType = pathOp.DestAsset.Type.String()
 	payment.DestAmount = int64(pathOp.DestAmount)
 }
-
-/*
-func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, transaction ingest.LedgerTransaction, operationIdx int) {
-	pathOp := operation.MustPathPaymentStrictReceiveOp()
-	result := utils.OperationResult(transaction, operationIdx).MustPathPaymentStrictReceiveResult()
-	payment.ToAddress = pathOp.Destination.Address()
-	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
-	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
-	payment.SrcAssetType = pathOp.SendAsset.Type.String()
-	payment.SrcAmount = int64(result.SendAmount())
-	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
-	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
-	payment.DestAssetType = pathOp.DestAsset.Type.String()
-	payment.DestAmount = int64(pathOp.DestAmount)
-}
-*/
