@@ -48,14 +48,14 @@ func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, chan
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to base64 fee bump transaction: %w", channelName, err)
 	}
 
-	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXCode{OtherCodes: tss.NewCode})
+	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
 	if err != nil {
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to upsert try in tries table: %w", channelName, err)
 	}
 	rpcResp, rpcErr := t.RPCService.SendTransaction(feeBumpTxXDR)
 	rpcSendResp, parseErr := tss.ParseToRPCSendTxResponse(feeBumpTxHash, rpcResp, rpcErr)
 
-	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, rpcSendResp.Code)
+	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, rpcSendResp.Status, rpcSendResp.Code, rpcResp.ErrorResultXDR)
 	if err != nil {
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to upsert try in tries table: %s", channelName, err.Error())
 	}

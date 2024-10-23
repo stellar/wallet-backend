@@ -13,13 +13,13 @@ func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
 		response.Status = string(payload.RpcSubmitTxResponse.Status.Status())
 		response.TransactionResultCode = payload.RpcSubmitTxResponse.Code.TxResultCode.String()
 		response.EnvelopeXDR = payload.RpcSubmitTxResponse.TransactionXDR
+		response.ResultXDR = payload.RpcSubmitTxResponse.ErrorResultXDR
 	} else if payload.RpcGetIngestTxResponse.Status != "" {
 		response.Status = string(payload.RpcGetIngestTxResponse.Status)
 		response.TransactionResultCode = payload.RpcGetIngestTxResponse.Code.TxResultCode.String()
 		response.EnvelopeXDR = payload.RpcGetIngestTxResponse.EnvelopeXDR
 		response.ResultXDR = payload.RpcGetIngestTxResponse.ResultXDR
 		response.CreatedAt = payload.RpcGetIngestTxResponse.CreatedAt
-
 	}
 	return response
 }

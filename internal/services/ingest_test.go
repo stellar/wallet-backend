@@ -144,7 +144,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 		}
 
 		_ = tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXCode{OtherCodes: tss.NewCode})
+		_ = tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
 
 		mockRouter.
 			On("Route", mock.AnythingOfType("tss.Payload")).
@@ -157,6 +157,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 		updatedTX, _ := tssStore.GetTransaction(context.Background(), "hash")
 		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)
 		updatedTry, _ := tssStore.GetTry(context.Background(), "feebumphash")
+		assert.Equal(t, "AAAAAAAAAMj////9AAAAAA==", updatedTry.ResultXDR)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), updatedTry.Code)
 	})
 }
@@ -174,7 +175,6 @@ func TestIngestPayments(t *testing.T) {
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
-	// test these 3 test cases: OperationTypePayment, OperationTypePathPaymentStrictSend, OperationTypePathPaymentStrictReceive
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 	t.Run("test_op_payment", func(t *testing.T) {

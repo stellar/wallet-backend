@@ -167,6 +167,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 					Memo:            txMemo,
 					MemoType:        txMemoType,
 				}
+
 				switch op.Body.Type {
 				case xdr.OperationTypePayment:
 					fillPayment(&payment, op.Body)
@@ -177,6 +178,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 				default:
 					continue
 				}
+
 				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
 				if err != nil {
 					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", tx.Ledger, tx.Hash, tx.ApplicationOrder, payment.OperationID, opIdx, err)
@@ -210,7 +212,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("error unmarshaling resultxdr: %w", err)
 		}
-		err = m.tssStore.UpsertTry(ctx, tssTry.OrigTxHash, tssTry.Hash, tssTry.XDR, code)
+		err = m.tssStore.UpsertTry(ctx, tssTry.OrigTxHash, tssTry.Hash, tssTry.XDR, status, code, tx.ResultXDR)
 		if err != nil {
 			return fmt.Errorf("error updating try: %w", err)
 		}
