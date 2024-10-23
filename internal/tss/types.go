@@ -42,6 +42,7 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 		}
 	}
 	getIngestTxResponse.Code, err = TransactionResultXDRToCode(result.ResultXDR)
+
 	if err != nil {
 		return getIngestTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
 	}

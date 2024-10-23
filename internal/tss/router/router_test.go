@@ -98,6 +98,7 @@ func TestRouter(t *testing.T) {
 	})
 	t.Run("status_error_routes_to_webhook_channel", func(t *testing.T) {
 		for _, code := range tss.FinalCodes {
+
 			payload := tss.Payload{
 				RpcSubmitTxResponse: tss.RPCSendTxResponse{
 					Status: tss.RPCTXStatus{
