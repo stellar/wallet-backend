@@ -8,28 +8,16 @@ RUN go mod download
 COPY . ./
 RUN go build -o /bin/wallet-backend -ldflags "-X main.GitCommit=$GIT_COMMIT" .
 
+# Use the official stellar/soroban-rpc image as the base
+FROM stellar/soroban-rpc
+
+# Install bash or sh
+RUN apt-get update && apt-get install -y bash
 
 # Step 2: Install Stellar Core and copy over app binary
 FROM ubuntu:jammy AS core-build
 
-ARG STELLAR_CORE_VERSION
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl wget gnupg apt-utils gpg && \
-    curl -sSL https://apt.stellar.org/SDF.asc | gpg --dearmor >/etc/apt/trusted.gpg.d/SDF.gpg && \
-    echo "deb https://apt.stellar.org jammy stable" >/etc/apt/sources.list.d/SDF.list && \
-    echo "deb https://apt.stellar.org jammy testing" >/etc/apt/sources.list.d/SDF-testing.list && \
-    echo "deb https://apt.stellar.org jammy unstable" >/etc/apt/sources.list.d/SDF-unstable.list && \
-    apt-get update && \
-    apt-get install -y stellar-core=${STELLAR_CORE_VERSION} && \
-    apt-get clean
-
 COPY --from=api-build /bin/wallet-backend /app/
-COPY --from=api-build /src/wallet-backend/internal/ingest/config/stellar-core_pubnet.cfg /app/config/stellar-core_pubnet.cfg
-COPY --from=api-build /src/wallet-backend/internal/ingest/config/stellar-core_testnet.cfg /app/config/stellar-core_testnet.cfg
-
-ENV CAPTIVE_CORE_BIN_PATH /usr/bin/stellar-core
-ENV CAPTIVE_CORE_CONFIG_DIR /app/config/
 
 EXPOSE 8001
 WORKDIR /app

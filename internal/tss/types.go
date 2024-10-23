@@ -25,7 +25,6 @@ type RPCGetIngestTxResponse struct {
 	CreatedAt int64
 }
 
-//nolint:unused
 func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
 	if err != nil {
 		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
@@ -42,7 +41,8 @@ func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err 
 			return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("unable to parse createdAt: %w", err)
 		}
 	}
-	getIngestTxResponse.Code, err = parseSendTransactionErrorXDR(result.ResultXDR)
+	getIngestTxResponse.Code, err = TransactionResultXDRToCode(result.ResultXDR)
+
 	if err != nil {
 		return getIngestTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
 	}
@@ -94,7 +94,7 @@ func (c RPCTXCode) Code() int {
 	return int(c.TxResultCode)
 }
 
-var FinalErrorCodes = []xdr.TransactionResultCode{
+var FinalCodes = []xdr.TransactionResultCode{
 	xdr.TransactionResultCodeTxSuccess,
 	xdr.TransactionResultCodeTxFailed,
 	xdr.TransactionResultCodeTxMissingOperation,
@@ -135,28 +135,36 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 	}
 	sendTxResponse.Status.RPCStatus = result.Status
 	sendTxResponse.TransactionHash = result.Hash
-	sendTxResponse.Code, err = parseSendTransactionErrorXDR(result.ErrorResultXDR)
+	sendTxResponse.Code, err = TransactionResultXDRToCode(result.ErrorResultXDR)
 	if err != nil {
 		return sendTxResponse, fmt.Errorf("parse error result xdr string: %w", err)
 	}
 	return sendTxResponse, nil
 }
 
-func parseSendTransactionErrorXDR(errorResultXDR string) (RPCTXCode, error) {
+func UnmarshallTransactionResultXDR(resultXDR string) (xdr.TransactionResult, error) {
+	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
+	decodedBytes, err := base64.StdEncoding.DecodeString(resultXDR)
+	if err != nil {
+		return xdr.TransactionResult{}, fmt.Errorf(unmarshalErr, resultXDR)
+	}
+	var txResultXDR xdr.TransactionResult
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &txResultXDR)
+	if err != nil {
+		return xdr.TransactionResult{}, fmt.Errorf(unmarshalErr, resultXDR)
+	}
+	return txResultXDR, nil
+}
+
+func TransactionResultXDRToCode(errorResultXDR string) (RPCTXCode, error) {
 	if errorResultXDR == "" {
 		return RPCTXCode{
 			OtherCodes: EmptyCode,
 		}, nil
 	}
-	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
-	decodedBytes, err := base64.StdEncoding.DecodeString(errorResultXDR)
+	errorResult, err := UnmarshallTransactionResultXDR(errorResultXDR)
 	if err != nil {
-		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
-	}
-	var errorResult xdr.TransactionResult
-	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &errorResult)
-	if err != nil {
-		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf(unmarshalErr, errorResultXDR)
+		return RPCTXCode{OtherCodes: UnmarshalBinaryCode}, fmt.Errorf("unable to parse: %w", err)
 	}
 	return RPCTXCode{
 		TxResultCode: errorResult.Result.Code,

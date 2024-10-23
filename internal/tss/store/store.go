@@ -2,21 +2,45 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/tss"
 )
 
 type Store interface {
+	GetTransaction(ctx context.Context, hash string) (Transaction, error)
 	UpsertTransaction(ctx context.Context, WebhookURL string, txHash string, txXDR string, status tss.RPCTXStatus) error
 	UpsertTry(ctx context.Context, transactionHash string, feeBumpTxHash string, feeBumpTxXDR string, status tss.RPCTXCode) error
+	GetTry(ctx context.Context, hash string) (Try, error)
+	GetTryByXDR(ctx context.Context, xdr string) (Try, error)
 }
 
 var _ Store = (*store)(nil)
 
 type store struct {
 	DB db.ConnectionPool
+}
+
+type Transaction struct {
+	Hash         string       `db:"transaction_hash"`
+	XDR          string       `db:"transaction_xdr"`
+	WebhookURL   string       `db:"webhook_url"`
+	Status       string       `db:"current_status"`
+	CreatedAt    time.Time    `db:"created_at"`
+	UpdatedAt    time.Time    `db:"updated_at"`
+	ClaimedUntil sql.NullTime `db:"claimed_until"`
+}
+
+type Try struct {
+	Hash       string    `db:"try_transaction_hash"`
+	OrigTxHash string    `db:"original_transaction_hash"`
+	XDR        string    `db:"try_transaction_xdr"`
+	Code       int32     `db:"status"`
+	CreatedAt  time.Time `db:"updated_at"`
 }
 
 func NewStore(db db.ConnectionPool) (Store, error) {
@@ -66,4 +90,44 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 		return fmt.Errorf("inserting/updating tss try: %w", err)
 	}
 	return nil
+}
+
+func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, error) {
+	q := `SELECT * from tss_transactions where transaction_hash = $1`
+	var transaction Transaction
+	err := s.DB.GetContext(ctx, &transaction, q, hash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			fmt.Println("empty")
+			return Transaction{}, nil
+		}
+		return Transaction{}, fmt.Errorf("getting transaction: %w", err)
+	}
+	return transaction, nil
+}
+
+func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
+	q := `SELECT * from tss_transaction_submission_tries where try_transaction_hash = $1`
+	var try Try
+	err := s.DB.GetContext(ctx, &try, q, hash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Try{}, nil
+		}
+		return Try{}, fmt.Errorf("getting try: %w", err)
+	}
+	return try, nil
+}
+
+func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
+	q := `SELECT * from tss_transaction_submission_tries where  try_transaction_xdr = $1`
+	var try Try
+	err := s.DB.GetContext(ctx, &try, q, xdr)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Try{}, nil
+		}
+		return Try{}, fmt.Errorf("getting try: %w", err)
+	}
+	return try, nil
 }

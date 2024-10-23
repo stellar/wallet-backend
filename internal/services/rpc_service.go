@@ -13,6 +13,7 @@ import (
 
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
+	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 }
 
@@ -20,6 +21,8 @@ type rpcService struct {
 	rpcURL     string
 	httpClient utils.HTTPClient
 }
+
+var PageLimit = 200
 
 var _ RPCService = (*rpcService)(nil)
 
@@ -38,7 +41,8 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 }
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
-	resultBytes, err := r.sendRPCRequest("getTransaction", map[string]string{"hash": transactionHash})
+	resultBytes, err := r.sendRPCRequest("getTransaction", entities.RPCParams{Hash: transactionHash})
+
 	if err != nil {
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("sending getTransaction request: %w", err)
 	}
@@ -52,8 +56,33 @@ func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTran
 	return result, nil
 }
 
+func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error) {
+	if limit > PageLimit {
+		return entities.RPCGetTransactionsResult{}, fmt.Errorf("limit cannot exceed %d", PageLimit)
+	}
+	params := entities.RPCParams{}
+	if startCursor != "" {
+		params.Pagination = entities.RPCPagination{Cursor: startCursor, Limit: limit}
+	} else {
+		params.StartLedger = startLedger
+		params.Pagination = entities.RPCPagination{Limit: limit}
+	}
+	resultBytes, err := r.sendRPCRequest("getTransactions", params)
+	if err != nil {
+		return entities.RPCGetTransactionsResult{}, fmt.Errorf("sending getTransactions request: %w", err)
+	}
+
+	var result entities.RPCGetTransactionsResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCGetTransactionsResult{}, fmt.Errorf("parsing getTransactions result JSON: %w", err)
+	}
+	return result, nil
+}
+
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
-	resultBytes, err := r.sendRPCRequest("sendTransaction", map[string]string{"transaction": transactionXDR})
+
+	resultBytes, err := r.sendRPCRequest("sendTransaction", entities.RPCParams{Transaction: transactionXDR})
 	if err != nil {
 		return entities.RPCSendTransactionResult{}, fmt.Errorf("sending sendTransaction request: %w", err)
 	}
@@ -67,7 +96,8 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 	return result, nil
 }
 
-func (r *rpcService) sendRPCRequest(method string, params map[string]string) (json.RawMessage, error) {
+func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
+
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
@@ -78,7 +108,6 @@ func (r *rpcService) sendRPCRequest(method string, params map[string]string) (js
 	if err != nil {
 		return nil, fmt.Errorf("marshaling payload")
 	}
-
 	resp, err := r.httpClient.Post(r.rpcURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)

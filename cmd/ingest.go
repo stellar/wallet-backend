@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"go/types"
+	"net/http"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
@@ -11,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
+	tsschannels "github.com/stellar/wallet-backend/internal/tss/channels"
 )
 
 type ingestCmd struct{}
@@ -22,28 +25,15 @@ func (c *ingestCmd) Command() *cobra.Command {
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
-		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.RPCURLOption(&cfg.RPCURL),
-		{
-			Name:           "captive-core-bin-path",
-			Usage:          "Path to Captive Core's binary file.",
-			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionCaptiveCoreBinPath,
-			ConfigKey:      &cfg.CaptiveCoreBinPath,
-			FlagDefault:    "/usr/local/bin/stellar-core",
-			Required:       true,
-		},
-		{
-			Name:           "captive-core-config-dir",
-			Usage:          "Path to Captive Core's configuration files directory.",
-			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionCaptiveCoreConfigDir,
-			ConfigKey:      &cfg.CaptiveCoreConfigDir,
-			FlagDefault:    "./internal/ingest/config",
-			Required:       true,
-		},
+		utils.StartLedgerOption(&cfg.StartLedger),
+		utils.EndLedgerOption(&cfg.EndLedger),
+		utils.WebhookHandlerServiceChannelMaxBufferSizeOption(&cfg.WebhookChannelMaxBufferSize),
+		utils.WebhookHandlerServiceChannelMaxWorkersOptions(&cfg.WebhookChannelMaxWorkers),
+		utils.WebhookHandlerServiceChannelMaxRetriesOption(&cfg.WebhookChannelMaxRetries),
+		utils.WebhookHandlerServiceChannelMinWaitBtwnRetriesMSOption(&cfg.WebhookChannelWaitBtwnTriesMS),
 		{
 			Name:        "ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
@@ -57,14 +47,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.StartLedger,
-			FlagDefault: 0,
-			Required:    false,
-		},
-		{
-			Name:        "end",
-			Usage:       "Ledger number up to which ingestion should run. When not present, ingestion run indefinitely (live ingestion requires it to be empty).",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.EndLedger,
 			FlagDefault: 0,
 			Required:    false,
 		},
@@ -85,10 +67,20 @@ func (c *ingestCmd) Command() *cobra.Command {
 				return fmt.Errorf("initializing app tracker: %w", err)
 			}
 			cfg.AppTracker = appTracker
+			cfg.WebhookChannel = tsschannels.NewWebhookChannel(tsschannels.WebhookChannelConfigs{
+				HTTPClient:           &http.Client{Timeout: 30 * time.Second},
+				MaxBufferSize:        cfg.WebhookChannelMaxBufferSize,
+				MaxWorkers:           cfg.WebhookChannelMaxWorkers,
+				MaxRetries:           cfg.WebhookChannelMaxRetries,
+				MinWaitBtwnRetriesMS: cfg.WebhookChannelWaitBtwnTriesMS,
+			})
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return c.Run(cfg)
+		},
+		PersistentPostRun: func(_ *cobra.Command, _ []string) {
+			cfg.WebhookChannel.Stop()
 		},
 	}
 

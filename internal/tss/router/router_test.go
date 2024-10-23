@@ -97,7 +97,8 @@ func TestRouter(t *testing.T) {
 		}
 	})
 	t.Run("status_error_routes_to_webhook_channel", func(t *testing.T) {
-		for _, code := range tss.FinalErrorCodes {
+		for _, code := range tss.FinalCodes {
+
 			payload := tss.Payload{
 				RpcSubmitTxResponse: tss.RPCSendTxResponse{
 					Status: tss.RPCTXStatus{
@@ -108,7 +109,6 @@ func TestRouter(t *testing.T) {
 					},
 				},
 			}
-			payload.RpcSubmitTxResponse.Code.TxResultCode = code
 			webhookChannel.
 				On("Send", payload).
 				Return().
@@ -118,6 +118,24 @@ func TestRouter(t *testing.T) {
 
 			webhookChannel.AssertCalled(t, "Send", payload)
 		}
+	})
+	t.Run("get_ingest_resp_always_routes_to_webhook_cbannel", func(t *testing.T) {
+		payload := tss.Payload{
+			RpcGetIngestTxResponse: tss.RPCGetIngestTxResponse{
+				Status: entities.SuccessStatus,
+				Code: tss.RPCTXCode{
+					TxResultCode: tss.FinalCodes[0],
+				},
+			},
+		}
+		webhookChannel.
+			On("Send", payload).
+			Return().
+			Once()
+
+		_ = router.Route(payload)
+
+		webhookChannel.AssertCalled(t, "Send", payload)
 	})
 	t.Run("nil_channel_does_not_route", func(t *testing.T) {
 		payload := tss.Payload{}

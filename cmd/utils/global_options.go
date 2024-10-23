@@ -73,7 +73,7 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 		Usage:       "The URL of the RPC Server.",
 		OptType:     types.String,
 		ConfigKey:   configKey,
-		FlagDefault: "localhost:8080",
+		FlagDefault: "http://soroban-rpc:8000",
 		Required:    true,
 	}
 }
@@ -140,6 +140,30 @@ func DistributionAccountSignatureClientProviderOption(configKey *signing.Signatu
 		FlagDefault:    string(signing.EnvSignatureClientType),
 		Required:       true,
 	}
+}
+
+func StartLedgerOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "start-ledger",
+		Usage:       "ledger number to start getting transactions from",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 0,
+		Required:    true,
+	}
+
+}
+
+func EndLedgerOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "end-ledger",
+		Usage:       "ledger number to end on",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 0,
+		Required:    true,
+	}
+
 }
 
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
