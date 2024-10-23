@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -16,7 +17,7 @@ import (
 )
 
 type PoolPopulator interface {
-	PopulatePools(ctx context.Context) error
+	PopulatePools(ctx context.Context)
 }
 
 type poolPopulator struct {
@@ -42,32 +43,31 @@ func NewPoolPopulator(router router.Router, store store.Store, rpcService servic
 	}, nil
 }
 
-func (p *poolPopulator) PopulatePools(ctx context.Context) error {
+func (p *poolPopulator) PopulatePools(ctx context.Context) {
 	err := p.routeNewTransactions(ctx)
 	if err != nil {
-		return fmt.Errorf("error routing new transactions: %w", err)
+		log.Ctx(ctx).Errorf("error routing new transactions: %v", err)
 	}
 
 	err = p.routeErrorTransactions(ctx)
 	if err != nil {
-		return fmt.Errorf("error routing new transactions: %w", err)
+		log.Ctx(ctx).Errorf("error routing error transactions: %v", err)
 	}
 
 	err = p.routeFinalTransactions(ctx, tss.RPCTXStatus{RPCStatus: entities.FailedStatus})
 	if err != nil {
-		return fmt.Errorf("error routing failed transactions: %w", err)
+		log.Ctx(ctx).Errorf("error routing failed transactions: %v", err)
 	}
 
 	err = p.routeFinalTransactions(ctx, tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
 	if err != nil {
-		return fmt.Errorf("error routing successful transactions: %w", err)
+		log.Ctx(ctx).Errorf("error routing successful transactions: %v", err)
 	}
 
 	err = p.routeNotSentTransactions(ctx)
 	if err != nil {
-		return fmt.Errorf("error routing not_sent transactions: %w", err)
+		log.Ctx(ctx).Errorf("error routing not_sent transactions: %v", err)
 	}
-	return nil
 }
 
 func (p *poolPopulator) routeNewTransactions(ctx context.Context) error {

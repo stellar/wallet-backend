@@ -48,8 +48,9 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Return(nil, errors.New("signing failed")).
 			Once()
 
-		_, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
+		assert.Equal(t, tss.RPCSendTxResponse{}, txSendResp)
 		assert.Equal(t, "channel: Unable to sign/build transaction: signing failed", err.Error())
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
@@ -72,8 +73,10 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, errors.New("RPC down")).
 			Once()
 
-		_, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
+		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
+		assert.Equal(t, tss.RPCFailCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: RPC fail: RPC down", err.Error())
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
@@ -103,10 +106,10 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, nil).
 			Once()
 
-		resp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
-		assert.Equal(t, entities.PendingStatus, resp.Status.RPCStatus)
-		assert.Equal(t, tss.EmptyCode, resp.Code.OtherCodes)
+		assert.Equal(t, entities.PendingStatus, txSendResp.Status.RPCStatus)
+		assert.Equal(t, tss.EmptyCode, txSendResp.Code.OtherCodes)
 		assert.Empty(t, err)
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
@@ -136,8 +139,10 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, nil).
 			Once()
 
-		_, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
+		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
+		assert.Equal(t, tss.UnmarshalBinaryCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABCD", err.Error())
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
@@ -167,10 +172,10 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Return(sendResp, nil).
 			Once()
 
-		resp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
-		assert.Equal(t, entities.ErrorStatus, resp.Status.RPCStatus)
-		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, resp.Code.TxResultCode)
+		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
 		assert.Empty(t, err)
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)

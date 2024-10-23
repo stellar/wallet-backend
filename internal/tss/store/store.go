@@ -99,7 +99,7 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 }
 
 func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, error) {
-	q := `SELECT * from tss_transactions where transaction_hash = $1`
+	q := `SELECT * FROM tss_transactions WHERE transaction_hash = $1`
 	var transaction Transaction
 	err := s.DB.GetContext(ctx, &transaction, q, hash)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, e
 }
 
 func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
-	q := `SELECT * from tss_transaction_submission_tries where try_transaction_hash = $1`
+	q := `SELECT * FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`
 	var try Try
 	err := s.DB.GetContext(ctx, &try, q, hash)
 	if err != nil {
@@ -125,7 +125,7 @@ func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
 }
 
 func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
-	q := `SELECT * from tss_transaction_submission_tries where  try_transaction_xdr = $1`
+	q := `SELECT * FROM tss_transaction_submission_tries WHERE try_transaction_xdr = $1`
 	var try Try
 	err := s.DB.GetContext(ctx, &try, q, xdr)
 	if err != nil {
@@ -138,7 +138,7 @@ func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 }
 
 func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXStatus) ([]Transaction, error) {
-	q := `SELECT * from tss_transactions where current_status = $1`
+	q := `SELECT * FROM tss_transactions WHERE current_status = $1`
 	var transactions []Transaction
 	err := s.DB.SelectContext(ctx, &transactions, q, status.Status())
 	if err != nil {
@@ -151,7 +151,7 @@ func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXS
 }
 
 func (s *store) GetLatestTry(ctx context.Context, txHash string) (Try, error) {
-	q := `SELECT * from tss_transaction_submission_tries where original_transaction_hash = $1 ORDER BY updated_at DESC LIMIT 1`
+	q := `SELECT * FROM tss_transaction_submission_tries WHERE original_transaction_hash = $1 ORDER BY updated_at DESC LIMIT 1`
 	var try Try
 	err := s.DB.GetContext(ctx, &try, q, txHash)
 	if err != nil {
