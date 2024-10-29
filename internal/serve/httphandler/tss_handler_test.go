@@ -155,7 +155,6 @@ func TestGetTransaction(t *testing.T) {
 	endpoint := "/tss/transactions"
 
 	r := chi.NewRouter()
-	//r.Get("/tss/{transactionhash}", handler.GetTransaction)
 	r.Route(endpoint, func(r chi.Router) {
 		r.Get("/{transactionhash}", handler.GetTransaction)
 	})
@@ -203,7 +202,7 @@ func TestGetTransaction(t *testing.T) {
 		var getTxResp GetTransactionResponse
 		_ = json.Unmarshal(respBody, &getTxResp)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Empty(t, getTxResp.Hash)
 		assert.Empty(t, getTxResp.XDR)
 		assert.Empty(t, getTxResp.Status)

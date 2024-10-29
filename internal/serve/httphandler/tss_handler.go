@@ -21,7 +21,7 @@ type TSSHandler struct {
 }
 
 type Transaction struct {
-	Operations []string `json:"operations"`
+	Operations []string `json:"operations" validate:"required"`
 }
 
 type TransactionSubmissionRequest struct {
@@ -106,8 +106,12 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := t.Store.GetTransaction(ctx, reqParams.TransactionHash)
 	if err != nil {
-		httperror.InternalServerError(ctx, "unable to get transaction", err, nil, t.AppTracker).Render(w)
+		httperror.InternalServerError(ctx, "unable to get transaction "+reqParams.TransactionHash, err, nil, t.AppTracker).Render(w)
 		return
+	}
+
+	if tx == (store.Transaction{}) {
+		httperror.NotFound.Render(w)
 	}
 
 	httpjson.Render(w, GetTransactionResponse{
