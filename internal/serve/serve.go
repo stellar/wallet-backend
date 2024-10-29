@@ -90,6 +90,7 @@ type handlerDeps struct {
 	DatabaseURL       string
 	SignatureVerifier auth.SignatureVerifier
 	SupportedAssets   []entities.Asset
+	NetworkPassphrase string
 
 	// Services
 	AccountService            services.AccountService
@@ -102,6 +103,7 @@ type handlerDeps struct {
 	WebhookChannel        tss.Channel
 	TSSRouter             tssrouter.Router
 	PoolPopulator         tssservices.PoolPopulator
+	TSSStore              tssstore.Store
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -273,6 +275,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
 		AppTracker:                cfg.AppTracker,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
 		// TSS
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
@@ -280,6 +283,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		WebhookChannel:        webhookChannel,
 		TSSRouter:             router,
 		PoolPopulator:         poolPopulator,
+		TSSStore:              store,
 	}, nil
 }
 
@@ -347,6 +351,18 @@ func handler(deps handlerDeps) http.Handler {
 
 			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)
 			r.Post("/create-fee-bump", handler.CreateFeeBumpTransaction)
+		})
+
+		r.Route("/tss", func(r chi.Router) {
+			handler := &httphandler.TSSHandler{
+				Router:            deps.TSSRouter,
+				Store:             deps.TSSStore,
+				AppTracker:        deps.AppTracker,
+				NetworkPassphrase: deps.NetworkPassphrase,
+			}
+
+			r.Get("/transactions/{transactionhash}", handler.GetTransaction)
+			r.Post("/transactions", handler.SubmitTransactions)
 		})
 	})
 

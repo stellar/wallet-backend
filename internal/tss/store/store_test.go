@@ -116,6 +116,7 @@ func TestGetTransaction(t *testing.T) {
 	t.Run("transaction_exists", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
+
 		tx, err := store.GetTransaction(context.Background(), "hash")
 
 		assert.Equal(t, "xdr", tx.XDR)
