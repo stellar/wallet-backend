@@ -8,25 +8,16 @@ services:
       - postgres-db:/var/lib/postgresql/data
     ports:
       - 5432:5432
-  soroban-rpc:
-    image: stellar/soroban-rpc
-    ports:
-      - 8000:8000 
-    volumes:
-      - ./config:/config 
-    environment:
-      NETWORK: ${NETWORK}
-    entrypoint: ["/bin/bash", "/config/soroban_rpc_startup.sh"]
   api:
     image: stellar/wallet-backend:development
     build:
       context: ./
       platforms:
         - "linux/amd64"
+      #args:
+      #  STELLAR_CORE_VERSION: 21.0.0-1872.c6f474133.jammy
     depends_on:
       db:
-        condition: service_started
-      soroban-rpc:
         condition: service_started
     ports:
       - 8001:8001
@@ -66,8 +57,6 @@ services:
     image: stellar/wallet-backend:development
     depends_on:
       db:
-        condition: service_started
-      soroban-rpc:
         condition: service_started
     entrypoint: ""
     command:

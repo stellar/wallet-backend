@@ -73,7 +73,7 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 		Usage:       "The URL of the RPC Server.",
 		OptType:     types.String,
 		ConfigKey:   configKey,
-		FlagDefault: "localhost:8080",
+		FlagDefault: "http://soroban-rpc:8000",
 		Required:    true,
 	}
 }

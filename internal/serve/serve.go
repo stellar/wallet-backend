@@ -293,10 +293,7 @@ func populatePools(poolPopulator tssservices.PoolPopulator) {
 	ctx := context.Background()
 
 	for range ticker.C {
-		err := poolPopulator.PopulatePools(ctx)
-		if err != nil {
-			log.Ctx(ctx).Error("Populating pools...")
-		}
+		poolPopulator.PopulatePools(ctx)
 	}
 }
 
