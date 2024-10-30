@@ -31,6 +31,7 @@ type RPCGetTransactionResult struct {
 	OldestLedger          int64     `json:"oldestLedger"`
 	OldestLedgerCloseTime string    `json:"oldestLedgerCloseTime"`
 	ApplicationOrder      int64     `json:"applicationOrder"`
+	Hash                  string    `json:"txHash"`
 	EnvelopeXDR           string    `json:"envelopeXdr"`
 	ResultXDR             string    `json:"resultXdr"`
 	ResultMetaXDR         string    `json:"resultMetaXdr"`
@@ -41,7 +42,7 @@ type RPCGetTransactionResult struct {
 
 type Transaction struct {
 	Status              RPCStatus `json:"status"`
-	Hash                string    `json:"hash"`
+	Hash                string    `json:"txHash"`
 	ApplicationOrder    int64     `json:"applicationOrder"`
 	FeeBump             bool      `json:"feeBump"`
 	EnvelopeXDR         string    `json:"envelopeXdr"`
@@ -49,7 +50,7 @@ type Transaction struct {
 	ResultMetaXDR       string    `json:"resultMetaXdr"`
 	Ledger              int64     `json:"ledger"`
 	DiagnosticEventsXDR string    `json:"diagnosticEventsXdr"`
-	CreatedAt           int64     `json:"createdAt"`
+	CreatedAt           uint32    `json:"createdAt"`
 }
 
 type RPCGetTransactionsResult struct {
