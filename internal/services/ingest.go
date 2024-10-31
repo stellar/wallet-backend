@@ -163,7 +163,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 					TransactionID:   utils.TransactionID(int32(tx.Ledger), int32(tx.ApplicationOrder)),
 					TransactionHash: tx.Hash,
 					FromAddress:     utils.SourceAccount(op, txEnvelopeXDR),
-					CreatedAt:       time.Unix(tx.CreatedAt, 0),
+					CreatedAt:       time.Unix(int64(tx.CreatedAt), 0),
 					Memo:            txMemo,
 					MemoType:        txMemoType,
 				}
@@ -231,7 +231,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 			Code:        txCode,
 			EnvelopeXDR: tx.EnvelopeXDR,
 			ResultXDR:   tx.ResultXDR,
-			CreatedAt:   tx.CreatedAt,
+			CreatedAt:   int64(tx.CreatedAt),
 		}
 		payload := tss.Payload{
 			RpcGetIngestTxResponse: tssGetIngestResponse,
