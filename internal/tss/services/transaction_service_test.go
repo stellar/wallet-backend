@@ -63,6 +63,23 @@ func TestValidateOptions(t *testing.T) {
 	})
 }
 
+func TestBuildPayments(t *testing.T) {
+	dest := "ABCD"
+	operations := []txnbuild.Operation{
+		&txnbuild.Payment{
+			Destination: dest,
+			Amount:      "1.0",
+			Asset:       txnbuild.NativeAsset{},
+		},
+	}
+	src := "EFGH"
+	payments, error := buildPayments(src, operations)
+	assert.Empty(t, error)
+	assert.Equal(t, src, payments[0].(*txnbuild.Payment).SourceAccount)
+	assert.Equal(t, dest, payments[0].(*txnbuild.Payment).Destination)
+	assert.Equal(t, txnbuild.NativeAsset{}, payments[0].(*txnbuild.Payment).Asset)
+}
+
 func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 	distributionAccountSignatureClient := signing.SignatureClientMock{}
 	defer distributionAccountSignatureClient.AssertExpectations(t)
@@ -115,37 +132,11 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		assert.Equal(t, "getting channel account details from horizon: horizon down", err.Error())
 	})
 
-	t.Run("horizon_client_sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
-		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return(channelAccount.Address(), nil).
-			Once().
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
-			Return(nil, errors.New("unable to sign")).
-			Once()
-
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: channelAccount.Address(),
-			}).
-			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
-			Once()
-
-		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)
-		assert.Empty(t, feeBumpTx)
-		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
-	})
-
 	t.Run("distribution_account_signature_client_get_account_public_key_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		signedTx := txnbuild.Transaction{}
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
-			Once().
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
-			Return(&signedTx, nil).
 			Once()
 
 		distributionAccountSignatureClient.
@@ -165,30 +156,92 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 		assert.Equal(t, "getting distribution account public key: client down", err.Error())
 	})
 
-	t.Run("horizon_client_sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
-		account := keypair.MustRandom()
+	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		channelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(nil, errors.New("unable to sign")).
+			Once()
+		distributionAccount := keypair.MustRandom()
+		distributionAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(distributionAccount.Address(), nil).
+			Once()
+
+		horizonClient.
+			On("AccountDetail", horizonclient.AccountRequest{
+				AccountID: channelAccount.Address(),
+			}).
+			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
+			Once()
+
+		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)
+		assert.Empty(t, feeBumpTx)
+		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
+	})
+
+	t.Run("sign_stellar_transaction_w_distribition_account_err", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
 		signedTx := utils.BuildTestTransaction()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
-			Return(account.Address(), nil).
+			Return(channelAccount.Address(), nil).
 			Once().
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{account.Address()}).
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
 			Return(signedTx, nil).
 			Once()
 
+		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
-			Return(account.Address(), nil).
+			Return(distributionAccount.Address(), nil).
 			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+			Return(nil, errors.New("unable to sign")).
+			Once()
+
+		horizonClient.
+			On("AccountDetail", horizonclient.AccountRequest{
+				AccountID: channelAccount.Address(),
+			}).
+			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
+			Once()
+
+		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)
+		assert.Empty(t, feeBumpTx)
+		assert.Equal(t, "signing transaction with distribution account: unable to sign", err.Error())
+	})
+
+	t.Run("sign_feebump_transaction_w_distribition_account_err", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		signedTx := utils.BuildTestTransaction()
+		channelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(signedTx, nil).
+			Once()
+
+		distributionAccount := keypair.MustRandom()
+		distributionAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(distributionAccount.Address(), nil).
+			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+			Return(signedTx, nil).
 			On("SignStellarFeeBumpTransaction", context.Background(), mock.AnythingOfType("*txnbuild.FeeBumpTransaction")).
 			Return(nil, errors.New("unable to sign")).
 			Once()
 
 		horizonClient.
 			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: account.Address(),
+				AccountID: channelAccount.Address(),
 			}).
-			Return(horizon.Account{AccountID: account.Address(), Sequence: 1}, nil).
+			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
 			Once()
 
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)
@@ -197,36 +250,39 @@ func TestSignAndBuildNewFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
-		account := keypair.MustRandom()
+		channelAccount := keypair.MustRandom()
 		signedTx := utils.BuildTestTransaction()
 		testFeeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 			txnbuild.FeeBumpTransactionParams{
 				Inner:      signedTx,
-				FeeAccount: account.Address(),
+				FeeAccount: channelAccount.Address(),
 				BaseFee:    int64(100),
 			},
 		)
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
-			Return(account.Address(), nil).
+			Return(channelAccount.Address(), nil).
 			Once().
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{account.Address()}).
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
 			Return(signedTx, nil).
 			Once()
 
+		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
-			Return(account.Address(), nil).
+			Return(distributionAccount.Address(), nil).
 			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+			Return(signedTx, nil).
 			On("SignStellarFeeBumpTransaction", context.Background(), mock.AnythingOfType("*txnbuild.FeeBumpTransaction")).
 			Return(testFeeBumpTx, nil).
 			Once()
 
 		horizonClient.
 			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: account.Address(),
+				AccountID: channelAccount.Address(),
 			}).
-			Return(horizon.Account{AccountID: account.Address(), Sequence: 1}, nil).
+			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
 			Once()
 
 		feeBumpTx, err := txService.SignAndBuildNewFeeBumpTransaction(context.Background(), txStr)

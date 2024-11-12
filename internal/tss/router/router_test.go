@@ -172,12 +172,17 @@ func TestRouter(t *testing.T) {
 		assert.NoError(t, err)
 		webhookChannel.AssertCalled(t, "Send", payload)
 	})
-	t.Run("nil_channel_does_not_route", func(t *testing.T) {
+	t.Run("empty_payload_routes_to_rpc_caller_channel", func(t *testing.T) {
 		payload := tss.Payload{}
+
+		rpcCallerChannel.
+			On("Send", payload).
+			Return().
+			Once()
 
 		err := router.Route(payload)
 
-		errorJitterChannel.AssertNotCalled(t, "Send", payload)
-		assert.Equal(t, "payload could not be routed - channel is nil", err.Error())
+		assert.NoError(t, err)
+		rpcCallerChannel.AssertCalled(t, "Send", payload)
 	})
 }
