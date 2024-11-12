@@ -119,9 +119,8 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
 			SourceAccount: &channelAccount,
-			//Operations:    operations,
-			Operations: originalTx.Operations(),
-			BaseFee:    int64(t.BaseFee),
+			Operations:    operations,
+			BaseFee:       int64(t.BaseFee),
 			Preconditions: txnbuild.Preconditions{
 				TimeBounds: txnbuild.NewTimeout(120),
 			},
@@ -135,12 +134,12 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
 	}
-	/*
-		tx, err = t.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
-		if err != nil {
-			return nil, fmt.Errorf("signing transaction with distribution account: %w", err)
-		}
-	*/
+
+	tx, err = t.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("signing transaction with distribution account: %w", err)
+	}
+
 	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      tx,
