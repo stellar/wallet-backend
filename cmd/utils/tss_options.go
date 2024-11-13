@@ -33,7 +33,7 @@ func ErrorHandlerJitterChannelBufferSizeOption(configKey *int) *config.ConfigOpt
 		Usage:       "Set the buffer size of the Error Handler Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 100,
+		FlagDefault: 1000,
 		Required:    true,
 	}
 }
@@ -44,7 +44,7 @@ func ErrorHandlerJitterChannelMaxWorkersOption(configKey *int) *config.ConfigOpt
 		Usage:       "Set the maximum number of workers for the Error Handler Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10,
+		FlagDefault: 100,
 		Required:    true,
 	}
 }
@@ -55,7 +55,7 @@ func ErrorHandlerNonJitterChannelBufferSizeOption(configKey *int) *config.Config
 		Usage:       "Set the buffer size of the Error Handler Non Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 100,
+		FlagDefault: 1000,
 		Required:    true,
 	}
 
@@ -67,7 +67,7 @@ func ErrorHandlerNonJitterChannelMaxWorkersOption(configKey *int) *config.Config
 		Usage:       "Set the maximum number of workers for the Error Handler Non Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10,
+		FlagDefault: 100,
 		Required:    true,
 	}
 }
@@ -100,7 +100,7 @@ func ErrorHandlerJitterChannelMaxRetriesOptions(configKey *int) *config.ConfigOp
 		Usage:       "Set the number of retries for each task in the Error Handler Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10,
+		FlagDefault: 3,
 		Required:    true,
 	}
 
@@ -112,7 +112,7 @@ func ErrorHandlerNonJitterChannelMaxRetriesOption(configKey *int) *config.Config
 		Usage:       "Set the number of retries for each task in the Error Handler Service Jitter channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10,
+		FlagDefault: 3,
 		Required:    true,
 	}
 }
@@ -123,7 +123,7 @@ func WebhookHandlerChannelMaxBufferSizeOption(configKey *int) *config.ConfigOpti
 		Usage:       "Set the buffer size of the webhook channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 100,
+		FlagDefault: 1000,
 		Required:    true,
 	}
 }
@@ -134,7 +134,7 @@ func WebhookHandlerChannelMaxWorkersOptions(configKey *int) *config.ConfigOption
 		Usage:       "Set the max number of workers for the webhook channel.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10,
+		FlagDefault: 100,
 		Required:    true,
 	}
 }

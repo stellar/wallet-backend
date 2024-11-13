@@ -68,20 +68,20 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
 			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
-		}
-		defer httpResp.Body.Close()
-
-		if httpResp.StatusCode == http.StatusOK {
-			sent = true
-			err := p.Store.UpsertTransaction(
-				ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.SentStatus})
-			if err != nil {
-				log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+		} else {
+			defer httpResp.Body.Close()
+			if httpResp.StatusCode == http.StatusOK {
+				sent = true
+				err := p.Store.UpsertTransaction(
+					ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.SentStatus})
+				if err != nil {
+					log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+				}
+				break
 			}
-			break
+			currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
+			time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 		}
-		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
-		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 	}
 	if !sent {
 		err := p.Store.UpsertTransaction(

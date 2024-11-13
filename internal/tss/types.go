@@ -100,8 +100,16 @@ var FinalCodes = []xdr.TransactionResultCode{
 	xdr.TransactionResultCodeTxFailed,
 	xdr.TransactionResultCodeTxMissingOperation,
 	xdr.TransactionResultCodeTxInsufficientBalance,
+	xdr.TransactionResultCodeTxBadAuth,
 	xdr.TransactionResultCodeTxBadAuthExtra,
 	xdr.TransactionResultCodeTxMalformed,
+	xdr.TransactionResultCodeTxNotSupported,
+	xdr.TransactionResultCodeTxFeeBumpInnerFailed,
+	xdr.TransactionResultCodeTxFeeBumpInnerSuccess,
+	xdr.TransactionResultCodeTxNoAccount,
+	xdr.TransactionResultCodeTxBadSponsorship,
+	xdr.TransactionResultCodeTxSorobanInvalid,
+	xdr.TransactionResultCodeTxBadMinSeqAgeOrGap,
 }
 
 var NonJitterErrorCodes = []xdr.TransactionResultCode{
