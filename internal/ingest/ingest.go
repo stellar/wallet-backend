@@ -8,6 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -38,6 +39,11 @@ func Ingest(cfg Configs) error {
 	ingestService, err := setupDeps(cfg)
 	if err != nil {
 		log.Ctx(ctx).Fatalf("Error setting up dependencies for ingest: %v", err)
+	}
+
+	isHealthy := ingestService.WaitForRPCHealth(ctx)
+	if !isHealthy {
+		log.Ctx(ctx).Fatalf("context deadline exceed while waiting for rpc service to get healthy")
 	}
 
 	if err = ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger)); err != nil {

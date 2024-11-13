@@ -1,8 +1,9 @@
 package services
 
 import (
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 type RPCServiceMock struct {
@@ -24,4 +25,9 @@ func (r *RPCServiceMock) GetTransaction(transactionHash string) (entities.RPCGet
 func (r *RPCServiceMock) GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error) {
 	args := r.Called(startLedger, startCursor, limit)
 	return args.Get(0).(entities.RPCGetTransactionsResult), args.Error(1)
+}
+
+func (r *RPCServiceMock) GetHealth() (entities.RPCGetHealthResult, error) {
+	args := r.Called()
+	return args.Get(0).(entities.RPCGetHealthResult), args.Error(1)
 }

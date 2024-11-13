@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -19,8 +20,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const (
+	RPCHealthCheckString = "healthy"
+)
+
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
+	WaitForRPCHealth(ctx context.Context) bool
 }
 
 var _ IngestService = (*ingestService)(nil)
@@ -42,6 +48,7 @@ func NewIngestService(
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
 ) (*ingestService, error) {
+	log.SetLevel(log.InfoLevel)
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
 	}
@@ -130,6 +137,19 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 		}
 	}
 	return ledgerTransactions, nil
+}
+
+func (m *ingestService) WaitForRPCHealth(ctx context.Context) bool {
+	log.Ctx(ctx).Infof("waiting for RPC health check")
+	healthyChan := m.getRPCHealth(ctx)
+	select {
+	case <-ctx.Done():
+		log.Ctx(ctx).Errorf("context deadline exceeded")
+		return false
+	case <-healthyChan:
+		log.Ctx(ctx).Infof("rpc is healthy")
+		return true
+	}
 }
 
 func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
@@ -242,6 +262,33 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		}
 	}
 	return nil
+}
+
+func (m *ingestService) getRPCHealth(ctx context.Context) <-chan entities.RPCGetHealthResult {
+	channel := make(chan entities.RPCGetHealthResult, 1)
+	go func() {
+		defer close(channel)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Ctx(ctx).Infof("context deadline exceeded")
+				return
+			default:
+				log.Infof("pinging rpc health check...")
+				result, err := m.rpcService.GetHealth()
+				if err != nil {
+					log.Warnf("rpc health check failed: %v", err)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				if result.Status == RPCHealthCheckString {
+					channel <- result
+					return
+				}
+			}
+		}
+	}()
+	return channel
 }
 
 func trackServiceHealth(heartbeat chan any, tracker apptracker.AppTracker) {

@@ -24,6 +24,13 @@ type RPCResponse struct {
 	ID      int64           `json:"id"`
 }
 
+type RPCGetHealthResult struct {
+	Status                string `json:"status"`
+	LatestLedger          uint32 `json:"latestLedger"`
+	OldestLedger          uint32 `json:"oldestLedger"`
+	LedgerRetentionWindow uint32 `json:"ledgerRetentionWindow"`
+}
+
 type RPCGetTransactionResult struct {
 	Status                RPCStatus `json:"status"`
 	LatestLedger          int64     `json:"latestLedger"`
