@@ -56,7 +56,7 @@ type Transaction struct {
 	ResultXDR           string    `json:"resultXdr"`
 	ResultMetaXDR       string    `json:"resultMetaXdr"`
 	Ledger              int64     `json:"ledger"`
-	DiagnosticEventsXDR string    `json:"diagnosticEventsXdr"`
+	DiagnosticEventsXDR []string  `json:"diagnosticEventsXdr"`
 	CreatedAt           uint32    `json:"createdAt"`
 }
 

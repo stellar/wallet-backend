@@ -26,7 +26,6 @@ const (
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
-	WaitForRPCHealth(ctx context.Context) bool
 }
 
 var _ IngestService = (*ingestService)(nil)
@@ -89,8 +88,28 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 	ingestLedger := startLedger
-	for ; endLedger == 0 || ingestLedger <= endLedger; ingestLedger++ {
-		time.Sleep(10 * time.Second)
+	for endLedger == 0 || ingestLedger <= endLedger {
+		resp, err := m.rpcService.GetHealth()
+		if err != nil {
+			log.Errorf("error getting health response from rpc: %v", err)
+			isHealthy := m.waitForRPCHealth(ctx)
+			if !isHealthy {
+				return fmt.Errorf("context deadline exceed while waiting for rpc service to get healthy")
+			}
+			continue
+		}
+
+		switch {
+		case ingestLedger < resp.OldestLedger:
+			ingestLedger = resp.OldestLedger
+		case ingestLedger > resp.LatestLedger:
+			log.Debugf("waiting for RPC to catchup to ledger %d (latest: %d)",
+				ingestLedger, resp.LatestLedger)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Ctx(ctx).Infof("ingesting ledger: %d", ingestLedger)
+
 		ledgerTransactions, err := m.GetLedgerTransactions(int64(ingestLedger))
 		if err != nil {
 			log.Error("getTransactions: %w", err)
@@ -107,10 +126,13 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("error processing tss transactions: %w", err)
 		}
 
-		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, uint32(ingestLedger))
+		err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
 		if err != nil {
 			return fmt.Errorf("error updating latest synced ledger: %w", err)
 		}
+
+		ingestLedger++
+		time.Sleep(5 * time.Second)
 	}
 	return nil
 }
@@ -139,8 +161,7 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 	return ledgerTransactions, nil
 }
 
-func (m *ingestService) WaitForRPCHealth(ctx context.Context) bool {
-	log.Ctx(ctx).Infof("waiting for RPC health check")
+func (m *ingestService) waitForRPCHealth(ctx context.Context) bool {
 	healthyChan := m.getRPCHealth(ctx)
 	select {
 	case <-ctx.Done():

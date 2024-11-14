@@ -41,11 +41,6 @@ func Ingest(cfg Configs) error {
 		log.Ctx(ctx).Fatalf("Error setting up dependencies for ingest: %v", err)
 	}
 
-	isHealthy := ingestService.WaitForRPCHealth(ctx)
-	if !isHealthy {
-		log.Ctx(ctx).Fatalf("context deadline exceed while waiting for rpc service to get healthy")
-	}
-
 	if err = ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger)); err != nil {
 		log.Ctx(ctx).Fatalf("Running ingest from %d to %d: %v", cfg.StartLedger, cfg.EndLedger, err)
 	}
