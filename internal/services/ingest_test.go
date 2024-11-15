@@ -328,8 +328,8 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 		defer cancel()
 
 		// Mock both expected warning messages
-		mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe()
-		mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Once()
+		mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe().Return(nil)
+		mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Once().Return(nil)
 
 		// Set up RPC health check to consistently return error
 		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
