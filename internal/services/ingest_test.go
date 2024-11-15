@@ -324,16 +324,23 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), rpcHealthCheckMaxWaitTime+100*time.Millisecond)
+		defer cancel()
 
-		expectedWarning := "rpc service unhealthy for over 1m0s"
-		mockAppTracker.On("CaptureMessage", expectedWarning)
+		// Mock both expected warning messages
+		mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Once()
+		mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe()
+
+		// Set up RPC health check to consistently return error
 		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
 
 		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-		time.Sleep(rpcHealthCheckMaxWaitTime + 100*time.Millisecond)
 
-		mockAppTracker.AssertCalled(t, "CaptureMessage", expectedWarning)
+		// Wait long enough for both warnings to trigger
+		time.Sleep(65 * time.Second)
+
+		mockRPCService.AssertExpectations(t)
+		mockAppTracker.AssertExpectations(t)
 	})
 
 	t.Run("context_cancelled", func(t *testing.T) {
