@@ -331,10 +331,11 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 		defer log.SetOut(os.Stderr)
 
 		mockRPCService := &RPCServiceMock{}
+		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
-		// Set up RPC health check to consistently return error
 		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
+		mockAppTracker.On("CaptureMessage", mock.Anything)
 
 		go trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
 
