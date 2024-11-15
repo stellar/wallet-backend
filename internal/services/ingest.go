@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	rpcHealthCheckMaxWaitTime = 60 * time.Second
-	rpcHealthCheckSleepTime   = 5 * time.Second
-	ingestHealthCheckWaitTime = 60 * time.Second
+	rpcHealthCheckSleepTime      = 5 * time.Second
+	rpcHealthCheckMaxWaitTime    = 60 * time.Second
+	ingestHealthCheckMaxWaitTime = 60 * time.Second
 )
 
 type IngestService interface {
@@ -84,7 +84,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	ingestHeartbeat := make(chan any, 1)
 
 	// Start service health trackers
-	go m.trackRPCHealth(ctx, rpcHeartbeat, m.appTracker)
+	go trackRPCServiceHealth(ctx, rpcHeartbeat, m.appTracker, m.rpcService)
 	go trackIngestServiceHealth(ctx, ingestHeartbeat, m.appTracker)
 
 	if startLedger == 0 {
@@ -102,8 +102,12 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		case resp := <-rpcHeartbeat:
 			switch {
+			// Case-1: wallet-backend is running behind rpc's oldest ledger. In this case, we start
+			// ingestion from rpc's oldest ledger.
 			case ingestLedger < resp.OldestLedger:
 				ingestLedger = resp.OldestLedger
+			// Case-2: rpc is running behind wallet-backend's latest synced ledger. We wait for rpc to
+			// catch back up to wallet-backend.
 			case ingestLedger > resp.LatestLedger:
 				log.Debugf("waiting for RPC to catchup to ledger %d (latest: %d)",
 					ingestLedger, resp.LatestLedger)
@@ -275,7 +279,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 	return nil
 }
 
-func (m *ingestService) trackRPCHealth(ctx context.Context, heartbeat chan entities.RPCGetHealthResult, tracker apptracker.AppTracker) {
+func trackRPCServiceHealth(ctx context.Context, heartbeat chan entities.RPCGetHealthResult, tracker apptracker.AppTracker, rpcService RPCService) {
 	healthCheckTicker := time.NewTicker(rpcHealthCheckSleepTime)
 	warningTicker := time.NewTicker(rpcHealthCheckMaxWaitTime)
 	defer func() {
@@ -298,7 +302,7 @@ func (m *ingestService) trackRPCHealth(ctx context.Context, heartbeat chan entit
 			}
 			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
 		case <-healthCheckTicker.C:
-			result, err := m.rpcService.GetHealth()
+			result, err := rpcService.GetHealth()
 			if err != nil {
 				log.Warnf("rpc health check failed: %v", err)
 				continue
@@ -310,7 +314,7 @@ func (m *ingestService) trackRPCHealth(ctx context.Context, heartbeat chan entit
 }
 
 func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker apptracker.AppTracker) {
-	ticker := time.NewTicker(ingestHealthCheckWaitTime)
+	ticker := time.NewTicker(ingestHealthCheckMaxWaitTime)
 	defer func() {
 		ticker.Stop()
 		close(heartbeat)
@@ -321,16 +325,16 @@ func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker a
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			warn := fmt.Sprintf("ingestion service stale for over %s", ingestHealthCheckWaitTime)
+			warn := fmt.Sprintf("ingestion service stale for over %s", ingestHealthCheckMaxWaitTime)
 			log.Warn(warn)
 			if tracker != nil {
 				tracker.CaptureMessage(warn)
 			} else {
 				log.Warn("App Tracker is nil")
 			}
-			ticker.Reset(ingestHealthCheckWaitTime)
+			ticker.Reset(ingestHealthCheckMaxWaitTime)
 		case <-heartbeat:
-			ticker.Reset(ingestHealthCheckWaitTime)
+			ticker.Reset(ingestHealthCheckMaxWaitTime)
 		}
 	}
 }

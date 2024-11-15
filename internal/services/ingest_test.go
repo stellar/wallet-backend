@@ -2,11 +2,17 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -15,9 +21,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGetLedgerTransactions(t *testing.T) {
@@ -138,7 +141,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 				ResultXDR:           "AAAAAAAAAMj////9AAAAAA==",
 				ResultMetaXDR:       "meta",
 				Ledger:              123456,
-				DiagnosticEventsXDR: "diag",
+				DiagnosticEventsXDR: []string{"diag"},
 				CreatedAt:           1695939098,
 			},
 		}
@@ -169,6 +172,7 @@ func TestIngestPayments(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	models, _ := data.NewModels(dbConnectionPool)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
@@ -213,5 +217,135 @@ func TestIngestPayments(t *testing.T) {
 		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
+	})
+}
+
+func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	models, _ := data.NewModels(dbConnectionPool)
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	srcAccount := keypair.MustRandom().Address()
+	destAccount := keypair.MustRandom().Address()
+
+	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 100,
+		OldestLedger: 50,
+	}, nil)
+	paymentOp := txnbuild.Payment{
+		SourceAccount: srcAccount,
+		Destination:   destAccount,
+		Amount:        "10",
+		Asset:         txnbuild.NativeAsset{},
+	}
+	transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &txnbuild.SimpleAccount{
+			AccountID: keypair.MustRandom().Address(),
+		},
+		Operations:    []txnbuild.Operation{&paymentOp},
+		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+	})
+	txEnvXDR, _ := transaction.Base64()
+	mockResult := entities.RPCGetTransactionsResult{
+		Transactions: []entities.Transaction{{
+			Status:           entities.SuccessStatus,
+			Hash:             "abcd",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
+			Ledger:           50,
+		}, {
+			Status:           entities.SuccessStatus,
+			Hash:             "abcd",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
+			Ledger:           51,
+		}},
+		LatestLedger:          int64(100),
+		LatestLedgerCloseTime: int64(1),
+		OldestLedger:          int64(50),
+		OldestLedgerCloseTime: int64(1),
+	}
+	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
+
+	err = ingestService.Run(context.Background(), uint32(49), uint32(50))
+	require.NoError(t, err)
+
+	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
+	mockRPCService.AssertExpectations(t)
+
+	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	require.NoError(t, err)
+	assert.Equal(t, uint32(50), ledger)
+}
+
+func TestTrackRPCServiceHealth(t *testing.T) {
+	mockAppTracker := &apptracker.MockAppTracker{}
+
+	t.Run("healthy_rpc_service", func(t *testing.T) {
+		mockRPCService := &RPCServiceMock{}
+		heartbeat := make(chan entities.RPCGetHealthResult, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		healthResult := entities.RPCGetHealthResult{
+			Status:                "healthy",
+			LatestLedger:          100,
+			OldestLedger:          1,
+			LedgerRetentionWindow: 0,
+		}
+		mockRPCService.On("GetHealth").Return(healthResult, nil)
+
+		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+
+		select {
+		case result := <-heartbeat:
+			assert.Equal(t, healthResult, result)
+		case <-ctx.Done():
+			t.Fatal("timeout waiting for heartbeat")
+		}
+
+		mockRPCService.AssertExpectations(t)
+		mockAppTracker.AssertNotCalled(t, "CaptureMessage")
+	})
+
+	t.Run("unhealthy_rpc_service", func(t *testing.T) {
+		mockRPCService := &RPCServiceMock{}
+		heartbeat := make(chan entities.RPCGetHealthResult, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		expectedWarning := "rpc service unhealthy for over 1m0s"
+		mockAppTracker.On("CaptureMessage", expectedWarning)
+		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
+
+		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+		time.Sleep(rpcHealthCheckMaxWaitTime + 100*time.Millisecond)
+
+		mockAppTracker.AssertCalled(t, "CaptureMessage", expectedWarning)
+	})
+
+	t.Run("context_cancelled", func(t *testing.T) {
+		mockRPCService := &RPCServiceMock{}
+		heartbeat := make(chan entities.RPCGetHealthResult, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+		mockRPCService.AssertNotCalled(t, "GetHealth")
+		mockAppTracker.AssertNotCalled(t, "CaptureMessage")
 	})
 }
