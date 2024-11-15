@@ -1,12 +1,16 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -321,26 +325,25 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 	})
 
 	t.Run("unhealthy_rpc_service", func(t *testing.T) {
-		mockRPCService := &RPCServiceMock{}
-		mockAppTracker := &apptracker.MockAppTracker{}
-		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), rpcHealthCheckMaxWaitTime+100*time.Millisecond)
-		defer cancel()
+		var logBuffer bytes.Buffer
+		log.SetOut(&logBuffer)
+		log.SetLevel(log.WarnLevel)
+		defer log.SetOut(os.Stderr)
 
-		// Mock both expected warning messages
-		mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe().Return(nil)
-		mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Once().Return(nil)
+		mockRPCService := &RPCServiceMock{}
+		heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
 		// Set up RPC health check to consistently return error
 		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
 
-		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+		go trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
 
 		// Wait long enough for both warnings to trigger
 		time.Sleep(65 * time.Second)
 
 		mockRPCService.AssertExpectations(t)
-		mockAppTracker.AssertExpectations(t)
+		logOutput := logBuffer.String()
+		assert.Contains(t, logOutput, fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
 	})
 
 	t.Run("context_cancelled", func(t *testing.T) {
