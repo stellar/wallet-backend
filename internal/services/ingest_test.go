@@ -293,10 +293,9 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth(t *testing.T) {
-	mockAppTracker := &apptracker.MockAppTracker{}
-
 	t.Run("healthy_rpc_service", func(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
+		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
@@ -324,6 +323,7 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 
 	t.Run("unhealthy_rpc_service", func(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
+		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
@@ -340,6 +340,7 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 
 	t.Run("context_cancelled", func(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
+		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
