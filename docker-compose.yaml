@@ -9,7 +9,7 @@ services:
     ports:
       - 5432:5432
   soroban-rpc:
-    image: stellar/soroban-rpc:22.0.0
+    image: stellar/soroban-rpc
     ports:
       - 8000:8000 
     volumes:
