@@ -297,8 +297,7 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
+		ctx := context.Background()
 
 		healthResult := entities.RPCGetHealthResult{
 			Status:                "healthy",
@@ -325,8 +324,7 @@ func TestTrackRPCServiceHealth(t *testing.T) {
 		mockRPCService := &RPCServiceMock{}
 		mockAppTracker := &apptracker.MockAppTracker{}
 		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
+		ctx := context.Background()
 
 		expectedWarning := "rpc service unhealthy for over 1m0s"
 		mockAppTracker.On("CaptureMessage", expectedWarning)
