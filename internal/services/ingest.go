@@ -23,7 +23,7 @@ import (
 const (
 	rpcHealthCheckSleepTime      = 5 * time.Second
 	rpcHealthCheckMaxWaitTime    = 60 * time.Second
-	ingestHealthCheckMaxWaitTime = 60 * time.Second
+	ingestHealthCheckMaxWaitTime = 90 * time.Second
 )
 
 type IngestService interface {
