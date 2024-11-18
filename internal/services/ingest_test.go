@@ -406,7 +406,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 		OldestLedger:          1,
 		LedgerRetentionWindow: 0,
 	}
-	mockRPCService.On("GetHealth").Return(healthResult, nil).Once()
+	mockRPCService.On("GetHealth").Return(healthResult, nil)
 
 	go func() {
 		select {
@@ -433,7 +433,10 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	defer cancel()
 
 	mockRPCService := &RPCServiceMock{}
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
+	mockRPCService.On("GetHealth").Return(
+		entities.RPCGetHealthResult{},
+		errors.New("rpc error"),
+	)
 
 	mockAppTracker := &apptracker.MockAppTracker{}
 	mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s")
