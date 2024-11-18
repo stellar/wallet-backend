@@ -334,7 +334,7 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
 	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
-	mockAppTracker.On("CaptureMessage", mock.Anything)
+	mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s")
 
 	go trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
 
