@@ -296,66 +296,64 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	assert.Equal(t, uint32(50), ledger)
 }
 
-func TestTrackRPCServiceHealth(t *testing.T) {
-	t.Run("healthy_rpc_service", func(t *testing.T) {
-		mockRPCService := &RPCServiceMock{}
-		mockAppTracker := &apptracker.MockAppTracker{}
-		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx := context.Background()
+func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
+	mockRPCService := &RPCServiceMock{}
+	mockAppTracker := &apptracker.MockAppTracker{}
+	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	ctx := context.Background()
 
-		healthResult := entities.RPCGetHealthResult{
-			Status:                "healthy",
-			LatestLedger:          100,
-			OldestLedger:          1,
-			LedgerRetentionWindow: 0,
-		}
-		mockRPCService.On("GetHealth").Return(healthResult, nil)
+	healthResult := entities.RPCGetHealthResult{
+		Status:                "healthy",
+		LatestLedger:          100,
+		OldestLedger:          1,
+		LedgerRetentionWindow: 0,
+	}
+	mockRPCService.On("GetHealth").Return(healthResult, nil)
 
-		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
 
-		select {
-		case result := <-heartbeat:
-			assert.Equal(t, healthResult, result)
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for heartbeat")
-		}
+	select {
+	case result := <-heartbeat:
+		assert.Equal(t, healthResult, result)
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for heartbeat")
+	}
 
-		mockRPCService.AssertExpectations(t)
-		mockAppTracker.AssertNotCalled(t, "CaptureMessage")
-	})
+	mockRPCService.AssertExpectations(t)
+	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
+}
 
-	t.Run("unhealthy_rpc_service", func(t *testing.T) {
-		var logBuffer bytes.Buffer
-		log.SetOut(&logBuffer)
-		log.SetLevel(log.WarnLevel)
-		defer log.SetOut(os.Stderr)
+func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
+	var logBuffer bytes.Buffer
+	log.SetOut(&logBuffer)
+	log.SetLevel(log.WarnLevel)
+	defer log.SetOut(os.Stderr)
 
-		mockRPCService := &RPCServiceMock{}
-		mockAppTracker := &apptracker.MockAppTracker{}
-		heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	mockRPCService := &RPCServiceMock{}
+	mockAppTracker := &apptracker.MockAppTracker{}
+	heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
-		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
-		mockAppTracker.On("CaptureMessage", mock.Anything)
+	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
+	mockAppTracker.On("CaptureMessage", mock.Anything)
 
-		go trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
+	go trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
 
-		// Wait long enough for both warnings to trigger
-		time.Sleep(65 * time.Second)
+	// Wait long enough for both warnings to trigger
+	time.Sleep(65 * time.Second)
 
-		mockRPCService.AssertExpectations(t)
-		logOutput := logBuffer.String()
-		assert.Contains(t, logOutput, fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
-	})
+	mockRPCService.AssertExpectations(t)
+	logOutput := logBuffer.String()
+	assert.Contains(t, logOutput, fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
+}
 
-	t.Run("context_cancelled", func(t *testing.T) {
-		mockRPCService := &RPCServiceMock{}
-		mockAppTracker := &apptracker.MockAppTracker{}
-		heartbeat := make(chan entities.RPCGetHealthResult, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
+func TestTrackRPCService_ContextCancelled(t *testing.T) {
+	mockRPCService := &RPCServiceMock{}
+	mockAppTracker := &apptracker.MockAppTracker{}
+	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-		go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-		mockRPCService.AssertNotCalled(t, "GetHealth")
-		mockAppTracker.AssertNotCalled(t, "CaptureMessage")
-	})
+	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+	mockRPCService.AssertNotCalled(t, "GetHealth")
+	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
 }
