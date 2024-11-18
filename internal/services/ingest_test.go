@@ -1,12 +1,15 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -301,6 +304,94 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	assert.Equal(t, uint32(50), ledger)
 }
 
+func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
+	dbt := dbtest.Open(t)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	defer func() {
+		ctx.Done()
+		_ = dbConnectionPool.Close()
+		dbt.Close()
+		log.DefaultLogger.SetOutput(os.Stderr)
+	}()
+
+	models, _ := data.NewModels(dbConnectionPool)
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+
+	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	require.NoError(t, err)
+
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	require.NoError(t, err)
+
+	// First call shows RPC is behind
+	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 50,
+		OldestLedger: 1,
+	}, nil).Once()
+
+	// Second call after sleep shows RPC has caught up
+	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 100, // RPC has caught up to ledger 100
+		OldestLedger: 1,
+	}, nil).Once()
+
+	// Capture debug logs to verify waiting message
+	var logBuffer bytes.Buffer
+	log.DefaultLogger.SetOutput(&logBuffer)
+	log.SetLevel(log.DebugLevel)
+
+	// Mock transaction response for when RPC catches up
+	txEnvXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAACgAAAAAAAAABAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAArqN6LeOagjxMaUP96Bzfs9e0corNZXzBWJkFoK7kvkwAAAAAO5rKAAAAAAAAAAABVvwF9wAAAEAKZ7IPj/46PuWU6ZOtyMosctNAkXRNX9WCAI5RnfRk+AyxDLoDZP/9l3NvsxQtWj9juQOuoBlFLnWu8intgxQA"
+	mockResult := entities.RPCGetTransactionsResult{
+		Transactions: []entities.Transaction{{
+			Status:           entities.SuccessStatus,
+			Hash:             "abcd",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
+			Ledger:           100,
+		}, {
+			Status:           entities.SuccessStatus,
+			Hash:             "abcd",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
+			Ledger:           101,
+		}},
+		LatestLedger:          int64(100),
+		LatestLedgerCloseTime: int64(1),
+		OldestLedger:          int64(50),
+		OldestLedgerCloseTime: int64(1),
+	}
+	mockRPCService.On("GetTransactions", int64(100), "", 50).Return(mockResult, nil).Once()
+	mockAppTracker.On("CaptureMessage", mock.Anything).Maybe().Return(nil)
+
+	// Start ingestion at ledger 100 (ahead of RPC's initial position at 50)
+	err = ingestService.Run(ctx, uint32(100), uint32(100))
+	require.NoError(t, err)
+
+	// Verify the debug log message was written
+	logOutput := logBuffer.String()
+	expectedLog := "waiting for RPC to catchup to ledger 100 (latest: 50)"
+	assert.Contains(t, logOutput, expectedLog)
+
+	// Verify the ledger was eventually processed
+	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	require.NoError(t, err)
+	assert.Equal(t, uint32(100), ledger)
+
+	mockRPCService.AssertExpectations(t)
+}
+
 func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockRPCService := &RPCServiceMock{}
 	mockAppTracker := &apptracker.MockAppTracker{}
@@ -315,7 +406,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 		OldestLedger:          1,
 		LedgerRetentionWindow: 0,
 	}
-	mockRPCService.On("GetHealth").Return(healthResult, nil)
+	mockRPCService.On("GetHealth").Return(healthResult, nil).Once()
 
 	go func() {
 		select {
