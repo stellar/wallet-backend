@@ -233,11 +233,10 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	models, _ := data.NewModels(dbConnectionPool)
-	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", nil, &mockRPCService, &mockRouter, tssStore)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 
@@ -284,7 +283,6 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
-	mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe()
 
 	err = ingestService.Run(context.Background(), uint32(49), uint32(50))
 	require.NoError(t, err)
@@ -334,11 +332,9 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	defer cancel()
 
 	mockRPCService := &RPCServiceMock{}
-	mockAppTracker := &apptracker.MockAppTracker{}
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
 	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("rpc error"))
-	mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s")
 
 	go func() {
 		select {
