@@ -284,6 +284,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
+	mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe()
 
 	err = ingestService.Run(context.Background(), uint32(49), uint32(50))
 	require.NoError(t, err)
