@@ -222,11 +222,15 @@ func TestIngestPayments(t *testing.T) {
 
 func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
-	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	defer func() {
+		ctx.Done()
+		_ = dbConnectionPool.Close()
+		dbt.Close()
+	}()
 
 	models, _ := data.NewModels(dbConnectionPool)
 	mockAppTracker := apptracker.MockAppTracker{}
@@ -285,9 +289,8 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
-	//mockAppTracker.On("CaptureMessage", "ingestion service stale for over 1m0s").Maybe()
 
-	err = ingestService.Run(context.Background(), uint32(49), uint32(50))
+	err = ingestService.Run(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
 
 	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
