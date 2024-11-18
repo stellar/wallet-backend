@@ -228,9 +228,9 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
-		ctx.Done()
+		cancel()
 		_ = dbConnectionPool.Close()
 		dbt.Close()
 	}()
@@ -309,9 +309,9 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
-		ctx.Done()
+		cancel()
 		_ = dbConnectionPool.Close()
 		dbt.Close()
 		log.DefaultLogger.SetOutput(os.Stderr)
@@ -347,7 +347,6 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	log.DefaultLogger.SetOutput(&logBuffer)
 	log.SetLevel(log.DebugLevel)
 
-	// Mock transaction response for when RPC catches up
 	txEnvXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAACgAAAAAAAAABAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAArqN6LeOagjxMaUP96Bzfs9e0corNZXzBWJkFoK7kvkwAAAAAO5rKAAAAAAAAAAABVvwF9wAAAEAKZ7IPj/46PuWU6ZOtyMosctNAkXRNX9WCAI5RnfRk+AyxDLoDZP/9l3NvsxQtWj9juQOuoBlFLnWu8intgxQA"
 	mockResult := entities.RPCGetTransactionsResult{
 		Transactions: []entities.Transaction{{
@@ -397,7 +396,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockAppTracker := &apptracker.MockAppTracker{}
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	healthResult := entities.RPCGetHealthResult{
@@ -406,24 +405,13 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 		OldestLedger:          1,
 		LedgerRetentionWindow: 0,
 	}
-	mockRPCService.On("GetHealth").Return(healthResult, nil)
+	mockRPCService.On("GetHealth").Return(healthResult, nil).Once().Run(func(args mock.Arguments) {
+		cancel()
+	})
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			trackRPCServiceHealth(context.Background(), heartbeat, nil, mockRPCService)
-		}
-	}()
+	trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
 
-	select {
-	case result := <-heartbeat:
-		assert.Equal(t, healthResult, result)
-	case <-ctx.Done():
-		t.Fatal("timeout waiting for heartbeat")
-	}
-
+	assert.Equal(t, healthResult, <-heartbeat)
 	mockRPCService.AssertExpectations(t)
 	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
 }
@@ -439,17 +427,12 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	)
 
 	mockAppTracker := &apptracker.MockAppTracker{}
-	mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s")
+	mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Run(func(args mock.Arguments) {
+		cancel()
+	})
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			trackRPCServiceHealth(context.Background(), heartbeat, mockAppTracker, mockRPCService)
-		}
-	}()
+	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
 
 	// Wait long enough for both warnings to trigger
 	time.Sleep(65 * time.Second)
