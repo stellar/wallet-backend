@@ -10,11 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type errorReader struct{}
@@ -319,5 +320,52 @@ func TestGetTransactions(t *testing.T) {
 		require.Equal(t, entities.RPCStatus("SUCCESS"), resp.Transactions[0].Status)
 		require.Equal(t, int64(1888539), resp.Transactions[0].Ledger)
 		require.NoError(t, err)
+	})
+}
+
+func TestSendGetHealth(t *testing.T) {
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+
+	t.Run("successful", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "getHealth",
+		}
+		jsonData, _ := json.Marshal(payload)
+
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+					"status": "healthy"
+				}
+			}`)),
+		}
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&httpResponse, nil).
+			Once()
+
+		result, err := rpcService.GetHealth()
+		require.NoError(t, err)
+		assert.Equal(t, entities.RPCGetHealthResult{Status: "healthy"}, result)
+	})
+
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
+
+		result, err := rpcService.GetHealth()
+		require.Error(t, err)
+		assert.Equal(t, entities.RPCGetHealthResult{}, result)
+		assert.Equal(t, "sending getHealth request: sending POST request to RPC: connection failed", err.Error())
 	})
 }
