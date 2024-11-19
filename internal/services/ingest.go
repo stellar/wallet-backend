@@ -49,7 +49,6 @@ func NewIngestService(
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
 ) (*ingestService, error) {
-	log.SetLevel(log.InfoLevel)
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
 	}
