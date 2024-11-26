@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,11 +22,111 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
+	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildTransactions(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	store, _ := store.NewStore(dbConnectionPool)
+	mockRouter := router.MockRouter{}
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockTxService := tssservices.TransactionServiceMock{}
+
+	handler := &TSSHandler{
+		Router:             &mockRouter,
+		Store:              store,
+		AppTracker:         &mockAppTracker,
+		NetworkPassphrase:  "testnet passphrase",
+		TransactionService: &mockTxService,
+	}
+
+	srcAccount := keypair.MustRandom().Address()
+	p := txnbuild.Payment{
+		Destination:   keypair.MustRandom().Address(),
+		Amount:        "10",
+		Asset:         txnbuild.NativeAsset{},
+		SourceAccount: srcAccount,
+	}
+	op, _ := p.BuildXDR()
+
+	var buf strings.Builder
+	enc := xdr3.NewEncoder(&buf)
+	_ = op.EncodeTo(enc)
+
+	opXDR := buf.String()
+	opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+	const endpoint = "/tss/transactions"
+
+	t.Run("tx_signing_fails", func(t *testing.T) {
+		reqBody := fmt.Sprintf(`{
+			"transactions": [{"operations": [%q], "timeout": 100}]
+		}`, opXDRBase64)
+		rw := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
+
+		expectedOps, _ := utils.BuildOperations([]string{opXDRBase64})
+
+		err := errors.New("unable to find channel account")
+		mockTxService.
+			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
+			Return(nil, err).
+			Once()
+
+		mockAppTracker.
+			On("CaptureException", err).
+			Return().
+			Once()
+
+		http.HandlerFunc(handler.BuildTransactions).ServeHTTP(rw, req)
+		resp := rw.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		expectedRespBody := `{"error": "An error occurred while processing this request."}`
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		assert.JSONEq(t, expectedRespBody, string(respBody))
+	})
+
+	t.Run("happy_path", func(t *testing.T) {
+		reqBody := fmt.Sprintf(`{
+			"transactions": [{"operations": [%q], "timeout": 100}]
+		}`, opXDRBase64)
+		rw := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
+
+		expectedOps, _ := utils.BuildOperations([]string{opXDRBase64})
+		tx := utils.BuildTestTransaction()
+
+		mockTxService.
+			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
+			Return(tx, nil).
+			Once()
+
+		http.HandlerFunc(handler.BuildTransactions).ServeHTTP(rw, req)
+		resp := rw.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var buildTxResp BuildTransactionResponse
+		_ = json.Unmarshal(respBody, &buildTxResp)
+		expectedTxXDR, _ := tx.Base64()
+		assert.Equal(t, expectedTxXDR, buildTxResp.TransactionXDRs[0])
+	})
+
+}
 
 func TestSubmitTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
@@ -37,12 +138,14 @@ func TestSubmitTransactions(t *testing.T) {
 	store, _ := store.NewStore(dbConnectionPool)
 	mockRouter := router.MockRouter{}
 	mockAppTracker := apptracker.MockAppTracker{}
+	txServiceMock := tssservices.TransactionServiceMock{}
 
 	handler := &TSSHandler{
-		Router:            &mockRouter,
-		Store:             store,
-		AppTracker:        &mockAppTracker,
-		NetworkPassphrase: "testnet passphrase",
+		Router:             &mockRouter,
+		Store:              store,
+		AppTracker:         &mockAppTracker,
+		NetworkPassphrase:  "testnet passphrase",
+		TransactionService: &txServiceMock,
 	}
 
 	const endpoint = "/tss/transactions"
@@ -53,7 +156,6 @@ func TestSubmitTransactions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		http.HandlerFunc(handler.SubmitTransactions).ServeHTTP(rw, req)
-
 		resp := rw.Result()
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
@@ -71,9 +173,9 @@ func TestSubmitTransactions(t *testing.T) {
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 
 		reqBody = fmt.Sprintf(`{
-				"webhook": "localhost:8080",
-				"transactions": [{"operations": [%q]}]
-			}`, "ABCD")
+					"webhook": "localhost:8080",
+					"transactions": [%q]
+				}`, "ABCD")
 		rw = httptest.NewRecorder()
 		req = httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
@@ -83,32 +185,19 @@ func TestSubmitTransactions(t *testing.T) {
 		respBody, err = io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		expectedRespBody = `{"error": "bad operation xdr"}`
+		expectedRespBody = `{"error": "bad transaction xdr"}`
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 
 	})
 
 	t.Run("happy_path", func(t *testing.T) {
-		srcAccount := keypair.MustRandom().Address()
-		p := txnbuild.Payment{
-			Destination:   keypair.MustRandom().Address(),
-			Amount:        "10",
-			Asset:         txnbuild.NativeAsset{},
-			SourceAccount: srcAccount,
-		}
-		op, _ := p.BuildXDR()
-
-		var buf strings.Builder
-		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
-
-		opXDR := buf.String()
-		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
+		tx := utils.BuildTestTransaction()
+		txXDR, _ := tx.Base64()
 		reqBody := fmt.Sprintf(`{
 			"webhook": "localhost:8080",
-			"transactions": [{"operations": [%q]}]
-		}`, opXDRBase64)
+			"transactions": [%q]
+		}`, txXDR)
 
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
@@ -144,12 +233,14 @@ func TestGetTransaction(t *testing.T) {
 	store, _ := store.NewStore(dbConnectionPool)
 	mockRouter := router.MockRouter{}
 	mockAppTracker := apptracker.MockAppTracker{}
+	txServiceMock := tssservices.TransactionServiceMock{}
 
 	handler := &TSSHandler{
-		Router:            &mockRouter,
-		Store:             store,
-		AppTracker:        &mockAppTracker,
-		NetworkPassphrase: "testnet passphrase",
+		Router:             &mockRouter,
+		Store:              store,
+		AppTracker:         &mockAppTracker,
+		NetworkPassphrase:  "testnet passphrase",
+		TransactionService: &txServiceMock,
 	}
 
 	endpoint := "/tss/transactions"
