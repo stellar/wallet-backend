@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -214,4 +215,81 @@ func TestIngestPayments(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
 	})
+}
+
+func TestIngestPathPaymentsSend(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	models, _ := data.NewModels(dbConnectionPool)
+	mockAppTracker := apptracker.MockAppTracker{}
+	mockRPCService := RPCServiceMock{}
+	mockRouter := tssrouter.MockRouter{}
+	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	srcAccount := keypair.MustRandom().Address()
+	destAccount := keypair.MustRandom().Address()
+	usdIssuer := keypair.MustRandom().Address()
+	eurIssuer := keypair.MustRandom().Address()
+
+	t.Run("test_op_path_payment_send", func(t *testing.T) {
+		err := models.Account.Insert(context.Background(), srcAccount)
+		require.NoError(t, err)
+
+		path := []txnbuild.Asset{
+			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
+			txnbuild.CreditAsset{Code: "EUR", Issuer: eurIssuer},
+		}
+
+		pathPaymentOp := txnbuild.PathPaymentStrictSend{
+			SourceAccount: srcAccount,
+			Destination:   destAccount,
+			DestMin:       "9",
+			SendAmount:    "10",
+			SendAsset:     txnbuild.NativeAsset{},
+			DestAsset:     txnbuild.NativeAsset{},
+			Path:          path,
+		}
+		transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: keypair.MustRandom().Address(),
+			},
+			Operations:    []txnbuild.Operation{&pathPaymentOp},
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		})
+		require.NoError(t, err)
+
+		signer := keypair.MustRandom()
+		errSigner := models.Account.Insert(context.Background(), signer.Address())
+		require.NoError(t, errSigner)
+
+		signedTx, err := transaction.Sign(network.TestNetworkPassphrase, signer)
+		require.NoError(t, err)
+
+		txEnvXDR, err := signedTx.Base64()
+		require.NoError(t, err)
+
+		ledgerTransaction := entities.Transaction{
+			Status:           entities.SuccessStatus,
+			Hash:             "efgh",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAANAAAAAAAAAAAAAAAAXF0V022EgeGIo6QNVbMVvHdxvvl2MfZcVZUJpfph+0QAAAAAAAAAAAX14QAAAAAA",
+			Ledger:           1,
+		}
+
+		ledgerTransactions := []entities.Transaction{ledgerTransaction}
+
+		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+
+		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		require.NoError(t, err)
+		require.NotEmpty(t, payments, "Expected at least one payment")
+		assert.Equal(t, payments[0].TransactionHash, "efgh")
+	})
+
 }
