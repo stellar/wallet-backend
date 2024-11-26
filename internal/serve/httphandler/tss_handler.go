@@ -32,7 +32,7 @@ type BuildTransactionsRequest struct {
 	Transactions []Transaction `json:"transactions" validate:"required,gt=0"`
 }
 
-type BuildTransactionResponse struct {
+type BuildTransactionsResponse struct {
 	TransactionXDRs []string `json:"transactionxdrs"`
 }
 
@@ -73,7 +73,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		transactionXDRs = append(transactionXDRs, txXdrStr)
 	}
-	httpjson.Render(w, BuildTransactionResponse{
+	httpjson.Render(w, BuildTransactionsResponse{
 		TransactionXDRs: transactionXDRs,
 	}, httpjson.JSON)
 }

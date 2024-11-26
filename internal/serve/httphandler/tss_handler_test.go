@@ -120,7 +120,7 @@ func TestBuildTransactions(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var buildTxResp BuildTransactionResponse
+		var buildTxResp BuildTransactionsResponse
 		_ = json.Unmarshal(respBody, &buildTxResp)
 		expectedTxXDR, _ := tx.Base64()
 		assert.Equal(t, expectedTxXDR, buildTxResp.TransactionXDRs[0])
