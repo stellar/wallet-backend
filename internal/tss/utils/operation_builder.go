@@ -38,8 +38,6 @@ func BuildOperations(txOpXDRs []string) ([]txnbuild.Operation, error) {
 			operation = &txnbuild.SetOptions{}
 		case xdr.OperationTypeChangeTrust:
 			operation = &txnbuild.ChangeTrust{}
-		case xdr.OperationTypeAllowTrust:
-			operation = &txnbuild.AllowTrust{}
 		case xdr.OperationTypeAccountMerge:
 			operation = &txnbuild.AccountMerge{}
 		case xdr.OperationTypeInflation:
@@ -78,8 +76,13 @@ func BuildOperations(txOpXDRs []string) ([]txnbuild.Operation, error) {
 			operation = &txnbuild.ExtendFootprintTtl{}
 		case xdr.OperationTypeRestoreFootprint:
 			operation = &txnbuild.RestoreFootprint{}
+		default:
+			return nil, fmt.Errorf("unrecognized op")
 		}
-		operation.FromXDR(decodedOp)
+		err = operation.FromXDR(decodedOp)
+		if err != nil {
+			return nil, fmt.Errorf("decoding Operation FromXDR")
+		}
 		operations = append(operations, operation)
 	}
 	return operations, nil
