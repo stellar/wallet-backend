@@ -178,6 +178,9 @@ func TestIngestPayments(t *testing.T) {
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
+	usdIssuer := keypair.MustRandom().Address()
+	eurIssuer := keypair.MustRandom().Address()
+
 	t.Run("test_op_payment", func(t *testing.T) {
 		_ = models.Account.Insert(context.Background(), srcAccount)
 		paymentOp := txnbuild.Payment{
@@ -215,25 +218,6 @@ func TestIngestPayments(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
 	})
-}
-
-func TestIngestPathPaymentsSend(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-	models, _ := data.NewModels(dbConnectionPool)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
-	srcAccount := keypair.MustRandom().Address()
-	destAccount := keypair.MustRandom().Address()
-	usdIssuer := keypair.MustRandom().Address()
-	eurIssuer := keypair.MustRandom().Address()
 
 	t.Run("test_op_path_payment_send", func(t *testing.T) {
 		err := models.Account.Insert(context.Background(), srcAccount)
@@ -285,11 +269,12 @@ func TestIngestPathPaymentsSend(t *testing.T) {
 		ledgerTransactions := []entities.Transaction{ledgerTransaction}
 
 		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
 
 		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
-		assert.Equal(t, payments[0].TransactionHash, *&ledgerTransaction.Hash)
+		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
 		assert.Equal(t, payments[0].SrcAmount, int64(100000000))
 		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
 		assert.Equal(t, payments[0].ToAddress, destAccount)
@@ -297,25 +282,6 @@ func TestIngestPathPaymentsSend(t *testing.T) {
 		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
 		assert.Equal(t, payments[0].DestAssetCode, "XLM")
 	})
-}
-
-func TestIngestPathPaymentsReceive(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-	models, _ := data.NewModels(dbConnectionPool)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
-	srcAccount := keypair.MustRandom().Address()
-	destAccount := keypair.MustRandom().Address()
-	usdIssuer := keypair.MustRandom().Address()
-	eurIssuer := keypair.MustRandom().Address()
 
 	t.Run("test_op_path_payment_receive", func(t *testing.T) {
 		err := models.Account.Insert(context.Background(), srcAccount)
@@ -367,11 +333,12 @@ func TestIngestPathPaymentsReceive(t *testing.T) {
 		ledgerTransactions := []entities.Transaction{ledgerTransaction}
 
 		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
 
 		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
-		assert.Equal(t, payments[0].TransactionHash, *&ledgerTransaction.Hash)
+		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
 		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
 		assert.Equal(t, payments[0].ToAddress, destAccount)
 		assert.Equal(t, payments[0].FromAddress, srcAccount)
