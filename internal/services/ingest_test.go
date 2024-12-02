@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -177,6 +178,9 @@ func TestIngestPayments(t *testing.T) {
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
+	usdIssuer := keypair.MustRandom().Address()
+	eurIssuer := keypair.MustRandom().Address()
+
 	t.Run("test_op_payment", func(t *testing.T) {
 		_ = models.Account.Insert(context.Background(), srcAccount)
 		paymentOp := txnbuild.Payment{
@@ -213,5 +217,122 @@ func TestIngestPayments(t *testing.T) {
 		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
+	})
+
+	t.Run("test_op_path_payment_send", func(t *testing.T) {
+		_ = models.Account.Insert(context.Background(), srcAccount)
+
+		path := []txnbuild.Asset{
+			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
+			txnbuild.CreditAsset{Code: "EUR", Issuer: eurIssuer},
+		}
+
+		pathPaymentOp := txnbuild.PathPaymentStrictSend{
+			SourceAccount: srcAccount,
+			Destination:   destAccount,
+			DestMin:       "9",
+			SendAmount:    "10",
+			SendAsset:     txnbuild.NativeAsset{},
+			DestAsset:     txnbuild.NativeAsset{},
+			Path:          path,
+		}
+		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: keypair.MustRandom().Address(),
+			},
+			Operations:    []txnbuild.Operation{&pathPaymentOp},
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		})
+
+		signer := keypair.MustRandom()
+		_ = models.Account.Insert(context.Background(), signer.Address())
+
+		signedTx, _ := transaction.Sign(network.TestNetworkPassphrase, signer)
+
+		txEnvXDR, _ := signedTx.Base64()
+
+		ledgerTransaction := entities.Transaction{
+			Status:           entities.SuccessStatus,
+			Hash:             "efgh",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAANAAAAAAAAAAAAAAAAXF0V022EgeGIo6QNVbMVvHdxvvl2MfZcVZUJpfph+0QAAAAAAAAAAAX14QAAAAAA",
+			Ledger:           1,
+		}
+
+		ledgerTransactions := []entities.Transaction{ledgerTransaction}
+
+		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
+
+		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		require.NoError(t, err)
+		require.NotEmpty(t, payments, "Expected at least one payment")
+		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
+		assert.Equal(t, payments[0].SrcAmount, int64(100000000))
+		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
+		assert.Equal(t, payments[0].ToAddress, destAccount)
+		assert.Equal(t, payments[0].FromAddress, srcAccount)
+		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
+		assert.Equal(t, payments[0].DestAssetCode, "XLM")
+	})
+
+	t.Run("test_op_path_payment_receive", func(t *testing.T) {
+		_ = models.Account.Insert(context.Background(), srcAccount)
+
+		path := []txnbuild.Asset{
+			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
+			txnbuild.CreditAsset{Code: "EUR", Issuer: eurIssuer},
+		}
+
+		pathPaymentOp := txnbuild.PathPaymentStrictReceive{
+			SourceAccount: srcAccount,
+			Destination:   destAccount,
+			SendMax:       "11",
+			DestAmount:    "10",
+			SendAsset:     txnbuild.NativeAsset{},
+			DestAsset:     txnbuild.NativeAsset{},
+			Path:          path,
+		}
+		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: keypair.MustRandom().Address(),
+			},
+			Operations:    []txnbuild.Operation{&pathPaymentOp},
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		})
+
+		signer := keypair.MustRandom()
+		_ = models.Account.Insert(context.Background(), signer.Address())
+
+		signedTx, _ := transaction.Sign(network.TestNetworkPassphrase, signer)
+
+		txEnvXDR, _ := signedTx.Base64()
+
+		ledgerTransaction := entities.Transaction{
+			Status:           entities.SuccessStatus,
+			Hash:             "efgh",
+			ApplicationOrder: 1,
+			FeeBump:          false,
+			EnvelopeXDR:      txEnvXDR,
+			ResultXDR:        "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAACAAAAAAAAAAAAAAAAjOiEfRh4kaFVQDu/CSTZLMtnyg0DbNowZ/G2nLES3KwAAAAAAAAAAAVdSoAAAAAA",
+			Ledger:           1,
+		}
+
+		ledgerTransactions := []entities.Transaction{ledgerTransaction}
+
+		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
+
+		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		require.NoError(t, err)
+		require.NotEmpty(t, payments, "Expected at least one payment")
+		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
+		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
+		assert.Equal(t, payments[0].ToAddress, destAccount)
+		assert.Equal(t, payments[0].FromAddress, srcAccount)
+		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
+		assert.Equal(t, payments[0].DestAssetCode, "XLM")
 	})
 }
