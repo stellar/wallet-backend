@@ -65,6 +65,8 @@ func (r *router) Route(payload tss.Payload) error {
 		}
 	} else if payload.RpcGetIngestTxResponse.Status != "" {
 		channel = r.WebhookChannel
+	} else {
+		channel = r.RPCCallerChannel
 	}
 	if channel == nil {
 		return fmt.Errorf("payload could not be routed - channel is nil")
