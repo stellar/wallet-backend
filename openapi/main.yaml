@@ -21,7 +21,7 @@ tags:
   - name: Transactions
     description: Endpoints to create transactions that are sponsored by the wallet backend's distribution account. 
   - name: TSS
-    description: Endpoints to build and submit transactions to the stellar network. ADD MORE HERE  
+    description: Endpoints to build and submit transactions to the stellar network
 paths:
   /accounts:
     post:
@@ -30,17 +30,13 @@ paths:
       summary: Register Stellar Account
       description: 'Allows clients to register stellar accounts so that the wallet backend can index incoming and outgoing payments to and from these accounts.'
       operationId: AccountRegistration
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                address:
-                  type: string
-              required:
-                - address
-        required: true
+      parameters:
+        - name: address
+          in: query
+          description: The stellar address to register with the wallet backend
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: OK
@@ -79,19 +75,13 @@ paths:
       summary: De-register Stellar Account
       description: 'Allows clients to de-register previously registered stellar accounts so that the wallet backend can stop indexing incoming and outgoing payments for the stellar account.'
       operationId: AccountDeRegistration
-      requestBody:
-        content:
-          application/json::
-            schema:
-              type: object
-              properties:
-                address:
-                  type: string
-              example:
-                address: GA3S4LPQGVRJT6RGXV6KWTZBU6FO2MK3T347DFNUSO5XLTCXNOUXVZOL
-              required:
-                - address
-        required: false
+      parameters:
+        - name: address
+          in: query
+          description: The stellar address to de-register with the wallet backend
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: OK
@@ -631,7 +621,7 @@ paths:
               example:
                 status: 500
                 error: An error occurred while processing this request.
-  /tss/transactions:
+  /tss/transactions/:
     get:
       tags:
         - TSS
@@ -661,11 +651,54 @@ paths:
                     type: string
                     description: "The current status of the transaction"
               example:
-                transactionhash: "ABCDEF"
-                transactionxdr: "Y6MF7SMT2a2d6pt3i37Xx9"
+                transactionhash: "Y6MF7SMT2a2d6pt3i37Xx9"
+                transactionxdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
                 STATUS: "SUCCESS"
-                  
-                
-                  
-
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Bad request.
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 404
+                  error: The resource at the url requested was not found.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
 x-original-swagger-version: '2.0'
