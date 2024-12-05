@@ -1,0 +1,671 @@
+openapi: 3.0.3
+info:
+  title: Wallet Backend API
+  version: 1.0.0
+  description: |
+    The Wallet Backend has a set of common services exposed via an API that wallet applications built on top of the Stellar network can use. 
+
+    This is an open-source project that is built on top of the Stellar network, and it's code can be found in [stellar/wallet-backend](https://github.com/stellar/wallet-backend)
+  termsOfService: https://stellar.org/terms-of-service
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: ''
+tags:
+  - name: Account Registration
+    x-displayName: Account Registration
+    description: Clients of the Wallet Backed API can register and de-register stellar accounts whose payments they want to track
+  - name: Payments
+    description: Endpoint to retrieve paginated incoming and outgoing payments of a stellar account.
+  - name: Transactions
+    description: Endpoints to create transactions that are sponsored by the wallet backend's distribution account. 
+  - name: TSS
+    description: Endpoints to build and submit transactions to the stellar network. ADD MORE HERE  
+paths:
+  /accounts:
+    post:
+      tags:
+        - Account Registration
+      summary: Register Stellar Account
+      description: 'Allows clients to register stellar accounts so that the wallet backend can index incoming and outgoing payments to and from these accounts.'
+      operationId: AccountRegistration
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address:
+                  type: string
+              required:
+                - address
+        required: true
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+              example:
+                status: 400
+                error: Invalid request path.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+    delete:
+      tags:
+        - Account Registration
+      summary: De-register Stellar Account
+      description: 'Allows clients to de-register previously registered stellar accounts so that the wallet backend can stop indexing incoming and outgoing payments for the stellar account.'
+      operationId: AccountDeRegistration
+      requestBody:
+        content:
+          application/json::
+            schema:
+              type: object
+              properties:
+                address:
+                  type: string
+              example:
+                address: GA3S4LPQGVRJT6RGXV6KWTZBU6FO2MK3T347DFNUSO5XLTCXNOUXVZOL
+              required:
+                - address
+        required: false
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Invalid request path.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.  
+  /payments:
+    get:
+      tags:
+        - Payments
+      summary: Get paginated list of payments
+      description: Get a paginated list of incoming and outgoing payments of a stellar account
+      operationId: GetPayments
+      parameters:
+        - name: address
+          in: query
+          description: The stellar address whose payments we want to fetch.
+          required: true
+          schema:
+            type: string
+        - name: afterId
+          in: query
+          description: The starting operation id of the list of payments 
+          required: false
+          schema:
+            type: string
+        - name: beforeId
+          in: query
+          description: The ending operation id of the list of payments.
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: sort oder.
+          required: false
+          schema:
+            type: string
+            enum:
+              - ASC
+              - DESC
+            default: DESC
+        - name: limit
+          in: query
+          description: number of payments to return. Default is 50, maximum is 200
+          required: false
+          default: 50
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Returns a list of payments and urls to fetch further payments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _links:
+                    type: object
+                    properties:
+                      self:
+                        type: string
+                      next:
+                        type: string
+                      prev:
+                        type: string
+                  payments:
+                    type: array
+                    description: list of payments 
+                    items:
+                      type: object
+                      properties:
+                        createdAt:
+                          type: string
+                        destAmount:
+                          type: integer
+                        destAssetCode:
+                          type: string
+                        destAssetIssuer:
+                          type: string
+                        fromAddress:
+                          type: string
+                        memo:
+                          type: string
+                        operationId:
+                          type: string
+                        operationType:
+                          type: string
+                        srcAmount:
+                          type: integer
+                        srcAssetCode:
+                          type: string
+                        srcAssetIssuer:
+                          type: string
+                        toAddress:
+                          type: string
+                        transactionHash:
+                          type: string
+                        transactionId:
+                          type: string
+              example:
+                _links:
+                  self: https://wallet-backend.com/payments?limit=50&sort=DESC
+                  next: https://wallet-backend.com/payments?afterId=123&limit=50&sort=DESC
+                  prev: https://wallet-backend.com/payments?afterId=123&limit=50&sort=DESC
+                payments: 
+                  - createdAt: 2024-06-22T00:00:00Z
+                    destAmount: 20
+                    destAssetCode: XLM
+                    destAssetIssuer: ""
+                    fromAddress: GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L
+                    memo: null
+                    operationId: 2
+                    operationType: OperationTypePayment
+                    srcAmount: 20
+                    srcAssetCode: XLM
+                    srcAssetIssuer: ""
+                    toAddress: GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J
+                    transactionHash: 30850d8fc7d1439782885103390cd975
+                    transactionId: 22
+                  - createdAt: 2024-06-23T00:00:00Z
+                    destAmount: 22
+                    destAssetCode: XLM
+                    destAssetIssuer: ""
+                    fromAddress: GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L
+                    memo: null
+                    operationId: 2
+                    operationType: OperationTypePayment
+                    srcAmount: 20
+                    srcAssetCode: XLM
+                    srcAssetIssuer: ""
+                    toAddress: GDB4RW6QFWMGHGI6JTIKMGVUUQO7NNOLSFDMCOMUCCWHMAMFL3FH4Q2J
+                    transactionHash: 30850d8fc7d1439782885103390cd975
+                    transactionId: 23
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Invalid request URL params.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+  /tx/create-sponsored-account:
+    post:
+      tags:
+        - Transactions
+      summary: Sponsor (pay the base reserve for) the creation of an account on the network
+      description: Create an account on the stellar network whose base reserve is paid for by the wallet backend's distribution account. Make sure that the total added weight of the partial signers is less than the total added weight of the full signers.
+      operationId: createSponsoredAccount
+      requestBody:
+        description: "Request body for configuring address signers with weights and types."
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address:
+                  type: string
+                  description: "The address of the account to be created."
+                  example: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                signers:
+                  type: array
+                  description: "List of signers with their respective addresses, types, and weights."
+                  items:
+                    type: object
+                    properties:
+                      address:
+                        type: string
+                        description: "The address of the signer."
+                        example: "GCXCF2T2FUY6UFYBLXNLJKGA4K6Y23KQEWTGV2X2YRBYOTP2RVYKY2DU"
+                      type:
+                        type: string
+                        description: "Type of the signer (full, partial)."
+                        example: "full"
+                      weight:
+                        type: integer
+                        description: "Weight of the signer."
+                        example: 20
+              required:
+                - address
+                - signers
+              example:
+                address: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                signers:
+                  - address: "GCXCF2T2FUY6UFYBLXNLJKGA4K6Y23KQEWTGV2X2YRBYOTP2RVYKY2DU"
+                    type: "full"
+                    weight: 20
+                  - address: "GCAMJ67W77XEHUCPRTN3WGD6QG7XMJVWTU5KJMD4VDCI6FRUIO3X7B4T"
+                    type: "partial"
+                    weight: 10
+                  - address: "GC5E47IDYJAKVHXRLQM7Z2ABBARG6BAT6CYPEKTAZERS4H24KFUEKCA7"
+                    type: "partial"
+                    weight: 10
+      responses:
+        '200':
+          description: "Successful response containing network passphrase and the base64 transaction xdr string."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  networkPassphrase:
+                    type: string
+                    description: "The passphrase of the network used for the transaction."
+                  transaction:
+                    type: string
+                    description: "The base64-encoded transaction envelope."
+              example:
+                networkPassphrase: "Test SDF Network ; September 2015"
+                transaction: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAAAAAAAAAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAApIt66UEG1IDSjJPfTQNheHz06pj5cjZjsCB3mMCRHhQAAABQAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD7c8Mp4XnAkJ0wzCcXHw7lxQNMgnG3c8auqJWB75WJywAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAACIKVZwHT74BHJ6f1PVDd5HWMzEuPW1P5bw3dDipS9RzgAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFVU0RDAAAAAEI+fQXy7K+/7BkrIVo/G+lq7bjY5wJUq+NBPgIH3layf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFBUlNUAAAAAH8wYjTJienWf2nf2TEZi2APPWzmtkwiQHAftisIgyuHf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAEQAAAAEAAAAAjgvL/EkwQyFCxjNxZWejuzd7x6TZ7O23MEQxZSMUzIsAAAAFAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAFAAAAAEAAAAUAAAAAQAAABQAAAAAAAAAAAAAAAAAAAABISzhOwAAAEA2UXoQIAlm8nq2K8fniAbMdsBbWRdx6ay8p5dAJUGfqFGJ7rWf/pdZVQ8D3gcKXlBwTVhHDVCSBfj0UsTaHREO"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Validation Error.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+  /tx/create-fee-bump:
+    post:
+      tags:
+        - Transactions
+      summary: Create a fee bump transaction where the distribution account pays for the fee.
+      description:
+        Create a fee bump transaction where the distribution account pays for the transaction fee.
+      operationId: createFeeBumpAccount
+      requestBody:
+        description: "Request body for configuring address signers with weights and types."
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transaction:
+                  type: string
+                  description: "The base64 transaction xdr string of the transaction to be wrapped in a fee bump transaction."
+              required:
+                - transaction
+            example:
+              transaction: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAAAAAAAAAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAApIt66UEG1IDSjJPfTQNheHz06pj5cjZjsCB3mMCRHhQAAABQAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD7c8Mp4XnAkJ0wzCcXHw7lxQNMgnG3c8auqJWB75WJywAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAACIKVZwHT74BHJ6f1PVDd5HWMzEuPW1P5bw3dDipS9RzgAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFVU0RDAAAAAEI+fQXy7K+/7BkrIVo/G+lq7bjY5wJUq+NBPgIH3layf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFBUlNUAAAAAH8wYjTJienWf2nf2TEZi2APPWzmtkwiQHAftisIgyuHf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAEQAAAAEAAAAAjgvL/EkwQyFCxjNxZWejuzd7x6TZ7O23MEQxZSMUzIsAAAAFAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAFAAAAAEAAAAUAAAAAQAAABQAAAAAAAAAAAAAAAAAAAABISzhOwAAAEA2UXoQIAlm8nq2K8fniAbMdsBbWRdx6ay8p5dAJUGfqFGJ7rWf/pdZVQ8D3gcKXlBwTVhHDVCSBfj0UsTaHREO"
+      responses:
+        '200':
+          description: "Successful response containing network passphrase and the base64 fee bump transaction xdr string."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  networkPassphrase:
+                    type: string
+                    description: "The passphrase of the network used for the transaction."
+                  transaction:
+                    type: string
+                    description: "The base64-encoded fee bump transaction envelope."
+              example:
+                networkPassphrase: "Test SDF Network ; September 2015"
+                transaction: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAAAAAAAAAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAApIt66UEG1IDSjJPfTQNheHz06pj5cjZjsCB3mMCRHhQAAABQAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD7c8Mp4XnAkJ0wzCcXHw7lxQNMgnG3c8auqJWB75WJywAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAACIKVZwHT74BHJ6f1PVDd5HWMzEuPW1P5bw3dDipS9RzgAAAAoAAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFVU0RDAAAAAEI+fQXy7K+/7BkrIVo/G+lq7bjY5wJUq+NBPgIH3layf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAABgAAAAFBUlNUAAAAAH8wYjTJienWf2nf2TEZi2APPWzmtkwiQHAftisIgyuHf/////////8AAAABAAAAAI4Ly/xJMEMhQsYzcWVno7s3e8ek2ezttzBEMWUjFMyLAAAAEQAAAAEAAAAAjgvL/EkwQyFCxjNxZWejuzd7x6TZ7O23MEQxZSMUzIsAAAAFAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAFAAAAAEAAAAUAAAAAQAAABQAAAAAAAAAAAAAAAAAAAABISzhOwAAAEA2UXoQIAlm8nq2K8fniAbMdsBbWRdx6ay8p5dAJUGfqFGJ7rWf/pdZVQ8D3gcKXlBwTVhHDVCSBfj0UsTaHREO"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Could not parse transaction envelope.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+  /tss/transactions/build:
+    post:
+      tags:
+        - TSS
+      summary: Create transactions with wallet backend channel accounts as the source
+      description:
+        Create transactions with wallet backend channel accounts as the source, from a list of transactions where each transaction is represented as a list of operations that it contains.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transactions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      operations:
+                        type: array
+                        description: list of operations that make up the transaction
+                        items:
+                          type: string
+                          description: base64 operation xdr string
+                      timebounds:
+                        type: integer
+                        description: time in seconds after which this transaction will not be accepted by the network
+                    required:
+                      - operations
+                      - timebounds
+              required:
+                - transactions
+            example:
+              transactions:
+                - opearations:
+                  - "Y6MF7SMT2a2d6pt3i37Xx9"
+                  - "M8GA7SMT2a2d6pt3i37Xx8"
+                  timebounds: 300
+      responses:
+        '200':
+          description: "Successful response containing a list of base64 transaction xdr strings"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionxdrs: 
+                    type: array
+                    items:
+                      type: string
+                      description: base64 encoded transaction xdr string
+              example:
+                transactionxdrs:
+                  - "Y6MF7SMT2a2d6pt3i37Xx9"
+                  - "M8GA7SMT2a2d6pt3i37Xx8"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Bad operation xdr.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+  /tss/transactions:
+    post:
+      tags:
+        - TSS
+      summary: submit transactions in bulk to TSS
+      description:
+        Submit a list of transactions to TSS so that it can submit it to the stellar network
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhookurl:
+                  type: string
+                  description: The url to which the final transaction results are to be sent
+                transactions:
+                  type: array
+                  items:
+                    type: string
+                    description: base64 encoded transaction xdr to submit to the stellar network
+                feebump:
+                  type: boolean
+                  description: boolean indicating if this transaction should be wrapped in a fee bump transaction
+              required:
+                - webhookurl
+                - transactions
+            example:
+              webhookurl: "www.sdp.stellar.com/webhook"
+              transactions:
+                - "Y6MF7SMT2a2d6pt3i37Xx9"
+                - "M8GA7SMT2a2d6pt3i37Xx8"
+              feebump: true
+      responses:
+        '200':
+          description: "Successful response with the transaction hashes of the transactions to be submitted to the network. Clients can use these hashes to query TSS for the status of their transaction"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionhashes: 
+                    type: array
+                    items:
+                      type: string
+                      description: transaction hash of the transaction
+              example:
+                transactionhashes:
+                  - "Y6MF7SMT2a2d6pt3i37Xx9"
+                  - "M8GA7SMT2a2d6pt3i37Xx8"
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                    description: Details about the error
+                example:
+                  status: 400
+                  error: Bad transaction xdr.
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  error:
+                    type: string
+                example:
+                  status: 500
+                  error: An error occurred while processing this request.
+              example:
+                status: 500
+                error: An error occurred while processing this request.
+  /tss/transactions:
+    get:
+      tags:
+        - TSS
+      summary: Get the status of a previously submitted transaction
+      parameters:
+        - name: transactionhash
+          in: query
+          description: The transaction hash of a previously submitted transaction
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: "Successful response containing the transaction hash, xdr and current status of the transaction"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactionhash:
+                    type: string
+                    description: "The hash of the transaction."
+                  transactionxdr:
+                    type: string
+                    description: "The base64-encoded xdr string of the transaction"
+                  status:
+                    type: string
+                    description: "The current status of the transaction"
+              example:
+                transactionhash: "ABCDEF"
+                transactionxdr: "Y6MF7SMT2a2d6pt3i37Xx9"
+                STATUS: "SUCCESS"
+                  
+                
+                  
+
+x-original-swagger-version: '2.0'
