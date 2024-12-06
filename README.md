@@ -12,9 +12,11 @@ The wallet-backend service provides several key functionalities:
 - Payment history tracking
 - Fee bump transaction support
 - Channel account management
-- Transaction Submission Service (TSS)
+- Transaction submission service (TSS)
 
 ## Local Development Setup
+In this section, we will go through the steps required to start the wallet-backend server for local development
+and contribution.
 
 ### Prerequisites
 
@@ -117,3 +119,7 @@ export WALLET_SIGNING_KEY=
         ```bash
         go run main.go ingest
         ```
+
+This allows us to establish a dev cycle where you can make changes to the code and restart the `api` and `ingest` services
+to test them. Based on the IDE you are using, you can add the build configurations for these services, along with 
+the environment variables to add breakpoints to your code.
