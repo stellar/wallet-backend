@@ -477,7 +477,7 @@ paths:
                           description: base64 operation xdr string
                       timebounds:
                         type: integer
-                        description: time in seconds after which this transaction will not be accepted by the network
+                        description: number of seconds after the current time that the transaction expires
                     required:
                       - operations
                       - timebounds
