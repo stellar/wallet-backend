@@ -11,10 +11,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const (
+	getHealthMethodName = "getHealth"
+)
+
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
+	GetHealth() (entities.RPCGetHealthResult, error)
 }
 
 type rpcService struct {
@@ -80,6 +85,21 @@ func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limi
 	return result, nil
 }
 
+func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
+	resultBytes, err := r.sendRPCRequest("getHealth", entities.RPCParams{})
+	if err != nil {
+		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %v", err)
+	}
+
+	var result entities.RPCGetHealthResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCGetHealthResult{}, fmt.Errorf("parsing getHealth result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
 
 	resultBytes, err := r.sendRPCRequest("sendTransaction", entities.RPCParams{Transaction: transactionXDR})
@@ -102,8 +122,13 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  method,
-		"params":  params,
 	}
+	// The getHealth method in RPC does not expect any params and returns an error if an empty
+	// params interface is sent.
+	if method != getHealthMethodName {
+		payload["params"] = params
+	}
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling payload")

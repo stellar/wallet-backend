@@ -24,6 +24,13 @@ type RPCResponse struct {
 	ID      int64           `json:"id"`
 }
 
+type RPCGetHealthResult struct {
+	Status                string `json:"status"`
+	LatestLedger          uint32 `json:"latestLedger"`
+	OldestLedger          uint32 `json:"oldestLedger"`
+	LedgerRetentionWindow uint32 `json:"ledgerRetentionWindow"`
+}
+
 type RPCGetTransactionResult struct {
 	Status                RPCStatus `json:"status"`
 	LatestLedger          int64     `json:"latestLedger"`
@@ -49,7 +56,7 @@ type Transaction struct {
 	ResultXDR           string    `json:"resultXdr"`
 	ResultMetaXDR       string    `json:"resultMetaXdr"`
 	Ledger              int64     `json:"ledger"`
-	DiagnosticEventsXDR string    `json:"diagnosticEventsXdr"`
+	DiagnosticEventsXDR []string  `json:"diagnosticEventsXdr"`
 	CreatedAt           uint32    `json:"createdAt"`
 }
 
