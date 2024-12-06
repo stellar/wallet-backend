@@ -15,7 +15,7 @@ servers:
 tags:
   - name: Account Registration
     x-displayName: Account Registration
-    description: Clients of the Wallet Backed API can register and de-register stellar accounts whose payments they want to track
+    description: Clients of the Wallet Backed API can register and de-register stellar accounts whose payments they want to track, and whose transactions they want wrapped in fee bump transactions.
   - name: Payments
     description: Endpoint to retrieve paginated incoming and outgoing payments of a stellar account.
   - name: Transactions
@@ -28,7 +28,7 @@ paths:
       tags:
         - Account Registration
       summary: Register Stellar Account
-      description: 'Allows clients to register stellar accounts so that the wallet backend can index incoming and outgoing payments to and from these accounts.'
+      description: 'Allows clients to register stellar accounts so that the wallet backend can index incoming and outgoing payments to and from these accounts, and wrap transactions with these stellar accounts as the source in fee bump transactions'
       operationId: AccountRegistration
       parameters:
         - name: address
@@ -73,7 +73,7 @@ paths:
       tags:
         - Account Registration
       summary: De-register Stellar Account
-      description: 'Allows clients to de-register previously registered stellar accounts so that the wallet backend can stop indexing incoming and outgoing payments for the stellar account.'
+      description: 'Allows clients to de-register previously registered stellar accounts.'
       operationId: AccountDeRegistration
       parameters:
         - name: address
@@ -384,10 +384,10 @@ paths:
         - Transactions
       summary: Create a fee bump transaction where the distribution account pays for the fee.
       description:
-        Create a fee bump transaction where the distribution account pays for the transaction fee.
+        Create a fee bump transaction where the distribution account pays for the transaction fee. Note that the source account of the inner transaction should be registered with the wallet backend via the register API endpoint before calling this API endpoint
       operationId: createFeeBumpAccount
       requestBody:
-        description: "Request body for configuring address signers with weights and types."
+        description: "Request body containing the base64 transaction xdr string to be wrapped in a fee bump transaction."
         required: true
         content:
           application/json:
@@ -650,6 +650,15 @@ paths:
                   status:
                     type: string
                     description: "The current status of the transaction"
+                    enum:
+                      - NEW (not processed yet)
+                      - SENT (final tx result sent to client via webhook)
+                      - NOT_SENT (failed to send final tx to client via webhook)
+                      - FAILED (tx failed)
+                      - SUCCESS (tx success)
+                      - PENDING (tx pending)
+                      - ERROR (tx errored out when submitting, retries still in progress unless error is terminal)
+                      - TRY_AGAIN_LATER (an rpc response indicating a gongested network, retries in progress)
               example:
                 transactionhash: "Y6MF7SMT2a2d6pt3i37Xx9"
                 transactionxdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
