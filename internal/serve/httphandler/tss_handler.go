@@ -25,7 +25,7 @@ type TSSHandler struct {
 
 type Transaction struct {
 	Operations []string `json:"operations" validate:"required"`
-	TimeOut    int64    `json:"timeout" validate:"required"`
+	TimeBounds int64    `json:"timebounds" validate:"required"`
 }
 
 type BuildTransactionsRequest struct {
@@ -61,7 +61,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 			httperror.BadRequest("bad operation xdr", nil).Render(w)
 			return
 		}
-		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeOut)
+		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds)
 		if err != nil {
 			httperror.InternalServerError(ctx, "unable to build transaction", err, nil, t.AppTracker).Render(w)
 			return

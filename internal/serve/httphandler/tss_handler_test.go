@@ -70,7 +70,7 @@ func TestBuildTransactions(t *testing.T) {
 
 	t.Run("tx_signing_fails", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
-			"transactions": [{"operations": [%q], "timeout": 100}]
+			"transactions": [{"operations": [%q], "timebounds": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
@@ -100,7 +100,7 @@ func TestBuildTransactions(t *testing.T) {
 
 	t.Run("happy_path", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
-			"transactions": [{"operations": [%q], "timeout": 100}]
+			"transactions": [{"operations": [%q], "timebounds": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
