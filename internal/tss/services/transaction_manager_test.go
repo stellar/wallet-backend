@@ -33,25 +33,29 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		Store:      store,
 	})
 	networkPass := "passphrase"
+	tx := utils.BuildTestTransaction()
+	txHash, _ := tx.HashHex(networkPass)
+	txXDR, _ := tx.Base64()
 	feeBumpTx := utils.BuildTestFeeBumpTransaction()
 	feeBumpTxXDR, _ := feeBumpTx.Base64()
 	feeBumpTxHash, _ := feeBumpTx.HashHex(networkPass)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
-	payload.TransactionHash = "hash"
-	payload.TransactionXDR = "xdr"
+	payload.TransactionHash = txHash
+	payload.TransactionXDR = txXDR
 
-	t.Run("fail_on_tx_build_and_sign", func(t *testing.T) {
+	t.Run("fail_on_building_feebump_tx", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		txServiceMock.
-			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
+			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(nil, errors.New("signing failed")).
 			Once()
+		payload.FeeBump = true
 
 		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, tss.RPCSendTxResponse{}, txSendResp)
-		assert.Equal(t, "channel: Unable to sign/build transaction: signing failed", err.Error())
+		assert.Equal(t, "channel: Unable to build fee bump transaction: signing failed", err.Error())
 
 		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
@@ -62,7 +66,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		sendResp := entities.RPCSendTransactionResult{Status: entities.ErrorStatus}
 
 		txServiceMock.
-			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
+			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(feeBumpTx, nil).
 			Once().
 			On("NetworkPassphrase").
@@ -72,6 +76,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			On("SendTransaction", feeBumpTxXDR).
 			Return(sendResp, errors.New("RPC down")).
 			Once()
+		payload.FeeBump = true
 
 		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
@@ -95,7 +100,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		}
 
 		txServiceMock.
-			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
+			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(feeBumpTx, nil).
 			Once().
 			On("NetworkPassphrase").
@@ -105,6 +110,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			On("SendTransaction", feeBumpTxXDR).
 			Return(sendResp, nil).
 			Once()
+		payload.FeeBump = true
 
 		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
@@ -128,7 +134,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		}
 
 		txServiceMock.
-			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
+			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(feeBumpTx, nil).
 			Once().
 			On("NetworkPassphrase").
@@ -138,6 +144,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			On("SendTransaction", feeBumpTxXDR).
 			Return(sendResp, nil).
 			Once()
+		payload.FeeBump = true
 
 		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
@@ -152,7 +159,6 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.UnmarshalBinaryCode), try.Code)
 	})
-
 	t.Run("rpc_returns_response", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
@@ -161,7 +167,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		}
 
 		txServiceMock.
-			On("SignAndBuildNewFeeBumpTransaction", context.Background(), payload.TransactionXDR).
+			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(feeBumpTx, nil).
 			Once().
 			On("NetworkPassphrase").
@@ -171,6 +177,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			On("SendTransaction", feeBumpTxXDR).
 			Return(sendResp, nil).
 			Once()
+		payload.FeeBump = true
 
 		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
@@ -184,5 +191,39 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		try, _ := store.GetTry(context.Background(), feeBumpTxHash)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
+	})
+	t.Run("feebump_is_false", func(t *testing.T) {
+		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		sendResp := entities.RPCSendTransactionResult{
+			Status:         entities.ErrorStatus,
+			ErrorResultXDR: "AAAAAAAAAMj////9AAAAAA==",
+		}
+		txServiceMock.
+			On("NetworkPassphrase").
+			Return(networkPass).
+			Once()
+		rpcServiceMock.
+			On("SendTransaction", txXDR).
+			Return(sendResp, nil).
+			Once()
+		rpcServiceMock.
+			On("SendTransaction", feeBumpTxXDR).
+			Return(sendResp, nil).
+			Once()
+		payload.FeeBump = false
+
+		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+
+		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
+		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
+		assert.Empty(t, err)
+
+		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		assert.Equal(t, string(entities.ErrorStatus), tx.Status)
+
+		try, _ := store.GetTry(context.Background(), txHash)
+		assert.Equal(t, string(entities.ErrorStatus), try.Status)
+		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
+
 	})
 }

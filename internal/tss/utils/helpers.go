@@ -36,7 +36,7 @@ func BuildTestTransaction() *txnbuild.Transaction {
 		Operations: []txnbuild.Operation{
 			&txnbuild.Payment{
 				Destination: keypair.MustRandom().Address(),
-				Amount:      "14",
+				Amount:      "14.0000000",
 				Asset:       txnbuild.NativeAsset{},
 			},
 		},

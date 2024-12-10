@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -85,44 +83,8 @@ func (p *poolPopulator) routeNewTransactions(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getting latest try for transaction: %w", err)
 		}
-		if try == (store.Try{}) {
-			// there is no try for this transactionm - route to RPC caller channel
+		if try == (store.Try{}) || try.Code == int32(tss.RPCFailCode) || try.Code == int32(tss.NewCode) {
 			payload.RpcSubmitTxResponse.Status = tss.RPCTXStatus{OtherStatus: tss.NewStatus}
-		} else {
-			/*
-				if there is a try for this transaction, check to see if it is
-				submitted to RPC first. If status is NOT_FOUND, make sure
-				that the latest try for this transaction is past it's timebounds
-				before trying to re-submit the transaction. If the status is either
-				SUCCESS or FAILED, build a payload that will be routed to the Webhook
-				channel directly
-			*/
-			getTransactionResult, err := p.RPCService.GetTransaction(try.Hash)
-			if err != nil {
-				return fmt.Errorf("getting transaction: %w", err)
-			}
-			if getTransactionResult.Status == entities.NotFoundStatus {
-				genericTx, err := txnbuild.TransactionFromXDR(try.XDR)
-				if err != nil {
-					return fmt.Errorf("unmarshaling tx from xdr string: %w", err)
-				}
-				feeBumpTx, unpackable := genericTx.FeeBump()
-				if !unpackable {
-					return fmt.Errorf("fee bump transaction cannot be unpacked: %w", err)
-				}
-				timeBounds := feeBumpTx.InnerTransaction().ToXDR().Preconditions().TimeBounds
-				if time.Now().Before(time.Unix(int64(timeBounds.MaxTime), 0)) {
-					continue
-				}
-				// route to the RPC Caller channel
-				payload.RpcSubmitTxResponse.Status = tss.RPCTXStatus{OtherStatus: tss.NewStatus}
-			} else {
-				getIngestTxResponse, err := tss.ParseToRPCGetIngestTxResponse(getTransactionResult, err)
-				if err != nil {
-					return fmt.Errorf("parsing rpc reponse: %w", err)
-				}
-				payload.RpcGetIngestTxResponse = getIngestTxResponse
-			}
 		}
 		err = p.Router.Route(payload)
 		if err != nil {
@@ -156,20 +118,8 @@ func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 				Code:            tss.RPCTXCode{TxResultCode: xdr.TransactionResultCode(try.Code)},
 				ErrorResultXDR:  try.ResultXDR,
 			}
-		} else if try.Code == int32(tss.RPCFailCode) || try.Code == int32(tss.UnmarshalBinaryCode) {
-			// check for timebounds first and route iff out of timebounds route to errorchannel
-			genericTx, err := txnbuild.TransactionFromXDR(try.XDR)
-			if err != nil {
-				return fmt.Errorf("unmarshaling tx from xdr string: %w", err)
-			}
-			feeBumpTx, unpackable := genericTx.FeeBump()
-			if !unpackable {
-				return fmt.Errorf("fee bump transaction cannot be unpacked: %w", err)
-			}
-			timeBounds := feeBumpTx.InnerTransaction().ToXDR().Preconditions().TimeBounds
-			if time.Now().Before(time.Unix(int64(timeBounds.MaxTime), 0)) {
-				continue
-			}
+		} else if try.Code == int32(tss.RPCFailCode) || try.Code == int32(tss.NewCode) {
+			// route to the error jitter channel
 			payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
 				TransactionHash: try.Hash,
 				TransactionXDR:  try.XDR,

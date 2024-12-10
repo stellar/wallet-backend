@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
+	"github.com/stellar/wallet-backend/internal/tss/errors"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 )
 
@@ -33,29 +35,51 @@ func NewTransactionManager(cfg TransactionManagerConfigs) *transactionManager {
 	}
 }
 
+// this function will now take in a new parameter whether to wrap this in a fee bump or not
 func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload) (tss.RPCSendTxResponse, error) {
-	feeBumpTx, err := t.TxService.SignAndBuildNewFeeBumpTransaction(ctx, payload.TransactionXDR)
+	genericTx, err := txnbuild.TransactionFromXDR(payload.TransactionXDR)
 	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to sign/build transaction: %w", channelName, err)
+		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
 	}
-	feeBumpTxHash, err := feeBumpTx.HashHex(t.TxService.NetworkPassphrase())
-	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to hashhex fee bump transaction: %w", channelName, err)
+	tx, txEmpty := genericTx.Transaction()
+	if !txEmpty {
+		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
+	}
+	var tryTxHash string
+	var tryTxXDR string
+	if payload.FeeBump {
+		feeBumpTx, err := t.TxService.BuildFeeBumpTransaction(ctx, tx)
+		if err != nil {
+			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to build fee bump transaction: %w", channelName, err)
+		}
+		tryTxHash, err = feeBumpTx.HashHex(t.TxService.NetworkPassphrase())
+		if err != nil {
+			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to hashhex fee bump transaction: %w", channelName, err)
+		}
+		tryTxXDR, err = feeBumpTx.Base64()
+		if err != nil {
+			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to base64 fee bump transaction: %w", channelName, err)
+		}
+
+	} else {
+		tryTxHash, err = tx.HashHex(t.TxService.NetworkPassphrase())
+		if err != nil {
+			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to hashhex transaction: %w", channelName, err)
+		}
+		tryTxXDR, err = tx.Base64()
+		if err != nil {
+			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to base64 transaction: %w", channelName, err)
+		}
 	}
 
-	feeBumpTxXDR, err := feeBumpTx.Base64()
-	if err != nil {
-		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to base64 fee bump transaction: %w", channelName, err)
-	}
-
-	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
+	err = t.Store.UpsertTry(ctx, payload.TransactionHash, tryTxHash, tryTxXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
 	if err != nil {
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to upsert try in tries table: %w", channelName, err)
 	}
-	rpcResp, rpcErr := t.RPCService.SendTransaction(feeBumpTxXDR)
-	rpcSendResp, parseErr := tss.ParseToRPCSendTxResponse(feeBumpTxHash, rpcResp, rpcErr)
+	rpcResp, rpcErr := t.RPCService.SendTransaction(tryTxXDR)
+	rpcSendResp, parseErr := tss.ParseToRPCSendTxResponse(tryTxHash, rpcResp, rpcErr)
 
-	err = t.Store.UpsertTry(ctx, payload.TransactionHash, feeBumpTxHash, feeBumpTxXDR, rpcSendResp.Status, rpcSendResp.Code, rpcResp.ErrorResultXDR)
+	err = t.Store.UpsertTry(ctx, payload.TransactionHash, tryTxHash, tryTxXDR, rpcSendResp.Status, rpcSendResp.Code, rpcResp.ErrorResultXDR)
 	if err != nil {
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to upsert try in tries table: %s", channelName, err.Error())
 	}
