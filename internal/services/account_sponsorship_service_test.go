@@ -2,24 +2,22 @@ package services
 
 import (
 	"context"
-	"net/http"
+	"errors"
 	"testing"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/protocols/horizon"
-	"github.com/stellar/go/support/render/problem"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T) {
@@ -34,14 +32,13 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 
 	signatureClient := signing.SignatureClientMock{}
 	defer signatureClient.AssertExpectations(t)
-	horizonClient := horizonclient.MockClient{}
-	defer horizonClient.AssertExpectations(t)
+	mockRPCService := RPCServiceMock{}
 
 	ctx := context.Background()
 	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountSignatureClient:      &signatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         &mockRPCService,
 		MaxSponsoredBaseReserves:           10,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,
@@ -52,12 +49,11 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	t.Run("account_already_exists", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom().Address()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: accountToSponsor,
-			}).
-			Return(horizon.Account{}, nil).
+		mockRPCService.
+			On("GetAccountLedgerSequence", accountToSponsor).
+			Return(int64(1), nil).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, []entities.Signer{}, []entities.Asset{})
 		assert.ErrorIs(t, ErrAccountAlreadyExists, err)
@@ -68,17 +64,11 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	t.Run("invalid_signers_weight", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom().Address()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: accountToSponsor,
-			}).
-			Return(horizon.Account{}, horizonclient.Error{
-				Response: &http.Response{},
-				Problem: problem.P{
-					Type: "https://stellar.org/horizon-errors/not_found",
-				},
-			}).
+		mockRPCService.
+			On("GetAccountLedgerSequence", accountToSponsor).
+			Return(int64(0), errors.New(accountNotFoundError)).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		signers := []entities.Signer{
 			{
@@ -97,17 +87,11 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	t.Run("sponsorship_limit_reached", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom().Address()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: accountToSponsor,
-			}).
-			Return(horizon.Account{}, horizonclient.Error{
-				Response: &http.Response{},
-				Problem: problem.P{
-					Type: "https://stellar.org/horizon-errors/not_found",
-				},
-			}).
+		mockRPCService.
+			On("GetAccountLedgerSequence", accountToSponsor).
+			Return(int64(0), errors.New(accountNotFoundError)).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		signers := []entities.Signer{
 			{
@@ -202,25 +186,14 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 			},
 		}
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: accountToSponsor,
-			}).
-			Return(horizon.Account{}, horizonclient.Error{
-				Response: &http.Response{},
-				Problem: problem.P{
-					Type: "https://stellar.org/horizon-errors/not_found",
-				},
-			}).
+		mockRPCService.
+			On("GetAccountLedgerSequence", accountToSponsor).
+			Return(int64(0), errors.New(accountNotFoundError)).
 			Once().
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: distributionAccount.Address(),
-			}).
-			Return(horizon.Account{
-				AccountID: distributionAccount.Address(),
-				Sequence:  1,
-			}, nil).
+			On("GetAccountLedgerSequence", distributionAccount.Address()).
+			Return(int64(1), nil).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		signedTx := txnbuild.Transaction{}
 		signatureClient.
@@ -336,14 +309,11 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	signatureClient := signing.SignatureClientMock{}
 	defer signatureClient.AssertExpectations(t)
-	horizonClient := horizonclient.MockClient{}
-	defer horizonClient.AssertExpectations(t)
 
 	ctx := context.Background()
 	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountSignatureClient:      &signatureClient,
-		HorizonClient:                      &horizonClient,
 		MaxSponsoredBaseReserves:           10,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,

@@ -77,6 +77,19 @@ type RPCSendTransactionResult struct {
 	ErrorResultXDR        string    `json:"errorResultXdr"`
 }
 
+type LedgerEntryResult struct {
+	KeyXDR             string `json:"key,omitempty"`
+	DataXDR            string `json:"xdr,omitempty"`
+	LastModifiedLedger uint32 `json:"lastModifiedLedgerSeq"`
+	// The ledger sequence until the entry is live, available for entries that have associated ttl ledger entries.
+	LiveUntilLedgerSeq *uint32 `json:"liveUntilLedgerSeq,omitempty"`
+}
+
+type RPCGetLedgerEntriesResult struct {
+	LatestLedger uint32              `json:"latestLedger"`
+	Entries      []LedgerEntryResult `json:"entries"`
+}
+
 type RPCPagination struct {
 	Cursor string `json:"cursor,omitempty"`
 	Limit  int    `json:"limit"`
@@ -87,4 +100,5 @@ type RPCParams struct {
 	Hash        string        `json:"hash,omitempty"`
 	StartLedger int64         `json:"startLedger,omitempty"`
 	Pagination  RPCPagination `json:"pagination,omitempty"`
+	LedgerKeys  []string      `json:"keys,omitempty"`
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -154,6 +155,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		HTTP:       &http.Client{Timeout: 40 * time.Second},
 	}
 
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
+	}
+
 	accountService, err := services.NewAccountService(models)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
@@ -162,7 +169,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
@@ -180,6 +187,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
@@ -195,17 +203,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 	})
 
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
-	}
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
 	store, err := tssstore.NewStore(dbConnectionPool)
