@@ -7,6 +7,7 @@ import (
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -20,6 +21,7 @@ type ChannelAccountService interface {
 type channelAccountService struct {
 	DB                                 db.ConnectionPool
 	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	BaseFee                            int64
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
@@ -82,14 +84,17 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
-	distributionAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: distributionAccountPublicKey})
+	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 	if err != nil {
-		return fmt.Errorf("getting account detail of distribution account: %w", err)
+		return fmt.Errorf("getting ledger sequence for distribution account public key: %w", err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount:        &distributionAccount,
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: distributionAccountPublicKey,
+				Sequence:  accountSeq,
+			},
 			IncrementSequenceNum: true,
 			Operations:           ops,
 			BaseFee:              s.BaseFee,
@@ -131,6 +136,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 type ChannelAccountServiceOptions struct {
 	DB                                 db.ConnectionPool
 	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	BaseFee                            int64
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
@@ -145,6 +151,10 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 
 	if o.HorizonClient == nil {
 		return fmt.Errorf("horizon client cannot be nil")
+	}
+
+	if o.RPCService == nil {
+		return fmt.Errorf("rpc client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
@@ -178,6 +188,7 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccoun
 	return &channelAccountService{
 		DB:                                 opts.DB,
 		HorizonClient:                      opts.HorizonClient,
+		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountStore:                opts.ChannelAccountStore,

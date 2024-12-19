@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -172,6 +173,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
 	}
 
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
+	}
+
 	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
@@ -180,6 +187,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
@@ -201,11 +209,6 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
-	}
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
 	store, err := tssstore.NewStore(dbConnectionPool)
