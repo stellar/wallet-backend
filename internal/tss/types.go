@@ -201,6 +201,8 @@ type Payload struct {
 	RpcSubmitTxResponse RPCSendTxResponse
 	// Relevant fields in the transaction list inside the RPC getTransactions response
 	RpcGetIngestTxResponse RPCGetIngestTxResponse
+	// indicates if the transaction to be built from this payload should be wrapped in a fee bump transaction
+	FeeBump bool
 }
 
 type Channel interface {
