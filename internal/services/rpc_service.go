@@ -146,7 +146,7 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	if len(result.Entries) == 0 {
 		return 0, fmt.Errorf("entry not found for account public key")
 	}
-	accountEntry, err := utils.DecodeAccountFromLedgerEntry(result.Entries[0])
+	accountEntry, err := utils.GetAccountFromLedgerEntry(result.Entries[0])
 	if err != nil {
 		return 0, fmt.Errorf("decoding account entry for account public key: %w", err)
 	}
