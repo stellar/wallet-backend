@@ -20,6 +20,8 @@ type RPCService interface {
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 	GetHealth() (entities.RPCGetHealthResult, error)
+	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
+	GetAccountLedgerSequence(address string) (int64, error)
 }
 
 type rpcService struct {
@@ -100,6 +102,22 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	return result, nil
 }
 
+func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	resultBytes, err := r.sendRPCRequest("getLedgerEntries", entities.RPCParams{
+		LedgerKeys: keys,
+	})
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
+	}
+
+	var result entities.RPCGetLedgerEntriesResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
+	}
+	return result, nil
+}
+
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
 
 	resultBytes, err := r.sendRPCRequest("sendTransaction", entities.RPCParams{Transaction: transactionXDR})
@@ -114,6 +132,25 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 	}
 
 	return result, nil
+}
+
+func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
+	keyXdr, err := utils.GetAccountLedgerKey(address)
+	if err != nil {
+		return 0, fmt.Errorf("getting ledger key for distribution account public key: %w", err)
+	}
+	result, err := r.GetLedgerEntries([]string{keyXdr})
+	if err != nil {
+		return 0, fmt.Errorf("getting ledger entry for distribution account public key: %w", err)
+	}
+	if len(result.Entries) == 0 {
+		return 0, fmt.Errorf("entry not found for distribution account public key")
+	}
+	accountEntry, err := utils.DecodeAccountFromLedgerEntry(result.Entries[0])
+	if err != nil {
+		return 0, fmt.Errorf("decoding account entry for distribution account public key: %w", err)
+	}
+	return int64(accountEntry.SeqNum), nil
 }
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
