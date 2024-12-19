@@ -8,7 +8,7 @@ services:
       - postgres-db:/var/lib/postgresql/data
     ports:
       - 5432:5432
-  soroban-rpc:
+  stellar-rpc:
     image: stellar/soroban-rpc
     ports:
       - 8000:8000 
