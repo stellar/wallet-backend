@@ -60,7 +60,7 @@ func GetAccountLedgerKey(address string) (string, error) {
 	return keyXdr, nil
 }
 
-func DecodeAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEntry, error) {
+func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEntry, error) {
 	var data xdr.LedgerEntryData
 	err := xdr.SafeUnmarshalBase64(entry.DataXDR, &data)
 	if err != nil {
