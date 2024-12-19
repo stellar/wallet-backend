@@ -38,6 +38,10 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 		return fmt.Errorf("distribution account signature client cannot be nil")
 	}
 
+	if o.RPCService == nil {
+		return fmt.Errorf("rpc client cannot be nil")
+	}
+
 	if o.ChannelAccountSignatureClient == nil {
 		return fmt.Errorf("channel account signature client cannot be nil")
 	}
