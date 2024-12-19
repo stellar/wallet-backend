@@ -12,14 +12,15 @@ import (
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/support/render/problem"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
@@ -32,6 +33,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 
 	ctx := context.Background()
 	horizonClient := horizonclient.MockClient{}
+	mockRPCService := RPCServiceMock{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -39,6 +41,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		HorizonClient:                      &horizonClient,
+		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountStore:                &channelAccountStore,
@@ -102,12 +105,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		defer signatureClient.AssertExpectations(t)
 
 		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{AccountID: distributionAccount.Address()}).
-			Return(horizon.Account{
-				AccountID: distributionAccount.Address(),
-				Sequence:  123,
-			}, nil).
-			Once().
 			On("SubmitTransaction", mock.AnythingOfType("*txnbuild.Transaction")).
 			Return(horizon.Transaction{}, horizonclient.Error{
 				Response: &http.Response{},
@@ -120,6 +117,12 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			}).
 			Once()
 		defer horizonClient.AssertExpectations(t)
+
+		mockRPCService.
+			On("GetAccountLedgerSequence", distributionAccount.Address()).
+			Return(int64(123), nil).
+			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		err := s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
@@ -173,12 +176,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		defer signatureClient.AssertExpectations(t)
 
 		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{AccountID: distributionAccount.Address()}).
-			Return(horizon.Account{
-				AccountID: distributionAccount.Address(),
-				Sequence:  123,
-			}, nil).
-			Once().
 			On("SubmitTransaction", mock.AnythingOfType("*txnbuild.Transaction")).
 			Return(horizon.Transaction{}, horizonclient.Error{
 				Response: &http.Response{},
@@ -191,6 +188,12 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			}).
 			Once()
 		defer horizonClient.AssertExpectations(t)
+
+		mockRPCService.
+			On("GetAccountLedgerSequence", distributionAccount.Address()).
+			Return(int64(123), nil).
+			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		err := s.EnsureChannelAccounts(ctx, 5)
 		assert.EqualError(t, err, `submitting create channel accounts on chain transaction: submitting transaction: Type: , Title: Some bad request error, Status: 400, Detail: Bad Request, Extras: map[]: horizon error: "Some bad request error" - check horizon.Error.Problem for more information`)
@@ -240,16 +243,16 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		defer signatureClient.AssertExpectations(t)
 
 		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{AccountID: distributionAccount.Address()}).
-			Return(horizon.Account{
-				AccountID: distributionAccount.Address(),
-				Sequence:  123,
-			}, nil).
-			Once().
 			On("SubmitTransaction", mock.AnythingOfType("*txnbuild.Transaction")).
 			Return(horizon.Transaction{}, nil).
 			Once()
 		defer horizonClient.AssertExpectations(t)
+
+		mockRPCService.
+			On("GetAccountLedgerSequence", distributionAccount.Address()).
+			Return(int64(123), nil).
+			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		channelAccountStore.
 			On("BatchInsert", ctx, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).

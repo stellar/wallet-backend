@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -233,7 +232,6 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 type AccountSponsorshipServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
 	RPCService                         RPCService
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
@@ -248,10 +246,6 @@ func (o *AccountSponsorshipServiceOptions) Validate() error {
 
 	if o.ChannelAccountSignatureClient == nil {
 		return fmt.Errorf("channel account signature client cannot be nil")
-	}
-
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {

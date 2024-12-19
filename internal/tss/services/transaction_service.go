@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
@@ -21,7 +20,6 @@ type TransactionService interface {
 type transactionService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
 	RPCService                         services.RPCService
 	BaseFee                            int64
 }
@@ -31,7 +29,6 @@ var _ TransactionService = (*transactionService)(nil)
 type TransactionServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
 	RPCService                         services.RPCService
 	BaseFee                            int64
 }
@@ -43,10 +40,6 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 
 	if o.ChannelAccountSignatureClient == nil {
 		return fmt.Errorf("channel account signature client cannot be nil")
-	}
-
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
@@ -104,9 +97,9 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
-	channelAccount, err := t.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: channelAccountPublicKey})
+	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting channel account details from horizon: %w", err)
+		return nil, fmt.Errorf("getting channel account ledger sequence: %w", err)
 	}
 
 	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
@@ -122,9 +115,12 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount: &channelAccount,
-			Operations:    operations,
-			BaseFee:       int64(t.BaseFee),
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: channelAccountPublicKey,
+				Sequence:  channelAccountSeq,
+			},
+			Operations: operations,
+			BaseFee:    int64(t.BaseFee),
 			Preconditions: txnbuild.Preconditions{
 				TimeBounds: txnbuild.NewTimeout(120),
 			},
