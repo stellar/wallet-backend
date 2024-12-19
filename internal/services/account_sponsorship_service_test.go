@@ -310,10 +310,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	signatureClient := signing.SignatureClientMock{}
 	defer signatureClient.AssertExpectations(t)
 
+	mockRPCService := RPCServiceMock{}
+
 	ctx := context.Background()
 	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountSignatureClient:      &signatureClient,
+		RPCService:                         &mockRPCService,
 		MaxSponsoredBaseReserves:           10,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,
