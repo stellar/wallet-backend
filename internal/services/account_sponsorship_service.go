@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -35,6 +36,7 @@ const (
 	// Sufficient to cover three average ledger close time.
 	CreateAccountTxnTimeBounds             = 18
 	CreateAccountTxnTimeBoundsSafetyMargin = 12
+	accountNotFoundError                   = "entry not found for account public key"
 )
 
 type AccountSponsorshipService interface {
@@ -45,7 +47,7 @@ type AccountSponsorshipService interface {
 type accountSponsorshipService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
@@ -56,11 +58,11 @@ var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
 
 func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
 	// Check the accountToSponsor does not exist on Stellar
-	_, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: accountToSponsor})
+	_, err := s.RPCService.GetAccountLedgerSequence(accountToSponsor)
 	if err == nil {
 		return "", "", ErrAccountAlreadyExists
 	}
-	if !horizonclient.IsNotFoundError(err) {
+	if err.Error() != accountNotFoundError {
 		return "", "", fmt.Errorf("getting details for account %s: %w", accountToSponsor, err)
 	}
 
@@ -125,14 +127,17 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", fmt.Errorf("getting channel account public key: %w", err)
 	}
 
-	channelAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: channelAccountPublicKey})
+	channelAccountSeq, err := s.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("getting distribution account details: %w", err)
+		return "", "", fmt.Errorf("getting channel account sequence number: %w", err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount:        &channelAccount,
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: channelAccountPublicKey,
+				Sequence:  channelAccountSeq,
+			},
 			IncrementSequenceNum: true,
 			Operations:           ops,
 			BaseFee:              s.BaseFee,
@@ -229,6 +234,7 @@ type AccountSponsorshipServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
@@ -267,7 +273,7 @@ func NewAccountSponsorshipService(opts AccountSponsorshipServiceOptions) (*accou
 	return &accountSponsorshipService{
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
-		HorizonClient:                      opts.HorizonClient,
+		RPCService:                         opts.RPCService,
 		MaxSponsoredBaseReserves:           opts.MaxSponsoredBaseReserves,
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,

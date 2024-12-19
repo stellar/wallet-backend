@@ -7,6 +7,8 @@ import (
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
+
+	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
 )
@@ -20,6 +22,7 @@ type transactionService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         services.RPCService
 	BaseFee                            int64
 }
 
@@ -29,6 +32,7 @@ type TransactionServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         services.RPCService
 	BaseFee                            int64
 }
 
@@ -59,7 +63,7 @@ func NewTransactionService(opts TransactionServiceOptions) (*transactionService,
 	return &transactionService{
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
-		HorizonClient:                      opts.HorizonClient,
+		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
 	}, nil
 }

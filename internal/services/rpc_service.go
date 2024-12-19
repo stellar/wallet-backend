@@ -137,18 +137,18 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	keyXdr, err := utils.GetAccountLedgerKey(address)
 	if err != nil {
-		return 0, fmt.Errorf("getting ledger key for distribution account public key: %w", err)
+		return 0, fmt.Errorf("getting ledger key for account public key: %w", err)
 	}
 	result, err := r.GetLedgerEntries([]string{keyXdr})
 	if err != nil {
-		return 0, fmt.Errorf("getting ledger entry for distribution account public key: %w", err)
+		return 0, fmt.Errorf("getting ledger entry for account public key: %w", err)
 	}
 	if len(result.Entries) == 0 {
-		return 0, fmt.Errorf("entry not found for distribution account public key")
+		return 0, fmt.Errorf("entry not found for account public key")
 	}
 	accountEntry, err := utils.DecodeAccountFromLedgerEntry(result.Entries[0])
 	if err != nil {
-		return 0, fmt.Errorf("decoding account entry for distribution account public key: %w", err)
+		return 0, fmt.Errorf("decoding account entry for account public key: %w", err)
 	}
 	return int64(accountEntry.SeqNum), nil
 }
