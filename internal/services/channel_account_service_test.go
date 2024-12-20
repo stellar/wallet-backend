@@ -19,10 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/router"
 )
 
-const (
-	expectedSignedTxXDR = "AAAAAgAAAABzJXo57U3V8mgLwf1pJowWwdKaRnE5nAQz+GmCU6mTTAAAdTAAAAAAAAAAfAAAAAEAAAAAAAAAAAAAAABnZUxfAAAAAAAAAAMAAAABAAAAAHMlejntTdXyaAvB/WkmjBbB0ppGcTmcBDP4aYJTqZNMAAAAAAAAAABnIBWaE9Fj9MhsWMALgdGez3pgrMe1dgkp9kGxwuE72QAAAAAAmJaAAAAAAQAAAABzJXo57U3V8mgLwf1pJowWwdKaRnE5nAQz+GmCU6mTTAAAAAAAAAAAo3MvfmdjhC69U9b3cZtcpVPOAzZrMn0s36vctGpGdY4AAAAAAJiWgAAAAAEAAAAAcyV6Oe1N1fJoC8H9aSaMFsHSmkZxOZwEM/hpglOpk0wAAAAAAAAAAF6CPFvQgzoMbeUDqMHbkE5oVvJz4DjDOF+r9+rahWKsAAAAAACYloAAAAAAAAAAAVOpk0wAAABACYSZiZrCRj92clXUFVTQGqafI2cmi235zQFGsVzXomHv7fRYzwvoqnJP8j451FJuUm5jg+oacKZaEotZ4DwxDA=="
-)
-
 func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
