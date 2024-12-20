@@ -105,6 +105,7 @@ type handlerDeps struct {
 	TSSRouter             tssrouter.Router
 	PoolPopulator         tssservices.PoolPopulator
 	TSSStore              tssstore.Store
+	TSSTransactionService tssservices.TransactionService
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -287,6 +288,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		TSSRouter:             router,
 		PoolPopulator:         poolPopulator,
 		TSSStore:              store,
+		TSSTransactionService: tssTxService,
 	}, nil
 }
 
@@ -365,6 +367,7 @@ func handler(deps handlerDeps) http.Handler {
 			}
 
 			r.Get("/transactions/{transactionhash}", handler.GetTransaction)
+			r.Post("/transactions/build", handler.BuildTransactions)
 			r.Post("/transactions", handler.SubmitTransactions)
 		})
 	})

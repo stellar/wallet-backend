@@ -9,12 +9,12 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
-	tsserror "github.com/stellar/wallet-backend/internal/tss/errors"
 )
 
 type TransactionService interface {
 	NetworkPassphrase() string
-	SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error)
+	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error)
+	BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error)
 }
 
 type transactionService struct {
@@ -46,6 +46,10 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 		return fmt.Errorf("channel account signature client cannot be nil")
 	}
 
+	if o.HorizonClient == nil {
+		return fmt.Errorf("horizon client cannot be nil")
+	}
+
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
 	}
@@ -69,34 +73,7 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func buildPayments(srcAccount string, operations []txnbuild.Operation) ([]txnbuild.Operation, error) {
-	var payments []txnbuild.Operation
-	for _, op := range operations {
-		origPayment, ok := op.(*txnbuild.Payment)
-		if !ok {
-			return nil, fmt.Errorf("unable to convert operation to payment op")
-		}
-		payment := &txnbuild.Payment{
-			SourceAccount: srcAccount,
-			Amount:        origPayment.Amount,
-			Destination:   origPayment.Destination,
-			Asset:         origPayment.Asset,
-		}
-		payments = append(payments, payment)
-
-	}
-	return payments, nil
-}
-
-func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(origTxXdr)
-	if err != nil {
-		return nil, tsserror.OriginalXDRMalformed
-	}
-	originalTx, txEmpty := genericTx.Transaction()
-	if !txEmpty {
-		return nil, tsserror.OriginalXDRMalformed
-	}
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
@@ -105,18 +82,6 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account ledger sequence: %w", err)
 	}
-
-	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting distribution account public key: %w", err)
-	}
-
-	operations, err := buildPayments(distributionAccountPublicKey, originalTx.Operations())
-	if err != nil {
-		return nil, fmt.Errorf("building payment operations: %w", err)
-	}
-	log.Info(operations)
-
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -126,7 +91,7 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 			Operations: operations,
 			BaseFee:    int64(t.BaseFee),
 			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(120),
+				TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
 			},
 			IncrementSequenceNum: true,
 		},
@@ -138,12 +103,14 @@ func (t *transactionService) SignAndBuildNewFeeBumpTransaction(ctx context.Conte
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
 	}
+	return tx, nil
+}
 
-	tx, err = t.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
+func (t *transactionService) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
+	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("signing transaction with distribution account: %w", err)
+		return nil, fmt.Errorf("getting distribution account public key: %w", err)
 	}
-
 	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      tx,

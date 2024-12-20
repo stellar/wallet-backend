@@ -20,23 +20,20 @@ func (t *TransactionServiceMock) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (t *TransactionServiceMock) SignAndBuildNewFeeBumpTransaction(ctx context.Context, origTxXdr string) (*txnbuild.FeeBumpTransaction, error) {
-	args := t.Called(ctx, origTxXdr)
+func (t *TransactionServiceMock) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
+	args := t.Called(ctx, operations, timeoutInSecs)
+	if result := args.Get(0); result != nil {
+		return result.(*txnbuild.Transaction), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (t *TransactionServiceMock) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
+	args := t.Called(ctx, tx)
 	if result := args.Get(0); result != nil {
 		return result.(*txnbuild.FeeBumpTransaction), args.Error(1)
 	}
 	return nil, args.Error(1)
-
-}
-
-func (t *TransactionServiceMock) SendTransaction(transactionXdr string) (tss.RPCSendTxResponse, error) {
-	args := t.Called(transactionXdr)
-	return args.Get(0).(tss.RPCSendTxResponse), args.Error(1)
-}
-
-func (t *TransactionServiceMock) GetTransaction(transactionHash string) (tss.RPCGetIngestTxResponse, error) {
-	args := t.Called(transactionHash)
-	return args.Get(0).(tss.RPCGetIngestTxResponse), args.Error(1)
 }
 
 type TransactionManagerMock struct {

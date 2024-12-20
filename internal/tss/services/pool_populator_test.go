@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,48 +49,16 @@ func TestRouteNewTransactions(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "ABCD")
 
-		rpcGetTransacrionResp := entities.RPCGetTransactionResult{
-			Status:      entities.ErrorStatus,
-			EnvelopeXDR: "envelopexdr",
-			ResultXDR:   "AAAAAAARFy8AAAAAAAAAAQAAAAAAAAAYAAAAAMu8SHUN67hTUJOz3q+IrH9M/4dCVXaljeK6x1Ss20YWAAAAAA==",
-			CreatedAt:   "1234",
-		}
-
-		mockRPCSerive.
-			On("GetTransaction", "feebumphash").
-			Return(rpcGetTransacrionResp, nil).
-			Once()
-
-		getIngestTxResp, _ := tss.ParseToRPCGetIngestTxResponse(rpcGetTransacrionResp, nil)
 		expectedPayload := tss.Payload{
-			TransactionHash:        "hash",
-			TransactionXDR:         "xdr",
-			WebhookURL:             "localhost:8000/webhook",
-			RpcGetIngestTxResponse: getIngestTxResp,
+			TransactionHash:     "hash",
+			TransactionXDR:      "xdr",
+			WebhookURL:          "localhost:8000/webhook",
+			RpcSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
 		}
+
 		mockRouter.
 			On("Route", expectedPayload).
 			Return(nil).
-			Once()
-
-		err := populator.routeNewTransactions(context.Background())
-		assert.Empty(t, err)
-	})
-
-	t.Run("tx_not_found_timebounds_not_exceeded", func(t *testing.T) {
-		feeBumpTx := utils.BuildTestFeeBumpTransaction()
-		txXDRStr, _ := feeBumpTx.Base64()
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", txXDRStr, tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "ABCD")
-
-		rpcGetTransacrionResp := entities.RPCGetTransactionResult{
-			Status:      entities.NotFoundStatus,
-			EnvelopeXDR: "envelopexdr",
-		}
-
-		mockRPCSerive.
-			On("GetTransaction", "feebumphash").
-			Return(rpcGetTransacrionResp, nil).
 			Once()
 
 		err := populator.routeNewTransactions(context.Background())
@@ -136,14 +103,30 @@ func TestRouteErrorTransactions(t *testing.T) {
 		err := populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
 	})
-	t.Run("tx_timebounds_not_exceeded", func(t *testing.T) {
-		feeBumpTx := utils.BuildTestFeeBumpTransaction()
-		txXDRStr, _ := feeBumpTx.Base64()
+
+	t.Run("latest_try_rpc_call_failed", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", txXDRStr, tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{OtherCodes: tss.RPCFailCode}, "ABCD")
+		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{OtherCodes: tss.RPCFailCode}, "ABCD")
+
+		expectedPayload := tss.Payload{
+			TransactionHash: "hash",
+			TransactionXDR:  "xdr",
+			WebhookURL:      "localhost:8000/webhook",
+			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+				TransactionHash: "feebumphash",
+				TransactionXDR:  "feebumpxdr",
+				Status:          tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
+			},
+		}
+
+		mockRouter.
+			On("Route", expectedPayload).
+			Return(nil).
+			Once()
 
 		err := populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
+
 	})
 }
 
