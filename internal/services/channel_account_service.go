@@ -3,16 +3,23 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
+)
+
+const (
+	maxRetriesForChannelAccountCreation    = 30
+	sleepDurationForChannelAccountCreation = 10 * time.Second
 )
 
 type ChannelAccountService interface {
@@ -122,14 +129,40 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 	}
 
 	payload := tss.Payload{
-		TransactionXDR: signedTxXDR,
-		WebhookURL:     "http://localhost:8001/internal/webhook",
-		FeeBump:        false,
+		TransactionHash: hash,
+		TransactionXDR:  signedTxXDR,
+		WebhookURL:      "http://localhost:8001/internal/webhook",
+		FeeBump:         false,
 	}
 
-	err = s.Router.Route(payload)
+	err = s.submitToTSS(ctx, payload)
 	if err != nil {
-		return fmt.Errorf("routing payload for transaction hash: %s: %w", hash, err)
+		return fmt.Errorf("submitting transaction hash: %s: %w", hash, err)
+	}
+	return nil
+}
+
+func (s *channelAccountService) submitToTSS(_ context.Context, payload tss.Payload) error {
+	err := s.Router.Route(payload)
+	if err != nil {
+		return fmt.Errorf("routing payload: %w", err)
+	}
+	time.Sleep(sleepDurationForChannelAccountCreation)
+
+	for _ = range maxRetriesForChannelAccountCreation {
+		txResult, err := s.RPCService.GetTransaction(payload.TransactionHash)
+		if err != nil {
+			return fmt.Errorf("getting transaction response: %w", err)
+		}
+
+		switch txResult.Status {
+		case entities.SuccessStatus:
+			return nil
+		case entities.NotFoundStatus, entities.PendingStatus:
+			continue
+		case entities.ErrorStatus:
+			return fmt.Errorf("error submitting transaction: %s: %s", payload.TransactionHash, txResult.ErrorResultXDR)
+		}
 	}
 	return nil
 }
