@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
 
@@ -12,6 +11,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/tss"
+	"github.com/stellar/wallet-backend/internal/tss/router"
 )
 
 type ChannelAccountService interface {
@@ -20,9 +21,9 @@ type ChannelAccountService interface {
 
 type channelAccountService struct {
 	DB                                 db.ConnectionPool
-	HorizonClient                      horizonclient.ClientInterface
 	RPCService                         RPCService
 	BaseFee                            int64
+	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -115,29 +116,29 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		return fmt.Errorf("getting transaction hash: %w", err)
 	}
 
-	_, err = s.HorizonClient.SubmitTransaction(signedTx)
+	signedTxXDR, err := signedTx.Base64()
 	if err != nil {
-		if hError := horizonclient.GetError(err); hError != nil {
-			hProblem := hError.Problem
-			if hProblem.Type == "https://stellar.org/horizon-errors/timeout" {
-				return fmt.Errorf("horizon request timed out while creating a channel account. Transaction hash: %s", hash)
-			}
-
-			errString := fmt.Sprintf("Type: %s, Title: %s, Status: %d, Detail: %s, Extras: %v", hProblem.Type, hProblem.Title, hProblem.Status, hProblem.Detail, hProblem.Extras)
-			return fmt.Errorf("submitting transaction: %s: %w", errString, err)
-		} else {
-			return fmt.Errorf("submitting transaction: %w", err)
-		}
+		return fmt.Errorf("getting transaction envelope: %w", err)
 	}
 
+	payload := tss.Payload{
+		TransactionXDR: signedTxXDR,
+		WebhookURL:     "http://localhost:8001/internal/webhook",
+		FeeBump:        false,
+	}
+
+	err = s.Router.Route(payload)
+	if err != nil {
+		return fmt.Errorf("routing payload for transaction hash: %s: %w", hash, err)
+	}
 	return nil
 }
 
 type ChannelAccountServiceOptions struct {
 	DB                                 db.ConnectionPool
-	HorizonClient                      horizonclient.ClientInterface
 	RPCService                         RPCService
 	BaseFee                            int64
+	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -149,16 +150,16 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 		return fmt.Errorf("DB cannot be nil")
 	}
 
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
-	}
-
 	if o.RPCService == nil {
 		return fmt.Errorf("rpc client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
+	}
+
+	if o.Router == nil {
+		return fmt.Errorf("router cannot be nil")
 	}
 
 	if o.DistributionAccountSignatureClient == nil {
@@ -187,9 +188,9 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccoun
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
-		HorizonClient:                      opts.HorizonClient,
 		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
+		Router:                             opts.Router,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountStore:                opts.ChannelAccountStore,
 		PrivateKeyEncrypter:                opts.PrivateKeyEncrypter,
