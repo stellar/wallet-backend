@@ -161,7 +161,7 @@ func (s *channelAccountService) submitToTSS(_ context.Context, payload tss.Paylo
 		case entities.NotFoundStatus, entities.PendingStatus:
 			continue
 		case entities.ErrorStatus, entities.FailedStatus, entities.TryAgainLaterStatus:
-			return fmt.Errorf("submitting transaction: %s: %s: %s", payload.TransactionHash, txResult.Status, txResult.ErrorResultXDR)
+			return fmt.Errorf("error submitting transaction: %s: %s: %s", payload.TransactionHash, txResult.Status, txResult.ErrorResultXDR)
 		}
 	}
 	return nil
