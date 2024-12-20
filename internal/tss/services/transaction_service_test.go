@@ -104,7 +104,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "getting channel account details from horizon: horizon down", err.Error())
+		assert.Equal(t, "getting channel account ledger sequence: rpc service down", err.Error())
 	})
 
 	t.Run("build_tx_fails", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
-		RPCService: mockRPCService,
+		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
 

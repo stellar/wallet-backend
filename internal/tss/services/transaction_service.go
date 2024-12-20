@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/services"
@@ -44,10 +43,6 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 
 	if o.ChannelAccountSignatureClient == nil {
 		return fmt.Errorf("channel account signature client cannot be nil")
-	}
-
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
