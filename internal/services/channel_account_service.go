@@ -94,7 +94,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
 	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 	if err != nil {
-		return fmt.Errorf("getting ledger sequence for distribution account public key: %w", err)
+		return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
 	}
 
 	tx, err := txnbuild.NewTransaction(

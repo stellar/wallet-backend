@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -104,7 +105,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "getting channel account ledger sequence: rpc service down", err.Error())
+		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key: %s: rpc service down", channelAccount.Address())
+		assert.Equal(t, expectedErr.Error(), err.Error())
 	})
 
 	t.Run("build_tx_fails", func(t *testing.T) {

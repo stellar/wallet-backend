@@ -128,7 +128,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 
 	channelAccountSeq, err := s.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("getting channel account sequence number: %w", err)
+		return "", "", fmt.Errorf("getting sequence number for channel account public key: %s: %w", channelAccountPublicKey, err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
