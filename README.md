@@ -26,6 +26,7 @@ and contribution.
 ### Running the Server
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/stellar/wallet-backend.git
 cd wallet-backend
@@ -39,49 +40,29 @@ This is the simplest and quickest way to start wallet-backend server. All the re
 docker services in their respective containers. This config is defined in `docker-compose.yaml` file in the main directory.
 
 1. Copy the example `.env.example`:
+
 ```bash
 cp .env.example .env
 ```
 
 2. Add the environment variables:
+
 ```bash
 CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=
 DATABASE_URL=postgres://postgres@localhost:5432/wallet-backend?sslmode\=disable
 DISTRIBUTION_ACCOUNT_PRIVATE_KEY=
 DISTRIBUTION_ACCOUNT_PUBLIC_KEY=
-LOG_LEVEL=TRACE
 NETWORK=testnet
-PORT=8001
-RPC_URL=http://localhost:8000
-SERVER_BASE_URL=http://localhost:8001
 STELLAR_ENVIRONMENT=development
-TRACKER_DSN=
 WALLET_SIGNING_KEY=
-
-# TSS RPC Caller Channel Settings
-TSS_RPC_CALLER_CHANNEL_BUFFER_SIZE=1000
-TSS_RPC_CALLER_CHANNEL_MAX_WORKERS=100
-
-# Error Handler Jitter Channel Settings
-ERROR_HANDLER_JITTER_CHANNEL_BUFFER_SIZE=1000
-ERROR_HANDLER_JITTER_CHANNEL_MAX_WORKERS=100
-ERROR_HANDLER_JITTER_CHANNEL_MIN_WAIT_BETWEEN_RETRIES=10
-ERROR_HANDLER_JITTER_CHANNEL_MAX_RETRIES=3
-
-# Error Handler Non-Jitter Channel Settings
-ERROR_HANDLER_NON_JITTER_CHANNEL_BUFFER_SIZE=1000
-ERROR_HANDLER_NON_JITTER_CHANNEL_MAX_WORKERS=100
-ERROR_HANDLER_NON_JITTER_CHANNEL_WAIT_BETWEEN_RETRIES=10
-ERROR_HANDLER_NON_JITTER_CHANNEL_MAX_RETRIES=3
-
-# Webhook Handler Channel Settings
-WEBHOOK_CHANNEL_MAX_BUFFER_SIZE=1000
-WEBHOOK_CHANNEL_MAX_WORKERS=100
-WEBHOOK_CHANNEL_MAX_RETRIES=3
-WEBHOOK_CHANNEL_MIN_WAIT_BETWEEN_RETRIES=10
 ```
 
+Note that `CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE` is required to be set to a non-empty value. For development purposes,
+you can set it to any value. For production, you should set it to a secure passphrase. For `WALLET_SIGNING_KEY`, and 
+`DISTRIBUTION_ACCOUNT_PRIVATE_KEY` and `DISTRIBUTION_ACCOUNT_PUBLIC_KEY`, you can generate them using the Stellar CLI or by using tools like lab.stellar.org. Note that the `DISTRIBUTION_ACCOUNT_PUBLIC_KEY` is the public key of the account that will be used to sponsor accounts for channel accounts, and therefore must be a valid Stellar account.
+
 3. Start the containers:
+
 ```bash
 docker-compose up
 ```
@@ -96,74 +77,65 @@ we started earlier.
 This second way of setting up is preferable for more active development where you would 
 like to add debug points to the code. 
 
-1. Start the `db` and `stellar-rpc` containers:
-```bash
-NETWORK=testnet docker-compose up -d db stellar-rpc
-```
+1. Create and run the `env.sh` script that exports each of the environment variables with the contents shared in the previous section. Note that some variables need to be added to the script to use localhost URLs instead of the URLs usable within the docker network.
 
-2. Create a shell script `env.sh` and add the required environment variables:
 ```bash
-#!/bin/bash
-export CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=
-export DATABASE_URL=postgres://postgres@localhost:5432/wallet-backend?sslmode\=disable
-export DISTRIBUTION_ACCOUNT_PRIVATE_KEY=
-export DISTRIBUTION_ACCOUNT_PUBLIC_KEY=
-export LOG_LEVEL=TRACE
-export NETWORK=testnet
-export PORT=8001
+# Add the following to the env.sh file in addition to the other variables:
 export RPC_URL=http://localhost:8000
 export SERVER_BASE_URL=http://localhost:8001
-export STELLAR_ENVIRONMENT=development
-export TRACKER_DSN=
-export WALLET_SIGNING_KEY=
+```
 
-# TSS RPC Caller Channel Settings
-export TSS_RPC_CALLER_CHANNEL_BUFFER_SIZE=1000
-export TSS_RPC_CALLER_CHANNEL_MAX_WORKERS=100
+2. Start the `db` and `stellar-rpc` containers:
 
-# Error Handler Jitter Channel Settings
-export ERROR_HANDLER_JITTER_CHANNEL_BUFFER_SIZE=1000
-export ERROR_HANDLER_JITTER_CHANNEL_MAX_WORKERS=100
-export ERROR_HANDLER_JITTER_CHANNEL_MIN_WAIT_BETWEEN_RETRIES=10
-export ERROR_HANDLER_JITTER_CHANNEL_MAX_RETRIES=3
-
-# Error Handler Non-Jitter Channel Settings
-export ERROR_HANDLER_NON_JITTER_CHANNEL_BUFFER_SIZE=1000
-export ERROR_HANDLER_NON_JITTER_CHANNEL_MAX_WORKERS=100
-export ERROR_HANDLER_NON_JITTER_CHANNEL_WAIT_BETWEEN_RETRIES=10
-export ERROR_HANDLER_NON_JITTER_CHANNEL_MAX_RETRIES=3
-
-# Webhook Handler Channel Settings
-export WEBHOOK_CHANNEL_MAX_BUFFER_SIZE=1000
-export WEBHOOK_CHANNEL_MAX_WORKERS=100
-export WEBHOOK_CHANNEL_MAX_RETRIES=3
-export WEBHOOK_CHANNEL_MIN_WAIT_BETWEEN_RETRIES=10
+```bash
+docker compose up -d db stellar-rpc
 ```
 
 3. Instead of spinning up `api` and `ingest` as docker services like we did earlier, we will run them locally.
 
    1. **API**
-      1. Run migrations:
+      1. Source the `env.sh` file:
+
+        ```bash
+        source env.sh
+        ```
+
+      2. Run migrations:
+
         ```bash
         go run main.go migrate up
         ```
 
-      2. Generate channel accounts
+      3. Generate channel accounts
+
         ```bash
         go run main.go channel-account ensure 5
         ```
 
-      3. Start API server
+      4. Start API server
+
         ```bash
         go run main.go serve
         ```
 
    2. **Ingest**
-      1. In a separate terminal tab, run the ingestion service:
+      1. In a separate terminal tab, source the `env.sh` file and run the ingestion service:
+
         ```bash
+        source env.sh
         go run main.go ingest
         ```
 
 This allows us to establish a dev cycle where you can make changes to the code and restart the `api` and `ingest` services
 to test them. Based on the IDE you are using, you can add the build configurations for these services, along with 
 the environment variables to add breakpoints to your code.
+
+### Testing
+
+To run the tests, you can use the following command:
+
+```bash
+go test ./...
+```
+
+Note that you must set up your environment as defined in the previous section to run the tests, where the database and stellar-rpc are running in docker containers. Alternatively, you could run the database and stellar-rpc locally and run the tests without docker.
