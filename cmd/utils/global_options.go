@@ -73,7 +73,7 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 		Usage:       "The URL of the RPC Server.",
 		OptType:     types.String,
 		ConfigKey:   configKey,
-		FlagDefault: "http://soroban-rpc:8000",
+		FlagDefault: "http://stellar-rpc:8000",
 		Required:    true,
 	}
 }
@@ -94,7 +94,7 @@ func SentryDSNOption(configKey *string) *config.ConfigOption {
 		Usage:     "The Sentry DSN",
 		OptType:   types.String,
 		ConfigKey: configKey,
-		Required:  true,
+		Required:  false,
 	}
 }
 

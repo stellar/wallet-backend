@@ -3,3 +3,4 @@
 captive-core*/
 .env
 .DS_Store
+env.sh
