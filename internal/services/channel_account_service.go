@@ -149,7 +149,7 @@ func (s *channelAccountService) submitToTSS(_ context.Context, payload tss.Paylo
 	}
 	time.Sleep(sleepDurationForChannelAccountCreation)
 
-	for _ = range maxRetriesForChannelAccountCreation {
+	for range maxRetriesForChannelAccountCreation {
 		txResult, err := s.RPCService.GetTransaction(payload.TransactionHash)
 		if err != nil {
 			return fmt.Errorf("getting transaction response: %w", err)

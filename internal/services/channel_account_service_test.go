@@ -106,7 +106,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(int64(123), nil).
 			Once()
 
-		// Mock GetTransaction to simulate successful transaction
 		mockRPCService.
 			On("GetTransaction", mock.AnythingOfType("string")).
 			Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).

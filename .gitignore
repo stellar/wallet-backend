@@ -3,3 +3,5 @@
 captive-core*/
 .env
 .DS_Store
+.idea
+__debug_bin*
