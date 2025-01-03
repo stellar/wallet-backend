@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -66,7 +65,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), errors.New(accountNotFoundError)).
+			Return(int64(0), ErrAccountNotFound).
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
@@ -89,7 +88,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), errors.New(accountNotFoundError)).
+			Return(int64(0), ErrAccountNotFound).
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
@@ -188,7 +187,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), errors.New(accountNotFoundError)).
+			Return(int64(0), ErrAccountNotFound).
 			Once().
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
 			Return(int64(1), nil).

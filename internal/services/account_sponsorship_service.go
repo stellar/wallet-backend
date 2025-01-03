@@ -21,6 +21,7 @@ var (
 	ErrAccountNotEligibleForBeingSponsored = errors.New("account not eligible for being sponsored")
 	ErrFeeExceedsMaximumBaseFee            = errors.New("fee exceeds maximum base fee to sponsor")
 	ErrNoSignaturesProvided                = errors.New("should have at least one signature")
+	ErrAccountNotFound                     = errors.New("account not found")
 )
 
 type ErrOperationNotAllowed struct {
@@ -35,7 +36,6 @@ const (
 	// Sufficient to cover three average ledger close time.
 	CreateAccountTxnTimeBounds             = 18
 	CreateAccountTxnTimeBoundsSafetyMargin = 12
-	accountNotFoundError                   = "entry not found for account public key"
 )
 
 type AccountSponsorshipService interface {
@@ -61,7 +61,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 	if err == nil {
 		return "", "", ErrAccountAlreadyExists
 	}
-	if err.Error() != accountNotFoundError {
+	if !errors.Is(err, ErrAccountNotFound) {
 		return "", "", fmt.Errorf("getting details for account %s: %w", accountToSponsor, err)
 	}
 
