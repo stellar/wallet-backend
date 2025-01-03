@@ -9,7 +9,7 @@ services:
     ports:
       - 5432:5432
   stellar-rpc:
-    image: stellar/soroban-rpc
+    image: stellar/stellar-rpc:stable
     ports:
       - 8000:8000 
     volumes:
@@ -26,7 +26,7 @@ services:
     depends_on:
       db:
         condition: service_started
-      soroban-rpc:
+      stellar-rpc:
         condition: service_started
     ports:
       - 8001:8001
@@ -67,7 +67,7 @@ services:
     depends_on:
       db:
         condition: service_started
-      soroban-rpc:
+      stellar-rpc:
         condition: service_started
     entrypoint: ""
     command:
