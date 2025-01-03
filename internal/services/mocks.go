@@ -31,3 +31,13 @@ func (r *RPCServiceMock) GetHealth() (entities.RPCGetHealthResult, error) {
 	args := r.Called()
 	return args.Get(0).(entities.RPCGetHealthResult), args.Error(1)
 }
+
+func (r *RPCServiceMock) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	args := r.Called(keys)
+	return args.Get(0).(entities.RPCGetLedgerEntriesResult), args.Error(1)
+}
+
+func (r *RPCServiceMock) GetAccountLedgerSequence(address string) (int64, error) {
+	args := r.Called(address)
+	return args.Get(0).(int64), args.Error(1)
+}

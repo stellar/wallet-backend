@@ -3,16 +3,17 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
 func TestValidateOptions(t *testing.T) {
@@ -20,7 +21,7 @@ func TestValidateOptions(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: nil,
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
-			HorizonClient:                      &horizonclient.MockClient{},
+			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
@@ -32,29 +33,29 @@ func TestValidateOptions(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      nil,
-			HorizonClient:                      &horizonclient.MockClient{},
+			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "channel account signature client cannot be nil", err.Error())
 	})
 
-	t.Run("return_error_when_horizon_client_nil", func(t *testing.T) {
+	t.Run("return_error_when_rpc_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
-			HorizonClient:                      nil,
+			RPCService:                         nil,
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
-		assert.Equal(t, "horizon client cannot be nil", err.Error())
+		assert.Equal(t, "rpc client cannot be nil", err.Error())
 	})
 
 	t.Run("return_error_when_base_fee_too_low", func(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
-			HorizonClient:                      &horizonclient.MockClient{},
+			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            txnbuild.MinBaseFee - 10,
 		}
 		err := opts.ValidateOptions()
@@ -65,11 +66,12 @@ func TestValidateOptions(t *testing.T) {
 func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	distributionAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountSignatureClient := signing.SignatureClientMock{}
-	horizonClient := horizonclient.MockClient{}
+	defer channelAccountSignatureClient.AssertExpectations(t)
+	mockRPCService := &services.RPCServiceMock{}
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
 
@@ -86,26 +88,25 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
 	})
 
-	t.Run("horizon_client_get_account_detail_err", func(t *testing.T) {
+	t.Run("rpc_client_get_account_seq_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: channelAccount.Address(),
-			}).
-			Return(horizon.Account{}, errors.New("horizon down")).
+		mockRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(0), errors.New("rpc service down")).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
-		horizonClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "getting channel account details from horizon: horizon down", err.Error())
+		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key: %s: rpc service down", channelAccount.Address())
+		assert.Equal(t, expectedErr.Error(), err.Error())
 	})
 
 	t.Run("build_tx_fails", func(t *testing.T) {
@@ -115,17 +116,15 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(channelAccount.Address(), nil).
 			Once()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: channelAccount.Address(),
-			}).
-			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
+		mockRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
-		horizonClient.AssertExpectations(t)
 		assert.Empty(t, tx)
 		assert.Equal(t, "building transaction: transaction has no operations", err.Error())
 
@@ -141,12 +140,11 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(nil, errors.New("unable to sign")).
 			Once()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: channelAccount.Address(),
-			}).
-			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
+		mockRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		payment := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -157,7 +155,6 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
-		horizonClient.AssertExpectations(t)
 		assert.Empty(t, tx)
 		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
 	})
@@ -173,12 +170,11 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(signedTx, nil).
 			Once()
 
-		horizonClient.
-			On("AccountDetail", horizonclient.AccountRequest{
-				AccountID: channelAccount.Address(),
-			}).
-			Return(horizon.Account{AccountID: channelAccount.Address(), Sequence: 1}, nil).
+		mockRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
 			Once()
+		defer mockRPCService.AssertExpectations(t)
 
 		payment := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -189,7 +185,6 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
-		horizonClient.AssertExpectations(t)
 		assert.Equal(t, signedTx, tx)
 		assert.NoError(t, err)
 	})
@@ -198,11 +193,11 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 func TestBuildFeeBumpTransaction(t *testing.T) {
 	distributionAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountSignatureClient := signing.SignatureClientMock{}
-	horizonClient := horizonclient.MockClient{}
+	mockRPCService := &services.RPCServiceMock{}
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
 

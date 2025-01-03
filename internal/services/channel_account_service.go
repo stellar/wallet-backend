@@ -3,14 +3,23 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/tss"
+	"github.com/stellar/wallet-backend/internal/tss/router"
+)
+
+const (
+	maxRetriesForChannelAccountCreation    = 30
+	sleepDurationForChannelAccountCreation = 10 * time.Second
 )
 
 type ChannelAccountService interface {
@@ -19,8 +28,9 @@ type ChannelAccountService interface {
 
 type channelAccountService struct {
 	DB                                 db.ConnectionPool
-	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	BaseFee                            int64
+	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -82,14 +92,17 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
-	distributionAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: distributionAccountPublicKey})
+	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 	if err != nil {
-		return fmt.Errorf("getting account detail of distribution account: %w", err)
+		return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount:        &distributionAccount,
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: distributionAccountPublicKey,
+				Sequence:  accountSeq,
+			},
 			IncrementSequenceNum: true,
 			Operations:           ops,
 			BaseFee:              s.BaseFee,
@@ -110,28 +123,55 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		return fmt.Errorf("getting transaction hash: %w", err)
 	}
 
-	_, err = s.HorizonClient.SubmitTransaction(signedTx)
+	signedTxXDR, err := signedTx.Base64()
 	if err != nil {
-		if hError := horizonclient.GetError(err); hError != nil {
-			hProblem := hError.Problem
-			if hProblem.Type == "https://stellar.org/horizon-errors/timeout" {
-				return fmt.Errorf("horizon request timed out while creating a channel account. Transaction hash: %s", hash)
-			}
-
-			errString := fmt.Sprintf("Type: %s, Title: %s, Status: %d, Detail: %s, Extras: %v", hProblem.Type, hProblem.Title, hProblem.Status, hProblem.Detail, hProblem.Extras)
-			return fmt.Errorf("submitting transaction: %s: %w", errString, err)
-		} else {
-			return fmt.Errorf("submitting transaction: %w", err)
-		}
+		return fmt.Errorf("getting transaction envelope: %w", err)
 	}
 
+	payload := tss.Payload{
+		TransactionHash: hash,
+		TransactionXDR:  signedTxXDR,
+		WebhookURL:      "http://localhost:8001/internal/webhook",
+		FeeBump:         false,
+	}
+
+	err = s.submitToTSS(ctx, payload)
+	if err != nil {
+		return fmt.Errorf("submitting transaction hash: %s: %w", hash, err)
+	}
+	return nil
+}
+
+func (s *channelAccountService) submitToTSS(_ context.Context, payload tss.Payload) error {
+	err := s.Router.Route(payload)
+	if err != nil {
+		return fmt.Errorf("routing payload: %w", err)
+	}
+	time.Sleep(sleepDurationForChannelAccountCreation)
+
+	for range maxRetriesForChannelAccountCreation {
+		txResult, err := s.RPCService.GetTransaction(payload.TransactionHash)
+		if err != nil {
+			return fmt.Errorf("getting transaction response: %w", err)
+		}
+
+		switch txResult.Status {
+		case entities.SuccessStatus, entities.DuplicateStatus:
+			return nil
+		case entities.NotFoundStatus, entities.PendingStatus:
+			continue
+		case entities.ErrorStatus, entities.FailedStatus, entities.TryAgainLaterStatus:
+			return fmt.Errorf("error submitting transaction: %s: %s: %s", payload.TransactionHash, txResult.Status, txResult.ErrorResultXDR)
+		}
+	}
 	return nil
 }
 
 type ChannelAccountServiceOptions struct {
 	DB                                 db.ConnectionPool
-	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	BaseFee                            int64
+	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -143,12 +183,16 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 		return fmt.Errorf("DB cannot be nil")
 	}
 
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
+	if o.RPCService == nil {
+		return fmt.Errorf("rpc client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
+	}
+
+	if o.Router == nil {
+		return fmt.Errorf("router cannot be nil")
 	}
 
 	if o.DistributionAccountSignatureClient == nil {
@@ -177,8 +221,9 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccoun
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
-		HorizonClient:                      opts.HorizonClient,
+		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
+		Router:                             opts.Router,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountStore:                opts.ChannelAccountStore,
 		PrivateKeyEncrypter:                opts.PrivateKeyEncrypter,

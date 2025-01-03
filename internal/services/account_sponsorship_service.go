@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -21,6 +21,7 @@ var (
 	ErrAccountNotEligibleForBeingSponsored = errors.New("account not eligible for being sponsored")
 	ErrFeeExceedsMaximumBaseFee            = errors.New("fee exceeds maximum base fee to sponsor")
 	ErrNoSignaturesProvided                = errors.New("should have at least one signature")
+	ErrAccountNotFound                     = errors.New("account not found")
 )
 
 type ErrOperationNotAllowed struct {
@@ -45,7 +46,7 @@ type AccountSponsorshipService interface {
 type accountSponsorshipService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
@@ -56,11 +57,11 @@ var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
 
 func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
 	// Check the accountToSponsor does not exist on Stellar
-	_, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: accountToSponsor})
+	_, err := s.RPCService.GetAccountLedgerSequence(accountToSponsor)
 	if err == nil {
 		return "", "", ErrAccountAlreadyExists
 	}
-	if !horizonclient.IsNotFoundError(err) {
+	if !errors.Is(err, ErrAccountNotFound) {
 		return "", "", fmt.Errorf("getting details for account %s: %w", accountToSponsor, err)
 	}
 
@@ -125,14 +126,17 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		return "", "", fmt.Errorf("getting channel account public key: %w", err)
 	}
 
-	channelAccount, err := s.HorizonClient.AccountDetail(horizonclient.AccountRequest{AccountID: channelAccountPublicKey})
+	channelAccountSeq, err := s.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("getting distribution account details: %w", err)
+		return "", "", fmt.Errorf("getting sequence number for channel account public key: %s: %w", channelAccountPublicKey, err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
-			SourceAccount:        &channelAccount,
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: channelAccountPublicKey,
+				Sequence:  channelAccountSeq,
+			},
 			IncrementSequenceNum: true,
 			Operations:           ops,
 			BaseFee:              s.BaseFee,
@@ -228,7 +232,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 type AccountSponsorshipServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	HorizonClient                      horizonclient.ClientInterface
+	RPCService                         RPCService
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int64
 	Models                             *data.Models
@@ -240,12 +244,12 @@ func (o *AccountSponsorshipServiceOptions) Validate() error {
 		return fmt.Errorf("distribution account signature client cannot be nil")
 	}
 
-	if o.ChannelAccountSignatureClient == nil {
-		return fmt.Errorf("channel account signature client cannot be nil")
+	if o.RPCService == nil {
+		return fmt.Errorf("rpc client cannot be nil")
 	}
 
-	if o.HorizonClient == nil {
-		return fmt.Errorf("horizon client cannot be nil")
+	if o.ChannelAccountSignatureClient == nil {
+		return fmt.Errorf("channel account signature client cannot be nil")
 	}
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
@@ -267,7 +271,7 @@ func NewAccountSponsorshipService(opts AccountSponsorshipServiceOptions) (*accou
 	return &accountSponsorshipService{
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
-		HorizonClient:                      opts.HorizonClient,
+		RPCService:                         opts.RPCService,
 		MaxSponsoredBaseReserves:           opts.MaxSponsoredBaseReserves,
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,
