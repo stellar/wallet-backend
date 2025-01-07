@@ -253,7 +253,6 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		DB:                                 dbConnectionPool,
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
-		Router:                             router,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
 		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},

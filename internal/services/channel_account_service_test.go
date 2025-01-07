@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	"github.com/stellar/wallet-backend/internal/tss/router"
 )
 
 func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
@@ -31,7 +30,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
-	mockRouter := router.MockRouter{}
 	mockRPCService := RPCServiceMock{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -41,7 +39,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
-		Router:                             &mockRouter,
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountStore:                &channelAccountStore,
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
@@ -295,7 +292,6 @@ func TestSubmitTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockRPCService := RPCServiceMock{}
-	mockRouter := router.MockRouter{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -304,7 +300,6 @@ func TestSubmitTransaction(t *testing.T) {
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
-		Router:                             &mockRouter,
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountStore:                &channelAccountStore,
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
@@ -352,7 +347,6 @@ func TestGetTransactionStatus(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockRPCService := RPCServiceMock{}
-	mockRouter := router.MockRouter{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -361,7 +355,6 @@ func TestGetTransactionStatus(t *testing.T) {
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
-		Router:                             &mockRouter,
 		DistributionAccountSignatureClient: &signatureClient,
 		ChannelAccountStore:                &channelAccountStore,
 		PrivateKeyEncrypter:                &privateKeyEncrypter,

@@ -13,12 +13,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	"github.com/stellar/wallet-backend/internal/tss/router"
 )
 
 const (
-	maxRetriesForChannelAccountCreation    = 10
-	sleepDelayForChannelAccountCreation    = 10 * time.Second
+	maxRetriesForChannelAccountCreation = 10
+	sleepDelayForChannelAccountCreation = 10 * time.Second
 )
 
 type ChannelAccountService interface {
@@ -29,7 +28,6 @@ type channelAccountService struct {
 	DB                                 db.ConnectionPool
 	RPCService                         RPCService
 	BaseFee                            int64
-	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -178,7 +176,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 			time.Sleep(sleepDelayForChannelAccountCreation)
 			continue
 		}
-	
+
 	}
 
 	return fmt.Errorf("transaction did not complete after %d attempts", maxRetriesForChannelAccountCreation)
@@ -209,7 +207,6 @@ type ChannelAccountServiceOptions struct {
 	DB                                 db.ConnectionPool
 	RPCService                         RPCService
 	BaseFee                            int64
-	Router                             router.Router
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
 	PrivateKeyEncrypter                signingutils.PrivateKeyEncrypter
@@ -227,10 +224,6 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
-	}
-
-	if o.Router == nil {
-		return fmt.Errorf("router cannot be nil")
 	}
 
 	if o.DistributionAccountSignatureClient == nil {
@@ -261,7 +254,6 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccoun
 		DB:                                 opts.DB,
 		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
-		Router:                             opts.Router,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountStore:                opts.ChannelAccountStore,
 		PrivateKeyEncrypter:                opts.PrivateKeyEncrypter,
