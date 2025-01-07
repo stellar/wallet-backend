@@ -146,8 +146,11 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 }
 
 func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-	go trackRPCServiceHealth(ctx, heartbeat, nil, rpcService)
+	go trackRPCServiceHealth(cancelCtx, heartbeat, nil, rpcService)
 
 	for {
 		select {
