@@ -167,6 +167,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 			return fmt.Errorf("sending transaction: %s: %w", hash, err)
 		}
 
+		//exhaustive:ignore
 		switch result.Status {
 		case entities.PendingStatus:
 			return nil
@@ -189,6 +190,7 @@ func (s *channelAccountService) getTransactionStatus(_ context.Context, hash str
 			return fmt.Errorf("getting transaction status response: %w", err)
 		}
 
+		//exhaustive:ignore
 		switch txResult.Status {
 		case entities.NotFoundStatus:
 			time.Sleep(sleepDelayForChannelAccountCreation)
