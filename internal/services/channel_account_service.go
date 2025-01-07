@@ -91,6 +91,11 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
+	err := waitForRPCServiceHealth(ctx, s.RPCService)
+	if err != nil {
+		return fmt.Errorf("rpc service did not become healthy: %w", err)
+	}
+
 	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 	if err != nil {
 		return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
@@ -138,6 +143,20 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 	}
 
 	return nil
+}
+
+func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
+	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	go trackRPCServiceHealth(ctx, heartbeat, nil, rpcService)
+
+	for {
+		select {
+		case <-heartbeat:
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+	}
 }
 
 func (s *channelAccountService) submitTransaction(_ context.Context, hash string, signedTxXDR string) error {
