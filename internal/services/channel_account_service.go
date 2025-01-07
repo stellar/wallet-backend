@@ -13,13 +13,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 )
 
 const (
-	maxRetriesForChannelAccountCreation    = 30
-	sleepDurationForChannelAccountCreation = 10 * time.Second
+	maxRetriesForChannelAccountCreation    = 10
+	sleepDelayForChannelAccountCreation    = 10 * time.Second
 )
 
 type ChannelAccountService interface {
@@ -128,43 +127,60 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		return fmt.Errorf("getting transaction envelope: %w", err)
 	}
 
-	payload := tss.Payload{
-		TransactionHash: hash,
-		TransactionXDR:  signedTxXDR,
-		WebhookURL:      "http://localhost:8001/internal/webhook",
-		FeeBump:         false,
+	err = s.submitTransaction(ctx, hash, signedTxXDR)
+	if err != nil {
+		return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
 	}
 
-	err = s.submitToTSS(ctx, payload)
+	err = s.getTransactionStatus(ctx, hash)
 	if err != nil {
-		return fmt.Errorf("submitting transaction hash: %s: %w", hash, err)
+		return fmt.Errorf("getting transaction status: %w", err)
 	}
+
 	return nil
 }
 
-func (s *channelAccountService) submitToTSS(_ context.Context, payload tss.Payload) error {
-	err := s.Router.Route(payload)
-	if err != nil {
-		return fmt.Errorf("routing payload: %w", err)
-	}
-	time.Sleep(sleepDurationForChannelAccountCreation)
-
+func (s *channelAccountService) submitTransaction(_ context.Context, hash string, signedTxXDR string) error {
 	for range maxRetriesForChannelAccountCreation {
-		txResult, err := s.RPCService.GetTransaction(payload.TransactionHash)
+		result, err := s.RPCService.SendTransaction(signedTxXDR)
 		if err != nil {
-			return fmt.Errorf("getting transaction response: %w", err)
+			return fmt.Errorf("sending transaction: %s: %w", hash, err)
+		}
+
+		switch result.Status {
+		case entities.PendingStatus:
+			return nil
+		case entities.ErrorStatus:
+			return fmt.Errorf("transaction failed %s: %s", result.ErrorResultXDR, hash)
+		case entities.TryAgainLaterStatus:
+			time.Sleep(sleepDelayForChannelAccountCreation)
+			continue
+		}
+	
+	}
+
+	return fmt.Errorf("transaction did not complete after %d attempts", maxRetriesForChannelAccountCreation)
+}
+
+func (s *channelAccountService) getTransactionStatus(_ context.Context, hash string) error {
+	for range maxRetriesForChannelAccountCreation {
+		txResult, err := s.RPCService.GetTransaction(hash)
+		if err != nil {
+			return fmt.Errorf("getting transaction status response: %w", err)
 		}
 
 		switch txResult.Status {
-		case entities.SuccessStatus, entities.DuplicateStatus:
-			return nil
-		case entities.NotFoundStatus, entities.PendingStatus:
+		case entities.NotFoundStatus:
+			time.Sleep(sleepDelayForChannelAccountCreation)
 			continue
-		case entities.ErrorStatus, entities.FailedStatus, entities.TryAgainLaterStatus:
-			return fmt.Errorf("error submitting transaction: %s: %s: %s", payload.TransactionHash, txResult.Status, txResult.ErrorResultXDR)
+		case entities.SuccessStatus:
+			return nil
+		case entities.FailedStatus:
+			return fmt.Errorf("transaction failed: %s: %s: %s", hash, txResult.Status, txResult.ErrorResultXDR)
 		}
 	}
-	return nil
+
+	return fmt.Errorf("failed to get transaction status after %d attempts", maxRetriesForChannelAccountCreation)
 }
 
 type ChannelAccountServiceOptions struct {
