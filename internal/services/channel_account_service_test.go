@@ -279,7 +279,7 @@ func TestWaitForRPCServiceHealth(t *testing.T) {
 
 		err := waitForRPCServiceHealth(ctx, &mockRPCService)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context cancelled")
+		assert.Contains(t, err.Error(), "context timeout")
 	})
 }
 
@@ -338,7 +338,7 @@ func TestSubmitTransaction(t *testing.T) {
 	})
 }
 
-func TestGetTransactionStatus(t *testing.T) {
+func TestWaitForTransactionConfirmation(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -372,7 +372,7 @@ func TestGetTransactionStatus(t *testing.T) {
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
-		err := s.getTransactionStatus(ctx, hash)
+		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.NoError(t, err)
 	})
 
@@ -386,7 +386,7 @@ func TestGetTransactionStatus(t *testing.T) {
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
-		err := s.getTransactionStatus(ctx, hash)
+		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transaction failed")
 	})

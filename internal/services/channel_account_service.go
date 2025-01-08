@@ -18,6 +18,7 @@ import (
 const (
 	maxRetriesForChannelAccountCreation = 10
 	sleepDelayForChannelAccountCreation = 10 * time.Second
+	rpcHealthCheckTimeout = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
 type ChannelAccountService interface {
@@ -144,18 +145,22 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 }
 
 func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
-	cancelCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// Create a cancellable context for the heartbeat goroutine
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
+	// Create a timeout context as a child of heartbeatCtx
+	timeoutCtx, _ := context.WithTimeout(heartbeatCtx, rpcHealthCheckTimeout)
+	// Canceling the parent context (heartbeatCtx) will automatically cancel child (timeoutCtx)
+	defer cancelHeartbeat()
 
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-	go trackRPCServiceHealth(cancelCtx, heartbeat, nil, rpcService)
+	go trackRPCServiceHealth(heartbeatCtx, heartbeat, nil, rpcService)
 
 	for {
 		select {
 		case <-heartbeat:
 			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		case <-timeoutCtx.Done():
+			return fmt.Errorf("context timeout: %w", timeoutCtx.Err())
 		}
 	}
 }
