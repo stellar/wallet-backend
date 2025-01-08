@@ -135,7 +135,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
 	}
 
-	err = s.getTransactionStatus(ctx, hash)
+	err = s.waitForTransactionConfirmation(ctx, hash)
 	if err != nil {
 		return fmt.Errorf("getting transaction status: %w", err)
 	}
@@ -183,7 +183,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 	return fmt.Errorf("transaction did not complete after %d attempts", maxRetriesForChannelAccountCreation)
 }
 
-func (s *channelAccountService) getTransactionStatus(_ context.Context, hash string) error {
+func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context, hash string) error {
 	for range maxRetriesForChannelAccountCreation {
 		txResult, err := s.RPCService.GetTransaction(hash)
 		if err != nil {
