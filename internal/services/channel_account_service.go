@@ -162,7 +162,7 @@ func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
 		case <-heartbeat:
 			return nil
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("context timeout: %w", timeoutCtx.Err())
+			return fmt.Errorf("context timed out waiting for rpc service to become healthy: %w", timeoutCtx.Err())
 		}
 	}
 }
