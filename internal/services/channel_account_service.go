@@ -153,7 +153,6 @@ func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
 	defer func() {
 		cancelHeartbeat()
 		cancelTimeout()
-		close(heartbeat)
 	}()
 
 	go trackRPCServiceHealth(heartbeatCtx, heartbeat, nil, rpcService)
