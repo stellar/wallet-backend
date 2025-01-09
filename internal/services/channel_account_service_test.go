@@ -279,7 +279,7 @@ func TestWaitForRPCServiceHealth(t *testing.T) {
 
 		err := waitForRPCServiceHealth(ctx, &mockRPCService)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context timed out waiting for rpc service to become healthy")
+		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
 	})
 }
 

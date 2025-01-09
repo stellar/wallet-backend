@@ -147,13 +147,8 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
 	// Create a cancellable context for the heartbeat goroutine, once rpc returns healthy status.
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
-	// Create a timeout context so that we can exit the goroutine if the rpc service does not become healthy in a reasonable time.
-	timeoutCtx, cancelTimeout := context.WithTimeout(heartbeatCtx, rpcHealthCheckTimeout)
 	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-	defer func() {
-		cancelHeartbeat()
-		cancelTimeout()
-	}()
+	defer cancelHeartbeat()
 
 	go trackRPCServiceHealth(heartbeatCtx, heartbeat, nil, rpcService)
 
@@ -161,8 +156,8 @@ func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
 		select {
 		case <-heartbeat:
 			return nil
-		case <-timeoutCtx.Done():
-			return fmt.Errorf("context timed out waiting for rpc service to become healthy: %w", timeoutCtx.Err())
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
 		}
 	}
 }
