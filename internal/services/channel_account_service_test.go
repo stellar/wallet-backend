@@ -2,9 +2,7 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
@@ -30,6 +28,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -103,6 +102,11 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		health, _ := mockRPCService.GetHealth()
+		heartbeatChan <- health
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -174,6 +178,11 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		health, _ := mockRPCService.GetHealth()
+		heartbeatChan <- health
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -227,6 +236,11 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		health, _ := mockRPCService.GetHealth()
+		heartbeatChan <- health
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -250,36 +264,6 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transaction failed")
-	})
-}
-
-func TestWaitForRPCServiceHealth(t *testing.T) {
-	mockRPCService := RPCServiceMock{}
-	ctx := context.Background()
-
-	t.Run("successful", func(t *testing.T) {
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		err := waitForRPCServiceHealth(ctx, &mockRPCService)
-		require.NoError(t, err)
-	})
-
-	t.Run("context_cancelled", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{}, fmt.Errorf("connection failed"))
-		defer mockRPCService.AssertExpectations(t)
-
-		err := waitForRPCServiceHealth(ctx, &mockRPCService)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
 	})
 }
 
