@@ -15,6 +15,8 @@ import (
 )
 
 const (
+	rpcHealthCheckSleepTime      = 5 * time.Second
+	rpcHealthCheckMaxWaitTime    = 60 * time.Second
 	getHealthMethodName = "getHealth"
 )
 
