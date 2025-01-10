@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"reflect"
 	"strings"
+
+	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/xdr"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 // SanitizeUTF8 sanitizes a string to comply to the UTF-8 character set and Postgres' code zero byte constraint
@@ -31,4 +36,35 @@ func UnwrapInterfaceToPointer[T any](i interface{}) *T {
 // PointOf returns a pointer to the value
 func PointOf[T any](value T) *T {
 	return &value
+}
+
+func GetAccountLedgerKey(address string) (string, error) {
+	decoded, err := strkey.Decode(strkey.VersionByteAccountID, address)
+	if err != nil {
+		return "", err
+	}
+	var key xdr.Uint256
+	copy(key[:], decoded)
+	keyXdr, err := xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeAccount,
+		Account: &xdr.LedgerKeyAccount{
+			AccountId: xdr.AccountId(xdr.PublicKey{
+				Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
+				Ed25519: &key,
+			}),
+		},
+	}.MarshalBinaryBase64()
+	if err != nil {
+		return "", err
+	}
+	return keyXdr, nil
+}
+
+func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEntry, error) {
+	var data xdr.LedgerEntryData
+	err := xdr.SafeUnmarshalBase64(entry.DataXDR, &data)
+	if err != nil {
+		return xdr.AccountEntry{}, err
+	}
+	return data.MustAccount(), nil
 }

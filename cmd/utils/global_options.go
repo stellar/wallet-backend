@@ -4,10 +4,10 @@ import (
 	"go/types"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
@@ -52,17 +52,6 @@ func BaseFeeOption(configKey *int) *config.ConfigOption {
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 100 * txnbuild.MinBaseFee,
-		Required:    true,
-	}
-}
-
-func HorizonClientURLOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "horizon-url",
-		Usage:       "The URL of the Stellar Horizon server which this application will communicate with.",
-		OptType:     types.String,
-		ConfigKey:   configKey,
-		FlagDefault: horizonclient.DefaultTestNetClient.HorizonURL,
 		Required:    true,
 	}
 }

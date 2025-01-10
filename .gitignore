@@ -4,3 +4,5 @@ captive-core*/
 .env
 .DS_Store
 env.sh
+.idea
+__debug_bin*

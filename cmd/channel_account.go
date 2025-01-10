@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -19,7 +17,6 @@ import (
 
 type channelAccountCmdConfigOptions struct {
 	DatabaseURL                   string
-	HorizonClientURL              string
 	NetworkPassphrase             string
 	BaseFee                       int
 	DistributionAccountPrivateKey string
@@ -36,7 +33,6 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
-		utils.HorizonClientURLOption(&cfg.HorizonClientURL),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
 	}
 
@@ -78,11 +74,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
-				DB: dbConnectionPool,
-				HorizonClient: &horizonclient.Client{
-					HorizonURL: cfg.HorizonClientURL,
-					HTTP:       &http.Client{Timeout: 40 * time.Second},
-				},
+				DB:                                 dbConnectionPool,
 				BaseFee:                            int64(cfg.BaseFee),
 				DistributionAccountSignatureClient: signatureClient,
 				ChannelAccountStore:                &channelAccountModel,

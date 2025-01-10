@@ -8,11 +8,11 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/sirupsen/logrus"
-	"github.com/stellar/go/clients/horizonclient"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -60,7 +60,6 @@ type Configs struct {
 	NetworkPassphrase                  string
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int
-	HorizonClientURL                   string
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// TSS
@@ -150,9 +149,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
 
-	horizonClient := horizonclient.Client{
-		HorizonURL: cfg.HorizonClientURL,
-		HTTP:       &http.Client{Timeout: 40 * time.Second},
+	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
 	accountService, err := services.NewAccountService(models)
@@ -163,7 +163,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
@@ -178,50 +178,31 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
 	}
 
-	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
-		DB:                                 dbConnectionPool,
-		HorizonClient:                      &horizonClient,
-		BaseFee:                            int64(cfg.BaseFee),
-		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
-		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
-		EncryptionPassphrase:               cfg.EncryptionPassphrase,
-	})
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
-	}
-	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
-
 	// TSS setup
 	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		HorizonClient:                      &horizonClient,
+		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 	})
 
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
-	}
 
-	store, err := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
 	}
 	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
 		TxService:  tssTxService,
 		RPCService: rpcService,
-		Store:      store,
+		Store:      tssStore,
 	})
 
 	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
 		TxManager:     txManager,
-		Store:         store,
+		Store:         tssStore,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
 	})
@@ -245,7 +226,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
 	webhookChannel := tsschannel.NewWebhookChannel(tsschannel.WebhookChannelConfigs{
 		HTTPClient:           &httpClient,
-		Store:                store,
+		Store:                tssStore,
 		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
 		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
 		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
@@ -263,10 +244,24 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	errorJitterChannel.SetRouter(router)
 	errorNonJitterChannel.SetRouter(router)
 
-	poolPopulator, err := tssservices.NewPoolPopulator(router, store, rpcService)
+	poolPopulator, err := tssservices.NewPoolPopulator(router, tssStore, rpcService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
 	}
+
+	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+		DB:                                 dbConnectionPool,
+		RPCService:                         rpcService,
+		BaseFee:                            int64(cfg.BaseFee),
+		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
+		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
+		EncryptionPassphrase:               cfg.EncryptionPassphrase,
+	})
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
+	}
+	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
 		Models:                    models,
@@ -284,7 +279,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		WebhookChannel:        webhookChannel,
 		TSSRouter:             router,
 		PoolPopulator:         poolPopulator,
-		TSSStore:              store,
+		TSSStore:              tssStore,
 		TSSTransactionService: tssTxService,
 	}, nil
 }
