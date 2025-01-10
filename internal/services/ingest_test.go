@@ -3,14 +3,15 @@ package services
 import (
 	"bytes"
 	"context"
-	"errors"
+	"io"
+	"net/http"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func TestGetLedgerTransactions(t *testing.T) {
@@ -364,17 +366,32 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
+	// Create and set up the heartbeat channel
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				health, _ := mockRPCService.GetHealth()
+				heartbeatChan <- health
+				time.Sleep(10 * time.Second)
+			}
+		}
+	}()
+	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 100,
+		OldestLedger: 50,
+	}, nil).Once()
+
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: 100,
-		OldestLedger: 50,
-	}, nil)
 	paymentOp := txnbuild.Payment{
 		SourceAccount: srcAccount,
 		Destination:   destAccount,
@@ -413,6 +430,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
+	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 	err = ingestService.Run(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
@@ -449,18 +467,30 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	require.NoError(t, err)
 
-	// First call shows RPC is behind
+	// Create and set up the heartbeat channel
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				health, _ := mockRPCService.GetHealth()
+				heartbeatChan <- health
+				time.Sleep(10 * time.Second)
+			}
+		}
+	}()
+	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
 		Status:       "healthy",
 		LatestLedger: 50,
 		OldestLedger: 1,
 	}, nil).Once()
-
-	// Second call after sleep shows RPC has caught up
 	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
 		Status:       "healthy",
-		LatestLedger: 100, // RPC has caught up to ledger 100
-		OldestLedger: 1,
+		LatestLedger: 100,
+		OldestLedger: 50,
 	}, nil).Once()
 
 	// Capture debug logs to verify waiting message
@@ -513,9 +543,9 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
-	mockRPCService := &RPCServiceMock{}
-	mockAppTracker := &apptracker.MockAppTracker{}
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -526,50 +556,89 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 		OldestLedger:          1,
 		LedgerRetentionWindow: 0,
 	}
-	mockRPCService.On("GetHealth").Return(healthResult, nil).Once().Run(func(args mock.Arguments) {
-		cancel()
-	})
 
-	trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
+	// Mock the HTTP response for GetHealth
+	mockResponse := &http.Response{
+		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"result": {
+				"status": "healthy",
+				"latestLedger": 100,
+				"oldestLedger": 1,
+				"ledgerRetentionWindow": 0
+			}
+		}`))),
+	}
+	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).Return(mockResponse, nil).Once()
 
-	assert.Equal(t, healthResult, <-heartbeat)
-	mockRPCService.AssertExpectations(t)
-	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
+	// Start tracking health in background
+	go rpcService.trackRPCServiceHealth(ctx)
+
+	// Get result from heartbeat channel
+	select {
+	case result := <-rpcService.GetHeartbeatChannel():
+		assert.Equal(t, healthResult, result)
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for heartbeat")
+	}
+
+	mockHTTPClient.AssertExpectations(t)
 }
 
 func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
+	var logBuffer bytes.Buffer
+	log.DefaultLogger.SetOutput(&logBuffer)
+	defer log.DefaultLogger.SetOutput(os.Stderr)
+
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 
-	mockRPCService := &RPCServiceMock{}
-	mockRPCService.On("GetHealth").Return(
-		entities.RPCGetHealthResult{},
-		errors.New("rpc error"),
-	)
+	// Mock error response for GetHealth with a valid http.Response
+	mockResponse := &http.Response{
+		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"error": {
+				"code": -32601,
+				"message": "rpc error"
+			}
+		}`))),
+	}
+	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).
+		Return(mockResponse, nil)
 
-	mockAppTracker := &apptracker.MockAppTracker{}
-	mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Run(func(args mock.Arguments) {
-		cancel()
-	})
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	go rpcService.trackRPCServiceHealth(ctx)
 
-	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-
-	// Wait long enough for both warnings to trigger
+	// Wait long enough for warning to trigger
 	time.Sleep(65 * time.Second)
 
-	mockRPCService.AssertExpectations(t)
-	mockAppTracker.AssertExpectations(t)
+	logOutput := logBuffer.String()
+	assert.Contains(t, logOutput, "rpc service unhealthy for over 1m0s")
+	mockHTTPClient.AssertExpectations(t)
 }
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {
-	mockRPCService := &RPCServiceMock{}
-	mockAppTracker := &apptracker.MockAppTracker{}
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-	mockRPCService.AssertNotCalled(t, "GetHealth")
-	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
+	go rpcService.trackRPCServiceHealth(ctx)
+
+	// Cancel context immediately
+	cancel()
+
+	// Verify channel is closed after context cancellation
+	time.Sleep(100 * time.Millisecond)
+	_, ok := <-rpcService.GetHeartbeatChannel()
+	assert.False(t, ok, "channel should be closed")
+
+	mockHTTPClient.AssertNotCalled(t, "Post")
 }
