@@ -46,10 +46,14 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 		return nil, errors.New("httpClient cannot be nil")
 	}
 
-	return &rpcService{
+	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
+	rpcService := &rpcService{
 		rpcURL:     rpcURL,
 		httpClient: httpClient,
-	}, nil
+		heartbeatChannel: heartbeatChannel,
+	}
+	go rpcService.trackRPCServiceHealth(context.Background())
+	return rpcService, nil
 }
 
 func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
