@@ -2,18 +2,22 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -368,4 +372,99 @@ func TestSendGetHealth(t *testing.T) {
 		assert.Equal(t, entities.RPCGetHealthResult{}, result)
 		assert.Equal(t, "sending getHealth request: sending POST request to RPC: connection failed", err.Error())
 	})
+}
+
+func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
+
+	healthResult := entities.RPCGetHealthResult{
+		Status:                "healthy",
+		LatestLedger:          100,
+		OldestLedger:          1,
+		LedgerRetentionWindow: 0,
+	}
+
+	// Mock the HTTP response for GetHealth
+	mockResponse := &http.Response{
+		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"result": {
+				"status": "healthy",
+				"latestLedger": 100,
+				"oldestLedger": 1,
+				"ledgerRetentionWindow": 0
+			}
+		}`))),
+	}
+	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).Return(mockResponse, nil).Once()
+
+	// Get result from heartbeat channel
+	select {
+	case result := <-rpcService.GetHeartbeatChannel():
+		assert.Equal(t, healthResult, result)
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for heartbeat")
+	}
+
+	mockHTTPClient.AssertExpectations(t)
+}
+
+func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
+	var logBuffer bytes.Buffer
+	log.DefaultLogger.SetOutput(&logBuffer)
+	defer log.DefaultLogger.SetOutput(os.Stderr)
+
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+
+	// Mock error response for GetHealth with a valid http.Response
+	mockResponse := &http.Response{
+		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"error": {
+				"code": -32601,
+				"message": "rpc error"
+			}
+		}`))),
+	}
+	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).
+		Return(mockResponse, nil)
+
+	go rpcService.trackRPCServiceHealth(ctx)
+
+	// Wait long enough for warning to trigger
+	time.Sleep(65 * time.Second)
+
+	logOutput := logBuffer.String()
+	assert.Contains(t, logOutput, "rpc service unhealthy for over 1m0s")
+	mockHTTPClient.AssertExpectations(t)
+}
+
+func TestTrackRPCService_ContextCancelled(t *testing.T) {
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go rpcService.trackRPCServiceHealth(ctx)
+
+	// Cancel context immediately
+	cancel()
+
+	// Verify channel is closed after context cancellation
+	time.Sleep(100 * time.Millisecond)
+	_, ok := <-rpcService.GetHeartbeatChannel()
+	assert.False(t, ok, "channel should be closed")
+
+	mockHTTPClient.AssertNotCalled(t, "Post")
 }
