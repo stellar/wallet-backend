@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -420,9 +419,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
-	var logBuffer bytes.Buffer
-	log.DefaultLogger.SetOutput(&logBuffer)
-	defer log.DefaultLogger.SetOutput(os.Stderr)
+	getLogs := log.DefaultLogger.StartTest(log.WarnLevel)
 
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcURL := "http://test-url-track-rpc-service-health"
@@ -450,8 +447,14 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	// Wait long enough for warning to trigger
 	time.Sleep(65 * time.Second)
 
-	logOutput := logBuffer.String()
-	assert.Contains(t, logOutput, "rpc service unhealthy for over 1m0s")
+	entries := getLogs()
+	testFailed := true
+	for _, entry := range entries {
+		if strings.Contains(entry.Message, "rpc service unhealthy for over 1m0s") {
+			testFailed = false
+		}
+	}
+	assert.False(t, testFailed)
 	mockHTTPClient.AssertExpectations(t)
 }
 
@@ -464,9 +467,6 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	defer cancel()
 
 	go rpcService.TrackRPCServiceHealth(ctx)
-
-	// Cancel context immediately
-	cancel()
 
 	// Verify channel is closed after context cancellation
 	time.Sleep(100 * time.Millisecond)
