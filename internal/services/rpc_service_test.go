@@ -34,8 +34,10 @@ func (e *errorReader) Close() error {
 
 func TestSendRPCRequest(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcURL := "http://test-url"
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
+	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
 
 	t.Run("successful", func(t *testing.T) {
 		httpResponse := http.Response{
@@ -129,8 +131,10 @@ func TestSendRPCRequest(t *testing.T) {
 
 func TestSendTransaction(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcURL := "http://test-url"
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
+	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
 
 	t.Run("successful", func(t *testing.T) {
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
@@ -190,8 +194,10 @@ func TestSendTransaction(t *testing.T) {
 
 func TestGetTransaction(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcURL := "http://test-url"
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
+	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
 
 	t.Run("successful", func(t *testing.T) {
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
@@ -266,8 +272,10 @@ func TestGetTransaction(t *testing.T) {
 
 func TestGetTransactions(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcURL := "http://test-url"
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
+	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
 		mockHTTPClient.
@@ -329,9 +337,11 @@ func TestGetTransactions(t *testing.T) {
 
 func TestSendGetHealth(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
-
+	rpcURL := "http://test-url"
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
+	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
+	
 	t.Run("successful", func(t *testing.T) {
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -378,6 +388,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
 	require.NoError(t, err)
+	defer close(rpcService.heartbeatChannel)
 
 	healthResult := entities.RPCGetHealthResult{
 		Status:                "healthy",
@@ -420,7 +431,7 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
 	require.NoError(t, err)
-
+	defer close(rpcService.heartbeatChannel)
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 
@@ -452,7 +463,7 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
 	require.NoError(t, err)
-
+	defer close(rpcService.heartbeatChannel)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
