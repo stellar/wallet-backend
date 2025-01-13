@@ -363,26 +363,6 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
-	// Create and set up the heartbeat channel
-	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				health, _ := mockRPCService.GetHealth()
-				heartbeatChan <- health
-				time.Sleep(10 * time.Second)
-			}
-		}
-	}()
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: 100,
-		OldestLedger: 50,
-	}, nil).Once()
-
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	require.NoError(t, err)
 
@@ -427,6 +407,12 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+	heartbeatChan <- entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 100,
+		OldestLedger: 50,
+	}
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 	err = ingestService.Run(ctx, uint32(49), uint32(50))
@@ -467,16 +453,23 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	// Create and set up the heartbeat channel
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+
+	// Send first heartbeat showing RPC is behind
+	heartbeatChan <- entities.RPCGetHealthResult{
 		Status:       "healthy",
 		LatestLedger: 50,
 		OldestLedger: 1,
-	}, nil).Once()
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: 100,
-		OldestLedger: 50,
-	}, nil)
+	}
+
+	// After a delay, send second heartbeat showing RPC has caught up
+	go func() {
+		time.Sleep(6 * time.Second) // Sleep longer than the service's 5 second wait
+		heartbeatChan <- entities.RPCGetHealthResult{
+			Status:       "healthy",
+			LatestLedger: 100,
+			OldestLedger: 50,
+		}
+	}()
 
 	// Capture debug logs to verify waiting message
 	var logBuffer bytes.Buffer
@@ -509,20 +502,6 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	}
 	mockRPCService.On("GetTransactions", int64(100), "", 50).Return(mockResult, nil).Once()
 	mockAppTracker.On("CaptureMessage", mock.Anything).Maybe().Return(nil)
-
-	// Start the heartbeat goroutine
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				time.Sleep(10 * time.Second)
-				health, _ := mockRPCService.GetHealth()
-				heartbeatChan <- health
-			}
-		}
-	}()
 
 	// Start ingestion at ledger 100 (ahead of RPC's initial position at 50)
 	err = ingestService.Run(ctx, uint32(100), uint32(100))

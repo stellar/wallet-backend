@@ -382,7 +382,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	rpcURL := "http://test-url-track-rpc-service-health"
 	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
 	require.NoError(t, err)
-	go rpcService.TrackRPCServiceHealth(ctx)
+
 	healthResult := entities.RPCGetHealthResult{
 		Status:                "healthy",
 		LatestLedger:          100,
@@ -403,7 +403,10 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 			}
 		}`))),
 	}
-	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil)
+	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil).Run(func(args mock.Arguments) {
+		cancel()
+	})
+	rpcService.TrackRPCServiceHealth(ctx)
 
 	// Get result from heartbeat channel
 	select {
