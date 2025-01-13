@@ -33,11 +33,14 @@ func (e *errorReader) Close() error {
 }
 
 func TestSendRPCRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url"
+	rpcURL := "http://test-url-send-rpc-request"
 	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
+	go rpcService.TrackRPCServiceHealth(ctx)
 
 	t.Run("successful", func(t *testing.T) {
 		httpResponse := http.Response{
@@ -130,11 +133,14 @@ func TestSendRPCRequest(t *testing.T) {
 }
 
 func TestSendTransaction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url"
+	rpcURL := "http://test-url-send-transaction"
 	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
+	go rpcService.TrackRPCServiceHealth(ctx)
 
 	t.Run("successful", func(t *testing.T) {
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
@@ -193,12 +199,14 @@ func TestSendTransaction(t *testing.T) {
 }
 
 func TestGetTransaction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url"
+	rpcURL := "http://test-url-get-transaction"
 	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
-
+	go rpcService.TrackRPCServiceHealth(ctx)
 	t.Run("successful", func(t *testing.T) {
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 		params := entities.RPCParams{Hash: transactionHash}
@@ -271,12 +279,14 @@ func TestGetTransaction(t *testing.T) {
 }
 
 func TestGetTransactions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url"
+	rpcURL := "http://test-url-get-transactions"
 	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
-
+	go rpcService.TrackRPCServiceHealth(ctx)
 	t.Run("rpc_request_fails", func(t *testing.T) {
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
@@ -336,12 +346,15 @@ func TestGetTransactions(t *testing.T) {
 }
 
 func TestSendGetHealth(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url"
+	rpcURL := "http://test-url-send-get-health"
 	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
-	
+	go rpcService.TrackRPCServiceHealth(ctx)
+
 	t.Run("successful", func(t *testing.T) {
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -385,11 +398,14 @@ func TestSendGetHealth(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
-	mockHTTPClient := &utils.MockHTTPClient{}
-	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
-	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcURL := "http://test-url-track-rpc-service-health"
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
+	require.NoError(t, err)
+	go rpcService.TrackRPCServiceHealth(ctx)
 	healthResult := entities.RPCGetHealthResult{
 		Status:                "healthy",
 		LatestLedger:          100,
@@ -410,7 +426,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 			}
 		}`))),
 	}
-	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).Return(mockResponse, nil)
+	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil)
 
 	// Get result from heartbeat channel
 	select {
@@ -429,9 +445,9 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	defer log.DefaultLogger.SetOutput(os.Stderr)
 
 	mockHTTPClient := &utils.MockHTTPClient{}
-	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	rpcURL := "http://test-url-track-rpc-service-health"
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
 	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
 	defer cancel()
 
@@ -446,10 +462,10 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 			}
 		}`))),
 	}
-	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).
+	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).
 		Return(mockResponse, nil)
 
-	go rpcService.trackRPCServiceHealth(ctx)
+	go rpcService.TrackRPCServiceHealth(ctx)
 
 	// Wait long enough for warning to trigger
 	time.Sleep(65 * time.Second)
@@ -461,13 +477,13 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	mockHTTPClient := &utils.MockHTTPClient{}
-	rpcService, err := NewRPCService("http://test-url", mockHTTPClient)
+	rpcURL := "http://test-url-track-rpc-service-health"
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
 	require.NoError(t, err)
-	defer close(rpcService.heartbeatChannel)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go rpcService.trackRPCServiceHealth(ctx)
+	go rpcService.TrackRPCServiceHealth(ctx)
 
 	// Cancel context immediately
 	cancel()

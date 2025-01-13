@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	rpcHealthCheckSleepTime      = 5 * time.Second
-	rpcHealthCheckMaxWaitTime    = 60 * time.Second
-	getHealthMethodName = "getHealth"
+	rpcHealthCheckSleepTime   = 5 * time.Second
+	rpcHealthCheckMaxWaitTime = 60 * time.Second
+	getHealthMethodName       = "getHealth"
 )
 
 type RPCService interface {
@@ -28,11 +28,12 @@ type RPCService interface {
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
+	TrackRPCServiceHealth(ctx context.Context)
 }
 
 type rpcService struct {
-	rpcURL     string
-	httpClient utils.HTTPClient
+	rpcURL           string
+	httpClient       utils.HTTPClient
 	heartbeatChannel chan entities.RPCGetHealthResult
 }
 
@@ -49,13 +50,11 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 	}
 
 	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
-	rpcService := &rpcService{
-		rpcURL:     rpcURL,
-		httpClient: httpClient,
+	return &rpcService{
+		rpcURL:           rpcURL,
+		httpClient:       httpClient,
 		heartbeatChannel: heartbeatChannel,
-	}
-	go rpcService.trackRPCServiceHealth(context.Background())
-	return rpcService, nil
+	}, nil
 }
 
 func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
@@ -168,7 +167,7 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	return int64(accountEntry.SeqNum), nil
 }
 
-func (r *rpcService) trackRPCServiceHealth(ctx context.Context) {
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 	healthCheckTicker := time.NewTicker(rpcHealthCheckSleepTime)
 	warningTicker := time.NewTicker(rpcHealthCheckMaxWaitTime)
 	defer func() {

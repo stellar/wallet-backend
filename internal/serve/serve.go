@@ -154,6 +154,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+	go rpcService.TrackRPCServiceHealth(context.Background())
 
 	accountService, err := services.NewAccountService(models)
 	if err != nil {
