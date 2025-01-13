@@ -399,7 +399,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 			}
 		}`))),
 	}
-	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).Return(mockResponse, nil).Once()
+	mockHTTPClient.On("Post", "http://test-url", "application/json", mock.Anything).Return(mockResponse, nil)
 
 	// Get result from heartbeat channel
 	select {
