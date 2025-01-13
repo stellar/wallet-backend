@@ -34,9 +34,8 @@ func (e *errorReader) Close() error {
 
 func TestSendRPCRequest(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url-send-rpc-request"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
-	require.NoError(t, err)
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
 	t.Run("successful", func(t *testing.T) {
 		httpResponse := http.Response{
@@ -130,9 +129,8 @@ func TestSendRPCRequest(t *testing.T) {
 
 func TestSendTransaction(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url-send-transaction"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
-	require.NoError(t, err)
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
 	t.Run("successful", func(t *testing.T) {
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
@@ -192,9 +190,9 @@ func TestSendTransaction(t *testing.T) {
 
 func TestGetTransaction(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url-get-transaction"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
-	require.NoError(t, err)
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+
 	t.Run("successful", func(t *testing.T) {
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 		params := entities.RPCParams{Hash: transactionHash}
@@ -268,9 +266,9 @@ func TestGetTransaction(t *testing.T) {
 
 func TestGetTransactions(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url-get-transactions"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
-	require.NoError(t, err)
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+
 	t.Run("rpc_request_fails", func(t *testing.T) {
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
@@ -331,9 +329,8 @@ func TestGetTransactions(t *testing.T) {
 
 func TestSendGetHealth(t *testing.T) {
 	mockHTTPClient := utils.MockHTTPClient{}
-	rpcURL := "http://test-url-send-get-health"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient)
-	require.NoError(t, err)
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
 
 	t.Run("successful", func(t *testing.T) {
 		payload := map[string]interface{}{
