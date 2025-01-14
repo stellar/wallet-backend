@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -24,6 +25,9 @@ const (
 	rpcHealthCheckSleepTime      = 5 * time.Second
 	rpcHealthCheckMaxWaitTime    = 60 * time.Second
 	ingestHealthCheckMaxWaitTime = 90 * time.Second
+	paymentPrometheusLabel               = "payment"
+	pathPaymentStrictSendPrometheusLabel       = "path_payment_strict_send"
+	pathPaymentStrictReceivePrometheusLabel    = "path_payment_strict_receive"
 )
 
 type IngestService interface {
@@ -39,6 +43,9 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
+
+	// Metrics
+	numPaymentOpsIngested *prometheus.CounterVec
 }
 
 func NewIngestService(
@@ -48,6 +55,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
+	metricsRegistry *prometheus.Registry,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -68,14 +76,29 @@ func NewIngestService(
 		return nil, errors.New("tssStore cannot be nil")
 	}
 
-	return &ingestService{
+	numPaymentOpsIngested := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "num_payment_ops_ingested",
+		Help: "Number of payment operations ingested",
+	}, []string{"operation_type"})
+
+	ingestService := &ingestService{
 		models:           models,
 		ledgerCursorName: ledgerCursorName,
 		appTracker:       appTracker,
 		rpcService:       rpcService,
 		tssRouter:        tssRouter,
 		tssStore:         tssStore,
-	}, nil
+
+		// Metrics
+		numPaymentOpsIngested: numPaymentOpsIngested,
+	}
+
+	ingestService.RegisterMetrics(metricsRegistry)
+	return ingestService, nil
+}
+
+func (m *ingestService) RegisterMetrics(registry *prometheus.Registry) {
+	registry.MustRegister(m.numPaymentOpsIngested)
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
@@ -204,10 +227,13 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 
 				switch op.Body.Type {
 				case xdr.OperationTypePayment:
+					m.numPaymentOpsIngested.WithLabelValues(paymentPrometheusLabel).Inc()
 					fillPayment(&payment, op.Body)
 				case xdr.OperationTypePathPaymentStrictSend:
+					m.numPaymentOpsIngested.WithLabelValues(pathPaymentStrictSendPrometheusLabel).Inc()
 					fillPathSend(&payment, op.Body, txResultXDR, opIdx)
 				case xdr.OperationTypePathPaymentStrictReceive:
+					m.numPaymentOpsIngested.WithLabelValues(pathPaymentStrictReceivePrometheusLabel).Inc()
 					fillPathReceive(&payment, op.Body, txResultXDR, opIdx)
 				default:
 					continue

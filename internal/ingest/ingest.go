@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
 
@@ -49,6 +51,8 @@ func Ingest(cfg Configs) error {
 }
 
 func setupDeps(cfg Configs) (services.IngestService, error) {
+	ingestMetricsRegistry := prometheus.NewRegistry()
+
 	// Open DB connection pool
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
@@ -73,8 +77,16 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	router := tssrouter.NewRouter(tssRouterConfig)
 
+	http.Handle("/ingest-metrics", promhttp.HandlerFor(ingestMetricsRegistry, promhttp.HandlerOpts{}))
+	go func() {
+		err := http.ListenAndServe(":8002", nil)
+		if err != nil {
+			log.Ctx(context.Background()).Fatalf("Error starting ingest metrics server: %v", err)
+		}
+	}()
+
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, ingestMetricsRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
