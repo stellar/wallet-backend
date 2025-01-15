@@ -90,75 +90,60 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
-	err := waitForRPCServiceHealth(ctx, s.RPCService)
-	if err != nil {
-		return fmt.Errorf("rpc service did not become healthy: %w", err)
-	}
-
-	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
-	if err != nil {
-		return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
-	}
-
-	tx, err := txnbuild.NewTransaction(
-		txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: distributionAccountPublicKey,
-				Sequence:  accountSeq,
-			},
-			IncrementSequenceNum: true,
-			Operations:           ops,
-			BaseFee:              s.BaseFee,
-			Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("building transaction: %w", err)
-	}
-
-	signedTx, err := s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
-	if err != nil {
-		return fmt.Errorf("signing transaction: %w", err)
-	}
-
-	hash, err := signedTx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
-	if err != nil {
-		return fmt.Errorf("getting transaction hash: %w", err)
-	}
-
-	signedTxXDR, err := signedTx.Base64()
-	if err != nil {
-		return fmt.Errorf("getting transaction envelope: %w", err)
-	}
-
-	err = s.submitTransaction(ctx, hash, signedTxXDR)
-	if err != nil {
-		return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
-	}
-
-	err = s.waitForTransactionConfirmation(ctx, hash)
-	if err != nil {
-		return fmt.Errorf("getting transaction status: %w", err)
-	}
-
-	return nil
-}
-
-func waitForRPCServiceHealth(ctx context.Context, rpcService RPCService) error {
-	// Create a cancellable context for the heartbeat goroutine, once rpc returns healthy status.
-	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-	defer cancelHeartbeat()
-
-	go trackRPCServiceHealth(heartbeatCtx, heartbeat, nil, rpcService)
-
-	for {
-		select {
-		case <-heartbeat:
-			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
+	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
+	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
+	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
+	case <-rpcHeartbeatChannel:
+		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
+		if err != nil {
+			return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
 		}
+
+		tx, err := txnbuild.NewTransaction(
+			txnbuild.TransactionParams{
+				SourceAccount: &txnbuild.SimpleAccount{
+					AccountID: distributionAccountPublicKey,
+					Sequence:  accountSeq,
+				},
+				IncrementSequenceNum: true,
+				Operations:           ops,
+				BaseFee:              s.BaseFee,
+				Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("building transaction: %w", err)
+		}
+
+		signedTx, err := s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
+		if err != nil {
+			return fmt.Errorf("signing transaction: %w", err)
+		}
+
+		hash, err := signedTx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
+		if err != nil {
+			return fmt.Errorf("getting transaction hash: %w", err)
+		}
+
+		signedTxXDR, err := signedTx.Base64()
+		if err != nil {
+			return fmt.Errorf("getting transaction envelope: %w", err)
+		}
+
+		err = s.submitTransaction(ctx, hash, signedTxXDR)
+		if err != nil {
+			return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
+		}
+
+		err = s.waitForTransactionConfirmation(ctx, hash)
+		if err != nil {
+			return fmt.Errorf("getting transaction status: %w", err)
+		}
+
+		return nil
 	}
 }
 

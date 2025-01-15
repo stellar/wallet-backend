@@ -2,17 +2,22 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
-	getHealthMethodName = "getHealth"
+	rpcHealthCheckSleepTime   = 5 * time.Second
+	rpcHealthCheckMaxWaitTime = 60 * time.Second
+	getHealthMethodName       = "getHealth"
 )
 
 type RPCService interface {
@@ -22,11 +27,14 @@ type RPCService interface {
 	GetHealth() (entities.RPCGetHealthResult, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
+	GetHeartbeatChannel() chan entities.RPCGetHealthResult
+	TrackRPCServiceHealth(ctx context.Context)
 }
 
 type rpcService struct {
-	rpcURL     string
-	httpClient utils.HTTPClient
+	rpcURL           string
+	httpClient       utils.HTTPClient
+	heartbeatChannel chan entities.RPCGetHealthResult
 }
 
 var PageLimit = 200
@@ -41,10 +49,16 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 		return nil, errors.New("httpClient cannot be nil")
 	}
 
+	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
 	return &rpcService{
-		rpcURL:     rpcURL,
-		httpClient: httpClient,
+		rpcURL:           rpcURL,
+		httpClient:       httpClient,
+		heartbeatChannel: heartbeatChannel,
 	}, nil
+}
+
+func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
+	return r.heartbeatChannel
 }
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
@@ -151,6 +165,34 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 		return 0, fmt.Errorf("decoding account entry for account public key: %w", err)
 	}
 	return int64(accountEntry.SeqNum), nil
+}
+
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
+	healthCheckTicker := time.NewTicker(rpcHealthCheckSleepTime)
+	warningTicker := time.NewTicker(rpcHealthCheckMaxWaitTime)
+	defer func() {
+		healthCheckTicker.Stop()
+		warningTicker.Stop()
+		close(r.heartbeatChannel)
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-warningTicker.C:
+			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
+			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+		case <-healthCheckTicker.C:
+			result, err := r.GetHealth()
+			if err != nil {
+				log.Warnf("rpc health check failed: %v", err)
+				continue
+			}
+			r.heartbeatChannel <- result
+			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+		}
+	}
 }
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
