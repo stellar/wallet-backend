@@ -25,7 +25,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -287,7 +287,7 @@ func TestSubmitTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -342,7 +342,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

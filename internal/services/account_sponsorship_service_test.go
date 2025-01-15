@@ -22,7 +22,7 @@ import (
 func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -299,7 +299,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

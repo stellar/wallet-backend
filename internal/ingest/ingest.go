@@ -54,7 +54,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	ingestMetricsRegistry := prometheus.NewRegistry()
 
 	// Open DB connection pool
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL, ingestMetricsRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
@@ -81,7 +81,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	go func() {
 		err := http.ListenAndServe(":8002", nil)
 		if err != nil {
-			log.Ctx(context.Background()).Fatalf("Error starting ingest metrics server: %v", err)
+			log.Ctx(context.Background()).Fatalf("starting ingest metrics server: %v", err)
 		}
 	}()
 

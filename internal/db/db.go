@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/dlmiddlecote/sqlstats"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go/support/log"
 )
 
@@ -31,13 +33,18 @@ const (
 	MaxOpenDBConns    = 30
 )
 
-func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
+func OpenDBConnectionPool(dataSourceName string, metricsRegistry *prometheus.Registry) (ConnectionPool, error) {
 	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating app DB connection pool: %w", err)
 	}
 	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
 	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
+
+	if metricsRegistry != nil {
+		collector := sqlstats.NewStatsCollector("wallet-backend-db", sqlxDB)
+		metricsRegistry.MustRegister(collector)
+	}
 
 	err = sqlxDB.Ping()
 	if err != nil {

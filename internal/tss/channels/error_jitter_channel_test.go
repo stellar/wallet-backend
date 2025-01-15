@@ -18,7 +18,7 @@ import (
 func TestJitterSend(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	txManagerMock := services.TransactionManagerMock{}
@@ -64,7 +64,7 @@ func TestJitterSend(t *testing.T) {
 func TestJitterReceive(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	txManagerMock := services.TransactionManagerMock{}

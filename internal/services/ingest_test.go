@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	models, _ := data.NewModels(dbConnectionPool)
@@ -39,7 +40,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, prometheus.NewPedanticRegistry())
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
 			Cursor: "51",
@@ -123,7 +124,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	models, _ := data.NewModels(dbConnectionPool)
@@ -131,7 +132,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, prometheus.NewPedanticRegistry())
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
 
@@ -173,7 +174,7 @@ func TestIngestPayments(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -182,7 +183,7 @@ func TestIngestPayments(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, prometheus.NewPedanticRegistry())
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 	usdIssuer := keypair.MustRandom().Address()
@@ -346,7 +347,7 @@ func TestIngestPayments(t *testing.T) {
 
 func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -364,7 +365,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, prometheus.NewPedanticRegistry())
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
@@ -427,7 +428,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 
 func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -446,7 +447,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, prometheus.NewPedanticRegistry())
 	require.NoError(t, err)
 
 	// First call shows RPC is behind
