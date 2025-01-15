@@ -90,12 +90,13 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
+	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
 	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
 	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
-	case <-s.RPCService.GetHeartbeatChannel():
+	case <-rpcHeartbeatChannel:
 		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 		if err != nil {
 			return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)

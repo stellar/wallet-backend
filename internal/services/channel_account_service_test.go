@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
@@ -232,14 +233,9 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(network.TestNetworkPassphrase).
 			Once()
 		defer signatureClient.AssertExpectations(t)
-
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
 		
 		// Create and set up the heartbeat channel
-		health, _ := mockRPCService.GetHealth()
-		heartbeatChan <- health
+		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
@@ -264,6 +260,32 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transaction failed")
+	})
+
+	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		channelAccountStore.
+			On("Count", ctx).
+			Return(2, nil).
+			Once()
+		defer channelAccountStore.AssertExpectations(t)
+
+		distributionAccount := keypair.MustRandom()
+		signatureClient.
+			On("GetAccountPublicKey", ctx).
+			Return(distributionAccount.Address(), nil).
+			Once()
+		defer signatureClient.AssertExpectations(t)
+
+		heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
+		defer mockRPCService.AssertExpectations(t)
+
+		err := s.EnsureChannelAccounts(ctx, 5)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
 	})
 }
 
