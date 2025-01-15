@@ -63,6 +63,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+	go rpcService.TrackRPCServiceHealth(context.Background())
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating tss store: %w", err)

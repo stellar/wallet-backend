@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +29,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -103,6 +103,11 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		health, _ := mockRPCService.GetHealth()
+		heartbeatChan <- health
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -174,6 +179,11 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		health, _ := mockRPCService.GetHealth()
+		heartbeatChan <- health
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -223,10 +233,10 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(network.TestNetworkPassphrase).
 			Once()
 		defer signatureClient.AssertExpectations(t)
-
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
+		
+		// Create and set up the heartbeat channel
+		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
@@ -251,33 +261,29 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transaction failed")
 	})
-}
 
-func TestWaitForRPCServiceHealth(t *testing.T) {
-	mockRPCService := RPCServiceMock{}
-	ctx := context.Background()
-
-	t.Run("successful", func(t *testing.T) {
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		err := waitForRPCServiceHealth(ctx, &mockRPCService)
-		require.NoError(t, err)
-	})
-
-	t.Run("context_cancelled", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{}, fmt.Errorf("connection failed"))
+		channelAccountStore.
+			On("Count", ctx).
+			Return(2, nil).
+			Once()
+		defer channelAccountStore.AssertExpectations(t)
+
+		distributionAccount := keypair.MustRandom()
+		signatureClient.
+			On("GetAccountPublicKey", ctx).
+			Return(distributionAccount.Address(), nil).
+			Once()
+		defer signatureClient.AssertExpectations(t)
+
+		heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 		defer mockRPCService.AssertExpectations(t)
 
-		err := waitForRPCServiceHealth(ctx, &mockRPCService)
+		err := s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
 	})

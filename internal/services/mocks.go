@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -11,6 +13,15 @@ type RPCServiceMock struct {
 }
 
 var _ RPCService = (*RPCServiceMock)(nil)
+
+func (r *RPCServiceMock) TrackRPCServiceHealth(ctx context.Context) {
+	r.Called(ctx)
+}
+
+func (r *RPCServiceMock) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
+	args := r.Called()
+	return args.Get(0).(chan entities.RPCGetHealthResult)
+}
 
 func (r *RPCServiceMock) SendTransaction(transactionXdr string) (entities.RPCSendTransactionResult, error) {
 	args := r.Called(transactionXdr)

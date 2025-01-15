@@ -3,14 +3,13 @@ package services
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -370,11 +369,6 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: 100,
-		OldestLedger: 50,
-	}, nil)
 	paymentOp := txnbuild.Payment{
 		SourceAccount: srcAccount,
 		Destination:   destAccount,
@@ -413,6 +407,13 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		OldestLedgerCloseTime: int64(1),
 	}
 	mockRPCService.On("GetTransactions", int64(50), "", 50).Return(mockResult, nil).Once()
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+	heartbeatChan <- entities.RPCGetHealthResult{
+		Status:       "healthy",
+		LatestLedger: 100,
+		OldestLedger: 50,
+	}
+	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
 	err = ingestService.Run(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
@@ -449,19 +450,26 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore)
 	require.NoError(t, err)
 
-	// First call shows RPC is behind
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
+	// Create and set up the heartbeat channel
+	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
+
+	// Send first heartbeat showing RPC is behind
+	heartbeatChan <- entities.RPCGetHealthResult{
 		Status:       "healthy",
 		LatestLedger: 50,
 		OldestLedger: 1,
-	}, nil).Once()
+	}
 
-	// Second call after sleep shows RPC has caught up
-	mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{
-		Status:       "healthy",
-		LatestLedger: 100, // RPC has caught up to ledger 100
-		OldestLedger: 1,
-	}, nil).Once()
+	// After a delay, send second heartbeat showing RPC has caught up
+	go func() {
+		time.Sleep(6 * time.Second) // Sleep longer than the service's 5 second wait
+		heartbeatChan <- entities.RPCGetHealthResult{
+			Status:       "healthy",
+			LatestLedger: 100,
+			OldestLedger: 50,
+		}
+	}()
 
 	// Capture debug logs to verify waiting message
 	var logBuffer bytes.Buffer
@@ -510,66 +518,4 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	assert.Equal(t, uint32(100), ledger)
 
 	mockRPCService.AssertExpectations(t)
-}
-
-func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
-	mockRPCService := &RPCServiceMock{}
-	mockAppTracker := &apptracker.MockAppTracker{}
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	healthResult := entities.RPCGetHealthResult{
-		Status:                "healthy",
-		LatestLedger:          100,
-		OldestLedger:          1,
-		LedgerRetentionWindow: 0,
-	}
-	mockRPCService.On("GetHealth").Return(healthResult, nil).Once().Run(func(args mock.Arguments) {
-		cancel()
-	})
-
-	trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-
-	assert.Equal(t, healthResult, <-heartbeat)
-	mockRPCService.AssertExpectations(t)
-	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
-}
-
-func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
-	defer cancel()
-
-	mockRPCService := &RPCServiceMock{}
-	mockRPCService.On("GetHealth").Return(
-		entities.RPCGetHealthResult{},
-		errors.New("rpc error"),
-	)
-
-	mockAppTracker := &apptracker.MockAppTracker{}
-	mockAppTracker.On("CaptureMessage", "rpc service unhealthy for over 1m0s").Run(func(args mock.Arguments) {
-		cancel()
-	})
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-
-	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-
-	// Wait long enough for both warnings to trigger
-	time.Sleep(65 * time.Second)
-
-	mockRPCService.AssertExpectations(t)
-	mockAppTracker.AssertExpectations(t)
-}
-
-func TestTrackRPCService_ContextCancelled(t *testing.T) {
-	mockRPCService := &RPCServiceMock{}
-	mockAppTracker := &apptracker.MockAppTracker{}
-	heartbeat := make(chan entities.RPCGetHealthResult, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	go trackRPCServiceHealth(ctx, heartbeat, mockAppTracker, mockRPCService)
-	mockRPCService.AssertNotCalled(t, "GetHealth")
-	mockAppTracker.AssertNotCalled(t, "CaptureMessage")
 }
