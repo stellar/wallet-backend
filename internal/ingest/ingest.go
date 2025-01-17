@@ -78,6 +78,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	router := tssrouter.NewRouter(tssRouterConfig)
 
+	ingestService, err := services.NewIngestService(
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, ingestMetricsRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating ingest service: %w", err)
+	}
+
 	http.Handle("/ingest-metrics", promhttp.HandlerFor(ingestMetricsRegistry, promhttp.HandlerOpts{}))
 	go func() {
 		err := http.ListenAndServe(":8002", nil)
@@ -85,12 +91,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			log.Ctx(context.Background()).Fatalf("starting ingest metrics server: %v", err)
 		}
 	}()
-
-	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, ingestMetricsRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating ingest service: %w", err)
-	}
 
 	return ingestService, nil
 }

@@ -44,6 +44,8 @@ type ingestService struct {
 
 	// Metrics
 	numPaymentOpsIngested *prometheus.CounterVec
+	numTssTransactionsIngested *prometheus.CounterVec
+	paymentAmountsIngested *prometheus.GaugeVec
 }
 
 func NewIngestService(
@@ -78,6 +80,14 @@ func NewIngestService(
 		Name: "num_payment_ops_ingested",
 		Help: "Number of payment operations ingested",
 	}, []string{"operation_type"})
+	numTssTransactionsIngested := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "num_tss_transactions_ingested",
+		Help: "Number of tss transactions ingested",
+	}, []string{"status"})
+	paymentAmountsIngested := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "payment_amount_ingested",
+		Help: "Amount of payment ingested",
+	}, []string{"operation_type", "asset_type"})
 
 	ingestService := &ingestService{
 		models:           models,
@@ -89,6 +99,8 @@ func NewIngestService(
 
 		// Metrics
 		numPaymentOpsIngested: numPaymentOpsIngested,
+		numTssTransactionsIngested: numTssTransactionsIngested,
+		paymentAmountsIngested: paymentAmountsIngested,
 	}
 
 	ingestService.RegisterMetrics(metricsRegistry)
@@ -96,7 +108,11 @@ func NewIngestService(
 }
 
 func (m *ingestService) RegisterMetrics(registry *prometheus.Registry) {
-	registry.MustRegister(m.numPaymentOpsIngested)
+	registry.MustRegister(
+		m.numPaymentOpsIngested,
+		m.numTssTransactionsIngested,
+		m.paymentAmountsIngested,
+	)
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
@@ -238,6 +254,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 				if err != nil {
 					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", tx.Ledger, tx.Hash, tx.ApplicationOrder, payment.OperationID, opIdx, err)
 				}
+				m.paymentAmountsIngested.WithLabelValues(payment.OperationType, payment.SrcAssetType).Set(float64(payment.SrcAmount))
 			}
 		}
 		return nil
@@ -295,6 +312,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("unable to route payload: %w", err)
 		}
+		m.numTssTransactionsIngested.WithLabelValues(status.Status()).Inc()
 	}
 	return nil
 }
