@@ -64,7 +64,7 @@ you can set it to any value. For production, you should set it to a secure passp
 3. Start the containers:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 If things are set up correctly, you will see 4 containers started under the wallet-backend docker service: `api`, `db`, 
