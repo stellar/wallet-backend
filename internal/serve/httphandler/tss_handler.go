@@ -156,7 +156,7 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		httperror.NotFound.Render(w)
 	}
 
-	tssTry, err := t.Store.GetTry(ctx, tx.Hash)
+	tssTry, err := t.Store.GetLatestTry(ctx, tx.Hash)
 	if err != nil {
 		httperror.InternalServerError(ctx, "unable to get tx try "+tx.Hash, err, nil, t.AppTracker).Render(w)
 		return

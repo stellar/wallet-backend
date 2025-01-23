@@ -270,10 +270,11 @@ func TestGetTransaction(t *testing.T) {
 		require.NoError(t, err)
 		var getTxResp tss.TSSResponse
 		_ = json.Unmarshal(respBody, &getTxResp)
+		fmt.Printf("%+v\n", getTxResp)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "hash", getTxResp.TransactionHash)
-		assert.Equal(t, "xdr", getTxResp.EnvelopeXDR)
+		assert.Equal(t, "0", getTxResp.TransactionResultCode)
 		assert.Equal(t, "NEW", getTxResp.Status)
 
 		clearTransactions(ctx)
