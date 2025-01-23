@@ -1,6 +1,7 @@
 package httphandler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/stellar/go/support/log"
@@ -155,9 +156,18 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		httperror.NotFound.Render(w)
 	}
 
-	httpjson.Render(w, GetTransactionResponse{
-		Hash:   tx.Hash,
-		XDR:    tx.XDR,
-		Status: tx.Status,
+	tssTry, err := t.Store.GetTry(ctx, tx.Hash)
+	if err != nil {
+		httperror.InternalServerError(ctx, "unable to get tx try "+tx.Hash, err, nil, t.AppTracker).Render(w)
+		return
+	}
+
+	httpjson.Render(w, tss.TSSResponse{
+		TransactionHash:       tx.Hash,
+		TransactionResultCode: fmt.Sprint(tssTry.Code),
+		Status:                tx.Status,
+		CreatedAt:             tx.CreatedAt.Unix(),
+		EnvelopeXDR:           tssTry.XDR,
+		ResultXDR:             tssTry.ResultXDR,
 	}, httpjson.JSON)
 }
