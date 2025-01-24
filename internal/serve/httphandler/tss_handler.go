@@ -166,7 +166,7 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		TransactionHash:       tx.Hash,
 		TransactionResultCode: fmt.Sprint(tssTry.Code),
 		Status:                tx.Status,
-		CreatedAt:             tx.CreatedAt.Unix(),
+		CreatedAt:             tssTry.CreatedAt.Unix(),
 		EnvelopeXDR:           tssTry.XDR,
 		ResultXDR:             tssTry.ResultXDR,
 	}, httpjson.JSON)
