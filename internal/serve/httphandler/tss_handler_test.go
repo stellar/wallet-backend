@@ -268,13 +268,14 @@ func TestGetTransaction(t *testing.T) {
 		resp := rw.Result()
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		var getTxResp tss.TSSResponse
-		_ = json.Unmarshal(respBody, &getTxResp)
+		var tssResp tss.TSSResponse
+		_ = json.Unmarshal(respBody, &tssResp)
+		fmt.Printf("%+v\n", tssResp)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.Equal(t, "hash", getTxResp.TransactionHash)
-		assert.Equal(t, "0", getTxResp.TransactionResultCode)
-		assert.Equal(t, "NEW", getTxResp.Status)
+		assert.Equal(t, "hash", tssResp.TransactionHash)
+		assert.Equal(t, "0", tssResp.TransactionResultCode)
+		assert.Equal(t, "NEW", tssResp.Status)
 
 		clearTransactions(ctx)
 	})
@@ -290,13 +291,13 @@ func TestGetTransaction(t *testing.T) {
 		resp := rw.Result()
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		var getTxResp tss.TSSResponse
-		_ = json.Unmarshal(respBody, &getTxResp)
+		var tssResp tss.TSSResponse
+		_ = json.Unmarshal(respBody, &tssResp)
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-		assert.Empty(t, getTxResp.TransactionHash)
-		assert.Empty(t, getTxResp.EnvelopeXDR)
-		assert.Empty(t, getTxResp.Status)
+		assert.Empty(t, tssResp.TransactionHash)
+		assert.Empty(t, tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.Status)
 
 	})
 
