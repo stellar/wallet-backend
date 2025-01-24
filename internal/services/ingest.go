@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	ingestHealthCheckMaxWaitTime = 90 * time.Second
-	paymentPrometheusLabel               = "payment"
-	pathPaymentStrictSendPrometheusLabel       = "path_payment_strict_send"
-	pathPaymentStrictReceivePrometheusLabel    = "path_payment_strict_receive"
+	ingestHealthCheckMaxWaitTime            = 90 * time.Second
+	paymentPrometheusLabel                  = "payment"
+	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
+	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
 )
 
 type IngestService interface {
@@ -43,9 +43,10 @@ type ingestService struct {
 	tssStore         tssstore.Store
 
 	// Metrics
-	numPaymentOpsIngested *prometheus.CounterVec
-	numTssTransactionsIngested *prometheus.CounterVec
-	paymentAmountsIngested *prometheus.GaugeVec
+	numPaymentOpsIngestedPerLedger      *prometheus.GaugeVec
+	numTssTransactionsIngestedPerLedger *prometheus.GaugeVec
+	latestLedgerIngested                prometheus.Gauge
+	ingestionDuration                   prometheus.Histogram
 }
 
 func NewIngestService(
@@ -76,18 +77,23 @@ func NewIngestService(
 		return nil, errors.New("tssStore cannot be nil")
 	}
 
-	numPaymentOpsIngested := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "num_payment_ops_ingested",
-		Help: "Number of payment operations ingested",
+	numPaymentOpsIngestedPerLedger := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "num_payment_ops_ingested_per_ledger",
+		Help: "Number of payment operations ingested per ledger",
 	}, []string{"operation_type"})
-	numTssTransactionsIngested := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "num_tss_transactions_ingested",
-		Help: "Number of tss transactions ingested",
+	numTssTransactionsIngestedPerLedger := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "num_tss_transactions_ingested_per_ledger",
+		Help: "Number of tss transactions ingested per ledger",
 	}, []string{"status"})
-	paymentAmountsIngested := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "payment_amount_ingested",
-		Help: "Amount of payment ingested",
-	}, []string{"operation_type", "asset_type"})
+	latestLedgerIngested := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "latest_ledger_ingested",
+		Help: "Latest ledger ingested",
+	})
+	ingestionDuration := prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "ingestion_duration_seconds",
+		Help:    "Duration of ledger ingestion",
+		Buckets: prometheus.DefBuckets,
+	})
 
 	ingestService := &ingestService{
 		models:           models,
@@ -98,9 +104,10 @@ func NewIngestService(
 		tssStore:         tssStore,
 
 		// Metrics
-		numPaymentOpsIngested: numPaymentOpsIngested,
-		numTssTransactionsIngested: numTssTransactionsIngested,
-		paymentAmountsIngested: paymentAmountsIngested,
+		numPaymentOpsIngestedPerLedger:      numPaymentOpsIngestedPerLedger,
+		numTssTransactionsIngestedPerLedger: numTssTransactionsIngestedPerLedger,
+		latestLedgerIngested:                latestLedgerIngested,
+		ingestionDuration:                   ingestionDuration,
 	}
 
 	ingestService.RegisterMetrics(metricsRegistry)
@@ -109,9 +116,10 @@ func NewIngestService(
 
 func (m *ingestService) RegisterMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(
-		m.numPaymentOpsIngested,
-		m.numTssTransactionsIngested,
-		m.paymentAmountsIngested,
+		m.numPaymentOpsIngestedPerLedger,
+		m.numTssTransactionsIngestedPerLedger,
+		m.latestLedgerIngested,
+		m.ingestionDuration,
 	)
 }
 
@@ -149,6 +157,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			log.Ctx(ctx).Infof("ingesting ledger: %d", ingestLedger)
 
+			start := time.Now()
 			ledgerTransactions, err := m.GetLedgerTransactions(int64(ingestLedger))
 			if err != nil {
 				log.Error("getTransactions: %w", err)
@@ -169,6 +178,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if err != nil {
 				return fmt.Errorf("error updating latest synced ledger: %w", err)
 			}
+			m.latestLedgerIngested.Set(float64(ingestLedger))
+			m.ingestionDuration.Observe(time.Since(start).Seconds())
 
 			ingestLedger++
 		}
@@ -202,6 +213,9 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 
 func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
 	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
+		paymentOpsIngested := 0
+		pathPaymentStrictSendOpsIngested := 0
+		pathPaymentStrictReceiveOpsIngested := 0
 		for _, tx := range ledgerTransactions {
 			if tx.Status != entities.SuccessStatus {
 				continue
@@ -238,13 +252,13 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 
 				switch op.Body.Type {
 				case xdr.OperationTypePayment:
-					m.numPaymentOpsIngested.WithLabelValues(paymentPrometheusLabel).Inc()
+					paymentOpsIngested++
 					fillPayment(&payment, op.Body)
 				case xdr.OperationTypePathPaymentStrictSend:
-					m.numPaymentOpsIngested.WithLabelValues(pathPaymentStrictSendPrometheusLabel).Inc()
+					pathPaymentStrictSendOpsIngested++
 					fillPathSend(&payment, op.Body, txResultXDR, opIdx)
 				case xdr.OperationTypePathPaymentStrictReceive:
-					m.numPaymentOpsIngested.WithLabelValues(pathPaymentStrictReceivePrometheusLabel).Inc()
+					pathPaymentStrictReceiveOpsIngested++
 					fillPathReceive(&payment, op.Body, txResultXDR, opIdx)
 				default:
 					continue
@@ -254,14 +268,19 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 				if err != nil {
 					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", tx.Ledger, tx.Hash, tx.ApplicationOrder, payment.OperationID, opIdx, err)
 				}
-				m.paymentAmountsIngested.WithLabelValues(payment.OperationType, payment.SrcAssetType).Set(float64(payment.SrcAmount))
 			}
 		}
+		m.numPaymentOpsIngestedPerLedger.WithLabelValues(paymentPrometheusLabel).Set(float64(paymentOpsIngested))
+		m.numPaymentOpsIngestedPerLedger.WithLabelValues(pathPaymentStrictSendPrometheusLabel).Set(float64(pathPaymentStrictSendOpsIngested))
+		m.numPaymentOpsIngestedPerLedger.WithLabelValues(pathPaymentStrictReceivePrometheusLabel).Set(float64(pathPaymentStrictReceiveOpsIngested))
 		return nil
 	})
 }
 
 func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransactions []entities.Transaction) error {
+	// Initialize a map to track counts by status
+	statusCounts := make(map[string]float64)
+
 	for _, tx := range ledgerTransactions {
 		if !tx.FeeBump {
 			// because all transactions submitted by TSS are fee bump transactions
@@ -312,7 +331,14 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("unable to route payload: %w", err)
 		}
-		m.numTssTransactionsIngested.WithLabelValues(status.Status()).Inc()
+
+		// Increment the count for this status
+		statusCounts[string(tx.Status)]++
+	}
+
+	// Set the final counts for each status
+	for status, count := range statusCounts {
+		m.numTssTransactionsIngestedPerLedger.WithLabelValues(status).Set(count)
 	}
 	return nil
 }
