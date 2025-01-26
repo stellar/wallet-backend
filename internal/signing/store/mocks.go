@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -45,7 +44,6 @@ func (s *ChannelAccountStoreMock) LockChannelAccountToTx(ctx context.Context, pu
 }
 
 func (s *ChannelAccountStoreMock) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
-	fmt.Println("Am I getting here")
 	args := s.Called(ctx, txHash)
 	return args.Error(0)
 }

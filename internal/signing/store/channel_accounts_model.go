@@ -94,7 +94,6 @@ func (ca *ChannelAccountModel) LockChannelAccountToTx(ctx context.Context, publi
 }
 
 func (ca *ChannelAccountModel) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
-	fmt.Println("or am i getting here")
 	const query = `UPDATE channel_accounts SET locked_tx_hash = NULL, locked_at = NULL, locked_until = NULL WHERE locked_tx_hash = $1`
 	_, err := ca.DB.ExecContext(ctx, query, txHash)
 	if err != nil {
