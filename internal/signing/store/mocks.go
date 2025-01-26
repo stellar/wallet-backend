@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -36,6 +37,17 @@ func (s *ChannelAccountStoreMock) GetAllByPublicKey(ctx context.Context, sqlExec
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
+}
+
+func (s *ChannelAccountStoreMock) LockChannelAccountToTx(ctx context.Context, publicKey string, txHash string) error {
+	args := s.Called(ctx, publicKey, txHash)
+	return args.Error(0)
+}
+
+func (s *ChannelAccountStoreMock) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
+	fmt.Println("Am I getting here")
+	args := s.Called(ctx, txHash)
+	return args.Error(0)
 }
 
 func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {

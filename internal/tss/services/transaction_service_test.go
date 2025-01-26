@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
@@ -21,6 +22,7 @@ func TestValidateOptions(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: nil,
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
 			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            114,
 		}
@@ -33,6 +35,7 @@ func TestValidateOptions(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      nil,
+			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
 			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            114,
 		}
@@ -40,10 +43,23 @@ func TestValidateOptions(t *testing.T) {
 		assert.Equal(t, "channel account signature client cannot be nil", err.Error())
 	})
 
+	t.Run("return_error_when_channel_account_store_nil", func(t *testing.T) {
+		opts := TransactionServiceOptions{
+			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
+			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			ChannelAccountStore:                nil,
+			RPCService:                         &services.RPCServiceMock{},
+			BaseFee:                            114,
+		}
+		err := opts.ValidateOptions()
+		assert.Equal(t, "channel account store cannot be nil", err.Error())
+	})
+
 	t.Run("return_error_when_rpc_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
 			RPCService:                         nil,
 			BaseFee:                            114,
 		}
@@ -55,6 +71,7 @@ func TestValidateOptions(t *testing.T) {
 		opts := TransactionServiceOptions{
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
+			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
 			RPCService:                         &services.RPCServiceMock{},
 			BaseFee:                            txnbuild.MinBaseFee - 10,
 		}
@@ -66,11 +83,12 @@ func TestValidateOptions(t *testing.T) {
 func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	distributionAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountSignatureClient := signing.SignatureClientMock{}
-	defer channelAccountSignatureClient.AssertExpectations(t)
+	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
+		ChannelAccountStore:                &channelAccountStore,
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
@@ -130,14 +148,19 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 	})
 
-	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
+	t.Run("lock_channel_account_to_tx_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once().
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
-			Return(nil, errors.New("unable to sign")).
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			Once()
+
+		channelAccountStore.
+			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(errors.New("unable to lock channel account to tx")).
 			Once()
 
 		mockRPCService.
@@ -155,6 +178,45 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
+		channelAccountStore.AssertExpectations(t)
+		assert.Empty(t, tx)
+		assert.Equal(t, "locking channel account to tx: unable to lock channel account to tx", err.Error())
+	})
+
+	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		channelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			Once().
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(nil, errors.New("unable to sign")).
+			Once()
+
+		channelAccountStore.
+			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mockRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once()
+		defer mockRPCService.AssertExpectations(t)
+
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: keypair.MustRandom().Address(),
+		}
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+
+		channelAccountSignatureClient.AssertExpectations(t)
+		channelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
 		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
 	})
@@ -166,8 +228,15 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
 			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
 			Return(signedTx, nil).
+			Once()
+
+		channelAccountStore.
+			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
 			Once()
 
 		mockRPCService.
@@ -185,6 +254,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
 		channelAccountSignatureClient.AssertExpectations(t)
+		channelAccountStore.AssertExpectations(t)
 		assert.Equal(t, signedTx, tx)
 		assert.NoError(t, err)
 	})
@@ -193,10 +263,12 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 func TestBuildFeeBumpTransaction(t *testing.T) {
 	distributionAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountSignatureClient := signing.SignatureClientMock{}
+	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
 	txService, _ := NewTransactionService(TransactionServiceOptions{
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
+		ChannelAccountStore:                &channelAccountStore,
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 type TransactionService interface {
@@ -19,6 +20,7 @@ type TransactionService interface {
 type transactionService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+	ChannelAccountStore                store.ChannelAccountStore
 	RPCService                         services.RPCService
 	BaseFee                            int64
 }
@@ -28,6 +30,7 @@ var _ TransactionService = (*transactionService)(nil)
 type TransactionServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
+	ChannelAccountStore                store.ChannelAccountStore
 	RPCService                         services.RPCService
 	BaseFee                            int64
 }
@@ -45,6 +48,10 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 		return fmt.Errorf("channel account signature client cannot be nil")
 	}
 
+	if o.ChannelAccountStore == nil {
+		return fmt.Errorf("channel account store cannot be nil")
+	}
+
 	if o.BaseFee < int64(txnbuild.MinBaseFee) {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
 	}
@@ -59,6 +66,7 @@ func NewTransactionService(opts TransactionServiceOptions) (*transactionService,
 	return &transactionService{
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      opts.ChannelAccountSignatureClient,
+		ChannelAccountStore:                opts.ChannelAccountStore,
 		RPCService:                         opts.RPCService,
 		BaseFee:                            opts.BaseFee,
 	}, nil
@@ -69,7 +77,7 @@ func (t *transactionService) NetworkPassphrase() string {
 }
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
+	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
@@ -93,6 +101,14 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building transaction: %w", err)
+	}
+	txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
+	if err != nil {
+		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
+	}
+	err = t.ChannelAccountStore.LockChannelAccountToTx(ctx, channelAccountPublicKey, txHash)
+	if err != nil {
+		return nil, fmt.Errorf("locking channel account to tx: %w", err)
 	}
 	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {

@@ -18,7 +18,7 @@ func (s *SignatureClientMock) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (s *SignatureClientMock) GetAccountPublicKey(ctx context.Context) (string, error) {
+func (s *SignatureClientMock) GetAccountPublicKey(ctx context.Context, opts ...int) (string, error) {
 	args := s.Called(ctx)
 	return args.String(0), args.Error(1)
 }

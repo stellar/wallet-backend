@@ -29,6 +29,7 @@ func (ca *ChannelAccountModel) GetIdleChannelAccount(ctx context.Context, locked
 	query := fmt.Sprintf(`
 		UPDATE channel_accounts
 		SET 
+			locked_tx_hash = NULL,
 			locked_at = NOW(),
 			locked_until = NOW() + INTERVAL '%d seconds'
 		WHERE public_key = (
@@ -36,13 +37,12 @@ func (ca *ChannelAccountModel) GetIdleChannelAccount(ctx context.Context, locked
 				public_key
 			FROM channel_accounts
 			WHERE 
-				locked_until IS NULL
-				OR locked_until < NOW()
+				(locked_tx_hash IS NULL AND (locked_until IS NULL OR locked_until < NOW()))
 			ORDER BY random()
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING *
+		RETURNING *;
 	`, int64(lockedUntil.Seconds()))
 
 	var channelAccount ChannelAccount
@@ -82,6 +82,25 @@ func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, sqlExec db
 	}
 
 	return channelAccounts, nil
+}
+
+func (ca *ChannelAccountModel) LockChannelAccountToTx(ctx context.Context, publicKey string, txHash string) error {
+	const query = `UPDATE channel_accounts SET locked_tx_hash = $1 WHERE public_key = $2`
+	_, err := ca.DB.ExecContext(ctx, query, txHash, publicKey)
+	if err != nil {
+		return fmt.Errorf("locking channel account: %w", err)
+	}
+	return nil
+}
+
+func (ca *ChannelAccountModel) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
+	fmt.Println("or am i getting here")
+	const query = `UPDATE channel_accounts SET locked_tx_hash = NULL, locked_at = NULL, locked_until = NULL WHERE locked_tx_hash = $1`
+	_, err := ca.DB.ExecContext(ctx, query, txHash)
+	if err != nil {
+		return fmt.Errorf("unlocking channel account: %w", err)
+	}
+	return nil
 }
 
 func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error {
