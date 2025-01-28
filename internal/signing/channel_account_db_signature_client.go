@@ -52,7 +52,7 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 	}
 	for range store.ChannelAccountWaitTime {
 		// check to see if the variadic parameter for time exists and if so, use it here
-		channelAccount, err := sc.channelAccountStore.GetIdleChannelAccount(ctx, lockedUntil)
+		channelAccount, err := sc.channelAccountStore.GetAndLockIdleChannelAccount(ctx, lockedUntil)
 		if err != nil {
 			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
 				log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")

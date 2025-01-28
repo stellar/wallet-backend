@@ -106,9 +106,9 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
 	}
-	err = t.ChannelAccountStore.LockChannelAccountToTx(ctx, channelAccountPublicKey, txHash)
+	err = t.ChannelAccountStore.AssignTxToChannelAccount(ctx, channelAccountPublicKey, txHash)
 	if err != nil {
-		return nil, fmt.Errorf("locking channel account to tx: %w", err)
+		return nil, fmt.Errorf("assigning channel account to tx: %w", err)
 	}
 	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {

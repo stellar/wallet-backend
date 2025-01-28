@@ -25,7 +25,7 @@ func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnection
 	require.NoError(t, err)
 }
 
-func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
+func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -54,7 +54,7 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.Address(), channelAccount2.Address()}))
 		require.NoError(t, err)
 
-		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
+		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
 		assert.ErrorIs(t, err, ErrNoIdleChannelAccountAvailable)
 		assert.Nil(t, ca)
 	})
@@ -77,7 +77,7 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, channelAccount1.Address())
 		require.NoError(t, err)
 
-		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
+		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
 		require.NoError(t, err)
 		assert.Equal(t, ca.PublicKey, channelAccount2.Address())
 		assert.Equal(t, ca.EncryptedPrivateKey, channelAccount2.Seed())
@@ -130,7 +130,7 @@ func TestChannelAccountModelGetAllByPublicKey(t *testing.T) {
 	assert.Equal(t, channelAccount2.Address(), channelAccounts[1].PublicKey)
 }
 
-func TestLockChannelAccountToTx(t *testing.T) {
+func TestAssignTxToChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -144,7 +144,7 @@ func TestLockChannelAccountToTx(t *testing.T) {
 	channelAccount := keypair.MustRandom()
 	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
 
-	err = m.LockChannelAccountToTx(ctx, channelAccount.Address(), "txhash")
+	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
 	assert.NoError(t, err)
 	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	assert.NoError(t, err)
@@ -165,13 +165,13 @@ func TestUnlockChannelAccountFromTx(t *testing.T) {
 
 	channelAccount := keypair.MustRandom()
 	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
-	err = m.LockChannelAccountToTx(ctx, channelAccount.Address(), "txhash")
+	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
 	assert.NoError(t, err)
 	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	assert.NoError(t, err)
 	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
 
-	err = m.UnlockChannelAccountFromTx(ctx, "txhash")
+	err = m.UnassignTxAndUnlockChannelAccount(ctx, "txhash")
 	assert.NoError(t, err)
 	channelAccountFromDB, err = m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	assert.NoError(t, err)

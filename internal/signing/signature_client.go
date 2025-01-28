@@ -15,7 +15,6 @@ var (
 
 type SignatureClient interface {
 	NetworkPassphrase() string
-	// change the signature of this method to accept variadic parameters
 	GetAccountPublicKey(ctx context.Context, opts ...int) (string, error)
 	SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, stellarAccounts ...string) (*txnbuild.Transaction, error)
 	SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error)

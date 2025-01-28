@@ -14,7 +14,7 @@ type ChannelAccountStoreMock struct {
 
 var _ ChannelAccountStore = (*ChannelAccountStoreMock)(nil)
 
-func (s *ChannelAccountStoreMock) GetIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error) {
+func (s *ChannelAccountStoreMock) GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error) {
 	args := s.Called(ctx, lockedUntil)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -38,12 +38,12 @@ func (s *ChannelAccountStoreMock) GetAllByPublicKey(ctx context.Context, sqlExec
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) LockChannelAccountToTx(ctx context.Context, publicKey string, txHash string) error {
+func (s *ChannelAccountStoreMock) AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error {
 	args := s.Called(ctx, publicKey, txHash)
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
+func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error {
 	args := s.Called(ctx, txHash)
 	return args.Error(0)
 }

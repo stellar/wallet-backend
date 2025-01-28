@@ -159,8 +159,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 
 		channelAccountStore.
-			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
-			Return(errors.New("unable to lock channel account to tx")).
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(errors.New("unable to assign channel account to tx")).
 			Once()
 
 		mockRPCService.
@@ -180,7 +180,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccountSignatureClient.AssertExpectations(t)
 		channelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "locking channel account to tx: unable to lock channel account to tx", err.Error())
+		assert.Equal(t, "assigning channel account to tx: unable to assign channel account to tx", err.Error())
 	})
 
 	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
@@ -197,7 +197,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 
 		channelAccountStore.
-			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(nil).
 			Once()
 
@@ -235,7 +235,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 
 		channelAccountStore.
-			On("LockChannelAccountToTx", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(nil).
 			Once()
 

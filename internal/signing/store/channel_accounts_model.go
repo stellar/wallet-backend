@@ -25,7 +25,7 @@ type ChannelAccountModel struct {
 
 var _ ChannelAccountStore = (*ChannelAccountModel)(nil)
 
-func (ca *ChannelAccountModel) GetIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error) {
+func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error) {
 	query := fmt.Sprintf(`
 		UPDATE channel_accounts
 		SET 
@@ -84,16 +84,16 @@ func (ca *ChannelAccountModel) GetAllByPublicKey(ctx context.Context, sqlExec db
 	return channelAccounts, nil
 }
 
-func (ca *ChannelAccountModel) LockChannelAccountToTx(ctx context.Context, publicKey string, txHash string) error {
+func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error {
 	const query = `UPDATE channel_accounts SET locked_tx_hash = $1 WHERE public_key = $2`
 	_, err := ca.DB.ExecContext(ctx, query, txHash, publicKey)
 	if err != nil {
-		return fmt.Errorf("locking channel account: %w", err)
+		return fmt.Errorf("assigning channel account: %w", err)
 	}
 	return nil
 }
 
-func (ca *ChannelAccountModel) UnlockChannelAccountFromTx(ctx context.Context, txHash string) error {
+func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error {
 	const query = `UPDATE channel_accounts SET locked_tx_hash = NULL, locked_at = NULL, locked_until = NULL WHERE locked_tx_hash = $1`
 	_, err := ca.DB.ExecContext(ctx, query, txHash)
 	if err != nil {

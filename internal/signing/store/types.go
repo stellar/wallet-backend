@@ -19,11 +19,11 @@ type ChannelAccount struct {
 }
 
 type ChannelAccountStore interface {
-	GetIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error)
+	GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error)
 	Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error)
 	GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error)
-	LockChannelAccountToTx(ctx context.Context, publicKey string, txHash string) error
-	UnlockChannelAccountFromTx(ctx context.Context, txHash string) error
+	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error
+	UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error
 	BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error
 	Count(ctx context.Context) (int64, error)
 }
