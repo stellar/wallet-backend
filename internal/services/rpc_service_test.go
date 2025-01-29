@@ -442,10 +442,8 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).
 		Return(mockResponse, nil)
 
-	go rpcService.TrackRPCServiceHealth(ctx)
-
-	// Wait long enough for warning to trigger
-	time.Sleep(65 * time.Second)
+	// The ctx will timeout after 70 seconds, which is enough for the warning to trigger
+	rpcService.TrackRPCServiceHealth(ctx)
 
 	entries := getLogs()
 	testFailed := true
@@ -466,7 +464,7 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	go rpcService.TrackRPCServiceHealth(ctx)
+	rpcService.TrackRPCServiceHealth(ctx)
 
 	// Verify channel is closed after context cancellation
 	time.Sleep(100 * time.Millisecond)
