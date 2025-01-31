@@ -110,11 +110,11 @@ func NewIngestService(
 		ingestionDuration:                   ingestionDuration,
 	}
 
-	ingestService.RegisterMetrics(metricsRegistry)
+	ingestService.registerMetrics(metricsRegistry)
 	return ingestService, nil
 }
 
-func (m *ingestService) RegisterMetrics(registry *prometheus.Registry) {
+func (m *ingestService) registerMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(
 		m.numPaymentOpsIngestedPerLedger,
 		m.numTssTransactionsIngestedPerLedger,

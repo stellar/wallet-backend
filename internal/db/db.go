@@ -41,17 +41,22 @@ func OpenDBConnectionPool(dataSourceName string, metricsRegistry *prometheus.Reg
 	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
 	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
 
-	if metricsRegistry != nil {
-		collector := sqlstats.NewStatsCollector("wallet-backend-db", sqlxDB)
-		metricsRegistry.MustRegister(collector)
-	}
-
 	err = sqlxDB.Ping()
 	if err != nil {
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
-	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
+	db := &ConnectionPoolImplementation{DB: sqlxDB}
+	if metricsRegistry != nil {
+		db.registerMetrics(metricsRegistry)
+	}
+
+	return db, nil
+}
+
+func (db *ConnectionPoolImplementation) registerMetrics(metricsRegistry *prometheus.Registry) {
+	collector := sqlstats.NewStatsCollector("wallet-backend-db", db.DB)
+	metricsRegistry.MustRegister(collector)
 }
 
 func (db *ConnectionPoolImplementation) BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error) {
