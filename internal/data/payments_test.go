@@ -18,7 +18,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -142,7 +142,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -167,7 +167,7 @@ func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
 func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -189,7 +189,7 @@ func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
 func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

@@ -13,7 +13,7 @@ func TestOpenDBConnectionPool(t *testing.T) {
 	dbt := dbtest.Postgres(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

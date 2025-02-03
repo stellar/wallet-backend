@@ -59,7 +59,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL, nil)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}

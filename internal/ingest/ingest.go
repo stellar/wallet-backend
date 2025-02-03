@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
@@ -14,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
@@ -51,13 +51,15 @@ func Ingest(cfg Configs) error {
 }
 
 func setupDeps(cfg Configs) (services.IngestService, error) {
-	ingestMetricsRegistry := prometheus.NewRegistry()
-
-	// Open DB connection pool
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL, ingestMetricsRegistry)
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
+	db, err := dbConnectionPool.SqlxDB(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("getting sqlx db: %w", err)
+	}
+	metricsService := metrics.NewMetricsService(db)
 	models, err := data.NewModels(dbConnectionPool)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
@@ -79,12 +81,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	router := tssrouter.NewRouter(tssRouterConfig)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, ingestMetricsRegistry)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
 
-	http.Handle("/ingest-metrics", promhttp.HandlerFor(ingestMetricsRegistry, promhttp.HandlerOpts{}))
+	http.Handle("/ingest-metrics", promhttp.HandlerFor(metricsService.GetRegistry(), promhttp.HandlerOpts{}))
 	go func() {
 		err := http.ListenAndServe(":8002", nil)
 		if err != nil {

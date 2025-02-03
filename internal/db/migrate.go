@@ -10,7 +10,7 @@ import (
 )
 
 func Migrate(ctx context.Context, databaseURL string, direction migrate.MigrationDirection, count int) (int, error) {
-	dbConnectionPool, err := OpenDBConnectionPool(databaseURL, nil)
+	dbConnectionPool, err := OpenDBConnectionPool(databaseURL)
 	if err != nil {
 		return 0, fmt.Errorf("connecting to the database: %w", err)
 	}

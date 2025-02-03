@@ -62,7 +62,7 @@ func kmsCommand() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.databaseURL, nil)
+			dbConnectionPool, err := db.OpenDBConnectionPool(cfg.databaseURL)
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}

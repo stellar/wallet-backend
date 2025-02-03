@@ -16,7 +16,7 @@ func TestMigrate_up_1(t *testing.T) {
 	dbt := dbtest.OpenWithoutMigrations(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -37,7 +37,7 @@ func TestMigrate_up_2_down_1(t *testing.T) {
 	dbt := dbtest.OpenWithoutMigrations(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
@@ -72,7 +72,7 @@ func TestMigrate_upall_down_all(t *testing.T) {
 	db := dbtest.OpenWithoutMigrations(t)
 	defer db.Close()
 
-	dbConnectionPool, err := OpenDBConnectionPool(db.DSN, nil)
+	dbConnectionPool, err := OpenDBConnectionPool(db.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 

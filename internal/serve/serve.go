@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
@@ -19,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
@@ -97,6 +97,7 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
+	MetricsService            *metrics.MetricsService
 	// TSS
 	RPCCallerChannel      tss.Channel
 	ErrorJitterChannel    tss.Channel
@@ -108,8 +109,6 @@ type handlerDeps struct {
 	TSSTransactionService tssservices.TransactionService
 	// Error Tracker
 	AppTracker apptracker.AppTracker
-	// Prometheus Metrics
-	MetricsRegistry *prometheus.Registry
 }
 
 func Serve(cfg Configs) error {
@@ -139,11 +138,15 @@ func Serve(cfg Configs) error {
 }
 
 func initHandlerDeps(cfg Configs) (handlerDeps, error) {
-	metricsRegistry := prometheus.NewRegistry()
-	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL, metricsRegistry)
+	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
+	db, err := dbConnectionPool.SqlxDB(context.Background())
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
+	}
+	metricsService := metrics.NewMetricsService(db)
 	models, err := data.NewModels(dbConnectionPool)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
@@ -276,9 +279,9 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
+		MetricsService:            metricsService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
-		MetricsRegistry:           metricsRegistry,
 		// TSS
 		RPCCallerChannel:      rpcCallerChannel,
 		ErrorJitterChannel:    errorJitterChannel,
@@ -319,7 +322,7 @@ func handler(deps handlerDeps) http.Handler {
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
-	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsRegistry, promhttp.HandlerOpts{}).ServeHTTP)
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {

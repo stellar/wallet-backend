@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/dlmiddlecote/sqlstats"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go/support/log"
 )
 
@@ -33,7 +31,7 @@ const (
 	MaxOpenDBConns    = 30
 )
 
-func OpenDBConnectionPool(dataSourceName string, metricsRegistry *prometheus.Registry) (ConnectionPool, error) {
+func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	sqlxDB, err := sqlx.Open("postgres", dataSourceName)
 	if err != nil {
 		return nil, fmt.Errorf("error creating app DB connection pool: %w", err)
@@ -46,17 +44,7 @@ func OpenDBConnectionPool(dataSourceName string, metricsRegistry *prometheus.Reg
 		return nil, fmt.Errorf("error pinging app DB connection pool: %w", err)
 	}
 
-	db := &ConnectionPoolImplementation{DB: sqlxDB}
-	if metricsRegistry != nil {
-		db.registerMetrics(metricsRegistry)
-	}
-
-	return db, nil
-}
-
-func (db *ConnectionPoolImplementation) registerMetrics(metricsRegistry *prometheus.Registry) {
-	collector := sqlstats.NewStatsCollector("wallet-backend-db", db.DB)
-	metricsRegistry.MustRegister(collector)
+	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
 }
 
 func (db *ConnectionPoolImplementation) BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -15,6 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -41,12 +41,7 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
-
-	// Metrics
-	numPaymentOpsIngestedPerLedger      *prometheus.GaugeVec
-	numTssTransactionsIngestedPerLedger *prometheus.GaugeVec
-	latestLedgerIngested                prometheus.Gauge
-	ingestionDuration                   prometheus.Histogram
+	metricsService   *metrics.MetricsService
 }
 
 func NewIngestService(
@@ -56,7 +51,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
-	metricsRegistry *prometheus.Registry,
+	metricsService *metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -76,51 +71,19 @@ func NewIngestService(
 	if tssStore == nil {
 		return nil, errors.New("tssStore cannot be nil")
 	}
+	if metricsService == nil {
+		return nil, errors.New("metricsService cannot be nil")
+	}
 
-	numPaymentOpsIngestedPerLedger := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "num_payment_ops_ingested_per_ledger",
-		Help: "Number of payment operations ingested per ledger",
-	}, []string{"operation_type"})
-	numTssTransactionsIngestedPerLedger := prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "num_tss_transactions_ingested_per_ledger",
-		Help: "Number of tss transactions ingested per ledger",
-	}, []string{"status"})
-	latestLedgerIngested := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "latest_ledger_ingested",
-		Help: "Latest ledger ingested",
-	})
-	ingestionDuration := prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "ingestion_duration_seconds",
-		Help:    "Duration of ledger ingestion",
-		Buckets: prometheus.DefBuckets,
-	})
-
-	ingestService := &ingestService{
+	return &ingestService{
 		models:           models,
 		ledgerCursorName: ledgerCursorName,
 		appTracker:       appTracker,
 		rpcService:       rpcService,
 		tssRouter:        tssRouter,
 		tssStore:         tssStore,
-
-		// Metrics
-		numPaymentOpsIngestedPerLedger:      numPaymentOpsIngestedPerLedger,
-		numTssTransactionsIngestedPerLedger: numTssTransactionsIngestedPerLedger,
-		latestLedgerIngested:                latestLedgerIngested,
-		ingestionDuration:                   ingestionDuration,
-	}
-
-	ingestService.registerMetrics(metricsRegistry)
-	return ingestService, nil
-}
-
-func (m *ingestService) registerMetrics(registry *prometheus.Registry) {
-	registry.MustRegister(
-		m.numPaymentOpsIngestedPerLedger,
-		m.numTssTransactionsIngestedPerLedger,
-		m.latestLedgerIngested,
-		m.ingestionDuration,
-	)
+		metricsService:   metricsService,
+	}, nil
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
@@ -178,8 +141,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if err != nil {
 				return fmt.Errorf("error updating latest synced ledger: %w", err)
 			}
-			m.latestLedgerIngested.Set(float64(ingestLedger))
-			m.ingestionDuration.Observe(time.Since(start).Seconds())
+			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
+			m.metricsService.ObserveIngestionDuration(time.Since(start).Seconds())
 
 			ingestLedger++
 		}
@@ -270,9 +233,9 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 				}
 			}
 		}
-		m.numPaymentOpsIngestedPerLedger.WithLabelValues(paymentPrometheusLabel).Set(float64(paymentOpsIngested))
-		m.numPaymentOpsIngestedPerLedger.WithLabelValues(pathPaymentStrictSendPrometheusLabel).Set(float64(pathPaymentStrictSendOpsIngested))
-		m.numPaymentOpsIngestedPerLedger.WithLabelValues(pathPaymentStrictReceivePrometheusLabel).Set(float64(pathPaymentStrictReceiveOpsIngested))
+		m.metricsService.SetNumPaymentOpsIngestedPerLedger(paymentPrometheusLabel, paymentOpsIngested)
+		m.metricsService.SetNumPaymentOpsIngestedPerLedger(pathPaymentStrictSendPrometheusLabel, pathPaymentStrictSendOpsIngested)
+		m.metricsService.SetNumPaymentOpsIngestedPerLedger(pathPaymentStrictReceivePrometheusLabel, pathPaymentStrictReceiveOpsIngested)
 		return nil
 	})
 }
@@ -338,7 +301,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 
 	// Set the final counts for each status
 	for status, count := range statusCounts {
-		m.numTssTransactionsIngestedPerLedger.WithLabelValues(status).Set(count)
+		m.metricsService.SetNumTssTransactionsIngestedPerLedger(status, count)
 	}
 	return nil
 }

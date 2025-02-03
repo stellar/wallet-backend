@@ -16,7 +16,7 @@ import (
 func TestUpsertTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -47,7 +47,7 @@ func TestUpsertTransaction(t *testing.T) {
 func TestUpsertTry(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -109,7 +109,7 @@ func TestUpsertTry(t *testing.T) {
 func TestGetTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -133,7 +133,7 @@ func TestGetTransaction(t *testing.T) {
 func TestGetTry(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -162,7 +162,7 @@ func TestGetTry(t *testing.T) {
 func TestGetTryByXDR(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -191,7 +191,7 @@ func TestGetTryByXDR(t *testing.T) {
 func TestGetTransactionsWithStatus(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
@@ -220,7 +220,7 @@ func TestGetTransactionsWithStatus(t *testing.T) {
 func TestGetLatestTry(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN, nil)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	store, _ := NewStore(dbConnectionPool)
