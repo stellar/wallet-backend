@@ -16,6 +16,10 @@ type MetricsService struct {
 	numTssTransactionsIngestedPerLedger *prometheus.GaugeVec
 	latestLedgerIngested                prometheus.Gauge
 	ingestionDuration                   prometheus.Histogram
+
+	// Account Service Metrics
+	numAccountsRegistered *prometheus.CounterVec
+	numAccountsDeregistered *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -56,6 +60,22 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 	)
 
+	m.numAccountsRegistered = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "num_accounts_registered",
+			Help: "Number of accounts registered",
+		},
+		[]string{"address"},
+	)
+
+	m.numAccountsDeregistered = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "num_accounts_deregistered",
+			Help: "Number of accounts deregistered",
+		},
+		[]string{"address"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -67,6 +87,8 @@ func (m *MetricsService) registerMetrics() {
 	m.registry.MustRegister(m.numTssTransactionsIngestedPerLedger)
 	m.registry.MustRegister(m.latestLedgerIngested)
 	m.registry.MustRegister(m.ingestionDuration)
+	m.registry.MustRegister(m.numAccountsRegistered)
+	m.registry.MustRegister(m.numAccountsDeregistered)
 }
 
 // GetRegistry returns the prometheus registry
@@ -89,4 +111,13 @@ func (m *MetricsService) SetLatestLedgerIngested(value float64) {
 
 func (m *MetricsService) ObserveIngestionDuration(duration float64) {
 	m.ingestionDuration.Observe(duration)
+}
+
+// Account Service Metrics
+func (m *MetricsService) SetNumAccountsRegistered(address string) {
+	m.numAccountsRegistered.WithLabelValues(address).Inc()
+}
+
+func (m *MetricsService) SetNumAccountsDeregistered(address string) {
+	m.numAccountsDeregistered.WithLabelValues(address).Inc()
 }
