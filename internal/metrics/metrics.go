@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"strconv"
+
 	"github.com/dlmiddlecote/sqlstats"
 	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +30,11 @@ type MetricsService struct {
 	rpcEndpointSuccesses *prometheus.CounterVec
 	rpcServiceHealth     prometheus.Gauge
 	rpcLatestLedger      prometheus.Gauge
+
+	// HTTP Request Metrics
+	numRequestsTotal *prometheus.CounterVec
+	requestsDuration *prometheus.SummaryVec
+	httpErrors       *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -126,6 +133,30 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 	)
 
+	// HTTP Request Metrics
+	m.numRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"endpoint", "method"},
+	)
+	m.requestsDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "http_request_duration_seconds",
+			Help:       "Duration of HTTP requests in seconds",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"endpoint", "method"},
+	)
+	m.httpErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_errors_total",
+			Help: "Total number of HTTP errors",
+		},
+		[]string{"endpoint", "method", "status_code", "error_class"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -145,6 +176,9 @@ func (m *MetricsService) registerMetrics() {
 	m.registry.MustRegister(m.rpcEndpointSuccesses)
 	m.registry.MustRegister(m.rpcServiceHealth)
 	m.registry.MustRegister(m.rpcLatestLedger)
+	m.registry.MustRegister(m.numRequestsTotal)
+	m.registry.MustRegister(m.requestsDuration)
+	m.registry.MustRegister(m.httpErrors)
 }
 
 // GetRegistry returns the prometheus registry
@@ -205,4 +239,26 @@ func (m *MetricsService) SetRPCServiceHealth(healthy bool) {
 
 func (m *MetricsService) SetRPCLatestLedger(ledger int64) {
 	m.rpcLatestLedger.Set(float64(ledger))
+}
+
+// HTTP Request Metrics
+func (m *MetricsService) IncNumRequests(endpoint, method string) {
+	m.numRequestsTotal.WithLabelValues(endpoint, method).Inc()
+}
+
+func (m *MetricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
+	m.requestsDuration.WithLabelValues(endpoint, method).Observe(duration)
+}
+
+func (m *MetricsService) IncHTTPError(endpoint, method string, statusCode int) {
+	errorClass := "5xx"
+	if statusCode < 500 {
+		errorClass = "4xx"
+	}
+	m.httpErrors.WithLabelValues(
+		endpoint,
+		method,
+		strconv.Itoa(statusCode),
+		errorClass,
+	).Inc()
 }

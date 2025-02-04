@@ -319,6 +319,9 @@ func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
+
+	// Add metrics middleware first to capture all requests
+	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
