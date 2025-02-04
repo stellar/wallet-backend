@@ -24,8 +24,10 @@ import (
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	paymentPrometheusLabel                  = "payment"
+	tssPrometheusLabel                      = "tss"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
+	totalIngestionPrometheusLabel           = "total"
 )
 
 type IngestService interface {
@@ -127,22 +129,26 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				continue
 			}
 			ingestHeartbeatChannel <- true
+			startTime := time.Now()
 			err = m.ingestPayments(ctx, ledgerTransactions)
 			if err != nil {
 				return fmt.Errorf("error ingesting payments: %w", err)
 			}
-
+			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
+			
+			startTime = time.Now()
 			err = m.processTSSTransactions(ctx, ledgerTransactions)
 			if err != nil {
 				return fmt.Errorf("error processing tss transactions: %w", err)
 			}
+			m.metricsService.ObserveIngestionDuration(tssPrometheusLabel, time.Since(startTime).Seconds())
 
 			err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
 			if err != nil {
 				return fmt.Errorf("error updating latest synced ledger: %w", err)
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
-			m.metricsService.ObserveIngestionDuration(time.Since(start).Seconds())
+			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
 
 			ingestLedger++
 		}

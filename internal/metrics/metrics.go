@@ -15,10 +15,10 @@ type MetricsService struct {
 	numPaymentOpsIngestedPerLedger      *prometheus.GaugeVec
 	numTssTransactionsIngestedPerLedger *prometheus.GaugeVec
 	latestLedgerIngested                prometheus.Gauge
-	ingestionDuration                   prometheus.Histogram
+	ingestionDuration                   *prometheus.SummaryVec
 
 	// Account Service Metrics
-	numAccountsRegistered *prometheus.CounterVec
+	numAccountsRegistered   *prometheus.CounterVec
 	numAccountsDeregistered *prometheus.CounterVec
 }
 
@@ -52,12 +52,13 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 	)
 
-	m.ingestionDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_duration_seconds",
-			Help:    "Duration of ledger ingestion",
-			Buckets: prometheus.DefBuckets,
+	m.ingestionDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "ingestion_duration_seconds",
+			Help:       "Duration of ledger ingestion",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
+		[]string{"type"},
 	)
 
 	m.numAccountsRegistered = prometheus.NewCounterVec(
@@ -109,8 +110,8 @@ func (m *MetricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)
 }
 
-func (m *MetricsService) ObserveIngestionDuration(duration float64) {
-	m.ingestionDuration.Observe(duration)
+func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
+	m.ingestionDuration.WithLabelValues(ingestionType).Observe(duration)
 }
 
 // Account Service Metrics
