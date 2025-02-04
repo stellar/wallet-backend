@@ -40,7 +40,7 @@ func (s *accountService) RegisterAccount(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("registering account %s: %w", address, err)
 	}
-	s.metricsService.SetNumAccountsRegistered(address)
+	s.metricsService.IncNumAccountsRegistered(address)
 	return nil
 }
 
@@ -49,6 +49,6 @@ func (s *accountService) DeregisterAccount(ctx context.Context, address string) 
 	if err != nil {
 		return fmt.Errorf("deregistering account %s: %w", address, err)
 	}
-	s.metricsService.SetNumAccountsDeregistered(address)
+	s.metricsService.IncNumAccountsDeregistered(address)
 	return nil
 }
