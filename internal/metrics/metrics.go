@@ -17,9 +17,17 @@ type MetricsService struct {
 	latestLedgerIngested                prometheus.Gauge
 	ingestionDuration                   *prometheus.SummaryVec
 
-	// Account Service Metrics
+	// Account Metrics
 	numAccountsRegistered   *prometheus.CounterVec
 	numAccountsDeregistered *prometheus.CounterVec
+
+	// RPC Service Metrics
+	rpcRequestsTotal     *prometheus.CounterVec
+	rpcRequestsDuration  *prometheus.SummaryVec
+	rpcEndpointFailures  *prometheus.CounterVec
+	rpcEndpointSuccesses *prometheus.CounterVec
+	rpcServiceHealth     prometheus.Gauge
+	rpcLatestLedger      prometheus.Gauge
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -29,6 +37,7 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		db:       db,
 	}
 
+	// Ingest Service Metrics
 	m.numPaymentOpsIngestedPerLedger = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "num_payment_ops_ingested_per_ledger",
@@ -36,7 +45,6 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 		[]string{"operation_type"},
 	)
-
 	m.numTssTransactionsIngestedPerLedger = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "num_tss_transactions_ingested_per_ledger",
@@ -44,14 +52,12 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 		[]string{"status"},
 	)
-
 	m.latestLedgerIngested = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "latest_ledger_ingested",
 			Help: "Latest ledger ingested",
 		},
 	)
-
 	m.ingestionDuration = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
 			Name:       "ingestion_duration_seconds",
@@ -61,6 +67,7 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		[]string{"type"},
 	)
 
+	// Account Metrics
 	m.numAccountsRegistered = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "num_accounts_registered",
@@ -68,13 +75,55 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 		[]string{"address"},
 	)
-
 	m.numAccountsDeregistered = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "num_accounts_deregistered",
 			Help: "Number of accounts deregistered",
 		},
 		[]string{"address"},
+	)
+
+	// RPC Service Metrics
+	m.rpcRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_requests_total",
+			Help: "Total number of RPC requests",
+		},
+		[]string{"endpoint"},
+	)
+	m.rpcRequestsDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "rpc_requests_duration_seconds",
+			Help:       "Duration of RPC requests in seconds",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"endpoint"},
+	)
+	m.rpcEndpointFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_endpoint_failures_total",
+			Help: "Total number of RPC endpoint failures",
+		},
+		[]string{"endpoint"},
+	)
+	m.rpcEndpointSuccesses = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_endpoint_successes_total",
+			Help: "Total number of successful RPC requests",
+		},
+		[]string{"endpoint"},
+	)
+	m.rpcServiceHealth = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "rpc_service_health",
+			Help: "RPC service health status (1 for healthy, 0 for unhealthy)",
+		},
+	)
+	m.rpcLatestLedger = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "rpc_latest_ledger",
+			Help: "Latest ledger number reported by the RPC service",
+		},
 	)
 
 	m.registerMetrics()
@@ -90,6 +139,12 @@ func (m *MetricsService) registerMetrics() {
 	m.registry.MustRegister(m.ingestionDuration)
 	m.registry.MustRegister(m.numAccountsRegistered)
 	m.registry.MustRegister(m.numAccountsDeregistered)
+	m.registry.MustRegister(m.rpcRequestsTotal)
+	m.registry.MustRegister(m.rpcRequestsDuration)
+	m.registry.MustRegister(m.rpcEndpointFailures)
+	m.registry.MustRegister(m.rpcEndpointSuccesses)
+	m.registry.MustRegister(m.rpcServiceHealth)
+	m.registry.MustRegister(m.rpcLatestLedger)
 }
 
 // GetRegistry returns the prometheus registry
@@ -115,10 +170,39 @@ func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration
 }
 
 // Account Service Metrics
-func (m *MetricsService) SetNumAccountsRegistered(address string) {
+func (m *MetricsService) IncNumAccountsRegistered(address string) {
 	m.numAccountsRegistered.WithLabelValues(address).Inc()
 }
 
-func (m *MetricsService) SetNumAccountsDeregistered(address string) {
+func (m *MetricsService) IncNumAccountsDeregistered(address string) {
 	m.numAccountsDeregistered.WithLabelValues(address).Inc()
+}
+
+// RPC Service Metrics
+func (m *MetricsService) IncRPCRequests(endpoint string) {
+	m.rpcRequestsTotal.WithLabelValues(endpoint).Inc()
+}
+
+func (m *MetricsService) ObserveRPCRequestDuration(endpoint string, duration float64) {
+	m.rpcRequestsDuration.WithLabelValues(endpoint).Observe(duration)
+}
+
+func (m *MetricsService) IncRPCEndpointFailure(endpoint string) {
+	m.rpcEndpointFailures.WithLabelValues(endpoint).Inc()
+}
+
+func (m *MetricsService) IncRPCEndpointSuccess(endpoint string) {
+	m.rpcEndpointSuccesses.WithLabelValues(endpoint).Inc()
+}
+
+func (m *MetricsService) SetRPCServiceHealth(healthy bool) {
+	if healthy {
+		m.rpcServiceHealth.Set(1)
+	} else {
+		m.rpcServiceHealth.Set(0)
+	}
+}
+
+func (m *MetricsService) SetRPCLatestLedger(ledger int64) {
+	m.rpcLatestLedger.Set(float64(ledger))
 }

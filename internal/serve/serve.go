@@ -158,7 +158,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 
 	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
