@@ -163,22 +163,24 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 
 func (m *MetricsService) registerMetrics() {
 	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
-	m.registry.MustRegister(collector)
-	m.registry.MustRegister(m.numPaymentOpsIngestedPerLedger)
-	m.registry.MustRegister(m.numTssTransactionsIngestedPerLedger)
-	m.registry.MustRegister(m.latestLedgerIngested)
-	m.registry.MustRegister(m.ingestionDuration)
-	m.registry.MustRegister(m.numAccountsRegistered)
-	m.registry.MustRegister(m.numAccountsDeregistered)
-	m.registry.MustRegister(m.rpcRequestsTotal)
-	m.registry.MustRegister(m.rpcRequestsDuration)
-	m.registry.MustRegister(m.rpcEndpointFailures)
-	m.registry.MustRegister(m.rpcEndpointSuccesses)
-	m.registry.MustRegister(m.rpcServiceHealth)
-	m.registry.MustRegister(m.rpcLatestLedger)
-	m.registry.MustRegister(m.numRequestsTotal)
-	m.registry.MustRegister(m.requestsDuration)
-	m.registry.MustRegister(m.httpErrors)
+	m.registry.MustRegister(
+		collector,
+		m.numPaymentOpsIngestedPerLedger,
+		m.numTssTransactionsIngestedPerLedger,
+		m.latestLedgerIngested,
+		m.ingestionDuration,
+		m.numAccountsRegistered,
+		m.numAccountsDeregistered,
+		m.rpcRequestsTotal,
+		m.rpcRequestsDuration,
+		m.rpcEndpointFailures,
+		m.rpcEndpointSuccesses,
+		m.rpcServiceHealth,
+		m.rpcLatestLedger,
+		m.numRequestsTotal,
+		m.requestsDuration,
+		m.httpErrors,
+	)
 }
 
 // GetRegistry returns the prometheus registry
