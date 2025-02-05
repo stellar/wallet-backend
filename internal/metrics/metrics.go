@@ -38,14 +38,6 @@ type MetricsService struct {
 	requestsDuration *prometheus.SummaryVec
 	httpErrors       *prometheus.CounterVec
 
-	// Worker Pool Metrics
-	poolWorkersRunning  *prometheus.GaugeVec
-	poolTasksSubmitted  *prometheus.CounterVec
-	poolTasksWaiting    *prometheus.GaugeVec
-	poolTasksSuccessful *prometheus.CounterVec
-	poolTasksFailed     *prometheus.CounterVec
-	poolTasksCompleted  *prometheus.CounterVec
-
 	pools map[string]*pond.WorkerPool
 }
 
