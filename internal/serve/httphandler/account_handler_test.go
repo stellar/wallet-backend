@@ -21,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/services/servicesmocks"
 	"github.com/stretchr/testify/assert"
@@ -37,7 +38,10 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	accountService, err := services.NewAccountService(models, metricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
 		AccountService: accountService,
@@ -136,7 +140,10 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool)
 	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	accountService, err := services.NewAccountService(models, metricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
 		AccountService: accountService,
