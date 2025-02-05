@@ -7,6 +7,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
@@ -20,6 +21,7 @@ type ErrorNonJitterChannelConfigs struct {
 	MaxWorkers        int
 	MaxRetries        int
 	WaitBtwnRetriesMS int
+	MetricsService    *metrics.MetricsService
 }
 
 type errorNonJitterPool struct {
@@ -29,6 +31,7 @@ type errorNonJitterPool struct {
 	Router            router.Router
 	MaxRetries        int
 	WaitBtwnRetriesMS int
+	MetricsService    *metrics.MetricsService
 }
 
 var ErrorNonJitterChannelName = "ErrorNonJitterChannel"
@@ -37,13 +40,18 @@ var _ tss.Channel = (*errorNonJitterPool)(nil)
 
 func NewErrorNonJitterChannel(cfg ErrorNonJitterChannelConfigs) *errorNonJitterPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &errorNonJitterPool{
+	nonJitterPool := &errorNonJitterPool{
 		Pool:              pool,
 		TxManager:         cfg.TxManager,
 		Router:            cfg.Router,
 		MaxRetries:        cfg.MaxRetries,
 		WaitBtwnRetriesMS: cfg.WaitBtwnRetriesMS,
+		MetricsService:    cfg.MetricsService,
 	}
+	if cfg.MetricsService != nil {
+		cfg.MetricsService.RegisterPoolMetrics(ErrorNonJitterChannelName, pool)
+	}
+	return nonJitterPool
 }
 
 func (p *errorNonJitterPool) Send(payload tss.Payload) {

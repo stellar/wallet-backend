@@ -9,6 +9,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -22,6 +23,7 @@ type WebhookChannelConfigs struct {
 	MaxWorkers           int
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
+	MetricsService       *metrics.MetricsService
 }
 
 type webhookPool struct {
@@ -30,6 +32,7 @@ type webhookPool struct {
 	HTTPClient           utils.HTTPClient
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
+	MetricsService       *metrics.MetricsService
 }
 
 var WebhookChannelName = "WebhookChannel"
@@ -38,14 +41,18 @@ var _ tss.Channel = (*webhookPool)(nil)
 
 func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &webhookPool{
+	webhookPool := &webhookPool{
 		Pool:                 pool,
 		Store:                cfg.Store,
 		HTTPClient:           cfg.HTTPClient,
 		MaxRetries:           cfg.MaxRetries,
 		MinWaitBtwnRetriesMS: cfg.MinWaitBtwnRetriesMS,
+		MetricsService:       cfg.MetricsService,
 	}
-
+	if cfg.MetricsService != nil {
+		cfg.MetricsService.RegisterPoolMetrics(WebhookChannelName, pool)
+	}
+	return webhookPool
 }
 
 func (p *webhookPool) Send(payload tss.Payload) {

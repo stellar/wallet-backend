@@ -214,6 +214,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		Store:         tssStore,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		MetricsService: metricsService,
 	})
 
 	errorJitterChannel := tsschannel.NewErrorJitterChannel(tsschannel.ErrorJitterChannelConfigs{
@@ -222,6 +223,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+		MetricsService:       metricsService,
 	})
 
 	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
@@ -230,6 +232,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+		MetricsService:    metricsService,
 	})
 
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
@@ -240,6 +243,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
 		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
+		MetricsService:       metricsService,
 	})
 
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{

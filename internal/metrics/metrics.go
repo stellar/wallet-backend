@@ -1,8 +1,10 @@
 package metrics
 
 import (
+	"fmt"
 	"strconv"
 
+	"github.com/alitto/pond"
 	"github.com/dlmiddlecote/sqlstats"
 	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,6 +37,16 @@ type MetricsService struct {
 	numRequestsTotal *prometheus.CounterVec
 	requestsDuration *prometheus.SummaryVec
 	httpErrors       *prometheus.CounterVec
+
+	// Worker Pool Metrics
+	poolWorkersRunning  *prometheus.GaugeVec
+	poolTasksSubmitted  *prometheus.CounterVec
+	poolTasksWaiting    *prometheus.GaugeVec
+	poolTasksSuccessful *prometheus.CounterVec
+	poolTasksFailed     *prometheus.CounterVec
+	poolTasksCompleted  *prometheus.CounterVec
+
+	pools map[string]*pond.WorkerPool
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -42,6 +54,7 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 	m := &MetricsService{
 		registry: prometheus.NewRegistry(),
 		db:       db,
+		pools:    make(map[string]*pond.WorkerPool),
 	}
 
 	// Ingest Service Metrics
@@ -181,6 +194,77 @@ func (m *MetricsService) registerMetrics() {
 		m.requestsDuration,
 		m.httpErrors,
 	)
+}
+
+// RegisterPool registers a worker pool for metrics collection
+func (m *MetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
+	m.pools[channel] = pool
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        fmt.Sprintf("pool_workers_running_%s", channel),
+			Help:        "Number of running worker goroutines",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.RunningWorkers())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        fmt.Sprintf("pool_tasks_submitted_total_%s", channel),
+			Help:        "Number of tasks submitted",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.SubmittedTasks())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        fmt.Sprintf("pool_tasks_waiting_%s", channel),
+			Help:        "Number of tasks currently waiting in the queue",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.WaitingTasks())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        fmt.Sprintf("pool_tasks_successful_total_%s", channel),
+			Help:        "Number of tasks that completed successfully",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.SuccessfulTasks())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        fmt.Sprintf("pool_tasks_failed_total_%s", channel),
+			Help:        "Number of tasks that completed with panic",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.FailedTasks())
+		},
+	))
+
+	m.registry.MustRegister(prometheus.NewCounterFunc(
+		prometheus.CounterOpts{
+			Name:        fmt.Sprintf("pool_tasks_completed_total_%s", channel),
+			Help:        "Number of tasks that completed either successfully or with panic",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.CompletedTasks())
+		},
+	))
 }
 
 // GetRegistry returns the prometheus registry
