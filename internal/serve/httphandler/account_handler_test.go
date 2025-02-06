@@ -35,12 +35,12 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	models, err := data.NewModels(dbConnectionPool)
-	require.NoError(t, err)
 	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
 	require.NoError(t, err)
 	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	accountService, err := services.NewAccountService(models, metricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
@@ -137,12 +137,12 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-
-	models, err := data.NewModels(dbConnectionPool)
-	require.NoError(t, err)
 	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
 	require.NoError(t, err)
 	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	accountService, err := services.NewAccountService(models, metricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{

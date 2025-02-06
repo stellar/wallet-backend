@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
@@ -26,8 +27,11 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
-	models, err := data.NewModels(dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
 	require.NoError(t, err)
 	paymentService, err := services.NewPaymentService(models, "http://testing.com")
 	require.NoError(t, err)

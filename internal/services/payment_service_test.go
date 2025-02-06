@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,11 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	models, err := data.NewModels(dbConnectionPool, metricsService)
 	require.NoError(t, err)
 	service, err := NewPaymentService(models, "http://testing.com")
 	require.NoError(t, err)

@@ -34,13 +34,15 @@ func TestGetLedgerTransactions(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	models, _ := data.NewModels(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	sqlxDB, _ := dbConnectionPool.SqlxDB(context.Background())
-	metricsService := metrics.NewMetricsService(sqlxDB)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
@@ -128,13 +130,15 @@ func TestProcessTSSTransactions(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	models, _ := data.NewModels(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	sqlxDB, _ := dbConnectionPool.SqlxDB(context.Background())
-	metricsService := metrics.NewMetricsService(sqlxDB)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
@@ -180,14 +184,16 @@ func TestIngestPayments(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
-	models, _ := data.NewModels(dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 	tssStore, _ := tssstore.NewStore(dbConnectionPool)
-	sqlxDB, _ := dbConnectionPool.SqlxDB(context.Background())
-	metricsService := metrics.NewMetricsService(sqlxDB)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
@@ -362,7 +368,11 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		dbt.Close()
 	}()
 
-	models, _ := data.NewModels(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
@@ -370,8 +380,6 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
-	sqlxDB, _ := dbConnectionPool.SqlxDB(context.Background())
-	metricsService := metrics.NewMetricsService(sqlxDB)
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	require.NoError(t, err)
 
@@ -448,7 +456,11 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		log.DefaultLogger.SetOutput(os.Stderr)
 	}()
 
-	models, _ := data.NewModels(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
@@ -456,8 +468,6 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	tssStore, err := tssstore.NewStore(dbConnectionPool)
 	require.NoError(t, err)
 
-	sqlxDB, _ := dbConnectionPool.SqlxDB(context.Background())
-	metricsService := metrics.NewMetricsService(sqlxDB)
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	require.NoError(t, err)
 
