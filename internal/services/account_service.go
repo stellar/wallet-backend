@@ -20,7 +20,7 @@ type AccountService interface {
 var _ AccountService = (*accountService)(nil)
 
 type accountService struct {
-	models *data.Models
+	models         *data.Models
 	metricsService *metrics.MetricsService
 }
 
@@ -30,7 +30,7 @@ func NewAccountService(models *data.Models, metricsService *metrics.MetricsServi
 	}
 
 	return &accountService{
-		models: models,
+		models:         models,
 		metricsService: metricsService,
 	}, nil
 }
@@ -40,7 +40,7 @@ func (s *accountService) RegisterAccount(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("registering account %s: %w", address, err)
 	}
-	s.metricsService.IncNumAccountsRegistered(address)
+	s.metricsService.IncActiveAccount()
 	return nil
 }
 
@@ -49,6 +49,6 @@ func (s *accountService) DeregisterAccount(ctx context.Context, address string) 
 	if err != nil {
 		return fmt.Errorf("deregistering account %s: %w", address, err)
 	}
-	s.metricsService.IncNumAccountsDeregistered(address)
+	s.metricsService.DecActiveAccount()
 	return nil
 }

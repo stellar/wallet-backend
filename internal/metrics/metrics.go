@@ -22,8 +22,7 @@ type MetricsService struct {
 	ingestionDuration                   *prometheus.SummaryVec
 
 	// Account Metrics
-	numAccountsRegistered   *prometheus.CounterVec
-	numAccountsDeregistered *prometheus.CounterVec
+	activeAccounts prometheus.Gauge
 
 	// RPC Service Metrics
 	rpcRequestsTotal     *prometheus.CounterVec
@@ -79,19 +78,11 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 	)
 
 	// Account Metrics
-	m.numAccountsRegistered = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "num_accounts_registered",
-			Help: "Number of accounts registered",
+	m.activeAccounts = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "active_accounts",
+			Help: "Number of currently registered active accounts",
 		},
-		[]string{"address"},
-	)
-	m.numAccountsDeregistered = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "num_accounts_deregistered",
-			Help: "Number of accounts deregistered",
-		},
-		[]string{"address"},
 	)
 
 	// RPC Service Metrics
@@ -166,8 +157,7 @@ func (m *MetricsService) registerMetrics() {
 		m.numTssTransactionsIngestedPerLedger,
 		m.latestLedgerIngested,
 		m.ingestionDuration,
-		m.numAccountsRegistered,
-		m.numAccountsDeregistered,
+		m.activeAccounts,
 		m.rpcRequestsTotal,
 		m.rpcRequestsDuration,
 		m.rpcEndpointFailures,
@@ -284,12 +274,12 @@ func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration
 }
 
 // Account Service Metrics
-func (m *MetricsService) IncNumAccountsRegistered(address string) {
-	m.numAccountsRegistered.WithLabelValues(address).Inc()
+func (m *MetricsService) IncActiveAccount() {
+	m.activeAccounts.Inc()
 }
 
-func (m *MetricsService) IncNumAccountsDeregistered(address string) {
-	m.numAccountsDeregistered.WithLabelValues(address).Inc()
+func (m *MetricsService) DecActiveAccount() {
+	m.activeAccounts.Dec()
 }
 
 // RPC Service Metrics
