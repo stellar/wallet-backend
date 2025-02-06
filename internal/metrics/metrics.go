@@ -36,6 +36,10 @@ type MetricsService struct {
 	numRequestsTotal *prometheus.CounterVec
 	requestsDuration *prometheus.SummaryVec
 
+	// DB Query Metrics
+	dbQueryDuration *prometheus.SummaryVec
+	dbQueriesTotal  *prometheus.CounterVec
+
 	pools map[string]*pond.WorkerPool
 }
 
@@ -145,6 +149,22 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		[]string{"endpoint", "method"},
 	)
 
+	// DB Query Metrics
+	m.dbQueryDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "db_query_duration_seconds",
+			Help:       "Duration of database queries",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"query_type", "table"},
+	)
+	m.dbQueriesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "db_queries_total",
+			Help: "Total number of database queries",
+		},
+		[]string{"query_type", "table"},
+	)
 	m.registerMetrics()
 	return m
 }
@@ -166,6 +186,8 @@ func (m *MetricsService) registerMetrics() {
 		m.rpcLatestLedger,
 		m.numRequestsTotal,
 		m.requestsDuration,
+		m.dbQueryDuration,
+		m.dbQueriesTotal,
 	)
 }
 
@@ -318,4 +340,13 @@ func (m *MetricsService) IncNumRequests(endpoint, method string, statusCode int)
 
 func (m *MetricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
 	m.requestsDuration.WithLabelValues(endpoint, method).Observe(duration)
+}
+
+// DB Query Metrics
+func (m *MetricsService) ObserveDBQueryDuration(queryType, table string, duration float64) {
+	m.dbQueryDuration.WithLabelValues(queryType, table).Observe(duration)
+}
+
+func (m *MetricsService) IncDBQuery(queryType, table string) {
+	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
 }

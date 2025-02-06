@@ -60,7 +60,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("getting sqlx db: %w", err)
 	}
 	metricsService := metrics.NewMetricsService(db)
-	models, err := data.NewModels(dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}

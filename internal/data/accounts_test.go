@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +20,13 @@ func TestAccountModelInsert(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	ctx := context.Background()
@@ -44,9 +49,13 @@ func TestAccountModelDelete(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	ctx := context.Background()
@@ -72,9 +81,13 @@ func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	ctx := context.Background()

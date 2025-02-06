@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type AccountModel struct {
-	DB db.ConnectionPool
+	DB     db.ConnectionPool
+	MetricsService *metrics.MetricsService
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
@@ -17,6 +19,7 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	if err != nil {
 		return fmt.Errorf("inserting address %s: %w", address, err)
 	}
+	m.MetricsService.IncDBQuery("INSERT", "accounts")
 
 	return nil
 }
@@ -27,7 +30,7 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	if err != nil {
 		return fmt.Errorf("deleting address %s: %w", address, err)
 	}
-
+	m.MetricsService.IncDBQuery("DELETE", "accounts")
 	return nil
 }
 
@@ -47,6 +50,6 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	if err != nil {
 		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
-
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return exists, nil
 }

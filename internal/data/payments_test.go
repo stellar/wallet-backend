@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,9 +22,13 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	m := &PaymentModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 	ctx := context.Background()
 
@@ -145,10 +150,14 @@ func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	ctx := context.Background()
 	m := &PaymentModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	const key = "ingest_store_key"
@@ -170,10 +179,14 @@ func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	ctx := context.Background()
 	m := &PaymentModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	const key = "ingest_store_key"
@@ -192,10 +205,14 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	ctx := context.Background()
 	m := &PaymentModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: metricsService,
 	}
 
 	dbPayments := []Payment{

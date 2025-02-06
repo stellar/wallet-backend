@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type PaymentModel struct {
-	DB db.ConnectionPool
+	DB             db.ConnectionPool
+	MetricsService *metrics.MetricsService
 }
 
 type Payment struct {
@@ -57,6 +59,7 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 	if err != nil {
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
+	m.MetricsService.IncDBQuery("INSERT", "ingest_store")
 
 	return nil
 }
@@ -95,7 +98,7 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 	if err != nil {
 		return fmt.Errorf("inserting payment: %w", err)
 	}
-
+	m.MetricsService.IncDBQuery("INSERT", "ingest_payments")
 	return nil
 }
 
@@ -151,7 +154,7 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 	if err != nil {
 		return nil, false, false, fmt.Errorf("checking prev and next pages: %w", err)
 	}
-
+	m.MetricsService.IncDBQuery("SELECT", "ingest_payments")
 	return payments, prevExists, nextExists, nil
 }
 
@@ -191,7 +194,7 @@ func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string
 	if err != nil {
 		return false, false, fmt.Errorf("fetching prev and next exists: %w", err)
 	}
-
+	m.MetricsService.IncDBQuery("SELECT", "ingest_payments")
 	return prevExists, nextExists, nil
 }
 

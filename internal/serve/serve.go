@@ -147,7 +147,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
 	}
 	metricsService := metrics.NewMetricsService(db)
-	models, err := data.NewModels(dbConnectionPool)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type Models struct {
@@ -11,13 +12,13 @@ type Models struct {
 	Account  *AccountModel
 }
 
-func NewModels(db db.ConnectionPool) (*Models, error) {
+func NewModels(db db.ConnectionPool, metricsService *metrics.MetricsService) (*Models, error) {
 	if db == nil {
 		return nil, errors.New("ConnectionPool must be initialized")
 	}
 
 	return &Models{
-		Payments: &PaymentModel{DB: db},
-		Account:  &AccountModel{DB: db},
+		Payments: &PaymentModel{DB: db, MetricsService: metricsService},
+		Account:  &AccountModel{DB: db, MetricsService: metricsService},
 	}, nil
 }
