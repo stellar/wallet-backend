@@ -22,15 +22,12 @@ func MetricsMiddleware(metricsService *metrics.MetricsService) func(next http.Ha
 			// Create a response wrapper to capture the status code
 			rw := &responseWriter{ResponseWriter: w}
 
-			// Track total requests
-			metricsService.IncNumRequests(endpoint, r.Method)
-
 			// Call the next handler
 			next.ServeHTTP(rw, r)
 
 			duration := time.Since(startTime).Seconds()
 			metricsService.ObserveRequestDuration(endpoint, r.Method, duration)
-			metricsService.IncHTTPError(endpoint, r.Method, rw.statusCode)
+			metricsService.IncNumRequests(endpoint, r.Method, rw.statusCode)
 		})
 	}
 }

@@ -36,7 +36,6 @@ type MetricsService struct {
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
 	requestsDuration *prometheus.SummaryVec
-	httpErrors       *prometheus.CounterVec
 
 	pools map[string]*pond.WorkerPool
 }
@@ -144,7 +143,7 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 			Name: "http_requests_total",
 			Help: "Total number of HTTP requests",
 		},
-		[]string{"endpoint", "method"},
+		[]string{"endpoint", "method", "status_code"},
 	)
 	m.requestsDuration = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
@@ -153,13 +152,6 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
 		[]string{"endpoint", "method"},
-	)
-	m.httpErrors = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "http_errors_total",
-			Help: "Total number of HTTP errors",
-		},
-		[]string{"endpoint", "method", "status_code", "error_class"},
 	)
 
 	m.registerMetrics()
@@ -184,7 +176,6 @@ func (m *MetricsService) registerMetrics() {
 		m.rpcLatestLedger,
 		m.numRequestsTotal,
 		m.requestsDuration,
-		m.httpErrors,
 	)
 }
 
@@ -331,23 +322,10 @@ func (m *MetricsService) SetRPCLatestLedger(ledger int64) {
 }
 
 // HTTP Request Metrics
-func (m *MetricsService) IncNumRequests(endpoint, method string) {
-	m.numRequestsTotal.WithLabelValues(endpoint, method).Inc()
+func (m *MetricsService) IncNumRequests(endpoint, method string, statusCode int) {
+	m.numRequestsTotal.WithLabelValues(endpoint, method, strconv.Itoa(statusCode)).Inc()
 }
 
 func (m *MetricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
 	m.requestsDuration.WithLabelValues(endpoint, method).Observe(duration)
-}
-
-func (m *MetricsService) IncHTTPError(endpoint, method string, statusCode int) {
-	errorClass := "5xx"
-	if statusCode < 500 {
-		errorClass = "4xx"
-	}
-	m.httpErrors.WithLabelValues(
-		endpoint,
-		method,
-		strconv.Itoa(statusCode),
-		errorClass,
-	).Inc()
 }
