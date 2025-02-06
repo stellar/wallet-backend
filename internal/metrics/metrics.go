@@ -203,6 +203,17 @@ func (m *MetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 		},
 	))
 
+	m.registry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        fmt.Sprintf("pool_workers_idle_%s", channel),
+			Help:        "Number of idle worker goroutines",
+			ConstLabels: prometheus.Labels{"channel": channel},
+		},
+		func() float64 {
+			return float64(pool.IdleWorkers())
+		},
+	))
+
 	m.registry.MustRegister(prometheus.NewCounterFunc(
 		prometheus.CounterOpts{
 			Name:        fmt.Sprintf("pool_tasks_submitted_total_%s", channel),
