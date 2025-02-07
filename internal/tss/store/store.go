@@ -75,7 +75,10 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
     	current_status = EXCLUDED.current_status,
     	updated_at = NOW();
 	`
+	start := time.Now()
 	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, status.Status())
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("INSERT", "tss_transactions", duration)
 	if err != nil {
 		return fmt.Errorf("inserting/updatig tss transaction: %w", err)
 	}
@@ -98,7 +101,10 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 		result_xdr = EXCLUDED.result_xdr,
     	updated_at = NOW();
 	`
+	start := time.Now()
 	_, err := s.DB.ExecContext(ctx, q, txHash, feeBumpTxHash, feeBumpTxXDR, status.Status(), code.Code(), resultXDR)
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("INSERT", "tss_transaction_submission_tries", duration)
 	if err != nil {
 		return fmt.Errorf("inserting/updating tss try: %w", err)
 	}
@@ -109,7 +115,10 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, error) {
 	q := `SELECT * FROM tss_transactions WHERE transaction_hash = $1`
 	var transaction Transaction
+	start := time.Now()
 	err := s.DB.GetContext(ctx, &transaction, q, hash)
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transactions", duration)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Transaction{}, nil
@@ -123,7 +132,10 @@ func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, e
 func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
 	q := `SELECT * FROM tss_transaction_submission_tries WHERE try_transaction_hash = $1`
 	var try Try
+	start := time.Now()
 	err := s.DB.GetContext(ctx, &try, q, hash)
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil
@@ -137,7 +149,10 @@ func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
 func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 	q := `SELECT * FROM tss_transaction_submission_tries WHERE try_transaction_xdr = $1`
 	var try Try
+	start := time.Now()
 	err := s.DB.GetContext(ctx, &try, q, xdr)
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil
@@ -151,7 +166,10 @@ func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXStatus) ([]Transaction, error) {
 	q := `SELECT * FROM tss_transactions WHERE current_status = $1`
 	var transactions []Transaction
+	start := time.Now()
 	err := s.DB.SelectContext(ctx, &transactions, q, status.Status())
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transactions", duration)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return []Transaction{}, nil
@@ -165,7 +183,10 @@ func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXS
 func (s *store) GetLatestTry(ctx context.Context, txHash string) (Try, error) {
 	q := `SELECT * FROM tss_transaction_submission_tries WHERE original_transaction_hash = $1 ORDER BY updated_at DESC LIMIT 1`
 	var try Try
+	start := time.Now()
 	err := s.DB.GetContext(ctx, &try, q, txHash)
+	duration := time.Since(start).Seconds()
+	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil

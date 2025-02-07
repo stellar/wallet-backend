@@ -38,7 +38,10 @@ type Payment struct {
 
 func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
 	var lastSyncedLedger uint32
+	start := time.Now()
 	err := m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "ingest_store", duration)
 	// First run, key does not exist yet
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -55,7 +58,10 @@ func (m *PaymentModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName 
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
+	start := time.Now()
 	_, err := m.DB.ExecContext(ctx, query, cursorName, ledger)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("INSERT", "ingest_store", duration)
 	if err != nil {
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
@@ -93,8 +99,11 @@ func (m *PaymentModel) AddPayment(ctx context.Context, tx db.Transaction, paymen
 			memo_type = EXCLUDED.memo_type
 		;
 	`
+	start := time.Now()
 	_, err := tx.ExecContext(ctx, query, payment.OperationID, payment.OperationType, payment.TransactionID, payment.TransactionHash, payment.FromAddress, payment.ToAddress, payment.SrcAssetCode, payment.SrcAssetIssuer, payment.SrcAssetType, payment.SrcAmount,
 		payment.DestAssetCode, payment.DestAssetIssuer, payment.DestAssetType, payment.DestAmount, payment.CreatedAt, payment.Memo, payment.MemoType)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("INSERT", "ingest_payments", duration)
 	if err != nil {
 		return fmt.Errorf("inserting payment: %w", err)
 	}
@@ -145,7 +154,10 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 	if err != nil {
 		return nil, false, false, fmt.Errorf("preparing named query: %w", err)
 	}
+	start := time.Now()
 	err = m.DB.SelectContext(ctx, &payments, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "ingest_payments", duration)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("fetching payments: %w", err)
 	}
@@ -190,7 +202,10 @@ func (m *PaymentModel) existsPrevNext(ctx context.Context, filteredSetCTE string
 	}
 
 	var prevExists, nextExists bool
+	start := time.Now()
 	err = m.DB.QueryRowxContext(ctx, query, args...).Scan(&prevExists, &nextExists)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "ingest_payments", duration)
 	if err != nil {
 		return false, false, fmt.Errorf("fetching prev and next exists: %w", err)
 	}
