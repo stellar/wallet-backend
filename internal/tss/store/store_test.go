@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,10 @@ func TestUpsertTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 	t.Run("insert", func(t *testing.T) {
 		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 
@@ -50,7 +54,10 @@ func TestUpsertTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 	t.Run("insert", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
@@ -112,7 +119,10 @@ func TestGetTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 	t.Run("transaction_exists", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
@@ -136,7 +146,10 @@ func TestGetTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 	t.Run("try_exists", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
@@ -165,7 +178,10 @@ func TestGetTryByXDR(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 	t.Run("try_exists", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
@@ -194,7 +210,10 @@ func TestGetTransactionsWithStatus(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 
 	t.Run("transactions_do_not_exist", func(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
@@ -223,7 +242,10 @@ func TestGetLatestTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := NewStore(dbConnectionPool, metricsService)
 
 	t.Run("tries_do_not_exist", func(t *testing.T) {
 		try, err := store.GetLatestTry(context.Background(), "hash")
