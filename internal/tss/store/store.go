@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 )
 
@@ -24,7 +25,8 @@ type Store interface {
 var _ Store = (*store)(nil)
 
 type store struct {
-	DB db.ConnectionPool
+	DB             db.ConnectionPool
+	MetricsService *metrics.MetricsService
 }
 
 type Transaction struct {
@@ -47,12 +49,16 @@ type Try struct {
 	CreatedAt  time.Time `db:"updated_at"`
 }
 
-func NewStore(db db.ConnectionPool) (Store, error) {
+func NewStore(db db.ConnectionPool, metricsService *metrics.MetricsService) (Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db cannot be nil")
 	}
+	if metricsService == nil {
+		return nil, fmt.Errorf("metricsService cannot be nil")
+	}
 	return &store{
-		DB: db,
+		DB:             db,
+		MetricsService: metricsService,
 	}, nil
 }
 
@@ -73,6 +79,7 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
 	if err != nil {
 		return fmt.Errorf("inserting/updatig tss transaction: %w", err)
 	}
+	s.MetricsService.IncDBQuery("INSERT", "tss_transactions")
 	return nil
 }
 
@@ -95,6 +102,7 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 	if err != nil {
 		return fmt.Errorf("inserting/updating tss try: %w", err)
 	}
+	s.MetricsService.IncDBQuery("INSERT", "tss_transaction_submission_tries")
 	return nil
 }
 
@@ -108,6 +116,7 @@ func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, e
 		}
 		return Transaction{}, fmt.Errorf("getting transaction: %w", err)
 	}
+	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	return transaction, nil
 }
 
@@ -121,6 +130,7 @@ func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
 		}
 		return Try{}, fmt.Errorf("getting try: %w", err)
 	}
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }
 
@@ -134,6 +144,7 @@ func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 		}
 		return Try{}, fmt.Errorf("getting try: %w", err)
 	}
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }
 
@@ -147,6 +158,7 @@ func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXS
 		}
 		return []Transaction{}, fmt.Errorf("getting transactions: %w", err)
 	}
+	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	return transactions, nil
 }
 
@@ -160,5 +172,6 @@ func (s *store) GetLatestTry(ctx context.Context, txHash string) (Try, error) {
 		}
 		return Try{}, fmt.Errorf("getting latest trt: %w", err)
 	}
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }

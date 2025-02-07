@@ -199,7 +199,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
 	}

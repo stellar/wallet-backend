@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -25,7 +26,10 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := store.NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := store.NewStore(dbConnectionPool, metricsService)
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
 		HTTPClient:           &mockHTTPClient,

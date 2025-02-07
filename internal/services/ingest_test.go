@@ -42,7 +42,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
@@ -138,7 +138,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestIngestPayments(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
 	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
@@ -377,7 +377,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
 	require.NoError(t, err)
 
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
@@ -465,7 +465,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
 	require.NoError(t, err)
 
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
