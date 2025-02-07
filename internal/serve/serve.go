@@ -183,6 +183,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	// TSS setup
 	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
+		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		ChannelAccountStore:                channelAccountStore,

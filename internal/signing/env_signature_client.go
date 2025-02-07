@@ -36,7 +36,7 @@ func (sc *envSignatureClient) NetworkPassphrase() string {
 	return sc.networkPassphrase
 }
 
-func (sc *envSignatureClient) GetAccountPublicKey(ctx context.Context, opts ...int) (string, error) {
+func (sc *envSignatureClient) GetAccountPublicKey(ctx context.Context, _ ...int) (string, error) {
 	return sc.distributionAccountFull.Address(), nil
 }
 
