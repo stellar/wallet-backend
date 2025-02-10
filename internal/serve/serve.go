@@ -374,6 +374,7 @@ func handler(deps handlerDeps) http.Handler {
 				Store:             deps.TSSStore,
 				AppTracker:        deps.AppTracker,
 				NetworkPassphrase: deps.NetworkPassphrase,
+				MetricsService:    deps.MetricsService,
 			}
 
 			r.Get("/transactions/{transactionhash}", handler.GetTransaction)

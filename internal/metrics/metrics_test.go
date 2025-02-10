@@ -102,6 +102,33 @@ func TestIngestMetrics(t *testing.T) {
 	})
 }
 
+func TestTSSMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("TSS transactions submitted counter", func(t *testing.T) {
+		// Increment the counter multiple times
+		ms.IncNumTSSTransactionsSubmitted()
+		ms.IncNumTSSTransactionsSubmitted()
+		ms.IncNumTSSTransactionsSubmitted()
+
+		metricFamilies, err := ms.registry.Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "num_tss_transactions_submitted" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(3), metric.GetCounter().GetValue(), "Expected counter value to be 3")
+			}
+		}
+		assert.True(t, found, "TSS transactions submitted metric not found")
+	})
+}
+
 func TestAccountMetrics(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

@@ -21,6 +21,9 @@ type MetricsService struct {
 	latestLedgerIngested                prometheus.Gauge
 	ingestionDuration                   *prometheus.SummaryVec
 
+	// TSS Service Metrics
+	numTSSTransactionsSubmitted prometheus.Counter
+
 	// Account Metrics
 	activeAccounts prometheus.Gauge
 
@@ -79,6 +82,14 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
 		[]string{"type"},
+	)
+
+	// TSS Service Metrics
+	m.numTSSTransactionsSubmitted = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_tss_transactions_submitted",
+			Help: "Total number of transactions submitted to TSS",
+		},
 	)
 
 	// Account Metrics
@@ -177,6 +188,7 @@ func (m *MetricsService) registerMetrics() {
 		m.numTssTransactionsIngestedPerLedger,
 		m.latestLedgerIngested,
 		m.ingestionDuration,
+		m.numTSSTransactionsSubmitted,
 		m.activeAccounts,
 		m.rpcRequestsTotal,
 		m.rpcRequestsDuration,
@@ -293,6 +305,11 @@ func (m *MetricsService) SetLatestLedgerIngested(value float64) {
 
 func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
 	m.ingestionDuration.WithLabelValues(ingestionType).Observe(duration)
+}
+
+// TSS Service Metrics
+func (m *MetricsService) IncNumTSSTransactionsSubmitted() {
+	m.numTSSTransactionsSubmitted.Inc()
 }
 
 // Account Service Metrics
