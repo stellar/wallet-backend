@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/txnbuild"
+	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -16,20 +19,24 @@ import (
 )
 
 type WebhookChannelConfigs struct {
-	HTTPClient           utils.HTTPClient
 	Store                store.Store
-	MaxBufferSize        int
-	MaxWorkers           int
+	ChannelAccountStore  channelAccountStore.ChannelAccountStore
+	HTTPClient           utils.HTTPClient
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
+	NetworkPassphrase    string
+	MaxBufferSize        int
+	MaxWorkers           int
 }
 
 type webhookPool struct {
 	Pool                 *pond.WorkerPool
 	Store                store.Store
+	ChannelAccountStore  channelAccountStore.ChannelAccountStore
 	HTTPClient           utils.HTTPClient
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
+	NetworkPassphrase    string
 }
 
 var WebhookChannelName = "WebhookChannel"
@@ -41,9 +48,11 @@ func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 	return &webhookPool{
 		Pool:                 pool,
 		Store:                cfg.Store,
+		ChannelAccountStore:  cfg.ChannelAccountStore,
 		HTTPClient:           cfg.HTTPClient,
 		MaxRetries:           cfg.MaxRetries,
 		MinWaitBtwnRetriesMS: cfg.MinWaitBtwnRetriesMS,
+		NetworkPassphrase:    cfg.NetworkPassphrase,
 	}
 
 }
@@ -64,6 +73,10 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	var i int
 	sent := false
 	ctx := context.Background()
+	err = p.UnlockChannelAccount(ctx, payload.TransactionXDR)
+	if err != nil {
+		log.Errorf("%s: error unlocking channel account from transaction: %e", WebhookChannelName, err)
+	}
 	for i = 0; i < p.MaxRetries; i++ {
 		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
@@ -91,6 +104,31 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		}
 	}
 
+}
+
+func (p *webhookPool) UnlockChannelAccount(ctx context.Context, txXDR string) error {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return fmt.Errorf("bad transaction xdr: %w", err)
+	}
+	var tx *txnbuild.Transaction
+	feeBumpTx, isFeeBumpTx := genericTx.FeeBump()
+	if isFeeBumpTx {
+		tx = feeBumpTx.InnerTransaction()
+	}
+	simpleTx, isTransaction := genericTx.Transaction()
+	if isTransaction {
+		tx = simpleTx
+	}
+	txHash, err := tx.HashHex(p.NetworkPassphrase)
+	if err != nil {
+		return fmt.Errorf("unable to hashhex transaction: %w", err)
+	}
+	err = p.ChannelAccountStore.UnassignTxAndUnlockChannelAccount(ctx, txHash)
+	if err != nil {
+		return fmt.Errorf("unable to unlock channel account associated with transaction: %w", err)
+	}
+	return nil
 }
 
 func (p *webhookPool) Stop() {

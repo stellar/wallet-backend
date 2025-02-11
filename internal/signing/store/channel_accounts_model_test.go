@@ -25,7 +25,7 @@ func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnection
 	require.NoError(t, err)
 }
 
-func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
+func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -46,14 +46,15 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 				channel_accounts
 			SET
 				locked_at = NOW(),
-				locked_until = NOW() + '5 minutes'::INTERVAL
+				locked_until = NOW() + '5 minutes'::INTERVAL,
+				locked_tx_hash = 'hash'
 			WHERE
 				public_key = ANY($1)
 		`
 		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.Address(), channelAccount2.Address()}))
 		require.NoError(t, err)
 
-		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
+		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
 		assert.ErrorIs(t, err, ErrNoIdleChannelAccountAvailable)
 		assert.Nil(t, ca)
 	})
@@ -64,18 +65,19 @@ func TestChannelAccountModelGetIdleChannelAccount(t *testing.T) {
 		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
 
 		const lockChannelAccountQuery = `
-			UPDATE
-				channel_accounts
-			SET
-				locked_at = NOW(),
-				locked_until = NOW() + '5 minutes'::INTERVAL
-			WHERE
-				public_key = $1
-		`
+				UPDATE
+					channel_accounts
+				SET
+					locked_at = NOW(),
+					locked_until = NOW() + '5 minutes'::INTERVAL,
+					locked_tx_hash = 'hash'
+				WHERE
+					public_key = $1
+			`
 		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, channelAccount1.Address())
 		require.NoError(t, err)
 
-		ca, err := m.GetIdleChannelAccount(ctx, time.Minute)
+		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
 		require.NoError(t, err)
 		assert.Equal(t, ca.PublicKey, channelAccount2.Address())
 		assert.Equal(t, ca.EncryptedPrivateKey, channelAccount2.Seed())
@@ -126,6 +128,56 @@ func TestChannelAccountModelGetAllByPublicKey(t *testing.T) {
 	assert.Len(t, channelAccounts, 2)
 	assert.Equal(t, channelAccount1.Address(), channelAccounts[0].PublicKey)
 	assert.Equal(t, channelAccount2.Address(), channelAccounts[1].PublicKey)
+}
+
+func TestAssignTxToChannelAccount(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	channelAccount := keypair.MustRandom()
+	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
+
+	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
+	assert.NoError(t, err)
+	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	assert.NoError(t, err)
+	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
+
+}
+
+func TestUnlockChannelAccountFromTx(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	channelAccount := keypair.MustRandom()
+	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
+	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
+	assert.NoError(t, err)
+	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	assert.NoError(t, err)
+	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
+
+	err = m.UnassignTxAndUnlockChannelAccount(ctx, "txhash")
+	assert.NoError(t, err)
+	channelAccountFromDB, err = m.Get(ctx, dbConnectionPool, channelAccount.Address())
+	assert.NoError(t, err)
+	assert.False(t, channelAccountFromDB.LockedTxHash.Valid)
+	assert.False(t, channelAccountFromDB.LockedAt.Valid)
+	assert.False(t, channelAccountFromDB.LockedUntil.Valid)
 }
 
 func TestChannelAccountModelBatchInsert(t *testing.T) {
