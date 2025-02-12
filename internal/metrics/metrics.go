@@ -23,7 +23,7 @@ type MetricsService struct {
 
 	// TSS Service Metrics
 	numTSSTransactionsSubmitted      prometheus.Counter
-	timeUntilTSSTransactionInclusion *prometheus.HistogramVec
+	timeUntilTSSTransactionInclusion *prometheus.SummaryVec
 
 	// Account Metrics
 	activeAccounts prometheus.Gauge
@@ -92,14 +92,13 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 			Help: "Total number of transactions submitted to TSS",
 		},
 	)
-	m.timeUntilTSSTransactionInclusion = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	m.timeUntilTSSTransactionInclusion = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
 			Name: "tss_transaction_inclusion_time_seconds",
 			Help: "Time from transaction submission to ledger inclusion (success or failure)",
-			// Buckets optimized for typical transaction inclusion times (in seconds)
-			Buckets: []float64{1, 2, 5, 10, 20, 30, 60, 120, 300},
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
-		[]string{"status"}, // Label to distinguish between successful and failed transactions
+		[]string{"status"},
 	)
 
 	// Account Metrics
