@@ -22,7 +22,8 @@ type MetricsService struct {
 	ingestionDuration                   *prometheus.SummaryVec
 
 	// TSS Service Metrics
-	numTSSTransactionsSubmitted prometheus.Counter
+	numTSSTransactionsSubmitted      prometheus.Counter
+	timeUntilTSSTransactionInclusion *prometheus.HistogramVec
 
 	// Account Metrics
 	activeAccounts prometheus.Gauge
@@ -90,6 +91,15 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 			Name: "num_tss_transactions_submitted",
 			Help: "Total number of transactions submitted to TSS",
 		},
+	)
+	m.timeUntilTSSTransactionInclusion = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name: "tss_transaction_inclusion_time_seconds",
+			Help: "Time from transaction submission to ledger inclusion (success or failure)",
+			// Buckets optimized for typical transaction inclusion times (in seconds)
+			Buckets: []float64{1, 2, 5, 10, 20, 30, 60, 120, 300},
+		},
+		[]string{"status"}, // Label to distinguish between successful and failed transactions
 	)
 
 	// Account Metrics
@@ -189,6 +199,7 @@ func (m *MetricsService) registerMetrics() {
 		m.latestLedgerIngested,
 		m.ingestionDuration,
 		m.numTSSTransactionsSubmitted,
+		m.timeUntilTSSTransactionInclusion,
 		m.activeAccounts,
 		m.rpcRequestsTotal,
 		m.rpcRequestsDuration,
@@ -310,6 +321,11 @@ func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration
 // TSS Service Metrics
 func (m *MetricsService) IncNumTSSTransactionsSubmitted() {
 	m.numTSSTransactionsSubmitted.Inc()
+}
+
+// ObserveTSSTransactionInclusionTime records the time taken for a transaction to be included in the ledger
+func (m *MetricsService) ObserveTSSTransactionInclusionTime(status string, durationSeconds float64) {
+	m.timeUntilTSSTransactionInclusion.WithLabelValues(status).Observe(durationSeconds)
 }
 
 // Account Service Metrics

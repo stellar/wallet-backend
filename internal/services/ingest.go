@@ -301,6 +301,10 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 			return fmt.Errorf("unable to route payload: %w", err)
 		}
 
+		// Calculate and record the transaction inclusion time
+		inclusionTime := time.Since(time.Unix(int64(tx.CreatedAt), 0)).Seconds()
+		m.metricsService.ObserveTSSTransactionInclusionTime(string(tx.Status), inclusionTime)
+
 		// Increment the count for this status
 		statusCounts[string(tx.Status)]++
 	}

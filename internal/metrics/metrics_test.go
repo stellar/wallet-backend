@@ -127,6 +127,48 @@ func TestTSSMetrics(t *testing.T) {
 		}
 		assert.True(t, found, "TSS transactions submitted metric not found")
 	})
+
+	t.Run("TSS transaction inclusion time", func(t *testing.T) {
+		// Test successful transaction
+		ms.ObserveTSSTransactionInclusionTime("success", 5.5)
+		// Test failed transaction
+		ms.ObserveTSSTransactionInclusionTime("failed", 2.3)
+
+		metricFamilies, err := ms.registry.Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "tss_transaction_inclusion_time_seconds" {
+				found = true
+				metrics := mf.GetMetric()
+				assert.Equal(t, 2, len(metrics), "Expected metrics for both success and failure cases")
+
+				// Verify we have observations for both statuses
+				for _, metric := range metrics {
+					histogram := metric.GetHistogram()
+					assert.Equal(t, uint64(1), histogram.GetSampleCount(), "Expected one sample")
+
+					// Get the status label
+					var status string
+					for _, label := range metric.GetLabel() {
+						if label.GetName() == "status" {
+							status = label.GetValue()
+							break
+						}
+					}
+
+					// Verify the sample sum based on status
+					if status == "success" {
+						assert.Equal(t, 5.5, histogram.GetSampleSum())
+					} else if status == "failed" {
+						assert.Equal(t, 2.3, histogram.GetSampleSum())
+					}
+				}
+			}
+		}
+		assert.True(t, found, "Transaction inclusion time metric not found")
+	})
 }
 
 func TestAccountMetrics(t *testing.T) {
