@@ -64,13 +64,17 @@ func (p *rpcCallerPool) Receive(payload tss.Payload) {
 		log.Errorf("%s: unable to upsert transaction into transactions table: %e", RPCCallerChannelName, err)
 		return
 	}
+
 	rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, RPCCallerChannelName, payload)
 
 	if err != nil {
 		log.Errorf("%s: unable to sign and submit transaction: %e", RPCCallerChannelName, err)
 		return
 	}
+
 	payload.RpcSubmitTxResponse = rpcSendResp
+	p.MetricsService.RecordTSSTransactionStatusTransition(RPCCallerChannelName, "", rpcSendResp.Status.Status())
+
 	err = p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %e", RPCCallerChannelName, err)

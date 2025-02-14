@@ -36,6 +36,9 @@ type MetricsService struct {
 	rpcServiceHealth     prometheus.Gauge
 	rpcLatestLedger      prometheus.Gauge
 
+	// TSS Transaction Status Metrics
+	tssTransactionCurrentStates *prometheus.GaugeVec
+
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
 	requestsDuration *prometheus.SummaryVec
@@ -94,8 +97,8 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 	)
 	m.timeUntilTSSTransactionInclusion = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
-			Name: "tss_transaction_inclusion_time_seconds",
-			Help: "Time from transaction submission to ledger inclusion (success or failure)",
+			Name:       "tss_transaction_inclusion_time_seconds",
+			Help:       "Time from transaction submission to ledger inclusion (success or failure)",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
 		[]string{"status"},
@@ -152,6 +155,14 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 		},
 	)
 
+	m.tssTransactionCurrentStates = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "tss_transaction_current_states",
+			Help: "Current number of TSS transactions in each state",
+		},
+		[]string{"channel", "status"},
+	)
+
 	// HTTP Request Metrics
 	m.numRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -206,6 +217,7 @@ func (m *MetricsService) registerMetrics() {
 		m.rpcEndpointSuccesses,
 		m.rpcServiceHealth,
 		m.rpcLatestLedger,
+		m.tssTransactionCurrentStates,
 		m.numRequestsTotal,
 		m.requestsDuration,
 		m.dbQueryDuration,
@@ -381,4 +393,12 @@ func (m *MetricsService) ObserveDBQueryDuration(queryType, table string, duratio
 
 func (m *MetricsService) IncDBQuery(queryType, table string) {
 	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
+}
+
+// TSS Transaction Status Metrics
+func (m *MetricsService) RecordTSSTransactionStatusTransition(channel, oldStatus, newStatus string) {
+	if oldStatus != "" {
+		m.tssTransactionCurrentStates.WithLabelValues(channel, oldStatus).Dec()
+	}
+	m.tssTransactionCurrentStates.WithLabelValues(channel, newStatus).Inc()
 }
