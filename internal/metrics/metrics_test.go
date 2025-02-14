@@ -141,30 +141,15 @@ func TestTSSMetrics(t *testing.T) {
 		for _, mf := range metricFamilies {
 			if mf.GetName() == "tss_transaction_inclusion_time_seconds" {
 				found = true
-				metrics := mf.GetMetric()
-				assert.Equal(t, 2, len(metrics), "Expected metrics for both success and failure cases")
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 2.3, metric.GetSummary().GetSampleSum())
+				assert.Equal(t, "failed", metric.GetLabel()[0].GetValue())
 
-				// Verify we have observations for both statuses
-				for _, metric := range metrics {
-					histogram := metric.GetHistogram()
-					assert.Equal(t, uint64(1), histogram.GetSampleCount(), "Expected one sample")
-
-					// Get the status label
-					var status string
-					for _, label := range metric.GetLabel() {
-						if label.GetName() == "status" {
-							status = label.GetValue()
-							break
-						}
-					}
-
-					// Verify the sample sum based on status
-					if status == "success" {
-						assert.Equal(t, 5.5, histogram.GetSampleSum())
-					} else if status == "failed" {
-						assert.Equal(t, 2.3, histogram.GetSampleSum())
-					}
-				}
+				metric = mf.GetMetric()[1]
+				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 5.5, metric.GetSummary().GetSampleSum())
+				assert.Equal(t, "success", metric.GetLabel()[0].GetValue())
 			}
 		}
 		assert.True(t, found, "Transaction inclusion time metric not found")
