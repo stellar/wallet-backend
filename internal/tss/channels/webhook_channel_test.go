@@ -45,6 +45,7 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 5,
 		NetworkPassphrase:    "networkpassphrase",
+		MetricsService:       metricsService,
 	}
 	channel := NewWebhookChannel(cfg)
 
@@ -90,7 +91,10 @@ func TestUnlockChannelAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := store.NewStore(dbConnectionPool)
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	store, _ := store.NewStore(dbConnectionPool, metricsService)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
@@ -102,6 +106,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 5,
 		NetworkPassphrase:    "networkpassphrase",
+		MetricsService:       metricsService,
 	}
 	channel := NewWebhookChannel(cfg)
 	account := keypair.MustRandom()
