@@ -59,7 +59,7 @@ func NewKMSSignatureClient(publicKey string, networkPassphrase string, keypairSt
 	}, nil
 }
 
-func (sc *kmsSignatureClient) GetAccountPublicKey(ctx context.Context) (string, error) {
+func (sc *kmsSignatureClient) GetAccountPublicKey(ctx context.Context, _ ...int) (string, error) {
 	return sc.distributionAccountPublicKey, nil
 }
 

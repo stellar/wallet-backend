@@ -164,6 +164,8 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 	go rpcService.TrackRPCServiceHealth(context.Background())
 
+	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
+
 	accountService, err := services.NewAccountService(models, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
@@ -189,8 +191,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	// TSS setup
 	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
+		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
+		ChannelAccountStore:                channelAccountStore,
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 	})
@@ -239,10 +243,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	webhookChannel := tsschannel.NewWebhookChannel(tsschannel.WebhookChannelConfigs{
 		HTTPClient:           &httpClient,
 		Store:                tssStore,
+		ChannelAccountStore:  channelAccountStore,
 		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
 		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
 		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
+		NetworkPassphrase:    cfg.NetworkPassphrase,
 		MetricsService:       metricsService,
 	})
 

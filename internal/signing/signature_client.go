@@ -15,7 +15,7 @@ var (
 
 type SignatureClient interface {
 	NetworkPassphrase() string
-	GetAccountPublicKey(ctx context.Context) (string, error)
+	GetAccountPublicKey(ctx context.Context, opts ...int) (string, error)
 	SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, stellarAccounts ...string) (*txnbuild.Transaction, error)
 	SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error)
 }

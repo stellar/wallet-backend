@@ -30,7 +30,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 
 	t.Run("returns_error_when_couldn't_get_an_idle_channel_account", func(t *testing.T) {
 		channelAccountStore.
-			On("GetIdleChannelAccount", ctx, time.Minute).
+			On("GetAndLockIdleChannelAccount", ctx, time.Duration(100)*time.Second).
 			Return(nil, store.ErrNoIdleChannelAccountAvailable).
 			Times(6).
 			On("Count", ctx).
@@ -40,7 +40,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 
 		getEntries := log.DefaultLogger.StartTest(log.WarnLevel)
 
-		publicKey, err := sc.GetAccountPublicKey(ctx)
+		publicKey, err := sc.GetAccountPublicKey(ctx, 100)
 		assert.ErrorIs(t, err, store.ErrNoIdleChannelAccountAvailable)
 		assert.Empty(t, publicKey)
 
@@ -54,7 +54,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 
 	t.Run("returns_error_when_there's_no_channel_account_configured", func(t *testing.T) {
 		channelAccountStore.
-			On("GetIdleChannelAccount", ctx, time.Minute).
+			On("GetAndLockIdleChannelAccount", ctx, time.Minute).
 			Return(nil, store.ErrNoIdleChannelAccountAvailable).
 			Times(6).
 			On("Count", ctx).
@@ -79,7 +79,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Run("gets_an_idle_channel_account", func(t *testing.T) {
 		channelAccountPublicKey := keypair.MustRandom().Address()
 		channelAccountStore.
-			On("GetIdleChannelAccount", ctx, time.Minute).
+			On("GetAndLockIdleChannelAccount", ctx, time.Minute).
 			Return(&store.ChannelAccount{PublicKey: channelAccountPublicKey}, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
