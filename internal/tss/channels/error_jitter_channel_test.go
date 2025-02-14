@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
@@ -21,6 +22,8 @@ func TestJitterSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -30,6 +33,7 @@ func TestJitterSend(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
+		MetricsService:       metrics.NewMetricsService(sqlxDB),
 	}
 
 	channel := NewErrorJitterChannel(cfg)
@@ -67,6 +71,8 @@ func TestJitterReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
+	require.NoError(t, err)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -76,6 +82,7 @@ func TestJitterReceive(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
+		MetricsService:       metrics.NewMetricsService(sqlxDB),
 	}
 
 	channel := NewErrorJitterChannel(cfg)
