@@ -34,6 +34,7 @@ func TestSend(t *testing.T) {
 		Router:        &routerMock,
 		MaxBufferSize: 10,
 		MaxWorkers:    10,
+		MetricsService: metricsService,
 	}
 	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
@@ -62,7 +63,7 @@ func TestSend(t *testing.T) {
 	routerMock.AssertCalled(t, "Route", payload)
 }
 
-func TestReceivee(t *testing.T) {
+func TestReceive(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -80,6 +81,7 @@ func TestReceivee(t *testing.T) {
 		Router:        &routerMock,
 		MaxBufferSize: 10,
 		MaxWorkers:    10,
+		MetricsService: metricsService,
 	}
 	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
