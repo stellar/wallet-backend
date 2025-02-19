@@ -28,7 +28,7 @@ type WebhookChannelConfigs struct {
 	NetworkPassphrase    string
 	MaxBufferSize        int
 	MaxWorkers           int
-	MetricsService       *metrics.MetricsService
+	MetricsService       metrics.MetricsService
 }
 
 type webhookPool struct {
@@ -39,7 +39,7 @@ type webhookPool struct {
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
 	NetworkPassphrase    string
-	MetricsService       *metrics.MetricsService
+	MetricsService       metrics.MetricsService
 }
 
 var WebhookChannelName = "WebhookChannel"

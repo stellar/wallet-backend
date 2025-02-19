@@ -13,7 +13,7 @@ import (
 
 type PaymentModel struct {
 	DB             db.ConnectionPool
-	MetricsService *metrics.MetricsService
+	MetricsService metrics.MetricsService
 }
 
 type Payment struct {

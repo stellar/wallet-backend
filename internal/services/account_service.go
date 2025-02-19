@@ -21,10 +21,10 @@ var _ AccountService = (*accountService)(nil)
 
 type accountService struct {
 	models         *data.Models
-	metricsService *metrics.MetricsService
+	metricsService metrics.MetricsService
 }
 
-func NewAccountService(models *data.Models, metricsService *metrics.MetricsService) (*accountService, error) {
+func NewAccountService(models *data.Models, metricsService metrics.MetricsService) (*accountService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
 	}

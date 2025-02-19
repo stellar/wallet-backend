@@ -24,23 +24,7 @@ func TestNewMetricsService(t *testing.T) {
 
 	ms := NewMetricsService(db)
 	assert.NotNil(t, ms)
-	assert.NotNil(t, ms.registry)
-
-	// Test that all metric vectors are initialized
-	assert.NotNil(t, ms.numPaymentOpsIngestedPerLedger)
-	assert.NotNil(t, ms.numTssTransactionsIngestedPerLedger)
-	assert.NotNil(t, ms.latestLedgerIngested)
-	assert.NotNil(t, ms.ingestionDuration)
-	assert.NotNil(t, ms.activeAccounts)
-	assert.NotNil(t, ms.rpcRequestsTotal)
-	assert.NotNil(t, ms.rpcRequestsDuration)
-	assert.NotNil(t, ms.rpcEndpointFailures)
-	assert.NotNil(t, ms.rpcEndpointSuccesses)
-	assert.NotNil(t, ms.rpcServiceHealth)
-	assert.NotNil(t, ms.numRequestsTotal)
-	assert.NotNil(t, ms.requestsDuration)
-	assert.NotNil(t, ms.dbQueryDuration)
-	assert.NotNil(t, ms.dbQueriesTotal)
+	assert.NotNil(t, ms.GetRegistry())
 }
 
 func TestIngestMetrics(t *testing.T) {
@@ -54,7 +38,7 @@ func TestIngestMetrics(t *testing.T) {
 		ms.SetNumPaymentOpsIngestedPerLedger("payment", 10)
 
 		// We can't directly access the metric values, but we can verify they're collected
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -70,7 +54,7 @@ func TestIngestMetrics(t *testing.T) {
 	t.Run("latest ledger metrics", func(t *testing.T) {
 		ms.SetLatestLedgerIngested(1234)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -87,7 +71,7 @@ func TestIngestMetrics(t *testing.T) {
 		ms.ObserveIngestionDuration("payment", 0.5)
 		ms.ObserveIngestionDuration("transaction", 1.0)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -113,7 +97,7 @@ func TestTSSMetrics(t *testing.T) {
 		ms.IncNumTSSTransactionsSubmitted()
 		ms.IncNumTSSTransactionsSubmitted()
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -133,7 +117,7 @@ func TestTSSMetrics(t *testing.T) {
 		// Test failed transaction
 		ms.ObserveTSSTransactionInclusionTime("failed", 2.3)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -163,7 +147,7 @@ func TestAccountMetrics(t *testing.T) {
 
 	t.Run("active accounts counter", func(t *testing.T) {
 		// Initial state should be 0
-		_, err := ms.registry.Gather()
+		_, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		// Increment and verify
@@ -173,7 +157,7 @@ func TestAccountMetrics(t *testing.T) {
 		// Decrement and verify
 		ms.DecActiveAccount()
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -200,7 +184,7 @@ func TestRPCMetrics(t *testing.T) {
 		ms.ObserveRPCRequestDuration(endpoint, 0.1)
 		ms.IncRPCEndpointSuccess(endpoint)
 		ms.IncRPCEndpointFailure(endpoint)
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		foundRequests := false
@@ -242,7 +226,7 @@ func TestRPCMetrics(t *testing.T) {
 	t.Run("RPC health metrics", func(t *testing.T) {
 		ms.SetRPCServiceHealth(true)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		found := false
@@ -256,7 +240,7 @@ func TestRPCMetrics(t *testing.T) {
 		assert.True(t, found)
 
 		ms.SetRPCServiceHealth(false)
-		metricFamilies, err = ms.registry.Gather()
+		metricFamilies, err = ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		for _, mf := range metricFamilies {
@@ -280,7 +264,7 @@ func TestHTTPMetrics(t *testing.T) {
 	ms.IncNumRequests(endpoint, method, statusCode)
 	ms.ObserveRequestDuration(endpoint, method, 0.05)
 
-	metricFamilies, err := ms.registry.Gather()
+	metricFamilies, err := ms.GetRegistry().Gather()
 	require.NoError(t, err)
 
 	foundRequests := false
@@ -330,7 +314,7 @@ func TestDBMetrics(t *testing.T) {
 	ms.IncDBQuery(queryType, table)
 	ms.ObserveDBQueryDuration(queryType, table, 0.01)
 
-	metricFamilies, err := ms.registry.Gather()
+	metricFamilies, err := ms.GetRegistry().Gather()
 	require.NoError(t, err)
 
 	foundQueries := false
@@ -390,7 +374,7 @@ func TestPoolMetrics(t *testing.T) {
 		// Wait for tasks to complete
 		time.Sleep(20 * time.Millisecond)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		// Map to store metric values
@@ -461,7 +445,7 @@ func TestPoolMetrics(t *testing.T) {
 		// Wait for tasks to complete
 		time.Sleep(10 * time.Millisecond)
 
-		metricFamilies, err := ms.registry.Gather()
+		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		metricValues := make(map[string]float64)

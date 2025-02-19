@@ -97,7 +97,7 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
-	MetricsService            *metrics.MetricsService
+	MetricsService            metrics.MetricsService
 	// TSS
 	RPCCallerChannel      tss.Channel
 	ErrorJitterChannel    tss.Channel

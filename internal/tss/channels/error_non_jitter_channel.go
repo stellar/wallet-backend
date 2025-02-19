@@ -21,7 +21,7 @@ type ErrorNonJitterChannelConfigs struct {
 	MaxWorkers        int
 	MaxRetries        int
 	WaitBtwnRetriesMS int
-	MetricsService    *metrics.MetricsService
+	MetricsService    metrics.MetricsService
 }
 
 type errorNonJitterPool struct {
@@ -31,7 +31,7 @@ type errorNonJitterPool struct {
 	Router            router.Router
 	MaxRetries        int
 	WaitBtwnRetriesMS int
-	MetricsService    *metrics.MetricsService
+	MetricsService    metrics.MetricsService
 }
 
 var ErrorNonJitterChannelName = "ErrorNonJitterChannel"

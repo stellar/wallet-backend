@@ -12,7 +12,7 @@ type Models struct {
 	Account  *AccountModel
 }
 
-func NewModels(db db.ConnectionPool, metricsService *metrics.MetricsService) (*Models, error) {
+func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Models, error) {
 	if db == nil {
 		return nil, errors.New("ConnectionPool must be initialized")
 	}

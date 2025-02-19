@@ -23,7 +23,7 @@ type TSSHandler struct {
 	AppTracker         apptracker.AppTracker
 	NetworkPassphrase  string
 	TransactionService tssservices.TransactionService
-	MetricsService     *metrics.MetricsService
+	MetricsService     metrics.MetricsService
 }
 
 type Transaction struct {

@@ -8,7 +8,7 @@ import (
 )
 
 // MetricsMiddleware creates a middleware that tracks HTTP request metrics
-func MetricsMiddleware(metricsService *metrics.MetricsService) func(next http.Handler) http.Handler {
+func MetricsMiddleware(metricsService metrics.MetricsService) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			startTime := time.Now()

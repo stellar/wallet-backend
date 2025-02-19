@@ -10,8 +10,32 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+type MetricsService interface {
+	RegisterPoolMetrics(channel string, pool *pond.WorkerPool)
+	GetRegistry() *prometheus.Registry
+	SetNumPaymentOpsIngestedPerLedger(operationType string, value int)
+	SetNumTssTransactionsIngestedPerLedger(status string, value float64)
+	SetLatestLedgerIngested(value float64)
+	ObserveIngestionDuration(ingestionType string, duration float64)
+	IncNumTSSTransactionsSubmitted()
+	ObserveTSSTransactionInclusionTime(status string, durationSeconds float64)
+	IncActiveAccount()
+	DecActiveAccount()
+	IncRPCRequests(endpoint string)
+	ObserveRPCRequestDuration(endpoint string, duration float64)
+	IncRPCEndpointFailure(endpoint string)
+	IncRPCEndpointSuccess(endpoint string)
+	SetRPCServiceHealth(healthy bool)
+	SetRPCLatestLedger(ledger int64)
+	IncNumRequests(endpoint, method string, statusCode int)
+	ObserveRequestDuration(endpoint, method string, duration float64)
+	ObserveDBQueryDuration(queryType, table string, duration float64)
+	IncDBQuery(queryType, table string)
+	RecordTSSTransactionStatusTransition(oldStatus, newStatus string)
+}
+
 // MetricsService handles all metrics for the wallet-backend
-type MetricsService struct {
+type metricsService struct {
 	registry *prometheus.Registry
 	db       *sqlx.DB
 
@@ -49,8 +73,8 @@ type MetricsService struct {
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
-func NewMetricsService(db *sqlx.DB) *MetricsService {
-	m := &MetricsService{
+func NewMetricsService(db *sqlx.DB) MetricsService {
+	m := &metricsService{
 		registry: prometheus.NewRegistry(),
 		db:       db,
 	}
@@ -197,7 +221,7 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 	return m
 }
 
-func (m *MetricsService) registerMetrics() {
+func (m *metricsService) registerMetrics() {
 	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
 	m.registry.MustRegister(
 		collector,
@@ -223,7 +247,7 @@ func (m *MetricsService) registerMetrics() {
 }
 
 // RegisterPool registers a worker pool for metrics collection
-func (m *MetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
+func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
 	m.registry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name:        fmt.Sprintf("pool_workers_running_%s", channel),
@@ -303,64 +327,64 @@ func (m *MetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 }
 
 // GetRegistry returns the prometheus registry
-func (m *MetricsService) GetRegistry() *prometheus.Registry {
+func (m *metricsService) GetRegistry() *prometheus.Registry {
 	return m.registry
 }
 
 // Ingest Service Metrics
-func (m *MetricsService) SetNumPaymentOpsIngestedPerLedger(operationType string, value int) {
+func (m *metricsService) SetNumPaymentOpsIngestedPerLedger(operationType string, value int) {
 	m.numPaymentOpsIngestedPerLedger.WithLabelValues(operationType).Set(float64(value))
 }
 
-func (m *MetricsService) SetNumTssTransactionsIngestedPerLedger(status string, value float64) {
+func (m *metricsService) SetNumTssTransactionsIngestedPerLedger(status string, value float64) {
 	m.numTssTransactionsIngestedPerLedger.WithLabelValues(status).Set(value)
 }
 
-func (m *MetricsService) SetLatestLedgerIngested(value float64) {
+func (m *metricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)
 }
 
-func (m *MetricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
+func (m *metricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
 	m.ingestionDuration.WithLabelValues(ingestionType).Observe(duration)
 }
 
 // TSS Service Metrics
-func (m *MetricsService) IncNumTSSTransactionsSubmitted() {
+func (m *metricsService) IncNumTSSTransactionsSubmitted() {
 	m.numTSSTransactionsSubmitted.Inc()
 }
 
 // ObserveTSSTransactionInclusionTime records the time taken for a transaction to be included in the ledger
-func (m *MetricsService) ObserveTSSTransactionInclusionTime(status string, durationSeconds float64) {
+func (m *metricsService) ObserveTSSTransactionInclusionTime(status string, durationSeconds float64) {
 	m.timeUntilTSSTransactionInclusion.WithLabelValues(status).Observe(durationSeconds)
 }
 
 // Account Service Metrics
-func (m *MetricsService) IncActiveAccount() {
+func (m *metricsService) IncActiveAccount() {
 	m.activeAccounts.Inc()
 }
 
-func (m *MetricsService) DecActiveAccount() {
+func (m *metricsService) DecActiveAccount() {
 	m.activeAccounts.Dec()
 }
 
 // RPC Service Metrics
-func (m *MetricsService) IncRPCRequests(endpoint string) {
+func (m *metricsService) IncRPCRequests(endpoint string) {
 	m.rpcRequestsTotal.WithLabelValues(endpoint).Inc()
 }
 
-func (m *MetricsService) ObserveRPCRequestDuration(endpoint string, duration float64) {
+func (m *metricsService) ObserveRPCRequestDuration(endpoint string, duration float64) {
 	m.rpcRequestsDuration.WithLabelValues(endpoint).Observe(duration)
 }
 
-func (m *MetricsService) IncRPCEndpointFailure(endpoint string) {
+func (m *metricsService) IncRPCEndpointFailure(endpoint string) {
 	m.rpcEndpointFailures.WithLabelValues(endpoint).Inc()
 }
 
-func (m *MetricsService) IncRPCEndpointSuccess(endpoint string) {
+func (m *metricsService) IncRPCEndpointSuccess(endpoint string) {
 	m.rpcEndpointSuccesses.WithLabelValues(endpoint).Inc()
 }
 
-func (m *MetricsService) SetRPCServiceHealth(healthy bool) {
+func (m *metricsService) SetRPCServiceHealth(healthy bool) {
 	if healthy {
 		m.rpcServiceHealth.Set(1)
 	} else {
@@ -368,30 +392,30 @@ func (m *MetricsService) SetRPCServiceHealth(healthy bool) {
 	}
 }
 
-func (m *MetricsService) SetRPCLatestLedger(ledger int64) {
+func (m *metricsService) SetRPCLatestLedger(ledger int64) {
 	m.rpcLatestLedger.Set(float64(ledger))
 }
 
 // HTTP Request Metrics
-func (m *MetricsService) IncNumRequests(endpoint, method string, statusCode int) {
+func (m *metricsService) IncNumRequests(endpoint, method string, statusCode int) {
 	m.numRequestsTotal.WithLabelValues(endpoint, method, strconv.Itoa(statusCode)).Inc()
 }
 
-func (m *MetricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
+func (m *metricsService) ObserveRequestDuration(endpoint, method string, duration float64) {
 	m.requestsDuration.WithLabelValues(endpoint, method).Observe(duration)
 }
 
 // DB Query Metrics
-func (m *MetricsService) ObserveDBQueryDuration(queryType, table string, duration float64) {
+func (m *metricsService) ObserveDBQueryDuration(queryType, table string, duration float64) {
 	m.dbQueryDuration.WithLabelValues(queryType, table).Observe(duration)
 }
 
-func (m *MetricsService) IncDBQuery(queryType, table string) {
+func (m *metricsService) IncDBQuery(queryType, table string) {
 	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
 }
 
 // TSS Transaction Status Metrics
-func (m *MetricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
+func (m *metricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
 	if oldStatus == newStatus {
 		return
 	}

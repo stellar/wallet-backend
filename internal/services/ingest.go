@@ -43,7 +43,7 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
-	metricsService   *metrics.MetricsService
+	metricsService   metrics.MetricsService
 }
 
 func NewIngestService(
@@ -53,7 +53,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
-	metricsService *metrics.MetricsService,
+	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")

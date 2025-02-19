@@ -36,14 +36,14 @@ type rpcService struct {
 	rpcURL           string
 	httpClient       utils.HTTPClient
 	heartbeatChannel chan entities.RPCGetHealthResult
-	metricsService   *metrics.MetricsService
+	metricsService   metrics.MetricsService
 }
 
 var PageLimit = 200
 
 var _ RPCService = (*rpcService)(nil)
 
-func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService *metrics.MetricsService) (*rpcService, error) {
+func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService metrics.MetricsService) (*rpcService, error) {
 	if rpcURL == "" {
 		return nil, errors.New("rpcURL cannot be nil")
 	}

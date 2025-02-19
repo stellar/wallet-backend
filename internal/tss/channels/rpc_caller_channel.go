@@ -19,7 +19,7 @@ type RPCCallerChannelConfigs struct {
 	Store          store.Store
 	MaxBufferSize  int
 	MaxWorkers     int
-	MetricsService *metrics.MetricsService
+	MetricsService metrics.MetricsService
 }
 
 type rpcCallerPool struct {
@@ -27,7 +27,7 @@ type rpcCallerPool struct {
 	TxManager      services.TransactionManager
 	Router         router.Router
 	Store          store.Store
-	MetricsService *metrics.MetricsService
+	MetricsService metrics.MetricsService
 }
 
 var RPCCallerChannelName = "RPCCallerChannel"

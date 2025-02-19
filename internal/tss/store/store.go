@@ -26,7 +26,7 @@ var _ Store = (*store)(nil)
 
 type store struct {
 	DB             db.ConnectionPool
-	MetricsService *metrics.MetricsService
+	MetricsService metrics.MetricsService
 }
 
 type Transaction struct {
@@ -49,7 +49,7 @@ type Try struct {
 	CreatedAt  time.Time `db:"updated_at"`
 }
 
-func NewStore(db db.ConnectionPool, metricsService *metrics.MetricsService) (Store, error) {
+func NewStore(db db.ConnectionPool, metricsService metrics.MetricsService) (Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db cannot be nil")
 	}

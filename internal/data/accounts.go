@@ -11,7 +11,7 @@ import (
 
 type AccountModel struct {
 	DB             db.ConnectionPool
-	MetricsService *metrics.MetricsService
+	MetricsService metrics.MetricsService
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
