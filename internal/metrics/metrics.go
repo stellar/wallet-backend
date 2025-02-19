@@ -46,8 +46,6 @@ type MetricsService struct {
 	// DB Query Metrics
 	dbQueryDuration *prometheus.SummaryVec
 	dbQueriesTotal  *prometheus.CounterVec
-
-	pools map[string]*pond.WorkerPool
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -55,7 +53,6 @@ func NewMetricsService(db *sqlx.DB) *MetricsService {
 	m := &MetricsService{
 		registry: prometheus.NewRegistry(),
 		db:       db,
-		pools:    make(map[string]*pond.WorkerPool),
 	}
 
 	// Ingest Service Metrics
@@ -227,8 +224,6 @@ func (m *MetricsService) registerMetrics() {
 
 // RegisterPool registers a worker pool for metrics collection
 func (m *MetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
-	m.pools[channel] = pool
-
 	m.registry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name:        fmt.Sprintf("pool_workers_running_%s", channel),
