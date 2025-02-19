@@ -135,7 +135,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				return fmt.Errorf("error ingesting payments: %w", err)
 			}
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
-			
+
 			startTime = time.Now()
 			err = m.processTSSTransactions(ctx, ledgerTransactions)
 			if err != nil {
@@ -300,9 +300,11 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("unable to route payload: %w", err)
 		}
+		// Record the transaction status transition
+		m.metricsService.RecordTSSTransactionStatusTransition(transaction.Status, string(tx.Status))
 
-		// Calculate and record the transaction inclusion time
-		inclusionTime := time.Since(time.Unix(int64(tx.CreatedAt), 0)).Seconds()
+		// Calculate and record the transaction inclusion time using the transaction's creation time in our system
+		inclusionTime := time.Since(transaction.CreatedAt).Seconds()
 		m.metricsService.ObserveTSSTransactionInclusionTime(string(tx.Status), inclusionTime)
 
 		// Increment the count for this status

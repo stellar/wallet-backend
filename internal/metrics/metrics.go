@@ -396,9 +396,12 @@ func (m *MetricsService) IncDBQuery(queryType, table string) {
 }
 
 // TSS Transaction Status Metrics
-func (m *MetricsService) RecordTSSTransactionStatusTransition(channel, oldStatus, newStatus string) {
-	if oldStatus != "" {
-		m.tssTransactionCurrentStates.WithLabelValues(channel, oldStatus).Dec()
+func (m *MetricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
+	if oldStatus == newStatus {
+		return
 	}
-	m.tssTransactionCurrentStates.WithLabelValues(channel, newStatus).Inc()
+	if oldStatus != "" {
+		m.tssTransactionCurrentStates.WithLabelValues(oldStatus).Dec()
+	}
+	m.tssTransactionCurrentStates.WithLabelValues(newStatus).Inc()
 }

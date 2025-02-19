@@ -74,28 +74,18 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 		}
 
 		payload.RpcSubmitTxResponse = rpcSendResp
-		p.MetricsService.RecordTSSTransactionStatusTransition(ErrorNonJitterChannelName, oldStatus, rpcSendResp.Status.Status())
-
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {
 				log.Errorf("%s: unable to route payload: %v", ErrorNonJitterChannelName, err)
 				return
 			}
+			p.MetricsService.RecordTSSTransactionStatusTransition(oldStatus, rpcSendResp.Status.Status())
 			return
 		}
 	}
 	// Retry limit reached, route the payload to the router so it can re-route it to this pool and keep re-trying
 	log.Infof("%s: max retry limit reached", ErrorNonJitterChannelName)
-
-	if p.MetricsService != nil && payload.RpcSubmitTxResponse.Code.TxResultCode != 0 {
-		p.MetricsService.RecordTSSTransactionStatusTransition(
-			ErrorNonJitterChannelName,
-			payload.RpcSubmitTxResponse.Code.TxResultCode.String(),
-			"max_retries_reached",
-		)
-	}
-
 	err := p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %v", ErrorNonJitterChannelName, err)

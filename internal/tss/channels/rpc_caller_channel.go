@@ -73,12 +73,11 @@ func (p *rpcCallerPool) Receive(payload tss.Payload) {
 	}
 
 	payload.RpcSubmitTxResponse = rpcSendResp
-	p.MetricsService.RecordTSSTransactionStatusTransition(RPCCallerChannelName, "", rpcSendResp.Status.Status())
-
 	err = p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %e", RPCCallerChannelName, err)
 	}
+	p.MetricsService.RecordTSSTransactionStatusTransition(string(tss.NewStatus), rpcSendResp.Status.Status())
 }
 
 func (p *rpcCallerPool) SetRouter(router router.Router) {
