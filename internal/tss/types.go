@@ -15,7 +15,7 @@ type RPCGetIngestTxResponse struct {
 	// A status that indicated whether this transaction failed or successly made it to the ledger
 	Status entities.RPCStatus
 	// The error code that is derived by deserialzing the ResultXdr string in the sendTransaction response
-	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
+	// list of possible error codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code RPCTXCode
 	// The raw TransactionEnvelope XDR for this transaction
 	EnvelopeXDR string
@@ -130,7 +130,7 @@ type RPCSendTxResponse struct {
 	// The status of an RPC sendTransaction call. Can be one of [PENDING, DUPLICATE, TRY_AGAIN_LATER, ERROR]
 	Status RPCTXStatus
 	// The (optional) error code that is derived by deserialzing the errorResultXdr string in the sendTransaction response
-	// list of possible errror codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
+	// list of possible error codes: https://developers.stellar.org/docs/data/horizon/api-reference/errors/result-codes/transactions
 	Code           RPCTXCode
 	ErrorResultXDR string
 }
