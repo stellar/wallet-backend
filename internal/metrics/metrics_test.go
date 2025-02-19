@@ -25,7 +25,6 @@ func TestNewMetricsService(t *testing.T) {
 	ms := NewMetricsService(db)
 	assert.NotNil(t, ms)
 	assert.NotNil(t, ms.registry)
-	assert.NotNil(t, ms.pools)
 
 	// Test that all metric vectors are initialized
 	assert.NotNil(t, ms.numPaymentOpsIngestedPerLedger)
