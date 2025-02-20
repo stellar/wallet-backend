@@ -242,6 +242,7 @@ func TestGetTryByXDR(t *testing.T) {
 	})
 	t.Run("try_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		try, _ := store.GetTryByXDR(context.Background(), "doesnotexist")
@@ -301,6 +302,7 @@ func TestGetLatestTry(t *testing.T) {
 
 	t.Run("tries_do_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		try, err := store.GetLatestTry(context.Background(), "hash")
