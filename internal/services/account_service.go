@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type AccountService interface {
@@ -19,16 +20,18 @@ type AccountService interface {
 var _ AccountService = (*accountService)(nil)
 
 type accountService struct {
-	models *data.Models
+	models         *data.Models
+	metricsService metrics.MetricsService
 }
 
-func NewAccountService(models *data.Models) (*accountService, error) {
+func NewAccountService(models *data.Models, metricsService metrics.MetricsService) (*accountService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
 	}
 
 	return &accountService{
-		models: models,
+		models:         models,
+		metricsService: metricsService,
 	}, nil
 }
 
@@ -37,7 +40,7 @@ func (s *accountService) RegisterAccount(ctx context.Context, address string) er
 	if err != nil {
 		return fmt.Errorf("registering account %s: %w", address, err)
 	}
-
+	s.metricsService.IncActiveAccount()
 	return nil
 }
 
@@ -46,6 +49,6 @@ func (s *accountService) DeregisterAccount(ctx context.Context, address string) 
 	if err != nil {
 		return fmt.Errorf("deregistering account %s: %w", address, err)
 	}
-
+	s.metricsService.DecActiveAccount()
 	return nil
 }

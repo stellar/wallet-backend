@@ -5,12 +5,15 @@ go 1.23.2
 require (
 	github.com/alitto/pond v1.9.2
 	github.com/aws/aws-sdk-go v1.55.5
+	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/getsentry/sentry-go v0.29.1
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-playground/validator/v10 v10.22.1
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/prometheus/client_golang v1.17.0
 	github.com/rubenv/sql-migrate v1.7.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1
@@ -49,7 +52,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.17.0 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect

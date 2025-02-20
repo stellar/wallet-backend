@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
@@ -21,6 +22,8 @@ func TestJitterSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -30,7 +33,12 @@ func TestJitterSend(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorJitterChannel(cfg)
 
@@ -67,6 +75,8 @@ func TestJitterReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -76,7 +86,11 @@ func TestJitterReceive(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorJitterChannel(cfg)
 
@@ -95,7 +109,11 @@ func TestJitterReceive(t *testing.T) {
 
 		routerMock.AssertNotCalled(t, "Route", payload)
 	})
+
 	t.Run("retries", func(t *testing.T) {
+		mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		sendResp1 := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 			Code:   tss.RPCTXCode{TxResultCode: tss.JitterErrorCodes[0]},

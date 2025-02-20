@@ -14,12 +14,14 @@ import (
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +31,9 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := store.NewStore(dbConnectionPool)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
@@ -41,7 +45,16 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 5,
 		NetworkPassphrase:    "networkpassphrase",
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", WebhookChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+	defer mockMetricsService.AssertExpectations(t)
+
 	channel := NewWebhookChannel(cfg)
 
 	payload := tss.Payload{}
@@ -86,7 +99,9 @@ func TestUnlockChannelAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := store.NewStore(dbConnectionPool)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
@@ -98,7 +113,12 @@ func TestUnlockChannelAccount(t *testing.T) {
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 5,
 		NetworkPassphrase:    "networkpassphrase",
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", WebhookChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	defer mockMetricsService.AssertExpectations(t)
+
 	channel := NewWebhookChannel(cfg)
 	account := keypair.MustRandom()
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{

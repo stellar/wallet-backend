@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -27,6 +28,7 @@ type WebhookChannelConfigs struct {
 	NetworkPassphrase    string
 	MaxBufferSize        int
 	MaxWorkers           int
+	MetricsService       metrics.MetricsService
 }
 
 type webhookPool struct {
@@ -37,6 +39,7 @@ type webhookPool struct {
 	MaxRetries           int
 	MinWaitBtwnRetriesMS int
 	NetworkPassphrase    string
+	MetricsService       metrics.MetricsService
 }
 
 var WebhookChannelName = "WebhookChannel"
@@ -45,7 +48,7 @@ var _ tss.Channel = (*webhookPool)(nil)
 
 func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &webhookPool{
+	webhookPool := &webhookPool{
 		Pool:                 pool,
 		Store:                cfg.Store,
 		ChannelAccountStore:  cfg.ChannelAccountStore,
@@ -53,8 +56,12 @@ func NewWebhookChannel(cfg WebhookChannelConfigs) *webhookPool {
 		MaxRetries:           cfg.MaxRetries,
 		MinWaitBtwnRetriesMS: cfg.MinWaitBtwnRetriesMS,
 		NetworkPassphrase:    cfg.NetworkPassphrase,
+		MetricsService:       cfg.MetricsService,
 	}
-
+	if cfg.MetricsService != nil {
+		cfg.MetricsService.RegisterPoolMetrics(WebhookChannelName, pool)
+	}
+	return webhookPool
 }
 
 func (p *webhookPool) Send(payload tss.Payload) {

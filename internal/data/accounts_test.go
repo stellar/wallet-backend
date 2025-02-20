@@ -8,7 +8,9 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,8 +22,14 @@ func TestAccountModelInsert(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
 	}
 
 	ctx := context.Background()
@@ -45,8 +53,14 @@ func TestAccountModelDelete(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
 	}
 
 	ctx := context.Background()
@@ -73,8 +87,14 @@ func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
 	m := &AccountModel{
-		DB: dbConnectionPool,
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
 	}
 
 	ctx := context.Background()

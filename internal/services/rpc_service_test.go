@@ -17,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -32,11 +35,23 @@ func (e *errorReader) Close() error {
 }
 
 func TestSendRPCRequest(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
 			Body: io.NopCloser(strings.NewReader(`{
@@ -66,6 +81,11 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("rpc_post_call_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -78,6 +98,11 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("unmarshaling_rpc_response_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(&errorReader{}),
@@ -94,6 +119,11 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("unmarshaling_json_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(`{invalid-json`)),
@@ -110,6 +140,11 @@ func TestSendRPCRequest(t *testing.T) {
 	})
 
 	t.Run("response_has_no_result_field", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		httpResponse := &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(strings.NewReader(`{"status": "success"}`)),
@@ -127,11 +162,23 @@ func TestSendRPCRequest(t *testing.T) {
 }
 
 func TestSendTransaction(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
 		params := entities.RPCParams{Transaction: transactionXDR}
 
@@ -174,6 +221,11 @@ func TestSendTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -188,11 +240,23 @@ func TestSendTransaction(t *testing.T) {
 }
 
 func TestGetTransaction(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "getTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
 		params := entities.RPCParams{Hash: transactionHash}
 
@@ -250,6 +314,11 @@ func TestGetTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "getTransaction").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getTransaction", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -264,11 +333,23 @@ func TestGetTransaction(t *testing.T) {
 }
 
 func TestGetTransactions(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "getTransactions").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getTransactions", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -282,6 +363,11 @@ func TestGetTransactions(t *testing.T) {
 	})
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "getTransactions").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getTransactions", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		params := entities.RPCParams{StartLedger: 10, Pagination: entities.RPCPagination{Limit: 5}}
 
 		payload := map[string]interface{}{
@@ -327,11 +413,23 @@ func TestGetTransactions(t *testing.T) {
 }
 
 func TestSendGetHealth(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient)
+	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		payload := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -361,6 +459,11 @@ func TestSendGetHealth(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		mockHTTPClient.
 			On("Post", rpcURL, "application/json", mock.Anything).
 			Return(&http.Response{}, errors.New("connection failed")).
@@ -374,12 +477,24 @@ func TestSendGetHealth(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncRPCRequests", "getHealth").Once()
+	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
+	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("SetRPCServiceHealth", true).Once()
+	mockMetricsService.On("SetRPCLatestLedger", int64(100)).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	healthResult := entities.RPCGetHealthResult{
@@ -390,6 +505,8 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	}
 
 	// Mock the HTTP response for GetHealth
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	mockResponse := &http.Response{
 		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
 			"jsonrpc": "2.0",
@@ -419,14 +536,32 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncRPCRequests", "getHealth").Once()
+	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
+	mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Once()
+	mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Maybe()
+	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
+	mockMetricsService.On("SetRPCServiceHealth", false).Once()
+	mockMetricsService.On("SetRPCServiceHealth", false).Maybe()
+	defer mockMetricsService.AssertExpectations(t)
 	getLogs := log.DefaultLogger.StartTest(log.WarnLevel)
 
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
-	defer cancel()
 
 	// Mock error response for GetHealth with a valid http.Response
 	mockResponse := &http.Response{
@@ -457,12 +592,20 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 }
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {
-	mockHTTPClient := &utils.MockHTTPClient{}
-	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient)
-	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcURL := "http://test-url-track-rpc-service-health"
+	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	rpcService.TrackRPCServiceHealth(ctx)
 

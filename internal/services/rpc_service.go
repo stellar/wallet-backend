@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -35,18 +36,22 @@ type rpcService struct {
 	rpcURL           string
 	httpClient       utils.HTTPClient
 	heartbeatChannel chan entities.RPCGetHealthResult
+	metricsService   metrics.MetricsService
 }
 
 var PageLimit = 200
 
 var _ RPCService = (*rpcService)(nil)
 
-func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, error) {
+func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService metrics.MetricsService) (*rpcService, error) {
 	if rpcURL == "" {
 		return nil, errors.New("rpcURL cannot be nil")
 	}
 	if httpClient == nil {
 		return nil, errors.New("httpClient cannot be nil")
+	}
+	if metricsService == nil {
+		return nil, errors.New("metricsService cannot be nil")
 	}
 
 	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
@@ -54,6 +59,7 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient) (*rpcService, err
 		rpcURL:           rpcURL,
 		httpClient:       httpClient,
 		heartbeatChannel: heartbeatChannel,
+		metricsService:   metricsService,
 	}, nil
 }
 
@@ -182,20 +188,30 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 			return
 		case <-warningTicker.C:
 			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
+			r.metricsService.SetRPCServiceHealth(false)
 			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
 		case <-healthCheckTicker.C:
 			result, err := r.GetHealth()
 			if err != nil {
 				log.Warnf("rpc health check failed: %v", err)
+				r.metricsService.SetRPCServiceHealth(false)
 				continue
 			}
 			r.heartbeatChannel <- result
+			r.metricsService.SetRPCServiceHealth(true)
+			r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
 			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
 		}
 	}
 }
 
 func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (json.RawMessage, error) {
+	startTime := time.Now()
+	r.metricsService.IncRPCRequests(method)
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		r.metricsService.ObserveRPCRequestDuration(method, duration)
+	}()
 
 	payload := map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -210,28 +226,34 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
+		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("marshaling payload")
 	}
 	resp, err := r.httpClient.Post(r.rpcURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
+		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
 
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)
 	if err != nil {
+		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
 	}
 
 	if res.Result == nil {
+		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("response %s missing result field", string(body))
 	}
 
+	r.metricsService.IncRPCEndpointSuccess(method)
 	return res.Result, nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
@@ -17,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
@@ -95,6 +97,7 @@ type handlerDeps struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
+	MetricsService            metrics.MetricsService
 	// TSS
 	RPCCallerChannel      tss.Channel
 	ErrorJitterChannel    tss.Channel
@@ -139,7 +142,12 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	models, err := data.NewModels(dbConnectionPool)
+	db, err := dbConnectionPool.SqlxDB(context.Background())
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
+	}
+	metricsService := metrics.NewMetricsService(db)
+	models, err := data.NewModels(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
@@ -150,7 +158,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}
 
 	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
@@ -158,7 +166,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	accountService, err := services.NewAccountService(models)
+	accountService, err := services.NewAccountService(models, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}
@@ -195,7 +203,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
 	}
@@ -210,6 +218,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		Store:         tssStore,
 		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
 		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		MetricsService: metricsService,
 	})
 
 	errorJitterChannel := tsschannel.NewErrorJitterChannel(tsschannel.ErrorJitterChannelConfigs{
@@ -218,6 +227,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+		MetricsService:       metricsService,
 	})
 
 	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
@@ -226,6 +236,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
 		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
 		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
+		MetricsService:    metricsService,
 	})
 
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
@@ -238,6 +249,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
 		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
 		NetworkPassphrase:    cfg.NetworkPassphrase,
+		MetricsService:       metricsService,
 	})
 
 	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
@@ -277,6 +289,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
+		MetricsService:            metricsService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		// TSS
@@ -316,9 +329,13 @@ func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
 	mux.MethodNotAllowed(httperror.ErrorHandler{Error: httperror.MethodNotAllowed}.ServeHTTP)
+
+	// Add metrics middleware first to capture all requests
+	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
 	mux.Get("/health", health.PassHandler{}.ServeHTTP)
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
@@ -363,6 +380,7 @@ func handler(deps handlerDeps) http.Handler {
 				Store:             deps.TSSStore,
 				AppTracker:        deps.AppTracker,
 				NetworkPassphrase: deps.NetworkPassphrase,
+				MetricsService:    deps.MetricsService,
 			}
 
 			r.Get("/transactions/{transactionhash}", handler.GetTransaction)

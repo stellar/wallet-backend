@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
@@ -22,6 +23,7 @@ type TSSHandler struct {
 	AppTracker         apptracker.AppTracker
 	NetworkPassphrase  string
 	TransactionService tssservices.TransactionService
+	MetricsService     metrics.MetricsService
 }
 
 type Transaction struct {
@@ -114,6 +116,9 @@ func (t *TSSHandler) SubmitTransactions(w http.ResponseWriter, r *http.Request) 
 
 		payloads = append(payloads, payload)
 		transactionHashes = append(transactionHashes, txHash)
+		if t.MetricsService != nil {
+			t.MetricsService.IncNumTSSTransactionsSubmitted()
+		}
 	}
 	httpjson.Render(w, TransactionSubmissionResponse{
 		TransactionHashes: transactionHashes,
