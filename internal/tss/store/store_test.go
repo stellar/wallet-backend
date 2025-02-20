@@ -203,6 +203,7 @@ func TestGetTry(t *testing.T) {
 	})
 	t.Run("try_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		try, _ := store.GetTry(context.Background(), "doesnotexist")
