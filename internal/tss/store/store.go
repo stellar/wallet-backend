@@ -79,10 +79,10 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
 	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, status.Status())
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("INSERT", "tss_transactions", duration)
+	s.MetricsService.IncDBQuery("INSERT", "tss_transactions")
 	if err != nil {
 		return fmt.Errorf("inserting/updatig tss transaction: %w", err)
 	}
-	s.MetricsService.IncDBQuery("INSERT", "tss_transactions")
 	return nil
 }
 
@@ -105,10 +105,10 @@ func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash stri
 	_, err := s.DB.ExecContext(ctx, q, txHash, feeBumpTxHash, feeBumpTxXDR, status.Status(), code.Code(), resultXDR)
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("INSERT", "tss_transaction_submission_tries", duration)
+	s.MetricsService.IncDBQuery("INSERT", "tss_transaction_submission_tries")
 	if err != nil {
 		return fmt.Errorf("inserting/updating tss try: %w", err)
 	}
-	s.MetricsService.IncDBQuery("INSERT", "tss_transaction_submission_tries")
 	return nil
 }
 
@@ -119,13 +119,13 @@ func (s *store) GetTransaction(ctx context.Context, hash string) (Transaction, e
 	err := s.DB.GetContext(ctx, &transaction, q, hash)
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transactions", duration)
+	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Transaction{}, nil
 		}
 		return Transaction{}, fmt.Errorf("getting transaction: %w", err)
 	}
-	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	return transaction, nil
 }
 
@@ -136,13 +136,13 @@ func (s *store) GetTry(ctx context.Context, hash string) (Try, error) {
 	err := s.DB.GetContext(ctx, &try, q, hash)
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil
 		}
 		return Try{}, fmt.Errorf("getting try: %w", err)
 	}
-	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }
 
@@ -153,13 +153,13 @@ func (s *store) GetTryByXDR(ctx context.Context, xdr string) (Try, error) {
 	err := s.DB.GetContext(ctx, &try, q, xdr)
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil
 		}
 		return Try{}, fmt.Errorf("getting try: %w", err)
 	}
-	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }
 
@@ -170,13 +170,13 @@ func (s *store) GetTransactionsWithStatus(ctx context.Context, status tss.RPCTXS
 	err := s.DB.SelectContext(ctx, &transactions, q, status.Status())
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transactions", duration)
+	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return []Transaction{}, nil
 		}
 		return []Transaction{}, fmt.Errorf("getting transactions: %w", err)
 	}
-	s.MetricsService.IncDBQuery("SELECT", "tss_transactions")
 	return transactions, nil
 }
 
@@ -187,12 +187,12 @@ func (s *store) GetLatestTry(ctx context.Context, txHash string) (Try, error) {
 	err := s.DB.GetContext(ctx, &try, q, txHash)
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("SELECT", "tss_transaction_submission_tries", duration)
+	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Try{}, nil
 		}
 		return Try{}, fmt.Errorf("getting latest trt: %w", err)
 	}
-	s.MetricsService.IncDBQuery("SELECT", "tss_transaction_submission_tries")
 	return try, nil
 }

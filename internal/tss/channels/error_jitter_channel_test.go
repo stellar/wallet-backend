@@ -22,8 +22,8 @@ func TestJitterSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -33,8 +33,12 @@ func TestJitterSend(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
-		MetricsService:       metrics.NewMetricsService(sqlxDB),
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorJitterChannel(cfg)
 
@@ -71,8 +75,8 @@ func TestJitterReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorJitterChannelConfigs{
@@ -82,8 +86,11 @@ func TestJitterReceive(t *testing.T) {
 		MaxWorkers:           1,
 		MaxRetries:           3,
 		MinWaitBtwnRetriesMS: 10,
-		MetricsService:       metrics.NewMetricsService(sqlxDB),
+		MetricsService:       mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorJitterChannel(cfg)
 
@@ -102,7 +109,11 @@ func TestJitterReceive(t *testing.T) {
 
 		routerMock.AssertNotCalled(t, "Route", payload)
 	})
+
 	t.Run("retries", func(t *testing.T) {
+		mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		sendResp1 := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 			Code:   tss.RPCTXCode{TxResultCode: tss.JitterErrorCodes[0]},

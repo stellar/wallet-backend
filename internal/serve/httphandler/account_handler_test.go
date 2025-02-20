@@ -25,6 +25,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/services/servicesmocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,9 +36,7 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	metricsService := metrics.NewMockMetricsService()
 
 	models, err := data.NewModels(dbConnectionPool, metricsService)
 	require.NoError(t, err)
@@ -137,13 +136,15 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Times(2)
+	mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Times(2)
+	mockMetricsService.On("DecActiveAccount").Return().Times(2)
+	defer mockMetricsService.AssertExpectations(t)
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models, metricsService)
+	accountService, err := services.NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
 		AccountService: accountService,

@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,20 +23,26 @@ func TestSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	store, _ := store.NewStore(dbConnectionPool, metricsService)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
-		Store:         store,
-		TxManager:     &txManagerMock,
-		Router:        &routerMock,
-		MaxBufferSize: 10,
-		MaxWorkers:    10,
-		MetricsService: metricsService,
+		Store:          store,
+		TxManager:      &txManagerMock,
+		Router:         &routerMock,
+		MaxBufferSize:  10,
+		MaxWorkers:     10,
+		MetricsService: mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", RPCCallerChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+	mockMetricsService.On("RecordTSSTransactionStatusTransition", string(tss.NewStatus), mock.AnythingOfType("string")).Once()
+	defer mockMetricsService.AssertExpectations(t)
+
 	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
@@ -69,20 +76,23 @@ func TestReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	store, _ := store.NewStore(dbConnectionPool, metricsService)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
-		Store:         store,
-		TxManager:     &txManagerMock,
-		Router:        &routerMock,
-		MaxBufferSize: 10,
-		MaxWorkers:    10,
-		MetricsService: metricsService,
+		Store:          store,
+		TxManager:      &txManagerMock,
+		Router:         &routerMock,
+		MaxBufferSize:  10,
+		MaxWorkers:     10,
+		MetricsService: mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", RPCCallerChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	defer mockMetricsService.AssertExpectations(t)
+
 	channel := NewRPCCallerChannel(cfgs)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
@@ -90,6 +100,10 @@ func TestReceive(t *testing.T) {
 	payload.TransactionXDR = "xdr"
 
 	t.Run("build_and_submit_tx_fail", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		txManagerMock.
 			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
 			Return(tss.RPCSendTxResponse{}, errors.New("build tx failed")).
@@ -101,6 +115,11 @@ func TestReceive(t *testing.T) {
 	})
 
 	t.Run("payload_routed", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+		mockMetricsService.On("RecordTSSTransactionStatusTransition", string(tss.NewStatus), mock.AnythingOfType("string")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		rpcResp := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 		}
@@ -120,5 +139,4 @@ func TestReceive(t *testing.T) {
 
 		routerMock.AssertCalled(t, "Route", payload)
 	})
-
 }

@@ -27,11 +27,9 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	mockMetricsService := metrics.NewMockMetricsService()
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
 	signatureClient := signing.SignatureClientMock{}
@@ -51,6 +49,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	require.NoError(t, err)
 
 	t.Run("account_already_exists", func(t *testing.T) {
+		defer mockMetricsService.AssertExpectations(t)
 		accountToSponsor := keypair.MustRandom().Address()
 
 		mockRPCService.
@@ -66,6 +65,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	})
 
 	t.Run("invalid_signers_weight", func(t *testing.T) {
+		defer mockMetricsService.AssertExpectations(t)
 		accountToSponsor := keypair.MustRandom().Address()
 
 		mockRPCService.
@@ -89,6 +89,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	})
 
 	t.Run("sponsorship_limit_reached", func(t *testing.T) {
+		defer mockMetricsService.AssertExpectations(t)
 		accountToSponsor := keypair.MustRandom().Address()
 
 		mockRPCService.
@@ -160,6 +161,12 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 	t.Run("successfully_returns_a_sponsored_transaction", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom().Address()
 		distributionAccount := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
 
 		signers := []entities.Signer{
 			{
@@ -308,11 +315,9 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	mockMetricsService := metrics.NewMockMetricsService()
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
 	signatureClient := signing.SignatureClientMock{}
@@ -334,6 +339,10 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -361,6 +370,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	t.Run("blocked_operations", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
 		require.NoError(t, err)
 
@@ -398,6 +414,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
 		require.NoError(t, err)
 
@@ -427,6 +450,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
 		require.NoError(t, err)
 
@@ -457,6 +487,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	t.Run("successfully_wraps_the_transaction_with_fee_bump", func(t *testing.T) {
 		distributionAccount := keypair.MustRandom()
 		accountToSponsor := keypair.MustRandom()
+
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
 		require.NoError(t, err)
 

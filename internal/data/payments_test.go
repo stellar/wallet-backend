@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,13 +23,15 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Return()
+	defer mockMetricsService.AssertExpectations(t)
 
 	m := &PaymentModel{
 		DB:             dbConnectionPool,
-		MetricsService: metricsService,
+		MetricsService: mockMetricsService,
 	}
 	ctx := context.Background()
 
@@ -150,14 +153,16 @@ func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.Anything).Return().Times(2)
+	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Return().Times(2)
+	defer mockMetricsService.AssertExpectations(t)
 
 	ctx := context.Background()
 	m := &PaymentModel{
 		DB:             dbConnectionPool,
-		MetricsService: metricsService,
+		MetricsService: mockMetricsService,
 	}
 
 	const key = "ingest_store_key"
@@ -179,14 +184,16 @@ func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.Anything).Return().Times(1)
+	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_store").Return().Times(1)
+	defer mockMetricsService.AssertExpectations(t)
 
 	ctx := context.Background()
 	m := &PaymentModel{
 		DB:             dbConnectionPool,
-		MetricsService: metricsService,
+		MetricsService: mockMetricsService,
 	}
 
 	const key = "ingest_store_key"
@@ -205,15 +212,8 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
 
 	ctx := context.Background()
-	m := &PaymentModel{
-		DB:             dbConnectionPool,
-		MetricsService: metricsService,
-	}
 
 	dbPayments := []Payment{
 		{OperationID: "1", OperationType: xdr.OperationTypePayment.String(), TransactionID: "11", TransactionHash: "c370ff20144e4c96b17432b8d14664c1", FromAddress: "GAZ37ZO4TU3H", ToAddress: "GDD2HQO6IOFT", SrcAssetCode: "XLM", SrcAssetIssuer: "", SrcAssetType: xdr.AssetTypeAssetTypeNative.String(), SrcAmount: 10, DestAssetCode: "XLM", DestAssetIssuer: "", DestAssetType: xdr.AssetTypeAssetTypeNative.String(), DestAmount: 10, CreatedAt: time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC), Memo: nil, MemoType: xdr.MemoTypeMemoNone.String()},
@@ -225,6 +225,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("no_filter_desc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", "", DESC, 2)
 		require.NoError(t, err)
 
@@ -238,6 +248,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("no_filter_asc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", "", ASC, 2)
 		require.NoError(t, err)
 
@@ -251,6 +271,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_address", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, dbPayments[1].FromAddress, "", "", DESC, 2)
 		require.NoError(t, err)
 
@@ -263,6 +293,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_after_id_desc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", dbPayments[3].OperationID, DESC, 2)
 		require.NoError(t, err)
 
@@ -276,6 +316,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_after_id_asc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", "", dbPayments[3].OperationID, ASC, 2)
 		require.NoError(t, err)
 
@@ -288,6 +338,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_before_id_desc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, "", DESC, 2)
 		require.NoError(t, err)
 
@@ -301,6 +361,16 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_before_id_asc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		payments, prevExists, nextExists, err := m.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, "", ASC, 2)
 		require.NoError(t, err)
 
@@ -314,6 +384,13 @@ func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("filter_before_id_after_id_asc", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+
+		m := &PaymentModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
 		_, _, _, err := m.GetPaymentsPaginated(ctx, "", dbPayments[4].OperationID, dbPayments[2].OperationID, ASC, 2)
 		assert.ErrorContains(t, err, "at most one cursor may be provided, got afterId and beforeId")
 	})

@@ -42,6 +42,7 @@ func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName str
 	err := m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "ingest_store", duration)
+	m.MetricsService.IncDBQuery("SELECT", "ingest_store")
 	// First run, key does not exist yet
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -161,12 +162,12 @@ func (m *PaymentModel) GetPaymentsPaginated(ctx context.Context, address string,
 	if err != nil {
 		return nil, false, false, fmt.Errorf("fetching payments: %w", err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "ingest_payments")
 
 	prevExists, nextExists, err := m.existsPrevNext(ctx, filteredSetCTE, address, sort, payments)
 	if err != nil {
 		return nil, false, false, fmt.Errorf("checking prev and next pages: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "ingest_payments")
 	return payments, prevExists, nextExists, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,13 +22,15 @@ func TestAccountRegister(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncActiveAccount").Return().Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := NewAccountService(models, metricsService)
+	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -50,13 +53,15 @@ func TestAccountDeregister(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("DecActiveAccount").Return().Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
+	mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := NewAccountService(models, metricsService)
+	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()

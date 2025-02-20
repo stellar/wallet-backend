@@ -34,17 +34,18 @@ func TestGetLedgerTransactions(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
+		defer mockMetricsService.AssertExpectations(t)
+
 		rpcGetTransactionsResult := entities.RPCGetTransactionsResult{
 			Cursor: "51",
 			Transactions: []entities.Transaction{
@@ -72,6 +73,8 @@ func TestGetLedgerTransactions(t *testing.T) {
 	})
 
 	t.Run("ledger_transactions_split_between_multiple_gettransactions_calls", func(t *testing.T) {
+		defer mockMetricsService.AssertExpectations(t)
+
 		rpcGetTransactionsResult1 := entities.RPCGetTransactionsResult{
 			Cursor: "51",
 			Transactions: []entities.Transaction{
@@ -130,18 +133,29 @@ func TestProcessTSSTransactions(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Times(2)
+		mockMetricsService.On("RecordTSSTransactionStatusTransition", "NEW", "SUCCESS").Once()
+		mockMetricsService.On("ObserveTSSTransactionInclusionTime", "SUCCESS", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("SetNumTssTransactionsIngestedPerLedger", "SUCCESS", float64(1)).Once()
+		defer mockMetricsService.AssertExpectations(t)
 
 		transactions := []entities.Transaction{
 			{
@@ -184,23 +198,32 @@ func TestIngestPayments(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	mockMetricsService := metrics.NewMockMetricsService()
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, metricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
+	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 	usdIssuer := keypair.MustRandom().Address()
 	eurIssuer := keypair.MustRandom().Address()
 
 	t.Run("test_op_payment", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 1).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = models.Account.Insert(context.Background(), srcAccount)
 		paymentOp := txnbuild.Payment{
 			SourceAccount: srcAccount,
@@ -239,6 +262,17 @@ func TestIngestPayments(t *testing.T) {
 	})
 
 	t.Run("test_op_path_payment_send", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 1).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = models.Account.Insert(context.Background(), srcAccount)
 
 		path := []txnbuild.Asset{
@@ -298,6 +332,17 @@ func TestIngestPayments(t *testing.T) {
 	})
 
 	t.Run("test_op_path_payment_receive", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
+		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 1).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = models.Account.Insert(context.Background(), srcAccount)
 
 		path := []txnbuild.Asset{
@@ -368,19 +413,32 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		dbt.Close()
 	}()
 
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_store").Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Once()
+	mockMetricsService.On("SetLatestLedgerIngested", float64(50)).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "payment", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "tss", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 1).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
@@ -456,22 +514,32 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		log.DefaultLogger.SetOutput(os.Stderr)
 	}()
 
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	mockMetricsService := metrics.NewMockMetricsService()
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
 
-	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, metricsService)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
 	require.NoError(t, err)
 
-	// Create and set up the heartbeat channel
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_store").Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Once()
+	mockMetricsService.On("SetLatestLedgerIngested", float64(100)).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "payment", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "tss", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
+	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
+	defer mockMetricsService.AssertExpectations(t)
+
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 

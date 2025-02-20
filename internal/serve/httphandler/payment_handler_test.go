@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,23 +28,28 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
-	require.NoError(t, err)
-	metricsService := metrics.NewMetricsService(sqlxDB)
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
-	require.NoError(t, err)
-	paymentService, err := services.NewPaymentService(models, "http://testing.com")
-	require.NoError(t, err)
-	handler := &PaymentHandler{
-		PaymentService: paymentService,
+	setupTest := func() (*PaymentHandler, *metrics.MockMetricsService) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		paymentService, err := services.NewPaymentService(models, "http://testing.com")
+		require.NoError(t, err)
+		handler := &PaymentHandler{
+			PaymentService: paymentService,
+		}
+		return handler, mockMetricsService
 	}
 
-	// Setup router
-	r := chi.NewRouter()
-	r.Route("/payments", func(r chi.Router) {
-		r.Get("/", handler.GetPayments)
-	})
+	// Setup router and test data
+	setupRouter := func(handler *PaymentHandler) *chi.Mux {
+		r := chi.NewRouter()
+		r.Route("/payments", func(r chi.Router) {
+			r.Get("/", handler.GetPayments)
+		})
+		return r
+	}
+
 	ctx := context.Background()
 
 	dbPayments := []data.Payment{
@@ -108,6 +114,12 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 	data.InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("no_filters", func(t *testing.T) {
+		handler, mockMetricsService := setupTest()
+		r := setupRouter(handler)
+
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+
 		// Prepare request
 		req, err := http.NewRequest(http.MethodGet, "/payments", nil)
 		require.NoError(t, err)
@@ -189,9 +201,16 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 			]
 		}`
 		assert.JSONEq(t, expectedRespBody, string(respBody))
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("filter_address", func(t *testing.T) {
+		handler, mockMetricsService := setupTest()
+		r := setupRouter(handler)
+
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Return().Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.Anything).Return().Times(2)
+
 		// Prepare request
 		req, err := http.NewRequest(http.MethodGet, "/payments?address=GASP7HTICNNA2U5RKMPRQELEUJFO7PBB3AKKRGTAG23QVG255ESPZW2L", nil)
 		require.NoError(t, err)
@@ -235,9 +254,13 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 			]
 		}`
 		assert.JSONEq(t, expectedRespBody, string(respBody))
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("invalid_params_1", func(t *testing.T) {
+		handler, mockMetricsService := setupTest()
+		r := setupRouter(handler)
+
 		// Prepare request
 		req, err := http.NewRequest(http.MethodGet, "/payments?address=12345&limit=0&sort=BS", nil)
 		require.NoError(t, err)
@@ -261,9 +284,13 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 			}
 		}`
 		assert.JSONEq(t, expectedRespBody, string(respBody))
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("invalid_params_2", func(t *testing.T) {
+		handler, mockMetricsService := setupTest()
+		r := setupRouter(handler)
+
 		// Prepare request
 		req, err := http.NewRequest(http.MethodGet, "/payments?limit=210", nil)
 		require.NoError(t, err)
@@ -285,5 +312,6 @@ func TestPaymentHandlerGetPayments(t *testing.T) {
 			}
 		}`
 		assert.JSONEq(t, expectedRespBody, string(respBody))
+		mockMetricsService.AssertExpectations(t)
 	})
 }
