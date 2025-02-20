@@ -164,6 +164,7 @@ func TestGetTransaction(t *testing.T) {
 	})
 	t.Run("transaction_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		tx, _ := store.GetTransaction(context.Background(), "doesnotexist")

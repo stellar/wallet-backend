@@ -51,6 +51,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	mockMetricsService.On("RegisterPoolMetrics", WebhookChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
 	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewWebhookChannel(cfg)
