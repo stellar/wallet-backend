@@ -36,11 +36,11 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	metricsService := metrics.NewMockMetricsService()
+	mockMetricsService := metrics.NewMockMetricsService()
 
-	models, err := data.NewModels(dbConnectionPool, metricsService)
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models, metricsService)
+	accountService, err := services.NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
 		AccountService: accountService,
@@ -56,6 +56,11 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	}
 
 	t.Run("success_happy_path", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("IncActiveAccount").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		// Prepare request
 		address := keypair.MustRandom().Address()
 		req, err := http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
@@ -81,6 +86,11 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	})
 
 	t.Run("address_already_exists", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+		mockMetricsService.On("IncActiveAccount").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		address := keypair.MustRandom().Address()
 		ctx := context.Background()
 
