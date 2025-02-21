@@ -50,7 +50,7 @@ CREATE TABLE transactions (
 
 -- Operations Table
 CREATE TABLE operations (
-    toid TEXT PRIMARY KEY,
+    toid BIGINT PRIMARY KEY,
     txhash VARCHAR(64) NOT NULL REFERENCES transactions(txhash) ON DELETE CASCADE,
     operationindex INTEGER NOT NULL,
     operationtype INTEGER NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE operations (
 CREATE TABLE statechanges (
     id SERIAL PRIMARY KEY,
     acctid TEXT NOT NULL,
-    operationtoid TEXT REFERENCES operations(toid) ON DELETE CASCADE,
+    operationtoid BIGINT REFERENCES operations(toid) ON DELETE CASCADE,
     txhash VARCHAR(64) NOT NULL REFERENCES transactions(txhash) ON DELETE CASCADE,
     statechangetype statechangetype_enum NOT NULL,
     statechangereason statechangereason_enum NOT NULL,
@@ -92,6 +92,8 @@ CREATE INDEX idx_operations_operationtype ON operations (operationtype);
 CREATE INDEX idx_operations_ts ON operations (ts);
 
 CREATE INDEX idx_statechanges_acctid ON statechanges (acctid);
+CREATE INDEX idx_statechanges_operationtoid ON statechanges (operationtoid);
+CREATE INDEX idx_statechanges_txhash ON statechanges (txhash);
 CREATE INDEX idx_statechanges_statechangetype ON statechanges (statechangetype);
 CREATE INDEX idx_statechanges_statechangereason ON statechanges (statechangereason);
 CREATE INDEX idx_statechanges_ts ON statechanges (ts);
@@ -103,6 +105,8 @@ DROP INDEX IF EXISTS idx_operations_txhash;
 DROP INDEX IF EXISTS idx_operations_operationtype;
 DROP INDEX IF EXISTS idx_operations_ts;
 DROP INDEX IF EXISTS idx_statechanges_acctid;
+DROP INDEX IF EXISTS idx_statechanges_operationtoid;
+DROP INDEX IF EXISTS idx_statechanges_txhash;
 DROP INDEX IF EXISTS idx_statechanges_statechangetype;
 DROP INDEX IF EXISTS idx_statechanges_statechangereason;
 DROP INDEX IF EXISTS idx_statechanges_ts;
