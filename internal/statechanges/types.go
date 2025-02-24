@@ -65,7 +65,7 @@ const (
 type StateChange struct {
 	ID                   int64             `db:"id"`
 	AcctID               string            `db:"acctid"`
-	OperationTOID        *string           `db:"operationtoid"`
+	OperationTOID        *int64            `db:"operationtoid"`
 	TxHash               string            `db:"txhash"`
 	StateChangeType      StateChangeType   `db:"statechangetype"`
 	StateChangeReason    StateChangeReason `db:"statechangereason"`
