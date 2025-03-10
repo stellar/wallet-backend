@@ -9,11 +9,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +26,9 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	store, _ := store.NewStore(dbConnectionPool)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
 	txServiceMock := TransactionServiceMock{}
 	rpcServiceMock := services.RPCServiceMock{}
 	txManager := NewTransactionManager(TransactionManagerConfigs{
@@ -45,6 +49,12 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	payload.TransactionXDR = txXDR
 
 	t.Run("fail_on_building_feebump_tx", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		txServiceMock.
 			On("BuildFeeBumpTransaction", context.Background(), tx).
@@ -62,6 +72,16 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_call_fail", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{Status: entities.ErrorStatus}
 
@@ -93,6 +113,16 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_resp_empty_errorresult_xdr", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.PendingStatus,
@@ -127,6 +157,16 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_resp_has_unparsable_errorresult_xdr", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -159,7 +199,18 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.UnmarshalBinaryCode), try.Code)
 	})
+
 	t.Run("rpc_returns_response", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -192,7 +243,18 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
 	})
+
 	t.Run("feebump_is_false", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -224,6 +286,5 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		try, _ := store.GetTry(context.Background(), txHash)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
-
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
@@ -21,6 +22,8 @@ func TestNonJitterSend(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorNonJitterChannelConfigs{
@@ -30,7 +33,12 @@ func TestNonJitterSend(t *testing.T) {
 		MaxWorkers:        1,
 		MaxRetries:        3,
 		WaitBtwnRetriesMS: 10,
+		MetricsService:    mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorNonJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorNonJitterChannel(cfg)
 
@@ -67,6 +75,8 @@ func TestNonJitterReceive(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfg := ErrorNonJitterChannelConfigs{
@@ -76,13 +86,18 @@ func TestNonJitterReceive(t *testing.T) {
 		MaxWorkers:        1,
 		MaxRetries:        3,
 		WaitBtwnRetriesMS: 10,
+		MetricsService:    mockMetricsService,
 	}
+
+	mockMetricsService.On("RegisterPoolMetrics", ErrorNonJitterChannelName, mock.AnythingOfType("*pond.WorkerPool")).Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	channel := NewErrorNonJitterChannel(cfg)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
+
 	t.Run("build_and_submit_tx_fail", func(t *testing.T) {
 		txManagerMock.
 			On("BuildAndSubmitTransaction", context.Background(), ErrorNonJitterChannelName, payload).
@@ -95,6 +110,9 @@ func TestNonJitterReceive(t *testing.T) {
 	})
 
 	t.Run("retries", func(t *testing.T) {
+		mockMetricsService.On("RecordTSSTransactionStatusTransition", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
 		sendResp1 := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 			Code:   tss.RPCTXCode{TxResultCode: tss.NonJitterErrorCodes[0]},

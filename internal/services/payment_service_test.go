@@ -11,7 +11,9 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +25,9 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool)
+	mockMetricsService := metrics.NewMockMetricsService()
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	service, err := NewPaymentService(models, "http://testing.com")
 	require.NoError(t, err)
@@ -39,6 +43,10 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	data.InsertTestPayments(t, ctx, dbPayments, dbConnectionPool)
 
 	t.Run("page_1", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", "", "", data.DESC, 2)
 		require.NoError(t, err)
 
@@ -56,6 +64,10 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("page_2_after", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", "", dbPayments[3].OperationID, data.DESC, 2)
 		require.NoError(t, err)
 
@@ -73,6 +85,10 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("page_3_after", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", "", dbPayments[1].OperationID, data.DESC, 2)
 		require.NoError(t, err)
 
@@ -89,6 +105,10 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("page_2_before", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", dbPayments[0].OperationID, "", data.DESC, 2)
 		require.NoError(t, err)
 
@@ -106,6 +126,10 @@ func TestPaymentServiceGetPaymentsPaginated(t *testing.T) {
 	})
 
 	t.Run("page_1_before", func(t *testing.T) {
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
+		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
 		payments, pagination, err := service.GetPaymentsPaginated(ctx, "", dbPayments[2].OperationID, "", data.DESC, 2)
 		require.NoError(t, err)
 

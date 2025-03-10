@@ -7,6 +7,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
@@ -20,6 +21,7 @@ type ErrorNonJitterChannelConfigs struct {
 	MaxWorkers        int
 	MaxRetries        int
 	WaitBtwnRetriesMS int
+	MetricsService    metrics.MetricsService
 }
 
 type errorNonJitterPool struct {
@@ -29,6 +31,7 @@ type errorNonJitterPool struct {
 	Router            router.Router
 	MaxRetries        int
 	WaitBtwnRetriesMS int
+	MetricsService    metrics.MetricsService
 }
 
 var ErrorNonJitterChannelName = "ErrorNonJitterChannel"
@@ -37,13 +40,18 @@ var _ tss.Channel = (*errorNonJitterPool)(nil)
 
 func NewErrorNonJitterChannel(cfg ErrorNonJitterChannelConfigs) *errorNonJitterPool {
 	pool := pond.New(cfg.MaxBufferSize, cfg.MaxWorkers, pond.Strategy(pond.Balanced()))
-	return &errorNonJitterPool{
+	nonJitterPool := &errorNonJitterPool{
 		Pool:              pool,
 		TxManager:         cfg.TxManager,
 		Router:            cfg.Router,
 		MaxRetries:        cfg.MaxRetries,
 		WaitBtwnRetriesMS: cfg.WaitBtwnRetriesMS,
+		MetricsService:    cfg.MetricsService,
 	}
+	if cfg.MetricsService != nil {
+		cfg.MetricsService.RegisterPoolMetrics(ErrorNonJitterChannelName, pool)
+	}
+	return nonJitterPool
 }
 
 func (p *errorNonJitterPool) Send(payload tss.Payload) {
@@ -57,11 +65,14 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	var i int
 	for i = 0; i < p.MaxRetries; i++ {
 		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Millisecond)
+
+		oldStatus := payload.RpcSubmitTxResponse.Status.Status()
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {
 			log.Errorf("%s: unable to sign and submit transaction: %v", ErrorNonJitterChannelName, err)
 			return
 		}
+
 		payload.RpcSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
@@ -69,6 +80,7 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 				log.Errorf("%s: unable to route payload: %v", ErrorNonJitterChannelName, err)
 				return
 			}
+			p.MetricsService.RecordTSSTransactionStatusTransition(oldStatus, rpcSendResp.Status.Status())
 			return
 		}
 	}
