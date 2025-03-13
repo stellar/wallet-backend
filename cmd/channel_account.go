@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
@@ -71,6 +75,17 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 
+			db, err := dbConnectionPool.SqlxDB(context.Background())
+			if err != nil {
+				return fmt.Errorf("getting sqlx db: %w", err)
+			}
+			metricsService := metrics.NewMetricsService(db)
+			httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+			rpcService, err := services.NewRPCService("http://localhost:8000", &httpClient, metricsService)
+			if err != nil {
+				return fmt.Errorf("instantiating rpc service: %w", err)
+			}
+
 			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
@@ -80,6 +95,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				ChannelAccountStore:                &channelAccountModel,
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
 				EncryptionPassphrase:               cfg.EncryptionPassphrase,
+				RPCService:                         rpcService,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
