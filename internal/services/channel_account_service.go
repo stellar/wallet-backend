@@ -239,6 +239,8 @@ func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccoun
 		return nil, err
 	}
 
+	go opts.RPCService.TrackRPCServiceHealth(context.Background())
+
 	return &channelAccountService{
 		DB:                                 opts.DB,
 		RPCService:                         opts.RPCService,
