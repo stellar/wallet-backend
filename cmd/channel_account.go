@@ -51,8 +51,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 	}
 
 	ensureCmd := &cobra.Command{
-		Use:   "ensure",
-		Short: "Ensures if the [number] of channel accounts are created",
+		Use:   "ensure {amount}",
+		Short: "Ensures that the number of channel accounts is at least the [amount] provided",
 		Args:  cobra.ExactArgs(1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfgOpts.RequireE(); err != nil {
