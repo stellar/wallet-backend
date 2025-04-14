@@ -124,11 +124,17 @@ func (s *channelAccountService) prepareAccountCreationOps(_ context.Context, chA
 	ops := make([]txnbuild.Operation, 0, len(chAccKP))
 	for _, kp := range chAccKP {
 		ops = append(ops,
+			// add sponsor operations for this account
+			&txnbuild.BeginSponsoringFutureReserves{
+				SponsoredID: kp.Address(),
+			},
 			&txnbuild.CreateAccount{
 				Destination: kp.Address(),
-				Amount:      "1",
+				Amount:      "0",
 			},
-		)
+			&txnbuild.EndSponsoringFutureReserves{
+				SourceAccount: kp.Address(),
+			})
 	}
 	return ops, nil
 }
