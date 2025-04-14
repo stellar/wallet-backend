@@ -41,8 +41,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 	}
 
 	// Distribution Account Signature Client options
-	signatureClientOpts := utils.SignatureClientOptions{}
-	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
+	distAccSigClientOpts := utils.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&distAccSigClientOpts)...)
 
 	cmd := &cobra.Command{
 		Use:               "channel-account",
@@ -68,9 +68,9 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
-			signatureClientOpts.DBConnectionPool = dbConnectionPool
-			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
-			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
+			distAccSigClientOpts.DBConnectionPool = dbConnectionPool
+			distAccSigClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
+			distAccSigClient, err := utils.SignatureClientResolver(&distAccSigClientOpts)
 			if err != nil {
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
@@ -91,7 +91,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
 				DB:                                 dbConnectionPool,
 				BaseFee:                            int64(cfg.BaseFee),
-				DistributionAccountSignatureClient: signatureClient,
+				DistributionAccountSignatureClient: distAccSigClient,
 				ChannelAccountStore:                &channelAccountModel,
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
 				EncryptionPassphrase:               cfg.EncryptionPassphrase,
@@ -104,12 +104,12 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			count, err := strconv.Atoi(args[0])
+			amount, err := strconv.Atoi(args[0])
 			if err != nil {
-				return fmt.Errorf("invalid [number] argument: %s", args[0])
+				return fmt.Errorf("invalid [amount] argument=%s", args[0])
 			}
 
-			if err = c.channelAccountService.EnsureChannelAccounts(cmd.Context(), int64(count)); err != nil {
+			if err = c.channelAccountService.EnsureChannelAccounts(cmd.Context(), int64(amount)); err != nil {
 				return fmt.Errorf("ensuring the number of channel accounts is created: %w", err)
 			}
 
