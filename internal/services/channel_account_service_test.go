@@ -397,3 +397,111 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 		assert.Contains(t, err.Error(), "transaction failed")
 	})
 }
+
+func Test_ChannelAccountServiceOptions_Validate(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockRPCService := &RPCServiceMock{}
+	mockSignatureClient := &signing.SignatureClientMock{}
+	mockChannelAccountStore := &store.ChannelAccountStoreMock{}
+	mockPrivateKeyEncrypter := &signingutils.DefaultPrivateKeyEncrypter{}
+
+	testCases := []struct {
+		name            string
+		opts            ChannelAccountServiceOptions
+		wantErrContains string
+	}{
+		{
+			name:            "🔴DB_is_required",
+			opts:            ChannelAccountServiceOptions{},
+			wantErrContains: "DB cannot be nil",
+		},
+		{
+			name: "🔴RPCService_is_required",
+			opts: ChannelAccountServiceOptions{
+				DB: dbConnectionPool,
+			},
+			wantErrContains: "rpc client cannot be nil",
+		},
+		{
+			name: "🔴BaseFee_>=_MinBaseFee",
+			opts: ChannelAccountServiceOptions{
+				DB:         dbConnectionPool,
+				RPCService: mockRPCService,
+				BaseFee:    txnbuild.MinBaseFee - 1,
+			},
+			wantErrContains: "base fee is lower than the minimum network fee",
+		},
+		{
+			name: "🔴DistributionAccountSignatureClient_is_required",
+			opts: ChannelAccountServiceOptions{
+				DB:         dbConnectionPool,
+				RPCService: mockRPCService,
+				BaseFee:    txnbuild.MinBaseFee,
+			},
+			wantErrContains: "distribution account signature client cannot be nil",
+		},
+		{
+			name: "🔴ChannelAccountStore_is_required",
+			opts: ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         mockRPCService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: mockSignatureClient,
+			},
+			wantErrContains: "channel account store cannot be nil",
+		},
+		{
+			name: "🔴PrivateKeyEncrypter_is_required",
+			opts: ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         mockRPCService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: mockSignatureClient,
+				ChannelAccountStore:                mockChannelAccountStore,
+			},
+			wantErrContains: "private key encrypter cannot be nil",
+		},
+		{
+			name: "🔴EncryptionPassphrase_is_required",
+			opts: ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         mockRPCService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: mockSignatureClient,
+				ChannelAccountStore:                mockChannelAccountStore,
+				PrivateKeyEncrypter:                mockPrivateKeyEncrypter,
+			},
+			wantErrContains: "encryption passphrase cannot be empty",
+		},
+		{
+			name: "🟢Valid_options",
+			opts: ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         mockRPCService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: mockSignatureClient,
+				ChannelAccountStore:                mockChannelAccountStore,
+				PrivateKeyEncrypter:                mockPrivateKeyEncrypter,
+				EncryptionPassphrase:               "test",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.opts.Validate()
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
