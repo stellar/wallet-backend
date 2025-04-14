@@ -20,7 +20,7 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
-func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
+func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
@@ -351,13 +351,14 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+	ctx := context.Background()
 
 	mockRPCService := RPCServiceMock{}
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -368,7 +369,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	hash := "test_hash"
 
 	t.Run("successful", func(t *testing.T) {

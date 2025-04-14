@@ -88,7 +88,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 
 			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
-			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+			c.channelAccountService, err = services.NewChannelAccountService(cmd.Context(), services.ChannelAccountServiceOptions{
 				DB:                                 dbConnectionPool,
 				BaseFee:                            int64(cfg.BaseFee),
 				DistributionAccountSignatureClient: distAccSigClient,

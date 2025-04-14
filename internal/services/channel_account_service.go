@@ -107,6 +107,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 	case <-rpcHeartbeatChannel:
 		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 		log.Ctx(ctx).Infof("👍 RPC service is healthy")
+		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to rpc service")
 		if err != nil {
 			return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
 		}
@@ -242,12 +243,12 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 	return nil
 }
 
-func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccountService, error) {
+func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
 
-	go opts.RPCService.TrackRPCServiceHealth(context.Background())
+	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
