@@ -49,7 +49,8 @@ func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, chan
 	var tryTxHash string
 	var tryTxXDR string
 	if payload.FeeBump {
-		feeBumpTx, err := t.TxService.BuildFeeBumpTransaction(ctx, tx)
+		var feeBumpTx *txnbuild.FeeBumpTransaction
+		feeBumpTx, err = t.TxService.BuildFeeBumpTransaction(ctx, tx)
 		if err != nil {
 			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to build fee bump transaction: %w", channelName, err)
 		}

@@ -65,7 +65,7 @@ func TestKeypairModelInsert(t *testing.T) {
 	t.Run("keypair_already_exists", func(t *testing.T) {
 		kpFull := keypair.MustRandom()
 		createKeypairFixture(t, ctx, dbConnectionPool, Keypair{PublicKey: kpFull.Address(), EncryptedPrivateKey: []byte(kpFull.Seed())})
-		err := m.Insert(ctx, kpFull.Address(), []byte(kpFull.Seed()))
+		err = m.Insert(ctx, kpFull.Address(), []byte(kpFull.Seed()))
 		assert.ErrorIs(t, err, ErrPublicKeyAlreadyExists)
 	})
 

@@ -253,10 +253,11 @@ func TestIngestPayments(t *testing.T) {
 
 		ledgerTransactions := []entities.Transaction{ledgerTransaction}
 
-		err := ingestService.ingestPayments(context.Background(), ledgerTransactions)
-		assert.NoError(t, err)
+		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
 
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		var payments []data.Payment
+		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
 	})
@@ -319,7 +320,8 @@ func TestIngestPayments(t *testing.T) {
 		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
 		require.NoError(t, err)
 
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		var payments []data.Payment
+		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
 		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)

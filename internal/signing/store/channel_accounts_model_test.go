@@ -184,7 +184,6 @@ func TestUnlockChannelAccountFromTx(t *testing.T) {
 func TestChannelAccountModelBatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
@@ -193,7 +192,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	t.Run("channel_accounts_empty", func(t *testing.T) {
-		err := m.BatchInsert(ctx, dbConnectionPool, []*ChannelAccount{})
+		err = m.BatchInsert(ctx, dbConnectionPool, []*ChannelAccount{})
 		require.NoError(t, err)
 	})
 
@@ -203,7 +202,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 				PublicKey: "",
 			},
 		}
-		err := m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
+		err = m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
 		assert.EqualError(t, err, "public key cannot be empty")
 
 		channelAccounts = []*ChannelAccount{

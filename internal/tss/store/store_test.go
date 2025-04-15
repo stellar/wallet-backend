@@ -22,8 +22,11 @@ func TestUpsertTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
 	t.Run("insert", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
@@ -31,9 +34,12 @@ func TestUpsertTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 
-		tx, _ := store.GetTransaction(context.Background(), "hash")
+		var tx Transaction
+		tx, err = store.GetTransaction(context.Background(), "hash")
+		require.NoError(t, err)
 		assert.Equal(t, "xdr", tx.XDR)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 	})
@@ -45,10 +51,13 @@ func TestUpsertTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
+		err = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
+		err = store.UpsertTransaction(context.Background(), "www.stellar.org", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
+		require.NoError(t, err)
 
-		tx, _ := store.GetTransaction(context.Background(), "hash")
+		tx, err := store.GetTransaction(context.Background(), "hash")
+		require.NoError(t, err)
 		assert.Equal(t, "xdr", tx.XDR)
 		assert.Equal(t, string(entities.SuccessStatus), tx.Status)
 
@@ -65,8 +74,11 @@ func TestUpsertTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
 	t.Run("insert", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Once()
@@ -78,8 +90,11 @@ func TestUpsertTry(t *testing.T) {
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		resultXDR := "ABCD//"
 		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 
-		try, _ := store.GetTry(context.Background(), "feebumptxhash")
+		var try Try
+		try, err = store.GetTry(context.Background(), "feebumptxhash")
+		require.NoError(t, err)
 		assert.Equal(t, "hash", try.OrigTxHash)
 		assert.Equal(t, status.Status(), try.Status)
 		assert.Equal(t, code.Code(), int(try.Code))
@@ -97,11 +112,15 @@ func TestUpsertTry(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		resultXDR := "ABCD//"
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 		code = tss.RPCTXCode{OtherCodes: tss.RPCFailCode}
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 
-		try, _ := store.GetTry(context.Background(), "feebumptxhash")
+		var try Try
+		try, err = store.GetTry(context.Background(), "feebumptxhash")
+		require.NoError(t, err)
 		assert.Equal(t, "hash", try.OrigTxHash)
 		assert.Equal(t, status.Status(), try.Status)
 		assert.Equal(t, code.Code(), int(try.Code))
@@ -123,11 +142,14 @@ func TestUpsertTry(t *testing.T) {
 		status := tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}
 		code := tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxInsufficientFee}
 		resultXDR := "ABCD//"
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 		code = tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 
-		try, _ := store.GetTry(context.Background(), "feebumptxhash")
+		try, err := store.GetTry(context.Background(), "feebumptxhash")
+		require.NoError(t, err)
 		assert.Equal(t, "hash", try.OrigTxHash)
 		assert.Equal(t, status.Status(), try.Status)
 		assert.Equal(t, code.Code(), int(try.Code))
@@ -146,8 +168,11 @@ func TestGetTransaction(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
 	t.Run("transaction_exists", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
@@ -156,21 +181,21 @@ func TestGetTransaction(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
+		err = store.UpsertTransaction(context.Background(), "localhost:8000", "hash", "xdr", status)
+		require.NoError(t, err)
 
 		tx, err := store.GetTransaction(context.Background(), "hash")
-
+		require.NoError(t, err)
 		assert.Equal(t, "xdr", tx.XDR)
-		assert.Empty(t, err)
 	})
 	t.Run("transaction_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		tx, _ := store.GetTransaction(context.Background(), "doesnotexist")
-		assert.Equal(t, Transaction{}, tx)
-		assert.Empty(t, err)
+		tx, err := store.GetTransaction(context.Background(), "doesnotexist")
+		require.NoError(t, err)
+		assert.Empty(t, tx)
 	})
 }
 
@@ -180,8 +205,11 @@ func TestGetTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
 	t.Run("try_exists", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
@@ -192,24 +220,24 @@ func TestGetTry(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		resultXDR := "ABCD//"
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 
 		try, err := store.GetTry(context.Background(), "feebumptxhash")
-
+		require.NoError(t, err)
 		assert.Equal(t, "hash", try.OrigTxHash)
 		assert.Equal(t, status.Status(), try.Status)
 		assert.Equal(t, code.Code(), int(try.Code))
 		assert.Equal(t, resultXDR, try.ResultXDR)
-		assert.Empty(t, err)
 	})
 	t.Run("try_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		try, _ := store.GetTry(context.Background(), "doesnotexist")
-		assert.Equal(t, Try{}, try)
-		assert.Empty(t, err)
+		try, err := store.GetTry(context.Background(), "doesnotexist")
+		require.NoError(t, err)
+		assert.Empty(t, try)
 	})
 }
 
@@ -219,8 +247,11 @@ func TestGetTryByXDR(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+
 	t.Run("try_exists", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
@@ -231,24 +262,24 @@ func TestGetTryByXDR(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		resultXDR := "ABCD//"
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash", "feebumptxxdr", status, code, resultXDR)
+		require.NoError(t, err)
 
 		try, err := store.GetTryByXDR(context.Background(), "feebumptxxdr")
-
+		require.NoError(t, err)
 		assert.Equal(t, "hash", try.OrigTxHash)
 		assert.Equal(t, status.Status(), try.Status)
 		assert.Equal(t, code.Code(), int(try.Code))
 		assert.Equal(t, resultXDR, try.ResultXDR)
-		assert.Empty(t, err)
 	})
 	t.Run("try_does_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		try, _ := store.GetTryByXDR(context.Background(), "doesnotexist")
-		assert.Equal(t, Try{}, try)
-		assert.Empty(t, err)
+		try, err := store.GetTryByXDR(context.Background(), "doesnotexist")
+		require.NoError(t, err)
+		assert.Empty(t, try)
 	})
 }
 
@@ -258,8 +289,10 @@ func TestGetTransactionsWithStatus(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("transactions_do_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
@@ -267,9 +300,10 @@ func TestGetTransactionsWithStatus(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
-		txns, err := store.GetTransactionsWithStatus(context.Background(), status)
-		assert.Equal(t, 0, len(txns))
-		assert.Empty(t, err)
+		var txns []Transaction
+		txns, err = store.GetTransactionsWithStatus(context.Background(), status)
+		require.NoError(t, err)
+		assert.Empty(t, txns)
 	})
 
 	t.Run("transactions_exist", func(t *testing.T) {
@@ -280,15 +314,16 @@ func TestGetTransactionsWithStatus(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash1", "xdr1", status)
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000", "hash2", "xdr2", status)
+		err = store.UpsertTransaction(context.Background(), "localhost:8000", "hash1", "xdr1", status)
+		require.NoError(t, err)
+		err = store.UpsertTransaction(context.Background(), "localhost:8000", "hash2", "xdr2", status)
+		require.NoError(t, err)
 
 		txns, err := store.GetTransactionsWithStatus(context.Background(), status)
-
+		require.NoError(t, err)
 		assert.Equal(t, 2, len(txns))
 		assert.Equal(t, "hash1", txns[0].Hash)
 		assert.Equal(t, "hash2", txns[1].Hash)
-		assert.Empty(t, err)
 	})
 }
 
@@ -298,18 +333,20 @@ func TestGetLatestTry(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := NewStore(dbConnectionPool, mockMetricsService)
+	store, err := NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("tries_do_not_exist", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		try, err := store.GetLatestTry(context.Background(), "hash")
-
-		assert.Equal(t, Try{}, try)
-		assert.Empty(t, err)
+		var try Try
+		try, err = store.GetLatestTry(context.Background(), "hash")
+		require.NoError(t, err)
+		assert.Empty(t, try)
 	})
 
 	t.Run("tries_exist", func(t *testing.T) {
@@ -322,12 +359,13 @@ func TestGetLatestTry(t *testing.T) {
 		status := tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		code := tss.RPCTXCode{OtherCodes: tss.NewCode}
 		resultXDR := "ABCD//"
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash1", "feebumptxxdr1", status, code, resultXDR)
-		_ = store.UpsertTry(context.Background(), "hash", "feebumptxhash2", "feebumptxxdr2", status, code, resultXDR)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash1", "feebumptxxdr1", status, code, resultXDR)
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumptxhash2", "feebumptxxdr2", status, code, resultXDR)
+		require.NoError(t, err)
 
 		try, err := store.GetLatestTry(context.Background(), "hash")
-
+		require.NoError(t, err)
 		assert.Equal(t, "feebumptxhash2", try.Hash)
-		assert.Empty(t, err)
 	})
 }

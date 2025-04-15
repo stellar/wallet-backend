@@ -64,7 +64,8 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 
 		// Prepare request
 		address := keypair.MustRandom().Address()
-		req, err := http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
 		require.NoError(t, err)
 
 		// Serve request
@@ -174,7 +175,8 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 		require.NoError(t, err)
 
 		// Prepare request
-		req, err := http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
 		require.NoError(t, err)
 
 		// Serve request

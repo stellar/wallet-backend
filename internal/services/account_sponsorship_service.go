@@ -180,9 +180,9 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 	}
 
 	for _, op := range tx.Operations() {
-		operationXDR, err := op.BuildXDR()
-		if err != nil {
-			return "", "", fmt.Errorf("retrieving xdr for operation: %w", err)
+		operationXDR, innerErr := op.BuildXDR()
+		if innerErr != nil {
+			return "", "", fmt.Errorf("retrieving xdr for operation: %w", innerErr)
 		}
 
 		if slices.Contains(s.BlockedOperationsTypes, operationXDR.Body.Type) {

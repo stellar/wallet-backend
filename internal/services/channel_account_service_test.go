@@ -53,7 +53,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
-		err := s.EnsureChannelAccounts(ctx, 5)
+		err = s.EnsureChannelAccounts(ctx, 5)
 		require.NoError(t, err)
 	})
 

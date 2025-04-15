@@ -31,7 +31,7 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		require.NoError(t, err)
 		signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
 
-		err := signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
+		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
 		assert.EqualError(t, err, ErrStellarSignatureNotVerified.Error())
 	})
 

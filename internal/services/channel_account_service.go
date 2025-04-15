@@ -57,14 +57,14 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	ops := make([]txnbuild.Operation, 0, numOfChannelAccountsToCreate)
 	channelAccountsToInsert := []*store.ChannelAccount{}
 	for range numOfChannelAccountsToCreate {
-		kp, err := keypair.Random()
-		if err != nil {
-			return fmt.Errorf("generating random keypair for channel account: %w", err)
+		kp, innerErr := keypair.Random()
+		if innerErr != nil {
+			return fmt.Errorf("generating random keypair for channel account: %w", innerErr)
 		}
 
-		encryptedPrivateKey, err := s.PrivateKeyEncrypter.Encrypt(ctx, kp.Seed(), s.EncryptionPassphrase)
-		if err != nil {
-			return fmt.Errorf("encrypting channel account private key: %w", err)
+		encryptedPrivateKey, innerErr := s.PrivateKeyEncrypter.Encrypt(ctx, kp.Seed(), s.EncryptionPassphrase)
+		if innerErr != nil {
+			return fmt.Errorf("encrypting channel account private key: %w", innerErr)
 		}
 
 		ops = append(ops, &txnbuild.CreateAccount{
