@@ -1,0 +1,19 @@
+version: 1.64.7
+
+linters:
+  enable:
+    - gofmt
+    - gofumpt
+    - govet
+    - rowserrcheck
+    - nilerr
+    - nilnesserr
+    - errname
+    - errorlint
+    - errcheck
+    - wrapcheck
+
+formatters:
+  settings:
+    gofmt:
+      simplify: false
