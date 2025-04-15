@@ -90,7 +90,8 @@ func TestParseValidationError(t *testing.T) {
 			},
 		}
 
-		val := NewValidator()
+		val, err := NewValidator()
+		require.NoError(t, err)
 		for _, tc := range testCases {
 			err := val.Struct(tc.stc)
 			require.Error(t, err)
@@ -116,8 +117,9 @@ func TestParseValidationError(t *testing.T) {
 			SliceGT:   []string{"a", "b"},
 			SliceGTE:  []string{"a"},
 		}
-		val := NewValidator()
-		err := val.Struct(stc)
+		val, err := NewValidator()
+		require.NoError(t, err)
+		err = val.Struct(stc)
 		require.Error(t, err)
 
 		var vErrs validator.ValidationErrors
@@ -159,8 +161,9 @@ func TestParseValidationError(t *testing.T) {
 			SliceLT:   []string{"a", "b"},
 			SliceLTE:  []string{"a", "b", "c"},
 		}
-		val := NewValidator()
-		err := val.Struct(stc)
+		val, err := NewValidator()
+		require.NoError(t, err)
+		err = val.Struct(stc)
 		require.Error(t, err)
 		var vErrs validator.ValidationErrors
 		ok := errors.As(err, &vErrs)
@@ -227,8 +230,9 @@ func TestGetFieldName(t *testing.T) {
 			},
 		},
 	}
-	val := NewValidator()
-	err := val.Struct(stc)
+	val, err := NewValidator()
+	require.NoError(t, err)
+	err = val.Struct(stc)
 	require.Error(t, err)
 
 	var vErrs validator.ValidationErrors

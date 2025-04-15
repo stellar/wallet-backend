@@ -109,7 +109,7 @@ func TestBuildTransactions(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
 		expectedOps, _ := utils.BuildOperations([]string{opXDRBase64})
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 
 		mockTxService.
 			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
@@ -198,7 +198,7 @@ func TestSubmitTransactions(t *testing.T) {
 	})
 
 	t.Run("happy_path", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 		txXDR, _ := tx.Base64()
 		reqBody := fmt.Sprintf(`{
 			"webhook": "localhost:8080",

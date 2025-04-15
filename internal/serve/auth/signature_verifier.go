@@ -113,8 +113,12 @@ func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s str
 
 func VerifyGracePeriodSeconds(timestampString string, gracePeriod time.Duration) error {
 	// Note: from Nov 20th, 2286 this RegEx will fail because of an extra digit
-	if ok, _ := regexp.MatchString(`^\d{10}$`, timestampString); !ok {
+	ok, err := regexp.MatchString(`^\d{10}$`, timestampString)
+	if !ok {
 		return &InvalidTimestampFormatError{TimestampString: timestampString, timestampValueError: true}
+	}
+	if err != nil {
+		return fmt.Errorf("attempting to parse timestamp %q with regex: %w", timestampString, err)
 	}
 
 	timestampUnix, err := strconv.ParseInt(timestampString, 10, 64)

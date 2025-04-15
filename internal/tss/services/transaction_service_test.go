@@ -249,7 +249,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	})
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
-		signedTx := utils.BuildTestTransaction()
+		signedTx := utils.BuildTestTransaction(t)
 		channelAccount := keypair.MustRandom()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -307,7 +307,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("distribution_account_signature_client_get_account_public_key_err", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return("", errors.New("channel accounts unavailable")).
@@ -335,7 +335,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("signing_feebump_tx_fails", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -353,8 +353,8 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("returns_singed_feebump_tx", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
-		feeBump := utils.BuildTestFeeBumpTransaction()
+		tx := utils.BuildTestTransaction(t)
+		feeBump := utils.BuildTestFeeBumpTransaction(t)
 		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).

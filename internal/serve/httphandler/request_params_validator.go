@@ -41,7 +41,11 @@ func DecodePathAndValidate(ctx context.Context, req *http.Request, reqPath inter
 }
 
 func ValidateRequestParams(ctx context.Context, reqParams interface{}, appTracker apptracker.AppTracker) *httperror.ErrorResponse {
-	val := validators.NewValidator()
+	val, err := validators.NewValidator()
+	if err != nil {
+		return httperror.InternalServerError(ctx, "Internal error while creating a new validator.", err, nil, appTracker)
+	}
+
 	if err := val.StructCtx(ctx, reqParams); err != nil {
 		var vErrs validator.ValidationErrors
 		if ok := errors.As(err, &vErrs); ok {

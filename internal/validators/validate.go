@@ -12,11 +12,15 @@ import (
 	"github.com/stellar/go/support/log"
 )
 
-func NewValidator() *validator.Validate {
+func NewValidator() (*validator.Validate, error) {
 	validate := validator.New()
-	_ = validate.RegisterValidation("public_key", publicKeyValidation)
+	err := validate.RegisterValidation("public_key", publicKeyValidation)
+	if err != nil {
+		return nil, fmt.Errorf("registering public_key validation: %w", err)
+	}
+
 	validate.RegisterAlias("not_empty", "required")
-	return validate
+	return validate, nil
 }
 
 func publicKeyValidation(fl validator.FieldLevel) bool {

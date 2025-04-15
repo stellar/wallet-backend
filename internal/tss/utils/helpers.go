@@ -1,9 +1,6 @@
 package utils
 
 import (
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/txnbuild"
-
 	"github.com/stellar/wallet-backend/internal/tss"
 )
 
@@ -23,36 +20,4 @@ func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
 		response.CreatedAt = payload.RPCGetIngestTxResponse.CreatedAt
 	}
 	return response
-}
-
-func BuildTestTransaction() *txnbuild.Transaction {
-	accountToSponsor := keypair.MustRandom()
-
-	tx, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: accountToSponsor.Address(),
-			Sequence:  124,
-		},
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.Payment{
-				Destination: keypair.MustRandom().Address(),
-				Amount:      "14.0000000",
-				Asset:       txnbuild.NativeAsset{},
-			},
-		},
-		BaseFee:       104,
-		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-	})
-	return tx
-}
-
-func BuildTestFeeBumpTransaction() *txnbuild.FeeBumpTransaction {
-	feeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
-		txnbuild.FeeBumpTransactionParams{
-			Inner:      BuildTestTransaction(),
-			FeeAccount: keypair.MustRandom().Address(),
-			BaseFee:    110,
-		})
-	return feeBumpTx
 }
