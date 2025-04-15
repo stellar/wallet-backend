@@ -84,48 +84,41 @@ func (t *transactionService) NetworkPassphrase() string {
 }
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
-	var tx *txnbuild.Transaction
-	var channelAccountPublicKey string
-	err := db.RunInTransaction(ctx, t.DB, nil, func(dbTx db.Transaction) error {
-		var err error
-		channelAccountPublicKey, err = t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
-		if err != nil {
-			return fmt.Errorf("getting channel account public key: %w", err)
-		}
-		channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
-		if err != nil {
-			return fmt.Errorf("getting ledger sequence for channel account public key: %s: %w", channelAccountPublicKey, err)
-		}
-		tx, err = txnbuild.NewTransaction(
-			txnbuild.TransactionParams{
-				SourceAccount: &txnbuild.SimpleAccount{
-					AccountID: channelAccountPublicKey,
-					Sequence:  channelAccountSeq,
-				},
-				Operations: operations,
-				BaseFee:    int64(t.BaseFee),
-				Preconditions: txnbuild.Preconditions{
-					TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
-				},
-				IncrementSequenceNum: true,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("building transaction: %w", err)
-		}
-		txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
-		if err != nil {
-			return fmt.Errorf("unable to hashhex transaction: %w", err)
-		}
-		err = t.ChannelAccountStore.AssignTxToChannelAccount(ctx, channelAccountPublicKey, txHash)
-		if err != nil {
-			return fmt.Errorf("assigning channel account to tx: %w", err)
-		}
-		return nil
-	})
+	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
+	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("getting ledger sequence for channel account public key: %s: %w", channelAccountPublicKey, err)
+	}
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: channelAccountPublicKey,
+				Sequence:  channelAccountSeq,
+			},
+			Operations: operations,
+			BaseFee:    int64(t.BaseFee),
+			Preconditions: txnbuild.Preconditions{
+				TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
+			},
+			IncrementSequenceNum: true,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction: %w", err)
+	}
+	txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
+	if err != nil {
+		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
+	}
+
+	err = t.ChannelAccountStore.AssignTxToChannelAccount(ctx, channelAccountPublicKey, txHash)
+	if err != nil {
+		return nil, fmt.Errorf("assigning channel account to tx: %w", err)
+	}
+
 	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
