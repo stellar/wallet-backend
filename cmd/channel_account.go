@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
@@ -21,6 +22,7 @@ type channelAccountCmdConfigOptions struct {
 	BaseFee                       int
 	DistributionAccountPrivateKey string
 	EncryptionPassphrase          string
+	LogLevel                      logrus.Level
 }
 
 type channelAccountCmd struct {
@@ -31,6 +33,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 	cfg := channelAccountCmdConfigOptions{}
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.ChannelAccountEncryptionPassphraseOption(&cfg.EncryptionPassphrase),
