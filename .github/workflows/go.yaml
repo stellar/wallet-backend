@@ -20,23 +20,27 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.61
-          args: --timeout=5m
-
       - name: ./gomod.sh
         run: ./gomod.sh
 
-      - name: exhaustive github.com/nishanths/exhaustive@v0.12.0
+      - name: Run `golangci-lint@v1.64.7`
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
+          golangci-lint run
+
+      - name: Run `shadow@v0.31.0`
+        run: |
+          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0
+          shadow ./...
+
+      - name: Run `exhaustive@v0.12.0`
         run: |
           go install github.com/nishanths/exhaustive/cmd/exhaustive@v0.12.0
           exhaustive -default-signifies-exhaustive ./...
 
-      - name: deadcode golang.org/x/tools/cmd/deadcode@v0.26.0
+      - name: Run `deadcode@v0.31.0`
         run: |
-          go install golang.org/x/tools/cmd/deadcode@v0.26.0
+          go install golang.org/x/tools/cmd/deadcode@v0.31.0
           output=$(deadcode -test ./...)
           if [[ -n "$output" ]]; then
             echo "🚨 Deadcode found:"
@@ -44,6 +48,20 @@ jobs:
             exit 1
           else
             echo "✅ No deadcode found"
+          fi
+
+      - name: Run `goimports@v0.31.0`
+        run: |
+          go install golang.org/x/tools/cmd/goimports@v0.31.0
+          # Find all .go files excluding paths containing 'mock' and run goimports
+          non_compliant_files=$(find . -type f -name "*.go" ! -path "*mock*" | xargs goimports -local "github.com/stellar/stellar-disbursement-platform-backend" -l)
+
+          if [ -n "$non_compliant_files" ]; then
+            echo "🚨 The following files are not compliant with goimports:"
+            echo "$non_compliant_files"
+            exit 1
+          else
+            echo "✅ All files are compliant with goimports."
           fi
 
   build:
