@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/log"
@@ -22,9 +24,10 @@ var rootCmd = &cobra.Command{
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	SetupCLI()
 	err := rootCmd.Execute()
 	if err != nil {
-		log.Fatalf("Error executing root command: %s", err.Error())
+		panic(fmt.Errorf("executing root command: %w", err))
 	}
 }
 
@@ -33,7 +36,7 @@ func preConfigureLogger() {
 	log.DefaultLogger.SetLevel(logrus.TraceLevel)
 }
 
-func init() {
+func SetupCLI() {
 	preConfigureLogger()
 
 	rootCmd.AddCommand((&serveCmd{}).Command())
