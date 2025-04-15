@@ -83,12 +83,12 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 
 	if err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops); err != nil {
-		return fmt.Errorf("submitting create channel accounts on chain transaction: %w", err)
+		return fmt.Errorf("submitting create channel account(s) on chain transaction: %w", err)
 	}
 	log.Ctx(ctx).Infof("🎉 Successfully created %d channel account(s) on chain", numOfChannelAccountsToCreate)
 
 	if err = s.ChannelAccountStore.BatchInsert(ctx, s.DB, channelAccountsToInsert); err != nil {
-		return fmt.Errorf("inserting channel accounts: %w", err)
+		return fmt.Errorf("inserting channel account(s): %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ Successfully stored %d channel account(s) into the store", numOfChannelAccountsToCreate)
 
@@ -107,7 +107,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 		log.Ctx(ctx).Infof("👍 RPC service is healthy")
 		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 		if err != nil {
-			return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
+			return fmt.Errorf("getting ledger sequence for distribution account public key=%s: %w", distributionAccountPublicKey, err)
 		}
 
 		tx, err := txnbuild.NewTransaction(
@@ -161,7 +161,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 	for range maxRetriesForChannelAccountCreation {
 		result, err := s.RPCService.SendTransaction(signedTxXDR)
 		if err != nil {
-			return fmt.Errorf("sending transaction: %s: %w", hash, err)
+			return fmt.Errorf("sending transaction with hash %q: %w", hash, err)
 		}
 
 		//exhaustive:ignore
@@ -169,7 +169,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 		case entities.PendingStatus:
 			return nil
 		case entities.ErrorStatus:
-			return fmt.Errorf("transaction failed %s: %s", result.ErrorResultXDR, hash)
+			return fmt.Errorf("transaction with hash %q failed with errorResultXdr %s", hash, result.ErrorResultXDR)
 		case entities.TryAgainLaterStatus:
 			time.Sleep(sleepDelayForChannelAccountCreation)
 			continue
@@ -184,7 +184,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 	for range maxRetriesForChannelAccountCreation {
 		txResult, err := s.RPCService.GetTransaction(hash)
 		if err != nil {
-			return fmt.Errorf("getting transaction status response: %w", err)
+			return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
 		}
 
 		//exhaustive:ignore
@@ -195,7 +195,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 		case entities.SuccessStatus:
 			return nil
 		case entities.FailedStatus:
-			return fmt.Errorf("transaction failed: %s: %s: %s", hash, txResult.Status, txResult.ErrorResultXDR)
+			return fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
 		}
 	}
 

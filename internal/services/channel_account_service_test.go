@@ -202,7 +202,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed error_xdr")
+		assert.Contains(t, err.Error(), "failed with errorResultXdr error_xdr")
 	})
 
 	t.Run("fails_when_transaction_status_check_fails", func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed")
+		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
 	})
 
 	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
@@ -342,7 +342,7 @@ func TestSubmitTransaction(t *testing.T) {
 
 		err := s.submitTransaction(ctx, hash, signedTxXDR)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed error_xdr")
+		assert.Contains(t, err.Error(), "failed with errorResultXdr error_xdr")
 	})
 }
 
@@ -397,6 +397,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 
 		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed")
+		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
 	})
 }

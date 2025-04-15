@@ -43,12 +43,12 @@ func Test_ChannelAccountsCommand_EnsureCommand(t *testing.T) {
 	t.Run("🔴fails_if_ChannelAccountsService_fails", func(t *testing.T) {
 		mChAccService.
 			On("EnsureChannelAccounts", mock.AnythingOfType("context.backgroundCtx"), mock.AnythingOfType("*services.channelAccountService"), int64(2)).
-			Return(errors.New("unexpected error ensuring channel accounts count")).
+			Return(errors.New("foo bar baz")).
 			Once()
 		err := rootCmd.Execute()
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "ensuring the number of channel accounts is created")
-		assert.ErrorContains(t, err, "unexpected error ensuring channel accounts count")
+		assert.ErrorContains(t, err, "foo bar baz")
 	})
 
 	mChAccService.AssertExpectations(t)
