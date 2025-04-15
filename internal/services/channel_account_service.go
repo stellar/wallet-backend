@@ -22,7 +22,7 @@ const (
 	// due to the signature limit.
 	MaximumCreateAccountOperationsPerStellarTx = 19
 	maxRetriesForChannelAccountCreation        = 50
-	sleepDelayForChannelAccountCreation        = 10 * time.Second
+	sleepDelayForChannelAccountCreation        = 5 * time.Second
 	rpcHealthCheckTimeout                      = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
@@ -227,7 +227,7 @@ func (s *channelAccountService) submitTransactionWithRetry(_ context.Context, ha
 		case entities.PendingStatus:
 			return nil
 		case entities.ErrorStatus:
-			return fmt.Errorf("transaction with hash %q failed with result %s", hash, result.ErrorResultXDR)
+			return fmt.Errorf("transaction with hash %q failed with errorResultXdr %s", hash, result.ErrorResultXDR)
 		case entities.TryAgainLaterStatus:
 			time.Sleep(sleepDelayForChannelAccountCreation)
 			continue
@@ -242,7 +242,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 	for range maxRetries {
 		txResult, err := s.RPCService.GetTransaction(hash)
 		if err != nil {
-			return fmt.Errorf("getting transaction status response: %w", err)
+			return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
 		}
 
 		//exhaustive:ignore
@@ -253,7 +253,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 		case entities.SuccessStatus:
 			return nil
 		case entities.FailedStatus:
-			return fmt.Errorf("transaction failed: %s: %s: %s", hash, txResult.Status, txResult.ErrorResultXDR)
+			return fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
 		}
 	}
 
@@ -304,7 +304,7 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 
 func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
 	if err := opts.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating channel account service options: %w", err)
 	}
 
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
