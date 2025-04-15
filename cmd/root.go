@@ -32,6 +32,7 @@ var rootCmd = &cobra.Command{
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	SetupCLI()
 	err := rootCmd.Execute()
 	if err != nil {
 		panic(fmt.Errorf("executing root command: %w", err))
@@ -43,7 +44,7 @@ func preConfigureLogger() {
 	log.DefaultLogger.SetLevel(logrus.TraceLevel)
 }
 
-func init() {
+func SetupCLI() {
 	preConfigureLogger()
 	log.Info("Version: ", Version)
 	log.Info("GitCommit: ", GitCommit)
@@ -51,6 +52,6 @@ func init() {
 	rootCmd.AddCommand((&serveCmd{}).Command())
 	rootCmd.AddCommand((&ingestCmd{}).Command())
 	rootCmd.AddCommand((&migrateCmd{}).Command())
-	rootCmd.AddCommand((&channelAccountCmd{}).Command())
+	rootCmd.AddCommand((&channelAccountCmd{}).Command(&ChAccCmdService{}))
 	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
 }

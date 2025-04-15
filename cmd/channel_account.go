@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
-	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -18,6 +17,18 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
+
+type ChAccCmdServiceInterface interface {
+	EnsureChannelAccounts(ctx context.Context, chAccService services.ChannelAccountService, amount int64) error
+}
+
+type ChAccCmdService struct{}
+
+var _ ChAccCmdServiceInterface = (*ChAccCmdService)(nil)
+
+func (s *ChAccCmdService) EnsureChannelAccounts(ctx context.Context, chAccService services.ChannelAccountService, amount int64) error {
+	return chAccService.EnsureChannelAccounts(ctx, amount)
+}
 
 type channelAccountCmdConfigOptions struct {
 	DatabaseURL                   string
@@ -31,7 +42,7 @@ type channelAccountCmd struct {
 	channelAccountService services.ChannelAccountService
 }
 
-func (c *channelAccountCmd) Command() *cobra.Command {
+func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.Command {
 	cfg := channelAccountCmdConfigOptions{}
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
@@ -58,6 +69,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)
 			}
+			ctx := cmd.Context()
 
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
@@ -75,7 +87,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 
-			db, err := dbConnectionPool.SqlxDB(context.Background())
+			db, err := dbConnectionPool.SqlxDB(ctx)
 			if err != nil {
 				return fmt.Errorf("getting sqlx db: %w", err)
 			}
@@ -88,7 +100,7 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 
 			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
-			c.channelAccountService, err = services.NewChannelAccountService(cmd.Context(), services.ChannelAccountServiceOptions{
+			c.channelAccountService, err = services.NewChannelAccountService(ctx, services.ChannelAccountServiceOptions{
 				DB:                                 dbConnectionPool,
 				BaseFee:                            int64(cfg.BaseFee),
 				DistributionAccountSignatureClient: distAccSigClient,
@@ -110,7 +122,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("invalid [amount] argument=%s", args[0])
 			}
 
-			if err = c.channelAccountService.EnsureChannelAccounts(cmd.Context(), int64(amount)); err != nil {
+			err = cmdService.EnsureChannelAccounts(cmd.Context(), c.channelAccountService, int64(amount))
+			if err != nil {
 				return fmt.Errorf("ensuring the number of channel accounts is created: %w", err)
 			}
 
@@ -121,7 +134,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 	cmd.AddCommand(ensureCmd)
 
 	if err := cfgOpts.Init(cmd); err != nil {
-		log.Fatalf("Error initializing a config option: %s", err.Error())
+		err = fmt.Errorf("initializing a config option: %w", err)
+		panic(err)
 	}
 
 	return cmd
