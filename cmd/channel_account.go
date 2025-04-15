@@ -108,6 +108,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			defer distAccSigClientOpts.DBConnectionPool.Close()
 			amount, err := strconv.Atoi(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid [amount] argument=%s", args[0])
