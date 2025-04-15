@@ -24,7 +24,7 @@ func (pp *defaultPasswordPrompter) Run() (string, error) {
 	fmt.Fprint(pp.stdout, pp.inputLabelText, " ")
 	password, err := term.ReadPassword(int(pp.stdin.Fd()))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("reading password: %w", err)
 	}
 	fmt.Fprintln(pp.stdout)
 

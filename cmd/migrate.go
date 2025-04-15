@@ -77,7 +77,7 @@ func (c *migrateCmd) RunMigrateDown(ctx context.Context, databaseURL string, arg
 		return fmt.Errorf("invalid [count] argument: %s", args[0])
 	}
 	if err := executeMigrations(ctx, databaseURL, migrate.Down, count); err != nil {
-		return fmt.Errorf("executing migrate down: %v", err)
+		return fmt.Errorf("executing migrate down: %w", err)
 	}
 	return nil
 }

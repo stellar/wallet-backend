@@ -40,11 +40,11 @@ func NewTransactionManager(cfg TransactionManagerConfigs) *transactionManager {
 func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload) (tss.RPCSendTxResponse, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(payload.TransactionXDR)
 	if err != nil {
-		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
+		return tss.RPCSendTxResponse{}, errors.ErrOriginalXDRMalformed
 	}
 	tx, txEmpty := genericTx.Transaction()
 	if !txEmpty {
-		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
+		return tss.RPCSendTxResponse{}, errors.ErrOriginalXDRMalformed
 	}
 	var tryTxHash string
 	var tryTxXDR string

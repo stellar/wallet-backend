@@ -150,7 +150,6 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	assert.NoError(t, err)
 	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
-
 }
 
 func TestUnlockChannelAccountFromTx(t *testing.T) {

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -41,7 +42,7 @@ func PointOf[T any](value T) *T {
 func GetAccountLedgerKey(address string) (string, error) {
 	decoded, err := strkey.Decode(strkey.VersionByteAccountID, address)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decoding address %q: %w", address, err)
 	}
 	var key xdr.Uint256
 	copy(key[:], decoded)
@@ -55,7 +56,7 @@ func GetAccountLedgerKey(address string) (string, error) {
 		},
 	}.MarshalBinaryBase64()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshalling ledger key: %w", err)
 	}
 	return keyXdr, nil
 }
@@ -64,7 +65,7 @@ func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEnt
 	var data xdr.LedgerEntryData
 	err := xdr.SafeUnmarshalBase64(entry.DataXDR, &data)
 	if err != nil {
-		return xdr.AccountEntry{}, err
+		return xdr.AccountEntry{}, fmt.Errorf("unmarshalling ledger entry data: %w", err)
 	}
 	return data.MustAccount(), nil
 }

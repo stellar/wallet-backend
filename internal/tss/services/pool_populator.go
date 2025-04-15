@@ -126,7 +126,6 @@ func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 				TransactionXDR:  try.XDR,
 				Status:          tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
 			}
-
 		}
 		err = p.Router.Route(payload)
 		if err != nil {

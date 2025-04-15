@@ -43,6 +43,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+//nolint:wrapcheck // This is a thin wrapper around the ResponseWriter
 func (rw *responseWriter) Write(b []byte) (int, error) {
 	// If WriteHeader hasn't been called yet, we assume it's a 200
 	if rw.statusCode == 0 {

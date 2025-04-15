@@ -123,7 +123,6 @@ func TestGetLedgerTransactions(t *testing.T) {
 		assert.Equal(t, txns[2].Hash, "hash3")
 		assert.NoError(t, err)
 	})
-
 }
 
 func TestProcessTSSTransactions(t *testing.T) {

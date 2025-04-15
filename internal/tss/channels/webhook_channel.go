@@ -111,7 +111,6 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 			log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
 		}
 	}
-
 }
 
 func (p *webhookPool) UnlockChannelAccount(ctx context.Context, txXDR string) error {

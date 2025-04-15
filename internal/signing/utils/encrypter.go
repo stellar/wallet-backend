@@ -30,12 +30,12 @@ func (e *DefaultPrivateKeyEncrypter) Encrypt(ctx context.Context, message, passp
 
 	block, err := aes.NewCipher([]byte(key))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("creating aes cipher: %w", err)
 	}
 
 	gcmCipher, err := cipher.NewGCM(block)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("creating gcm cipher: %w", err)
 	}
 
 	nonce := make([]byte, gcmCipher.NonceSize())
@@ -60,17 +60,17 @@ func (e *DefaultPrivateKeyEncrypter) Decrypt(ctx context.Context, encryptedMessa
 
 	block, err := aes.NewCipher([]byte(key))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("creating aes cipher: %w", err)
 	}
 
 	gcmCipher, err := cipher.NewGCM(block)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("creating gcm cipher: %w", err)
 	}
 
 	decodedMsg, err := base64.StdEncoding.DecodeString(encryptedMessage)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decoding encrypted message: %w", err)
 	}
 
 	nonceSize := gcmCipher.NonceSize()
@@ -78,7 +78,7 @@ func (e *DefaultPrivateKeyEncrypter) Decrypt(ctx context.Context, encryptedMessa
 
 	plainText, err := gcmCipher.Open(nil, nonce, cipheredText, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decrypting and authenticating message: %w", err)
 	}
 
 	return string(plainText), nil

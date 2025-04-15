@@ -66,8 +66,8 @@ func TestExtractTimestampedSignature(t *testing.T) {
 		assert.Empty(t, s)
 
 		ts, s, err = ExtractTimestampedSignature("a,b")
-		var errTimestampFormat *ErrInvalidTimestampFormat
-		assert.ErrorAs(t, err, &errTimestampFormat)
+		var invalidTimestampFormatErr *InvalidTimestampFormatError
+		assert.ErrorAs(t, err, &invalidTimestampFormatErr)
 		assert.EqualError(t, err, "malformed timestamp: a")
 		assert.Empty(t, ts)
 		assert.Empty(t, s)
@@ -88,26 +88,26 @@ func TestExtractTimestampedSignature(t *testing.T) {
 
 func TestVerifyGracePeriodSeconds(t *testing.T) {
 	t.Run("invalid_timestamp", func(t *testing.T) {
-		var errTimestampFormat *ErrInvalidTimestampFormat
+		var invalidTimestampFormatErr *InvalidTimestampFormatError
 		err := VerifyGracePeriodSeconds("", 2*time.Second)
-		assert.ErrorAs(t, err, &errTimestampFormat)
+		assert.ErrorAs(t, err, &invalidTimestampFormatErr)
 		assert.EqualError(t, err, "signature format different than expected. expected unix seconds, got: ")
 
 		err = VerifyGracePeriodSeconds("123", 2*time.Second)
-		assert.ErrorAs(t, err, &errTimestampFormat)
+		assert.ErrorAs(t, err, &invalidTimestampFormatErr)
 		assert.EqualError(t, err, "signature format different than expected. expected unix seconds, got: 123")
 
 		err = VerifyGracePeriodSeconds("12345678910", 2*time.Second)
-		assert.ErrorAs(t, err, &errTimestampFormat)
+		assert.ErrorAs(t, err, &invalidTimestampFormatErr)
 		assert.EqualError(t, err, "signature format different than expected. expected unix seconds, got: 12345678910")
 	})
 
 	t.Run("successfully_verifies_grace_period", func(t *testing.T) {
-		var errExpiredSignatureTimestamp *ErrExpiredSignatureTimestamp
+		var expiredSignatureTimestampErr *ExpiredSignatureTimestampError
 		now := time.Now().Add(-5 * time.Second)
 		ts := now.Unix()
 		err := VerifyGracePeriodSeconds(strconv.FormatInt(ts, 10), 2*time.Second)
-		assert.ErrorAs(t, err, &errExpiredSignatureTimestamp)
+		assert.ErrorAs(t, err, &expiredSignatureTimestampErr)
 		assert.ErrorContains(t, err, fmt.Sprintf("signature timestamp has expired. sig timestamp: %s, check time", now.Format(time.RFC3339)))
 
 		now = time.Now().Add(-1 * time.Second)

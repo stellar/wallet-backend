@@ -2,6 +2,7 @@ package httphandler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -42,7 +43,8 @@ func DecodePathAndValidate(ctx context.Context, req *http.Request, reqPath inter
 func ValidateRequestParams(ctx context.Context, reqParams interface{}, appTracker apptracker.AppTracker) *httperror.ErrorResponse {
 	val := validators.NewValidator()
 	if err := val.StructCtx(ctx, reqParams); err != nil {
-		if vErrs, ok := err.(validator.ValidationErrors); ok {
+		var vErrs validator.ValidationErrors
+		if ok := errors.As(err, &vErrs); ok {
 			extras := validators.ParseValidationError(vErrs)
 			return httperror.BadRequest("Validation error.", extras)
 		}

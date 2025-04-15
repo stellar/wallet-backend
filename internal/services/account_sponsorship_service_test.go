@@ -406,8 +406,8 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		require.NoError(t, err)
 
 		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
-		var errOperationNotAllowed *ErrOperationNotAllowed
-		assert.ErrorAs(t, err, &errOperationNotAllowed)
+		var opNotAllowedErr *OperationNotAllowedError
+		assert.ErrorAs(t, err, &opNotAllowedErr)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
 	})

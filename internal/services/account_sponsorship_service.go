@@ -24,11 +24,11 @@ var (
 	ErrAccountNotFound                     = errors.New("account not found")
 )
 
-type ErrOperationNotAllowed struct {
+type OperationNotAllowedError struct {
 	OperationType xdr.OperationType
 }
 
-func (e ErrOperationNotAllowed) Error() string {
+func (e OperationNotAllowedError) Error() string {
 	return fmt.Sprintf("operation %s not allowed", e.OperationType.String())
 }
 
@@ -67,7 +67,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 
 	fullSignerWeight, err := entities.ValidateSignersWeights(signers)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("validating signers weights: %w", err)
 	}
 
 	// Make sure the total number of entries does not exceed the numSponsoredThreshold
@@ -187,7 +187,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 
 		if slices.Contains(s.BlockedOperationsTypes, operationXDR.Body.Type) {
 			log.Ctx(ctx).Warnf("blocked operation type: %s", operationXDR.Body.Type.String())
-			return "", "", &ErrOperationNotAllowed{OperationType: operationXDR.Body.Type}
+			return "", "", &OperationNotAllowedError{OperationType: operationXDR.Body.Type}
 		}
 	}
 

@@ -128,7 +128,6 @@ func TestBuildTransactions(t *testing.T) {
 		expectedTxXDR, _ := tx.Base64()
 		assert.Equal(t, expectedTxXDR, buildTxResp.TransactionXDRs[0])
 	})
-
 }
 
 func TestSubmitTransactions(t *testing.T) {
@@ -196,7 +195,6 @@ func TestSubmitTransactions(t *testing.T) {
 		expectedRespBody = `{"error": "bad transaction xdr"}`
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		assert.JSONEq(t, expectedRespBody, string(respBody))
-
 	})
 
 	t.Run("happy_path", func(t *testing.T) {
@@ -343,7 +341,5 @@ func TestGetTransaction(t *testing.T) {
 		assert.Empty(t, tssResp.TransactionHash)
 		assert.Empty(t, tssResp.EnvelopeXDR)
 		assert.Empty(t, tssResp.Status)
-
 	})
-
 }

@@ -13,6 +13,13 @@ linters:
     - errcheck
     - wrapcheck
 
+  settings:
+    wrapcheck:
+      ignore-sig-regexps:
+        - ^Mock.*
+        - .*Mock$
+        - ^Test.*
+
 formatters:
   settings:
     gofmt:

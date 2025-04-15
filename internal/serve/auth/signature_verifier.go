@@ -20,28 +20,26 @@ type SignatureVerifier interface {
 	VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error
 }
 
-var (
-	ErrStellarSignatureNotVerified = errors.New("neither Signature nor X-Stellar-Signature header could be verified")
-)
+var ErrStellarSignatureNotVerified = errors.New("neither Signature nor X-Stellar-Signature header could be verified")
 
-type ErrInvalidTimestampFormat struct {
+type InvalidTimestampFormatError struct {
 	TimestampString     string
 	timestampValueError bool
 }
 
-func (e ErrInvalidTimestampFormat) Error() string {
+func (e InvalidTimestampFormatError) Error() string {
 	if e.timestampValueError {
 		return fmt.Sprintf("signature format different than expected. expected unix seconds, got: %s", e.TimestampString)
 	}
 	return fmt.Sprintf("malformed timestamp: %s", e.TimestampString)
 }
 
-type ErrExpiredSignatureTimestamp struct {
+type ExpiredSignatureTimestampError struct {
 	ExpiredSignatureTimestamp time.Time
 	CheckTime                 time.Time
 }
 
-func (e ErrExpiredSignatureTimestamp) Error() string {
+func (e ExpiredSignatureTimestampError) Error() string {
 	return fmt.Sprintf("signature timestamp has expired. sig timestamp: %s, check time %s", e.ExpiredSignatureTimestamp.Format(time.RFC3339), e.CheckTime.Format(time.RFC3339))
 }
 
@@ -99,7 +97,7 @@ func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s str
 	tHeaderContent := parts[0]
 	timestampParts := strings.SplitN(tHeaderContent, "=", 2)
 	if len(timestampParts) != 2 || strings.TrimSpace(timestampParts[0]) != "t" {
-		return "", "", &ErrInvalidTimestampFormat{TimestampString: tHeaderContent}
+		return "", "", &InvalidTimestampFormatError{TimestampString: tHeaderContent}
 	}
 	t = strings.TrimSpace(timestampParts[1])
 
@@ -116,12 +114,12 @@ func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s str
 func VerifyGracePeriodSeconds(timestampString string, gracePeriod time.Duration) error {
 	// Note: from Nov 20th, 2286 this RegEx will fail because of an extra digit
 	if ok, _ := regexp.MatchString(`^\d{10}$`, timestampString); !ok {
-		return &ErrInvalidTimestampFormat{TimestampString: timestampString, timestampValueError: true}
+		return &InvalidTimestampFormatError{TimestampString: timestampString, timestampValueError: true}
 	}
 
 	timestampUnix, err := strconv.ParseInt(timestampString, 10, 64)
 	if err != nil {
-		return fmt.Errorf("unable to parse timestamp value %s: %v", timestampString, err)
+		return fmt.Errorf("unable to parse timestamp value %s: %w", timestampString, err)
 	}
 
 	return verifyGracePeriod(time.Unix(timestampUnix, 0), gracePeriod)
@@ -130,7 +128,7 @@ func VerifyGracePeriodSeconds(timestampString string, gracePeriod time.Duration)
 func verifyGracePeriod(timestamp time.Time, gracePeriod time.Duration) error {
 	now := time.Now()
 	if !timestamp.Add(gracePeriod).After(now) {
-		return &ErrExpiredSignatureTimestamp{ExpiredSignatureTimestamp: timestamp, CheckTime: now}
+		return &ExpiredSignatureTimestampError{ExpiredSignatureTimestamp: timestamp, CheckTime: now}
 	}
 
 	return nil

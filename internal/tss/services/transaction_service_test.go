@@ -36,7 +36,6 @@ func TestValidateOptions(t *testing.T) {
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "DB cannot be nil", err.Error())
-
 	})
 	t.Run("return_error_when_distribution_signature_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
@@ -49,7 +48,6 @@ func TestValidateOptions(t *testing.T) {
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "distribution account signature client cannot be nil", err.Error())
-
 	})
 
 	t.Run("return_error_when_channel_signature_client_nil", func(t *testing.T) {
@@ -176,7 +174,6 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
 		assert.Equal(t, atomicTxErrorPrefix+"building transaction: transaction has no operations", err.Error())
-
 	})
 
 	t.Run("lock_channel_account_to_tx_err", func(t *testing.T) {
@@ -374,5 +371,4 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 		assert.Equal(t, feeBump, feeBumpTx)
 		assert.NoError(t, err)
 	})
-
 }

@@ -70,7 +70,6 @@ func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
 	resultBytes, err := r.sendRPCRequest("getTransaction", entities.RPCParams{Hash: transactionHash})
-
 	if err != nil {
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("sending getTransaction request: %w", err)
 	}
@@ -111,7 +110,7 @@ func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limi
 func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	resultBytes, err := r.sendRPCRequest("getHealth", entities.RPCParams{})
 	if err != nil {
-		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %v", err)
+		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %w", err)
 	}
 
 	var result entities.RPCGetHealthResult
@@ -140,7 +139,6 @@ func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntri
 }
 
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
-
 	resultBytes, err := r.sendRPCRequest("sendTransaction", entities.RPCParams{Transaction: transactionXDR})
 	if err != nil {
 		return entities.RPCSendTransactionResult{}, fmt.Errorf("sending sendTransaction request: %w", err)

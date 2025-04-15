@@ -48,7 +48,6 @@ func BuildTestTransaction() *txnbuild.Transaction {
 }
 
 func BuildTestFeeBumpTransaction() *txnbuild.FeeBumpTransaction {
-
 	feeBumpTx, _ := txnbuild.NewFeeBumpTransaction(
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      BuildTestTransaction(),

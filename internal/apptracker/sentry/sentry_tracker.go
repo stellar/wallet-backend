@@ -36,5 +36,4 @@ func NewSentryTracker(dsn string, env string, flushFreq int) (*SentryTracker, er
 	defer FlushFunc(time.Second * time.Duration(flushFreq))
 	defer RecoverFunc()
 	return &SentryTracker{}, nil
-
 }

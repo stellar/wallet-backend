@@ -1,6 +1,7 @@
 package validators
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-playground/validator/v10"
@@ -93,7 +94,8 @@ func TestParseValidationError(t *testing.T) {
 		for _, tc := range testCases {
 			err := val.Struct(tc.stc)
 			require.Error(t, err)
-			vErrs, ok := err.(validator.ValidationErrors)
+			var vErrs validator.ValidationErrors
+			ok := errors.As(err, &vErrs)
 			require.True(t, ok)
 			fieldErrors := ParseValidationError(vErrs)
 			assert.Equal(t, tc.expectedFieldErrors, fieldErrors)
@@ -117,7 +119,9 @@ func TestParseValidationError(t *testing.T) {
 		val := NewValidator()
 		err := val.Struct(stc)
 		require.Error(t, err)
-		vErrs, ok := err.(validator.ValidationErrors)
+
+		var vErrs validator.ValidationErrors
+		ok := errors.As(err, &vErrs)
 		require.True(t, ok)
 		fieldErrors := ParseValidationError(vErrs)
 		assert.Equal(t, map[string]interface{}{
@@ -158,7 +162,8 @@ func TestParseValidationError(t *testing.T) {
 		val := NewValidator()
 		err := val.Struct(stc)
 		require.Error(t, err)
-		vErrs, ok := err.(validator.ValidationErrors)
+		var vErrs validator.ValidationErrors
+		ok := errors.As(err, &vErrs)
 		require.True(t, ok)
 		fieldErrors := ParseValidationError(vErrs)
 		assert.Equal(t, map[string]interface{}{
@@ -226,7 +231,8 @@ func TestGetFieldName(t *testing.T) {
 	err := val.Struct(stc)
 	require.Error(t, err)
 
-	vErrs, ok := err.(validator.ValidationErrors)
+	var vErrs validator.ValidationErrors
+	ok := errors.As(err, &vErrs)
 	require.True(t, ok)
 	require.Len(t, vErrs, 2)
 

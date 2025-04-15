@@ -378,5 +378,4 @@ func TestBuildOperations(t *testing.T) {
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})
-
 }

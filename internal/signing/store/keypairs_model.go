@@ -28,7 +28,8 @@ func (k *KeypairModel) Insert(ctx context.Context, publicKey string, encryptedPr
 	`
 	_, err := k.DB.ExecContext(ctx, query, publicKey, encryptedPrivateKey)
 	if err != nil {
-		if pqError, ok := err.(*pq.Error); ok && pqError.Constraint == "keypairs_pkey" {
+		var pqError *pq.Error
+		if ok := errors.As(err, &pqError); ok && pqError.Constraint == "keypairs_pkey" {
 			return ErrPublicKeyAlreadyExists
 		}
 		return fmt.Errorf("inserting keypair for public key %s: %w", publicKey, err)

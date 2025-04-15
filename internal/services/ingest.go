@@ -157,7 +157,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 }
 
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
-
 	var ledgerTransactions []entities.Transaction
 	var cursor string
 	lastLedgerSeen := ledger
@@ -181,7 +180,7 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 }
 
 func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
-	return db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
+	err := db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
 		paymentOpsIngested := 0
 		pathPaymentStrictSendOpsIngested := 0
 		pathPaymentStrictReceiveOpsIngested := 0
@@ -244,6 +243,11 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 		m.metricsService.SetNumPaymentOpsIngestedPerLedger(pathPaymentStrictReceivePrometheusLabel, pathPaymentStrictReceiveOpsIngested)
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("ingesting payments: %w", err)
+	}
+
+	return nil
 }
 
 func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransactions []entities.Transaction) error {

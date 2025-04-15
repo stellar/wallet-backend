@@ -840,7 +840,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 
 		asService.
 			On("WrapTransaction", req.Context(), tx).
-			Return("", "", &services.ErrOperationNotAllowed{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
+			Return("", "", &services.OperationNotAllowedError{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
 			Once()
 
 		http.HandlerFunc(handler.CreateFeeBumpTransaction).ServeHTTP(rw, req)
