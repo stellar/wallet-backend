@@ -31,6 +31,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	ctx := context.Background()
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -103,7 +104,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -179,7 +180,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -233,7 +234,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(network.TestNetworkPassphrase).
 			Once()
 		defer signatureClient.AssertExpectations(t)
-		
+
 		// Create and set up the heartbeat channel
 		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
@@ -298,6 +299,7 @@ func TestSubmitTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -353,6 +355,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
