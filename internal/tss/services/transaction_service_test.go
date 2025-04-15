@@ -121,7 +121,6 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
-	atomicTxErrorPrefix := "running atomic function in RunInTransactionWithResult: "
 	t.Run("channel_account_signature_client_get_account_public_key_err", func(t *testing.T) {
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -132,7 +131,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"getting channel account public key: channel accounts unavailable", err.Error())
+		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
 	})
 
 	t.Run("rpc_client_get_account_seq_err", func(t *testing.T) {
@@ -152,8 +151,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key: %s: rpc service down", channelAccount.Address())
-		assert.Equal(t, atomicTxErrorPrefix+expectedErr.Error(), err.Error())
+		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key %q: rpc service down", channelAccount.Address())
+		assert.Equal(t, expectedErr.Error(), err.Error())
 	})
 
 	t.Run("build_tx_fails", func(t *testing.T) {
@@ -173,7 +172,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"building transaction: transaction has no operations", err.Error())
+		assert.Equal(t, "building transaction: transaction has no operations", err.Error())
 	})
 
 	t.Run("lock_channel_account_to_tx_err", func(t *testing.T) {
@@ -208,7 +207,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccountSignatureClient.AssertExpectations(t)
 		channelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"assigning channel account to tx: unable to assign channel account to tx", err.Error())
+		assert.Equal(t, "assigning channel account to tx: unable to assign channel account to tx", err.Error())
 	})
 
 	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {

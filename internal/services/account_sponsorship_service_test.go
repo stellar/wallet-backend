@@ -83,7 +83,7 @@ func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T
 		}
 
 		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, []entities.Asset{})
-		assert.EqualError(t, err, "no full signers provided")
+		assert.EqualError(t, err, "validating signers weights: no full signers provided")
 		assert.Empty(t, txe)
 		assert.Empty(t, networkPassphrase)
 	})

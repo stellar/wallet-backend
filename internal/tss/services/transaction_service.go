@@ -90,7 +90,7 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	}
 	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting ledger sequence for channel account public key: %s: %w", channelAccountPublicKey, err)
+		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)
 	}
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
