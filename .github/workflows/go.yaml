@@ -23,9 +23,9 @@ jobs:
       - name: ./gomod.sh
         run: ./gomod.sh
 
-      - name: Run `golangci-lint@v1.64.7`
+      - name: Run `golangci-lint@v2.1.2`
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.7
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.1.2
           golangci-lint run
 
       - name: Run `shadow@v0.31.0`
