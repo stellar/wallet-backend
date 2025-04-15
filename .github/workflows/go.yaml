@@ -97,3 +97,22 @@ jobs:
 
       - name: Run tests
         run: gotestsum --format-hide-empty-pkg --format pkgname-and-test-fails -- -coverprofile=c.out ./... -timeout 3m -coverpkg ./...
+
+      - name: Validate Test Coverage Threshold
+        env:
+          TESTCOVERAGE_THRESHOLD: 65 # percentage
+        run: |
+          echo "Quality Gate:   Checking if test coverage is above threshold..."
+          echo "Threshold:      $TESTCOVERAGE_THRESHOLD%"
+          totalCoverage=`./scripts/exclude_from_coverage.sh && go tool cover -func=c.out  | grep total: | grep -Eo '[0-9]+\.[0-9]+'`
+          echo "Test Coverage:  $totalCoverage%"
+          echo "-------------------------"
+          if (( $(echo "$totalCoverage $TESTCOVERAGE_THRESHOLD" | awk '{print ($1 >= $2)}') )); then
+            echo "        $totalCoverage% > $TESTCOVERAGE_THRESHOLD%"
+            echo "Current test coverage is above threshold 🎉🎉🎉! Please keep up the good work!"
+          else
+            echo "        $totalCoverage% < $TESTCOVERAGE_THRESHOLD%"
+            echo "🚨 Current test coverage is below threshold 😱! Please add more unit tests or adjust threshold to a lower value."
+            echo "Failed 😭"
+            exit 1
+          fi
