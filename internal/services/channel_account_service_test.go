@@ -301,6 +301,7 @@ func TestSubmitTransaction(t *testing.T) {
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
+	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -324,7 +325,6 @@ func TestSubmitTransaction(t *testing.T) {
 			On("SendTransaction", signedTxXDR).
 			Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.submitTransaction(ctx, hash, signedTxXDR)
 		require.NoError(t, err)
@@ -338,7 +338,6 @@ func TestSubmitTransaction(t *testing.T) {
 				ErrorResultXDR: "error_xdr",
 			}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.submitTransaction(ctx, hash, signedTxXDR)
 		require.Error(t, err)
