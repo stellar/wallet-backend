@@ -31,12 +31,12 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	ctx := context.Background()
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -298,13 +298,14 @@ func TestSubmitTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -315,7 +316,6 @@ func TestSubmitTransaction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
 
@@ -354,13 +354,14 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", mock.Anything).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -371,7 +372,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	hash := "test_hash"
 
 	t.Run("successful", func(t *testing.T) {

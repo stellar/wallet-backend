@@ -244,12 +244,12 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 	return nil
 }
 
-func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccountService, error) {
+func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
 
-	go opts.RPCService.TrackRPCServiceHealth(context.Background())
+	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
