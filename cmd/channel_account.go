@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
@@ -74,6 +77,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)
 			}
+			ctx := cmd.Context()
 
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
@@ -91,6 +95,17 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 
+			db, err := dbConnectionPool.SqlxDB(ctx)
+			if err != nil {
+				return fmt.Errorf("getting sqlx db: %w", err)
+			}
+			metricsService := metrics.NewMetricsService(db)
+			httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+			rpcService, err := services.NewRPCService("http://localhost:8000", &httpClient, metricsService)
+			if err != nil {
+				return fmt.Errorf("instantiating rpc service: %w", err)
+			}
+
 			channelAccountModel := store.ChannelAccountModel{DB: dbConnectionPool}
 			privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 			c.channelAccountService, err = services.NewChannelAccountService(services.ChannelAccountServiceOptions{
@@ -100,6 +115,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				ChannelAccountStore:                &channelAccountModel,
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
 				EncryptionPassphrase:               cfg.EncryptionPassphrase,
+				RPCService:                         rpcService,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
