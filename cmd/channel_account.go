@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -16,6 +17,22 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
+// ChAccCmdServiceInterface is the interface for the channel account command service. It is used to allow mocking the
+// service in tests.
+type ChAccCmdServiceInterface interface {
+	EnsureChannelAccounts(ctx context.Context, chAccService services.ChannelAccountService, amount int64) error
+}
+
+// ChAccCmdService is the implementation of the channel account command service. When not mocked, it acts like a proxy
+// to the real service.
+type ChAccCmdService struct{}
+
+var _ ChAccCmdServiceInterface = (*ChAccCmdService)(nil)
+
+func (s *ChAccCmdService) EnsureChannelAccounts(ctx context.Context, chAccService services.ChannelAccountService, amount int64) error {
+	return chAccService.EnsureChannelAccounts(ctx, amount)
+}
+
 type channelAccountCmdConfigOptions struct {
 	DatabaseURL                   string
 	NetworkPassphrase             string
@@ -29,7 +46,7 @@ type channelAccountCmd struct {
 	channelAccountService services.ChannelAccountService
 }
 
-func (c *channelAccountCmd) Command() *cobra.Command {
+func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.Command {
 	cfg := channelAccountCmdConfigOptions{}
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
@@ -96,7 +113,8 @@ func (c *channelAccountCmd) Command() *cobra.Command {
 				return fmt.Errorf("invalid [amount] argument=%s", args[0])
 			}
 
-			if err = c.channelAccountService.EnsureChannelAccounts(cmd.Context(), int64(amount)); err != nil {
+			err = cmdService.EnsureChannelAccounts(cmd.Context(), c.channelAccountService, int64(amount))
+			if err != nil {
 				return fmt.Errorf("ensuring the number of channel accounts is created: %w", err)
 			}
 
