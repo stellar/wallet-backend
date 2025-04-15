@@ -199,9 +199,9 @@ type Payload struct {
 	// The xdr of the transaction
 	TransactionXDR string
 	// Relevant fields in an RPC sendTransaction response
-	RpcSubmitTxResponse RPCSendTxResponse
+	RPCSubmitTxResponse RPCSendTxResponse
 	// Relevant fields in the transaction list inside the RPC getTransactions response
-	RpcGetIngestTxResponse RPCGetIngestTxResponse
+	RPCGetIngestTxResponse RPCGetIngestTxResponse
 	// indicates if the transaction to be built from this payload should be wrapped in a fee bump transaction
 	FeeBump bool
 }

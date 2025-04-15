@@ -298,7 +298,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 			CreatedAt:   int64(tx.CreatedAt),
 		}
 		payload := tss.Payload{
-			RpcGetIngestTxResponse: tssGetIngestResponse,
+			RPCGetIngestTxResponse: tssGetIngestResponse,
 		}
 		err = m.tssRouter.Route(payload)
 		if err != nil {

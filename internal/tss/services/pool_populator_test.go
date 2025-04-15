@@ -47,7 +47,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			TransactionHash:     "hash",
 			TransactionXDR:      "xdr",
 			WebhookURL:          "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
 		}
 		mockRouter.
 			On("Route", expectedPayload).
@@ -76,7 +76,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			TransactionHash:     "hash",
 			TransactionXDR:      "xdr",
 			WebhookURL:          "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
 		}
 
 		mockRouter.
@@ -121,7 +121,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
@@ -157,7 +157,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
@@ -206,7 +206,7 @@ func TestRouteFinalTransactions(t *testing.T) {
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcGetIngestTxResponse: tss.RPCGetIngestTxResponse{
+			RPCGetIngestTxResponse: tss.RPCGetIngestTxResponse{
 				Status:      entities.SuccessStatus,
 				Code:        tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess},
 				EnvelopeXDR: "feebumpxdr",
@@ -256,7 +256,7 @@ func TestNotSentTransactions(t *testing.T) {
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.SuccessStatus},

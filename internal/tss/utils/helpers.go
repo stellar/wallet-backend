@@ -10,17 +10,17 @@ import (
 func PayloadTOTSSResponse(payload tss.Payload) tss.TSSResponse {
 	response := tss.TSSResponse{}
 	response.TransactionHash = payload.TransactionHash
-	if payload.RpcSubmitTxResponse.Status.Status() != "" {
-		response.Status = string(payload.RpcSubmitTxResponse.Status.Status())
-		response.TransactionResultCode = payload.RpcSubmitTxResponse.Code.TxResultCode.String()
-		response.EnvelopeXDR = payload.RpcSubmitTxResponse.TransactionXDR
-		response.ResultXDR = payload.RpcSubmitTxResponse.ErrorResultXDR
-	} else if payload.RpcGetIngestTxResponse.Status != "" {
-		response.Status = string(payload.RpcGetIngestTxResponse.Status)
-		response.TransactionResultCode = payload.RpcGetIngestTxResponse.Code.TxResultCode.String()
-		response.EnvelopeXDR = payload.RpcGetIngestTxResponse.EnvelopeXDR
-		response.ResultXDR = payload.RpcGetIngestTxResponse.ResultXDR
-		response.CreatedAt = payload.RpcGetIngestTxResponse.CreatedAt
+	if payload.RPCSubmitTxResponse.Status.Status() != "" {
+		response.Status = string(payload.RPCSubmitTxResponse.Status.Status())
+		response.TransactionResultCode = payload.RPCSubmitTxResponse.Code.TxResultCode.String()
+		response.EnvelopeXDR = payload.RPCSubmitTxResponse.TransactionXDR
+		response.ResultXDR = payload.RPCSubmitTxResponse.ErrorResultXDR
+	} else if payload.RPCGetIngestTxResponse.Status != "" {
+		response.Status = string(payload.RPCGetIngestTxResponse.Status)
+		response.TransactionResultCode = payload.RPCGetIngestTxResponse.Code.TxResultCode.String()
+		response.EnvelopeXDR = payload.RPCGetIngestTxResponse.EnvelopeXDR
+		response.ResultXDR = payload.RPCGetIngestTxResponse.ResultXDR
+		response.CreatedAt = payload.RPCGetIngestTxResponse.CreatedAt
 	}
 	return response
 }

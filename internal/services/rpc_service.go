@@ -233,7 +233,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
-	defer resp.Body.Close()
+	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

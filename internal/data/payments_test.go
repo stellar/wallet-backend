@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 	"time"
 
@@ -71,7 +70,7 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	fetchPayment := func() (Payment, error) {
 		var dbPayment Payment
 		err := dbConnectionPool.GetContext(ctx, &dbPayment, "SELECT * FROM ingest_payments")
-		return dbPayment, fmt.Errorf("selecting ingest_payments: %w", err)
+		return dbPayment, err
 	}
 
 	cleanUpDB := func() {

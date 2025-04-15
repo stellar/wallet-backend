@@ -53,7 +53,7 @@ func TestSend(t *testing.T) {
 	rpcResp := tss.RPCSendTxResponse{
 		Status: tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
 	}
-	payload.RpcSubmitTxResponse = rpcResp
+	payload.RPCSubmitTxResponse = rpcResp
 
 	txManagerMock.
 		On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
@@ -124,7 +124,7 @@ func TestReceive(t *testing.T) {
 		rpcResp := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 		}
-		payload.RpcSubmitTxResponse = rpcResp
+		payload.RPCSubmitTxResponse = rpcResp
 
 		txManagerMock.
 			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).

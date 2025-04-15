@@ -73,14 +73,14 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
 		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 
-		oldStatus := payload.RpcSubmitTxResponse.Status.Status()
+		oldStatus := payload.RPCSubmitTxResponse.Status.Status()
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorJitterChannelName, payload)
 		if err != nil {
 			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
 			return
 		}
 
-		payload.RpcSubmitTxResponse = rpcSendResp
+		payload.RPCSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.JitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {

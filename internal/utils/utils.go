@@ -2,11 +2,14 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -68,4 +71,14 @@ func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEnt
 		return xdr.AccountEntry{}, fmt.Errorf("unmarshalling ledger entry data: %w", err)
 	}
 	return data.MustAccount(), nil
+}
+
+// DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.
+func DeferredClose(ctx context.Context, closer io.Closer, errMsg string) {
+	if err := closer.Close(); err != nil {
+		if errMsg == "" {
+			errMsg = "closing resource"
+		}
+		log.Ctx(ctx).Errorf("%s: %v", errMsg, err)
+	}
 }

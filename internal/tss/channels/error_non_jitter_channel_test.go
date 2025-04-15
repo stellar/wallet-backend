@@ -52,7 +52,7 @@ func TestNonJitterSend(t *testing.T) {
 		Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 		Code:   tss.RPCTXCode{TxResultCode: tss.JitterErrorCodes[0]},
 	}
-	payload.RpcSubmitTxResponse = rpcResp
+	payload.RPCSubmitTxResponse = rpcResp
 
 	txManagerMock.
 		On("BuildAndSubmitTransaction", context.Background(), ErrorNonJitterChannelName, payload).

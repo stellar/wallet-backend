@@ -39,19 +39,19 @@ func NewRouter(cfg RouterConfigs) Router {
 
 func (r *router) Route(payload tss.Payload) error {
 	var channel tss.Channel
-	if payload.RpcSubmitTxResponse.Status.Status() != "" {
-		switch payload.RpcSubmitTxResponse.Status {
+	if payload.RPCSubmitTxResponse.Status.Status() != "" {
+		switch payload.RPCSubmitTxResponse.Status {
 		case tss.RPCTXStatus{OtherStatus: tss.NewStatus}:
 			channel = r.RPCCallerChannel
 		case tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus}:
 			channel = r.ErrorJitterChannel
 		case tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}:
-			if payload.RpcSubmitTxResponse.Code.OtherCodes == tss.NoCode {
-				if slices.Contains(tss.JitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+			if payload.RPCSubmitTxResponse.Code.OtherCodes == tss.NoCode {
+				if slices.Contains(tss.JitterErrorCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorJitterChannel
-				} else if slices.Contains(tss.NonJitterErrorCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				} else if slices.Contains(tss.NonJitterErrorCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorNonJitterChannel
-				} else if slices.Contains(tss.FinalCodes, payload.RpcSubmitTxResponse.Code.TxResultCode) {
+				} else if slices.Contains(tss.FinalCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
 					channel = r.WebhookChannel
 				}
 			}
@@ -63,7 +63,7 @@ func (r *router) Route(payload tss.Payload) error {
 			// Do nothing for PENDING / DUPLICATE statuses
 			return nil
 		}
-	} else if payload.RpcGetIngestTxResponse.Status != "" {
+	} else if payload.RPCGetIngestTxResponse.Status != "" {
 		channel = r.WebhookChannel
 	} else {
 		channel = r.RPCCallerChannel

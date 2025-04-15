@@ -71,7 +71,7 @@ func (p *rpcCallerPool) Receive(payload tss.Payload) {
 		return
 	}
 
-	payload.RpcSubmitTxResponse = rpcSendResp
+	payload.RPCSubmitTxResponse = rpcSendResp
 	err = p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %e", RPCCallerChannelName, err)

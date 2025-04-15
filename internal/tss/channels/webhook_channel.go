@@ -90,7 +90,7 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		if err != nil {
 			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
 		} else {
-			defer httpResp.Body.Close()
+			defer utils.DeferredClose(ctx, httpResp.Body, "closing response body in the Receive function")
 			if httpResp.StatusCode == http.StatusOK {
 				sent = true
 				err := p.Store.UpsertTransaction(

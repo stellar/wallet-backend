@@ -161,10 +161,10 @@ func TestRecoverHandler(t *testing.T) {
 
 	// assert response
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
-	wantJson := `{
+	wantJSON := `{
 		"error": "An error occurred while processing this request."
 	}`
-	assert.JSONEq(t, wantJson, rr.Body.String())
+	assert.JSONEq(t, wantJSON, rr.Body.String())
 
 	entries := getEntries()
 	require.Len(t, entries, 2)
