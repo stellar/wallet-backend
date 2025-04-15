@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -22,7 +23,7 @@ const (
 	// due to the signature limit.
 	MaximumCreateAccountOperationsPerStellarTx = 19
 	maxRetriesForChannelAccountCreation        = 50
-	sleepDelayForChannelAccountCreation        = 5 * time.Second
+	sleepDelayForChannelAccountCreation        = 10 * time.Second
 	rpcHealthCheckTimeout                      = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
@@ -152,15 +153,16 @@ func (s *channelAccountService) submitTransactionAndWaitForConfirmation(ctx cont
 	case <-rpcHeartbeatChannel:
 		log.Ctx(ctx).Infof("👍 RPC service is healthy")
 		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to rpc service")
-		err := s.submitTransactionWithRetry(ctx, hash, signedTxXDR, maxRetriesForChannelAccountCreation)
+		retryOptions := []retry.Option{retry.Attempts(maxRetriesForChannelAccountCreation), retry.Delay(sleepDelayForChannelAccountCreation)}
+		err := s.submitTransactionWithRetry(ctx, hash, signedTxXDR, retryOptions...)
 		if err != nil {
-			return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
+			return fmt.Errorf("a submitting channel account transaction to the RPC service: %w", err)
 		}
 
 		log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to rpc service, waiting for confirmation")
-		err = s.waitForTransactionConfirmation(ctx, hash, maxRetriesForChannelAccountCreation)
+		err = s.waitForTransactionConfirmation(ctx, hash, retryOptions...)
 		if err != nil {
-			return fmt.Errorf("getting transaction status: %w", err)
+			return fmt.Errorf("waiting for transaction confirmation: %w", err)
 		}
 
 		return nil
@@ -215,50 +217,101 @@ func (s *channelAccountService) buildAndSignTransaction(ctx context.Context, dis
 	return hash, signedTxXDR, nil
 }
 
-func (s *channelAccountService) submitTransactionWithRetry(_ context.Context, hash string, signedTxXDR string, maxRetries int) error {
-	for range maxRetries {
-		result, err := s.RPCService.SendTransaction(signedTxXDR)
-		if err != nil {
-			return fmt.Errorf("sending transaction with hash %q: %w", hash, err)
-		}
+func (s *channelAccountService) submitTransactionWithRetry(ctx context.Context, hash string, signedTxXDR string, retryOptions ...retry.Option) error {
+	attemptsCount := 0
+	outerErr := retry.Do(
+		func() error {
+			attemptsCount++
+			result, err := s.RPCService.SendTransaction(signedTxXDR)
+			if err != nil {
+				return fmt.Errorf("sending transaction with hash %q: %w", hash, err)
+			}
 
-		//exhaustive:ignore
-		switch result.Status {
-		case entities.PendingStatus:
-			return nil
-		case entities.ErrorStatus:
-			return fmt.Errorf("transaction with hash %q failed with errorResultXdr %s", hash, result.ErrorResultXDR)
-		case entities.TryAgainLaterStatus:
-			time.Sleep(sleepDelayForChannelAccountCreation)
-			continue
-		}
+			switch result.Status {
+			case entities.PendingStatus:
+				return nil
+			case entities.ErrorStatus:
+				err = fmt.Errorf("transaction with hash %q failed with errorResultXdr %s", hash, result.ErrorResultXDR)
+				return retry.Unrecoverable(err)
+			case entities.TryAgainLaterStatus:
+				return fmt.Errorf("received TryAgainLaterStatus, retrying...")
+			default:
+				return fmt.Errorf("unexpected transaction status: %s", result.Status)
+			}
+		},
+		append(
+			retryOptions,
+			retry.Context(ctx),
+			retry.LastErrorOnly(true),
+		)...,
+	)
+
+	if outerErr != nil {
+		return fmt.Errorf("transaction did not complete after %d attempts: %w", attemptsCount, outerErr)
 	}
 
-	return fmt.Errorf("transaction did not complete after %d attempts", maxRetries)
+	return nil
 }
 
 // waitForTransactionConfirmation waits for a transaction with the provided hash to be confirmed.
-func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context, hash string, maxRetries int) error {
-	for range maxRetries {
-		txResult, err := s.RPCService.GetTransaction(hash)
-		if err != nil {
-			return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
-		}
+func (s *channelAccountService) waitForTransactionConfirmation(ctx context.Context, hash string, retryOptions ...retry.Option) error {
+	attemptsCount := 0
+	outerErr := retry.Do(
+		func() error {
+			attemptsCount++
+			txResult, err := s.RPCService.GetTransaction(hash)
+			if err != nil {
+				return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
+			}
 
-		//exhaustive:ignore
-		switch txResult.Status {
-		case entities.NotFoundStatus:
-			time.Sleep(sleepDelayForChannelAccountCreation)
-			continue
-		case entities.SuccessStatus:
-			return nil
-		case entities.FailedStatus:
-			return fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
-		}
+			switch txResult.Status {
+			case entities.NotFoundStatus:
+				return fmt.Errorf("transaction not found")
+			case entities.SuccessStatus:
+				return nil
+			case entities.FailedStatus:
+				err = fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
+				return retry.Unrecoverable(err)
+			default:
+				return fmt.Errorf("unexpected transaction status: %s", txResult.Status)
+			}
+		},
+		append(
+			retryOptions,
+			retry.Context(ctx),
+			retry.LastErrorOnly(true),
+		)...,
+	)
+
+	if outerErr != nil {
+		return fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
 	}
 
-	return fmt.Errorf("failed to get transaction status after %d attempts", maxRetries)
+	return nil
 }
+
+// // waitForTransactionConfirmation waits for a transaction with the provided hash to be confirmed.
+// func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context, hash string, maxRetries int) error {
+// 	for range maxRetries {
+// 		txResult, err := s.RPCService.GetTransaction(hash)
+// 		if err != nil {
+// 			return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
+// 		}
+
+// 		//exhaustive:ignore
+// 		switch txResult.Status {
+// 		case entities.NotFoundStatus:
+// 			time.Sleep(sleepDelayForChannelAccountCreation)
+// 			continue
+// 		case entities.SuccessStatus:
+// 			return nil
+// 		case entities.FailedStatus:
+// 			return fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
+// 		}
+// 	}
+
+// 	return fmt.Errorf("failed to get transaction status after %d attempts", maxRetries)
+// }
 
 type ChannelAccountServiceOptions struct {
 	DB                                 db.ConnectionPool

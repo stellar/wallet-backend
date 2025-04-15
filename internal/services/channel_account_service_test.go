@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
@@ -172,7 +173,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					}, nil).
 					Once()
 			},
-			wantErrContains: []string{"transaction with hash", "failed with result custom_error_xdr"},
+			wantErrContains: []string{"transaction with hash", "failed with errorResultXdr custom_error_xdr"},
 		},
 		{
 			name: "fails_when_transaction_status_check_fails",
@@ -221,7 +222,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					}, nil).
 					Once()
 			},
-			wantErrContains: []string{"transaction failed"},
+			wantErrContains: []string{"failed with status FAILED and errorResultXdr error_xdr"},
 		},
 		{
 			name:          "fails_if_rpc_service_is_not_healthy",
@@ -417,7 +418,7 @@ func Test_ChannelAccountService_submitTransaction(t *testing.T) {
 			require.NoError(t, err)
 			time.Sleep(100 * time.Millisecond)
 
-			err = s.submitTransactionWithRetry(ctx, hash, signedTxXDR, 2)
+			err = s.submitTransactionWithRetry(ctx, hash, signedTxXDR, retry.Attempts(2), retry.Delay(10*time.Millisecond))
 			if tc.wantErrContains != nil {
 				require.Error(t, err)
 				for _, wantErrContains := range tc.wantErrContains {
@@ -504,7 +505,7 @@ func Test_ChannelAccountService_waitForTransactionConfirmation(t *testing.T) {
 					Return(entities.RPCGetTransactionResult{Status: entities.NotFoundStatus}, nil).
 					Twice()
 			},
-			wantErrContains: []string{"failed to get transaction status after 2 attempts"},
+			wantErrContains: []string{"failed to get transaction status after 2 attempts", "transaction not found"},
 		},
 	}
 
@@ -534,7 +535,7 @@ func Test_ChannelAccountService_waitForTransactionConfirmation(t *testing.T) {
 			require.NoError(t, err)
 			time.Sleep(100 * time.Millisecond)
 
-			err = s.waitForTransactionConfirmation(ctx, hash, 2)
+			err = s.waitForTransactionConfirmation(ctx, hash, retry.Attempts(2), retry.Delay(10*time.Millisecond))
 			if tc.wantErrContains != nil {
 				require.Error(t, err)
 				for _, wantErrContains := range tc.wantErrContains {
