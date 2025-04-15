@@ -11,8 +11,9 @@ import (
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
+	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"

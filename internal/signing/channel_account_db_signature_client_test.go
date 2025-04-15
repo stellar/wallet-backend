@@ -9,10 +9,11 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/wallet-backend/internal/signing/store"
-	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
 func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {

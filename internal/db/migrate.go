@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	migrate "github.com/rubenv/sql-migrate"
+
 	"github.com/stellar/wallet-backend/internal/db/migrations"
 )
 

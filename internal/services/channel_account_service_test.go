@@ -103,7 +103,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -179,7 +179,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -233,7 +233,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(network.TestNetworkPassphrase).
 			Once()
 		defer signatureClient.AssertExpectations(t)
-		
+
 		// Create and set up the heartbeat channel
 		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)

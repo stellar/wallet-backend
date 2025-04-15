@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/kms/kmsiface"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
+
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )

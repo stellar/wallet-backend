@@ -7,11 +7,12 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"golang.org/x/exp/rand"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
-	"golang.org/x/exp/rand"
 )
 
 type ErrorJitterChannelConfigs struct {

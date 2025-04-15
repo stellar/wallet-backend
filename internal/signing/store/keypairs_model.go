@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/lib/pq"
+
 	"github.com/stellar/wallet-backend/internal/db"
 )
 

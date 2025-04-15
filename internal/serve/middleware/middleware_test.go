@@ -11,11 +11,12 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/wallet-backend/internal/apptracker"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/serve/auth"
 )
 
 func TestSignatureMiddleware(t *testing.T) {

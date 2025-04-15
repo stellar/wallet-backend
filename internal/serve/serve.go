@@ -214,10 +214,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	})
 
 	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
-		TxManager:     txManager,
-		Store:         tssStore,
-		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		TxManager:      txManager,
+		Store:          tssStore,
+		MaxBufferSize:  cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:     cfg.RPCCallerServiceChannelMaxWorkers,
 		MetricsService: metricsService,
 	})
 

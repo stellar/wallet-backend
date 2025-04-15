@@ -3,6 +3,7 @@ package utils
 import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/tss"
 )
 

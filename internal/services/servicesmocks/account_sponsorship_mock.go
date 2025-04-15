@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/mock"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stretchr/testify/mock"
 )
 
 type AccountSponsorshipServiceMock struct {

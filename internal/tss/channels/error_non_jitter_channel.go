@@ -7,6 +7,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"

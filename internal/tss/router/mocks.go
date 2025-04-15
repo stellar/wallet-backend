@@ -1,8 +1,9 @@
 package router
 
 import (
-	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/tss"
 )
 
 type MockRouter struct {

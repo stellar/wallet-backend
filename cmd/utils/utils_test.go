@@ -5,8 +5,9 @@ import (
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
-	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func TestSignatureClientResolver(t *testing.T) {

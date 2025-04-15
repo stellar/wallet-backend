@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func TestParseToRPCSendTxResponse(t *testing.T) {

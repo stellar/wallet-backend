@@ -8,6 +8,7 @@ import (
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 )
 

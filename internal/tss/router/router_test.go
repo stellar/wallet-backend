@@ -3,9 +3,10 @@ package router
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/tss"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestRouter(t *testing.T) {
