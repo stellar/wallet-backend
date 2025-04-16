@@ -15,7 +15,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
+	tssUtils "github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type TSSHandler struct {
@@ -60,7 +61,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	var transactionXDRs []string
 	for _, transaction := range reqParams.Transactions {
-		ops, err := utils.BuildOperations(transaction.Operations)
+		ops, err := tssUtils.BuildOperations(transaction.Operations)
 		if err != nil {
 			httperror.BadRequest("bad operation xdr", nil).Render(w)
 			return
@@ -158,8 +159,9 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tx == (store.Transaction{}) {
+	if utils.IsEmpty(tx) {
 		httperror.NotFound.Render(w)
+		return
 	}
 
 	tssTry, err := t.Store.GetLatestTry(ctx, tx.Hash)
