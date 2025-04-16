@@ -38,3 +38,17 @@ func (s *SignatureClientMock) SignStellarFeeBumpTransaction(ctx context.Context,
 	}
 	return args.Get(0).(*txnbuild.FeeBumpTransaction), args.Error(1)
 }
+
+// NewSignatureClientMock creates a new instance of SignatureClientMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewSignatureClientMock(t interface {
+	mock.TestingT
+	Cleanup(cleanupFunc func())
+}) *SignatureClientMock {
+	mock := &SignatureClientMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}

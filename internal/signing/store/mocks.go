@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type ChannelAccountStoreMock struct {
@@ -56,6 +57,20 @@ func (s *ChannelAccountStoreMock) BatchInsert(ctx context.Context, sqlExec db.SQ
 func (s *ChannelAccountStoreMock) Count(ctx context.Context) (int64, error) {
 	args := s.Called(ctx)
 	return int64(args.Int(0)), args.Error(1)
+}
+
+// NewChannelAccountStoreMock creates a new instance of ChannelAccountStoreMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewChannelAccountStoreMock(t interface {
+	mock.TestingT
+	Cleanup(cleanupFunc func())
+}) *ChannelAccountStoreMock {
+	mock := &ChannelAccountStoreMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
 }
 
 type KeypairStoreMock struct {

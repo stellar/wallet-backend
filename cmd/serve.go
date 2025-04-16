@@ -93,7 +93,7 @@ func (c *serveCmd) Command() *cobra.Command {
 			Usage:       "The minimum number of Channel Accounts that must exist in the database.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.NumberOfChannelAccounts,
-			FlagDefault: 15,
+			FlagDefault: 5,
 			Required:    true,
 		},
 	}

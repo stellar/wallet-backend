@@ -214,10 +214,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	})
 
 	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
-		TxManager:     txManager,
-		Store:         tssStore,
-		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		TxManager:      txManager,
+		Store:          tssStore,
+		MaxBufferSize:  cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:     cfg.RPCCallerServiceChannelMaxWorkers,
 		MetricsService: metricsService,
 	})
 
@@ -268,7 +268,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
 	}
 
-	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+	channelAccountService, err := services.NewChannelAccountService(context.Background(), services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
