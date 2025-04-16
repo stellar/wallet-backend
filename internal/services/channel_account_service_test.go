@@ -308,10 +308,7 @@ func TestSubmitTransaction(t *testing.T) {
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := 
-  
-
-
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
