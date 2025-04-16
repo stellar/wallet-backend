@@ -28,7 +28,7 @@ type RPCGetIngestTxResponse struct {
 
 func ParseToRPCGetIngestTxResponse(result entities.RPCGetTransactionResult, err error) (RPCGetIngestTxResponse, error) {
 	if err != nil {
-		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, err
+		return RPCGetIngestTxResponse{Status: entities.ErrorStatus}, fmt.Errorf("parseing to rpc get ingest tx response: %w", err)
 	}
 
 	getIngestTxResponse := RPCGetIngestTxResponse{

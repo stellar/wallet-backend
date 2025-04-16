@@ -245,8 +245,9 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 }
 
 func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, err
+	err := opts.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("validating channel account service options: %w", err)
 	}
 
 	go opts.RPCService.TrackRPCServiceHealth(ctx)

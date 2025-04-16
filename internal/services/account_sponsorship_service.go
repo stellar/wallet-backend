@@ -265,7 +265,7 @@ func (o *AccountSponsorshipServiceOptions) Validate() error {
 
 func NewAccountSponsorshipService(opts AccountSponsorshipServiceOptions) (*accountSponsorshipService, error) {
 	if err := opts.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating account sponsorship service options: %w", err)
 	}
 
 	return &accountSponsorshipService{

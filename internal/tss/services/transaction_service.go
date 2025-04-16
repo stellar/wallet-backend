@@ -67,7 +67,7 @@ func (o *TransactionServiceOptions) ValidateOptions() error {
 
 func NewTransactionService(opts TransactionServiceOptions) (*transactionService, error) {
 	if err := opts.ValidateOptions(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("validating transaction service options: %w", err)
 	}
 	return &transactionService{
 		DB:                                 opts.DB,
