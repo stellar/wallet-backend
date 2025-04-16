@@ -46,6 +46,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, outerErr)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	t.Run("sufficient_number_of_channel_accounts", func(t *testing.T) {
 		channelAccountStore.
@@ -318,6 +319,7 @@ func TestSubmitTransaction(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
@@ -373,6 +375,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 
