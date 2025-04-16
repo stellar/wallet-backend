@@ -38,6 +38,7 @@ func (s *ChAccCmdService) EnsureChannelAccounts(ctx context.Context, chAccServic
 
 type channelAccountCmdConfigOptions struct {
 	DatabaseURL                   string
+	RPCURL                        string
 	NetworkPassphrase             string
 	BaseFee                       int
 	DistributionAccountPrivateKey string
@@ -53,6 +54,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 	cfg := channelAccountCmdConfigOptions{}
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
+		utils.RPCURLOption(&cfg.RPCURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
@@ -101,7 +103,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			}
 			metricsService := metrics.NewMetricsService(db)
 			httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
-			rpcService, err := services.NewRPCService("http://localhost:8000", &httpClient, metricsService)
+			rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient, metricsService)
 			if err != nil {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}
