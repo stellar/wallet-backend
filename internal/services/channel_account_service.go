@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -18,7 +20,7 @@ import (
 const (
 	maxRetriesForChannelAccountCreation = 50
 	sleepDelayForChannelAccountCreation = 10 * time.Second
-	rpcHealthCheckTimeout = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
+	rpcHealthCheckTimeout               = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
 type ChannelAccountService interface {
@@ -44,8 +46,9 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 
 	numOfChannelAccountsToCreate := number - currentChannelAccountNumber
-	// The number of channel accounts stored is sufficient.
+	log.Ctx(ctx).Infof("🔍 Channel accounts amounts: {desired:%d, existing:%d, pending:%d}", number, currentChannelAccountNumber, int(math.Max(float64(numOfChannelAccountsToCreate), 0)))
 	if numOfChannelAccountsToCreate <= 0 {
+		log.Ctx(ctx).Infof("✅ No channel accounts to create")
 		return nil
 	}
 
@@ -61,6 +64,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 		if err != nil {
 			return fmt.Errorf("generating random keypair for channel account: %w", err)
 		}
+		log.Ctx(ctx).Infof("⏳ Creating Stellar channel account with address: %s", kp.Address())
 
 		encryptedPrivateKey, err := s.PrivateKeyEncrypter.Encrypt(ctx, kp.Seed(), s.EncryptionPassphrase)
 		if err != nil {
@@ -79,17 +83,20 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 
 	if err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops); err != nil {
-		return fmt.Errorf("submitting create channel accounts on chain transaction: %w", err)
+		return fmt.Errorf("submitting create channel account(s) on chain transaction: %w", err)
 	}
+	log.Ctx(ctx).Infof("🎉 Successfully created %d channel account(s) on chain", numOfChannelAccountsToCreate)
 
 	if err = s.ChannelAccountStore.BatchInsert(ctx, s.DB, channelAccountsToInsert); err != nil {
-		return fmt.Errorf("inserting channel accounts: %w", err)
+		return fmt.Errorf("inserting channel account(s): %w", err)
 	}
+	log.Ctx(ctx).Infof("✅ Successfully stored %d channel account(s) into the store", numOfChannelAccountsToCreate)
 
 	return nil
 }
 
 func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
+	log.Ctx(ctx).Infof("⏳ Waiting for RPC service to become healthy")
 	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
 	select {
 	case <-ctx.Done():
@@ -97,9 +104,10 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
 	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
 	case <-rpcHeartbeatChannel:
+		log.Ctx(ctx).Infof("👍 RPC service is healthy")
 		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
 		if err != nil {
-			return fmt.Errorf("getting ledger sequence for distribution account public key: %s: %w", distributionAccountPublicKey, err)
+			return fmt.Errorf("getting ledger sequence for distribution account public key=%s: %w", distributionAccountPublicKey, err)
 		}
 
 		tx, err := txnbuild.NewTransaction(
@@ -133,11 +141,13 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 			return fmt.Errorf("getting transaction envelope: %w", err)
 		}
 
+		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to rpc service")
 		err = s.submitTransaction(ctx, hash, signedTxXDR)
 		if err != nil {
 			return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
 		}
 
+		log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to rpc service, waiting for confirmation...")
 		err = s.waitForTransactionConfirmation(ctx, hash)
 		if err != nil {
 			return fmt.Errorf("getting transaction status: %w", err)
@@ -151,7 +161,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 	for range maxRetriesForChannelAccountCreation {
 		result, err := s.RPCService.SendTransaction(signedTxXDR)
 		if err != nil {
-			return fmt.Errorf("sending transaction: %s: %w", hash, err)
+			return fmt.Errorf("sending transaction with hash %q: %w", hash, err)
 		}
 
 		//exhaustive:ignore
@@ -159,7 +169,7 @@ func (s *channelAccountService) submitTransaction(_ context.Context, hash string
 		case entities.PendingStatus:
 			return nil
 		case entities.ErrorStatus:
-			return fmt.Errorf("transaction failed %s: %s", result.ErrorResultXDR, hash)
+			return fmt.Errorf("transaction with hash %q failed with errorResultXdr %s", hash, result.ErrorResultXDR)
 		case entities.TryAgainLaterStatus:
 			time.Sleep(sleepDelayForChannelAccountCreation)
 			continue
@@ -174,7 +184,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 	for range maxRetriesForChannelAccountCreation {
 		txResult, err := s.RPCService.GetTransaction(hash)
 		if err != nil {
-			return fmt.Errorf("getting transaction status response: %w", err)
+			return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
 		}
 
 		//exhaustive:ignore
@@ -185,7 +195,7 @@ func (s *channelAccountService) waitForTransactionConfirmation(_ context.Context
 		case entities.SuccessStatus:
 			return nil
 		case entities.FailedStatus:
-			return fmt.Errorf("transaction failed: %s: %s: %s", hash, txResult.Status, txResult.ErrorResultXDR)
+			return fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
 		}
 	}
 
@@ -234,10 +244,12 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 	return nil
 }
 
-func NewChannelAccountService(opts ChannelAccountServiceOptions) (*channelAccountService, error) {
+func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
+
+	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &channelAccountService{
 		DB:                                 opts.DB,

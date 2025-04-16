@@ -112,7 +112,8 @@ type handlerDeps struct {
 }
 
 func Serve(cfg Configs) error {
-	deps, err := initHandlerDeps(cfg)
+	ctx := context.Background()
+	deps, err := initHandlerDeps(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
@@ -123,7 +124,7 @@ func Serve(cfg Configs) error {
 		Handler:    handler(deps),
 		OnStarting: func() {
 			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
-			go populatePools(deps.PoolPopulator)
+			go populatePools(ctx, deps.PoolPopulator)
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
@@ -137,12 +138,12 @@ func Serve(cfg Configs) error {
 	return nil
 }
 
-func initHandlerDeps(cfg Configs) (handlerDeps, error) {
+func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(cfg.DatabaseURL)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("connecting to the database: %w", err)
 	}
-	db, err := dbConnectionPool.SqlxDB(context.Background())
+	db, err := dbConnectionPool.SqlxDB(ctx)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("getting sqlx db: %w", err)
 	}
@@ -162,7 +163,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
-	go rpcService.TrackRPCServiceHealth(context.Background())
+	go rpcService.TrackRPCServiceHealth(ctx)
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
@@ -214,10 +215,10 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	})
 
 	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
-		TxManager:     txManager,
-		Store:         tssStore,
-		MaxBufferSize: cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:    cfg.RPCCallerServiceChannelMaxWorkers,
+		TxManager:      txManager,
+		Store:          tssStore,
+		MaxBufferSize:  cfg.RPCCallerServiceChannelBufferSize,
+		MaxWorkers:     cfg.RPCCallerServiceChannelMaxWorkers,
 		MetricsService: metricsService,
 	})
 
@@ -268,7 +269,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
 	}
 
-	channelAccountService, err := services.NewChannelAccountService(services.ChannelAccountServiceOptions{
+	channelAccountService, err := services.NewChannelAccountService(ctx, services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
@@ -280,7 +281,7 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
-	go ensureChannelAccounts(channelAccountService, int64(cfg.NumberOfChannelAccounts))
+	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
 		Models:                    models,
@@ -304,18 +305,16 @@ func initHandlerDeps(cfg Configs) (handlerDeps, error) {
 	}, nil
 }
 
-func populatePools(poolPopulator tssservices.PoolPopulator) {
+func populatePools(ctx context.Context, poolPopulator tssservices.PoolPopulator) {
 	alertAfter := time.Minute * 10
 	ticker := time.NewTicker(alertAfter)
-	ctx := context.Background()
 
 	for range ticker.C {
 		poolPopulator.PopulatePools(ctx)
 	}
 }
 
-func ensureChannelAccounts(channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
-	ctx := context.Background()
+func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
 	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
 	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
 	if err != nil {

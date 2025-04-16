@@ -31,11 +31,12 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	ctx := context.Background()
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -103,7 +104,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -179,7 +180,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetHealth").
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-		
+
 		// Create and set up the heartbeat channel
 		health, _ := mockRPCService.GetHealth()
 		heartbeatChan <- health
@@ -201,7 +202,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed error_xdr")
+		assert.Contains(t, err.Error(), "failed with errorResultXdr error_xdr")
 	})
 
 	t.Run("fails_when_transaction_status_check_fails", func(t *testing.T) {
@@ -233,7 +234,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(network.TestNetworkPassphrase).
 			Once()
 		defer signatureClient.AssertExpectations(t)
-		
+
 		// Create and set up the heartbeat channel
 		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
@@ -259,7 +260,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 
 		err = s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed")
+		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
 	})
 
 	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
@@ -297,12 +298,15 @@ func TestSubmitTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
+	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -313,7 +317,6 @@ func TestSubmitTransaction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
 
@@ -322,7 +325,6 @@ func TestSubmitTransaction(t *testing.T) {
 			On("SendTransaction", signedTxXDR).
 			Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.submitTransaction(ctx, hash, signedTxXDR)
 		require.NoError(t, err)
@@ -336,11 +338,10 @@ func TestSubmitTransaction(t *testing.T) {
 				ErrorResultXDR: "error_xdr",
 			}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.submitTransaction(ctx, hash, signedTxXDR)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed error_xdr")
+		assert.Contains(t, err.Error(), "failed with errorResultXdr error_xdr")
 	})
 }
 
@@ -352,12 +353,15 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
+	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
+	defer mockRPCService.AssertExpectations(t)
+	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -368,7 +372,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
 	hash := "test_hash"
 
 	t.Run("successful", func(t *testing.T) {
@@ -376,7 +379,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 			On("GetTransaction", hash).
 			Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.NoError(t, err)
@@ -390,10 +392,9 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 				ErrorResultXDR: "error_xdr",
 			}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "transaction failed")
+		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
 	})
 }

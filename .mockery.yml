@@ -1,0 +1,18 @@
+all: false
+dir: "{{.InterfaceDir}}"
+force-file-write: true
+formatter: goimports
+log-level: info
+structname: "{{.Mock}}{{.InterfaceName}}"
+pkgname: "{{.SrcPackageName}}"
+filename: "mock_{{.InterfaceName | snakecase}}.go"
+recursive: false
+require-template-schema-exists: true
+template: testify
+template-schema: "{{.Template}}.schema.json"
+packages:
+  github.com/stellar/wallet-backend/cmd:
+    interfaces:
+      ChAccCmdServiceInterface:
+        config:
+          filename: "channel_account_mocks.go"

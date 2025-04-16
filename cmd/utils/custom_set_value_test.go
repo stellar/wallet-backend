@@ -9,10 +9,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
-	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // customSetterTestCase is a test case to test a custom_set_value function.
@@ -164,7 +165,7 @@ func TestSetConfigOptionStellarPrivateKey(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.distributionPrivateKey = ""
-			customSetterTester[string](t, tc, co)
+			customSetterTester(t, tc, co)
 		})
 	}
 }
@@ -215,7 +216,7 @@ func Test_SetConfigOptionLogLevel(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.logrusLevel = 0
-			customSetterTester[logrus.Level](t, tc, co)
+			customSetterTester(t, tc, co)
 		})
 	}
 }

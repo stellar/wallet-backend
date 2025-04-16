@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/signing"
 )
@@ -34,10 +35,10 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 
 	// Log for debugging
 	if config.IsExplicitlySet(co) {
-		log.Debugf("Setting log level to: %s", logLevel)
+		log.Debugf("⚙️ Setting log level to: %s", logLevel)
 		log.DefaultLogger.SetLevel(*key)
 	} else {
-		log.Debugf("Using default log level: %s", logLevel)
+		log.Debugf("⚙️ Using default log level: %s", logLevel)
 	}
 
 	return nil
