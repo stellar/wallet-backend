@@ -165,7 +165,7 @@ func TestSetConfigOptionStellarPrivateKey(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.distributionPrivateKey = ""
-			customSetterTester[string](t, tc, co)
+			customSetterTester(t, tc, co)
 		})
 	}
 }
@@ -216,7 +216,7 @@ func Test_SetConfigOptionLogLevel(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.logrusLevel = 0
-			customSetterTester[logrus.Level](t, tc, co)
+			customSetterTester(t, tc, co)
 		})
 	}
 }

@@ -35,10 +35,10 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 
 	// Log for debugging
 	if config.IsExplicitlySet(co) {
-		log.Debugf("Setting log level to: %s", logLevel)
+		log.Debugf("⚙️ Setting log level to: %s", logLevel)
 		log.DefaultLogger.SetLevel(*key)
 	} else {
-		log.Debugf("Using default log level: %s", logLevel)
+		log.Debugf("⚙️ Using default log level: %s", logLevel)
 	}
 
 	return nil

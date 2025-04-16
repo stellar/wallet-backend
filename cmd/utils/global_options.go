@@ -62,7 +62,7 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 		Usage:       "The URL of the RPC Server.",
 		OptType:     types.String,
 		ConfigKey:   configKey,
-		FlagDefault: "http://stellar-rpc:8000",
+		FlagDefault: "http://localhost:8000",
 		Required:    true,
 	}
 }
