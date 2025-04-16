@@ -24,8 +24,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
@@ -35,7 +35,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ChannelAccountServiceOptions{
+	s, outerErr := NewChannelAccountService(ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -44,7 +44,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
 		EncryptionPassphrase:               passphrase,
 	})
-	require.NoError(t, err)
+	require.NoError(t, outerErr)
 
 	t.Run("sufficient_number_of_channel_accounts", func(t *testing.T) {
 		channelAccountStore.
@@ -53,7 +53,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
-		err = s.EnsureChannelAccounts(ctx, 5)
+		err := s.EnsureChannelAccounts(ctx, 5)
 		require.NoError(t, err)
 	})
 
@@ -88,7 +88,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 					channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, caOp.Destination)
 				}
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -165,7 +165,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				tx, ok := args.Get(1).(*txnbuild.Transaction)
 				require.True(t, ok)
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -224,7 +224,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				tx, ok := args.Get(1).(*txnbuild.Transaction)
 				require.True(t, ok)
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -259,7 +259,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
-		err = s.EnsureChannelAccounts(ctx, 5)
+		err := s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "transaction failed")
 	})

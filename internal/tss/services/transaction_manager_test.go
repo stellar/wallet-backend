@@ -29,14 +29,14 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	dbStore, err := store.NewStore(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	txServiceMock := TransactionServiceMock{}
 	rpcServiceMock := services.RPCServiceMock{}
 	txManager := NewTransactionManager(TransactionManagerConfigs{
 		TxService:  &txServiceMock,
 		RPCService: &rpcServiceMock,
-		Store:      store,
+		Store:      dbStore,
 	})
 	networkPass := "passphrase"
 	tx := utils.BuildTestTransaction(t)
@@ -61,7 +61,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		txServiceMock.
 			On("BuildFeeBumpTransaction", context.Background(), tx).
@@ -69,12 +69,14 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 		require.Error(t, err)
 		assert.Equal(t, tss.RPCSendTxResponse{}, txSendResp)
 		assert.Equal(t, "channel: Unable to build fee bump transaction: signing failed", err.Error())
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 	})
@@ -90,7 +92,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{Status: entities.ErrorStatus}
 
@@ -107,17 +109,20 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.RPCFailCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: RPC fail: RPC down", err.Error())
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 
-		try, err := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.RPCFailCode), try.Code)
@@ -134,7 +139,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.PendingStatus,
@@ -154,17 +159,20 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.PendingStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.EmptyCode, txSendResp.Code.OtherCodes)
 		assert.Empty(t, err)
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.PendingStatus), tx.Status)
 
-		try, err := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.PendingStatus), try.Status)
 		assert.Equal(t, int32(tss.EmptyCode), try.Code)
@@ -181,7 +189,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -201,18 +209,21 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 		require.Error(t, err)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.UnmarshalBinaryCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABCD", err.Error())
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 
-		try, err := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.UnmarshalBinaryCode), try.Code)
@@ -229,7 +240,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -249,17 +260,20 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
 		assert.Empty(t, err)
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), tx.Status)
 
-		try, err := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
@@ -276,7 +290,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
@@ -302,11 +316,11 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
 		assert.Empty(t, err)
 
-		tx, err := store.GetTransaction(context.Background(), payload.TransactionHash)
+		tx, err := dbStore.GetTransaction(context.Background(), payload.TransactionHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), tx.Status)
 
-		try, err := store.GetTry(context.Background(), txHash)
+		try, err := dbStore.GetTry(context.Background(), txHash)
 		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)

@@ -286,14 +286,16 @@ func TestGetTransaction(t *testing.T) {
 		ctx := context.Background()
 		err = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 		require.NoError(t, err)
-		req, err := http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
 		require.NoError(t, err)
 
 		// Serve request
 		rw := httptest.NewRecorder()
 		r.ServeHTTP(rw, req)
 		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
+		var respBody []byte
+		respBody, err = io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		var tssResp tss.TSSResponse
 		err = json.Unmarshal(respBody, &tssResp)
@@ -303,8 +305,8 @@ func TestGetTransaction(t *testing.T) {
 		assert.Equal(t, txHash, tssResp.TransactionHash)
 		assert.Equal(t, fmt.Sprint(tss.NoCode), tssResp.TransactionResultCode)
 		assert.Equal(t, fmt.Sprint(tss.NewStatus), tssResp.Status)
-		assert.Equal(t, "", tssResp.ResultXDR)
-		assert.Equal(t, "", tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.ResultXDR)
+		assert.Empty(t, tssResp.EnvelopeXDR)
 
 		clearTransactions(ctx)
 	})

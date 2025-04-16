@@ -241,7 +241,8 @@ func TestIngestPayments(t *testing.T) {
 			Amount:        "10",
 			Asset:         txnbuild.NativeAsset{},
 		}
-		transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		var transaction *txnbuild.Transaction
+		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: keypair.MustRandom().Address(),
 			},
@@ -249,7 +250,8 @@ func TestIngestPayments(t *testing.T) {
 			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 		})
 		require.NoError(t, err)
-		txEnvXDR, err := transaction.Base64()
+		var txEnvXDR string
+		txEnvXDR, err = transaction.Base64()
 		require.NoError(t, err)
 
 		ledgerTransaction := entities.Transaction{
@@ -302,7 +304,8 @@ func TestIngestPayments(t *testing.T) {
 			DestAsset:     txnbuild.NativeAsset{},
 			Path:          path,
 		}
-		transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		var transaction *txnbuild.Transaction
+		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: keypair.MustRandom().Address(),
 			},
@@ -314,10 +317,12 @@ func TestIngestPayments(t *testing.T) {
 		signer := keypair.MustRandom()
 		err = models.Account.Insert(context.Background(), signer.Address())
 		require.NoError(t, err)
-		signedTx, err := transaction.Sign(network.TestNetworkPassphrase, signer)
+		var signedTx *txnbuild.Transaction
+		signedTx, err = transaction.Sign(network.TestNetworkPassphrase, signer)
 		require.NoError(t, err)
 
-		txEnvXDR, err := signedTx.Base64()
+		var txEnvXDR string
+		txEnvXDR, err = signedTx.Base64()
 		require.NoError(t, err)
 
 		ledgerTransaction := entities.Transaction{

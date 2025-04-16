@@ -34,6 +34,7 @@ func TestRouteNewTransactions(t *testing.T) {
 	mockRPCSerive := services.RPCServiceMock{}
 	populator, err := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
 	require.NoError(t, err)
+
 	t.Run("tx_has_no_try", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
@@ -57,7 +58,7 @@ func TestRouteNewTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeNewTransactions(context.Background())
+		err = populator.routeNewTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
@@ -143,7 +144,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeErrorTransactions(context.Background())
+		err = populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
