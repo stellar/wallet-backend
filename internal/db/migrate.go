@@ -26,7 +26,7 @@ func Migrate(ctx context.Context, databaseURL string, direction migrate.Migratio
 
 	appliedMigrationsCount, err := migrate.ExecMax(db, dbConnectionPool.DriverName(), m, direction, count)
 	if err != nil {
-		return 0, fmt.Errorf("applying migrations: %w", err)
+		return appliedMigrationsCount, fmt.Errorf("applying migrations: %w", err)
 	}
 	return appliedMigrationsCount, nil
 }
