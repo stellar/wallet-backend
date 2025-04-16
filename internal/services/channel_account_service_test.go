@@ -355,6 +355,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
+	defer mockRPCService.AssertExpectations(t)
 	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -378,7 +379,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 			On("GetTransaction", hash).
 			Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.NoError(t, err)
@@ -392,7 +392,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 				ErrorResultXDR: "error_xdr",
 			}, nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
 
 		err := s.waitForTransactionConfirmation(ctx, hash)
 		require.Error(t, err)
