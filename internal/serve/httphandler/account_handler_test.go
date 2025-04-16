@@ -27,7 +27,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/services/servicesmocks"
 )
 
 func TestAccountHandlerRegisterAccount(t *testing.T) {
@@ -232,7 +231,7 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 }
 
 func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
-	asService := servicesmocks.AccountSponsorshipServiceMock{}
+	asService := services.AccountSponsorshipServiceMock{}
 	defer asService.AssertExpectations(t)
 
 	assets := []entities.Asset{
@@ -555,7 +554,7 @@ func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
 }
 
 func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
-	asService := servicesmocks.AccountSponsorshipServiceMock{}
+	asService := services.AccountSponsorshipServiceMock{}
 	defer asService.AssertExpectations(t)
 
 	handler := &AccountHandler{
