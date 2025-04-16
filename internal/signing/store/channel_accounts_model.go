@@ -12,8 +12,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 )
 
-const ChannelAccountWaitTime = 6
-
 var (
 	ErrNoIdleChannelAccountAvailable = errors.New("no idle channel account available")
 	ErrNoChannelAccountConfigured    = errors.New("no channel accounts")

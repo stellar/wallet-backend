@@ -12,11 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -546,7 +545,10 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	healthCheckTickInterval := 300 * time.Millisecond
+	healthCheckWarningInterval := 400 * time.Millisecond
+	contextTimeout := healthCheckWarningInterval + time.Millisecond*190
+	ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
 	defer cancel()
 
 	dbt := dbtest.Open(t)
@@ -569,36 +571,43 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	getLogs := log.DefaultLogger.StartTest(log.WarnLevel)
 
 	mockHTTPClient := &utils.MockHTTPClient{}
+	defer mockHTTPClient.AssertExpectations(t)
 	rpcURL := "http://test-url-track-rpc-service-health"
 	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
+	rpcService.healthCheckTickInterval = healthCheckTickInterval
+	rpcService.healthCheckWarningInterval = healthCheckWarningInterval
 
 	// Mock error response for GetHealth with a valid http.Response
+	getHealthRequestBody, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "getHealth"})
+	require.NoError(t, err)
+	getHealthResponseBody := `{
+		"jsonrpc": "2.0",
+		"id": 1,
+		"error": {
+			"code": -32601,
+			"message": "rpc error"
+		}
+	}`
 	mockResponse := &http.Response{
-		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
-			"jsonrpc": "2.0",
-			"id": 1,
-			"error": {
-				"code": -32601,
-				"message": "rpc error"
-			}
-		}`))),
+		Body: io.NopCloser(strings.NewReader(getHealthResponseBody)),
 	}
-	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).
+	mockHTTPClient.On("Post", rpcURL, "application/json", bytes.NewBuffer(getHealthRequestBody)).
 		Return(mockResponse, nil)
 
-	// The ctx will timeout after 70 seconds, which is enough for the warning to trigger
+	// The ctx will timeout after {contextTimeout}, which is enough for the warning to trigger
 	rpcService.TrackRPCServiceHealth(ctx)
 
 	entries := getLogs()
-	testFailed := true
+	testSucceeded := false
 	for _, entry := range entries {
-		if strings.Contains(entry.Message, "rpc service unhealthy for over 1m0s") {
-			testFailed = false
+		t.Logf("entry: %v\n", entry.Message)
+		if strings.Contains(entry.Message, "rpc service unhealthy for over "+healthCheckWarningInterval.String()) {
+			testSucceeded = true
+			break
 		}
 	}
-	assert.False(t, testFailed)
-	mockHTTPClient.AssertExpectations(t)
+	assert.True(t, testSucceeded)
 }
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {

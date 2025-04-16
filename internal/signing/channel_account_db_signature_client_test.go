@@ -2,6 +2,7 @@ package signing
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,6 +21,8 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	retryCount := 6
+	retryInterval := 100 * time.Millisecond
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	sc := channelAccountDBSignatureClient{
@@ -27,15 +30,17 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		encryptionPassphrase: "test",
 		privateKeyEncrypter:  &privateKeyEncrypter,
 		channelAccountStore:  &channelAccountStore,
+		retryCount:           retryCount,
+		retryInterval:        retryInterval,
 	}
 
 	t.Run("returns_error_when_couldn't_get_an_idle_channel_account", func(t *testing.T) {
 		channelAccountStore.
 			On("GetAndLockIdleChannelAccount", ctx, time.Duration(100)*time.Second).
 			Return(nil, store.ErrNoIdleChannelAccountAvailable).
-			Times(6).
+			Times(retryCount).
 			On("Count", ctx).
-			Return(5, nil).
+			Return(retryCount-1, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
@@ -46,10 +51,10 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		assert.Empty(t, publicKey)
 
 		entries := getEntries()
-		require.Len(t, entries, 6)
+		require.Len(t, entries, retryCount)
 
 		for _, entry := range entries {
-			assert.Equal(t, entry.Message, "All channel accounts are in use. Retry in 1 second.")
+			assert.Equal(t, entry.Message, fmt.Sprintf("All channel accounts are in use. Retry in %s.", retryInterval))
 		}
 	})
 
@@ -57,7 +62,7 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		channelAccountStore.
 			On("GetAndLockIdleChannelAccount", ctx, time.Minute).
 			Return(nil, store.ErrNoIdleChannelAccountAvailable).
-			Times(6).
+			Times(retryCount).
 			On("Count", ctx).
 			Return(0, nil).
 			Once()
@@ -70,10 +75,10 @@ func TestChannelAccountDBSignatureClientGetAccountPublicKey(t *testing.T) {
 		assert.Empty(t, publicKey)
 
 		entries := getEntries()
-		require.Len(t, entries, 6)
+		require.Len(t, entries, retryCount)
 
 		for _, entry := range entries {
-			assert.Equal(t, entry.Message, "All channel accounts are in use. Retry in 1 second.")
+			assert.Equal(t, fmt.Sprintf("All channel accounts are in use. Retry in %s.", retryInterval), entry.Message)
 		}
 	})
 

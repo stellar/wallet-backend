@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type channelAccountDBSignatureClient struct {
@@ -22,7 +23,14 @@ type channelAccountDBSignatureClient struct {
 	encryptionPassphrase string
 	privateKeyEncrypter  signingutils.PrivateKeyEncrypter
 	channelAccountStore  store.ChannelAccountStore
+	retryInterval        time.Duration
+	retryCount           int
 }
+
+const (
+	DefaultRetryInterval = 1 * time.Second
+	DefaultRetryCount    = 6
+)
 
 var _ SignatureClient = (*channelAccountDBSignatureClient)(nil)
 
@@ -37,7 +45,23 @@ func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, netw
 		channelAccountStore:  store.NewChannelAccountModel(dbConnectionPool),
 		privateKeyEncrypter:  privateKeyEncrypter,
 		encryptionPassphrase: encryptionPassphrase,
+		retryInterval:        DefaultRetryInterval,
+		retryCount:           DefaultRetryCount,
 	}, nil
+}
+
+func (sc *channelAccountDBSignatureClient) RetryInterval() time.Duration {
+	if utils.IsEmpty(sc.retryInterval) {
+		return DefaultRetryInterval
+	}
+	return sc.retryInterval
+}
+
+func (sc *channelAccountDBSignatureClient) RetryCount() int {
+	if utils.IsEmpty(sc.retryCount) {
+		return DefaultRetryCount
+	}
+	return sc.retryCount
 }
 
 func (sc *channelAccountDBSignatureClient) NetworkPassphrase() string {
@@ -51,16 +75,17 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 	} else {
 		lockedUntil = time.Minute
 	}
-	for range store.ChannelAccountWaitTime {
+	for range sc.RetryCount() {
 		// check to see if the variadic parameter for time exists and if so, use it here
 		channelAccount, err := sc.channelAccountStore.GetAndLockIdleChannelAccount(ctx, lockedUntil)
 		if err != nil {
 			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
-				log.Ctx(ctx).Warn("All channel accounts are in use. Retry in 1 second.")
-				time.Sleep(1 * time.Second)
+				log.Ctx(ctx).Warnf("All channel accounts are in use. Retry in %s.", sc.RetryInterval())
+				time.Sleep(sc.RetryInterval())
 				continue
 			}
-			return "", fmt.Errorf("getting idle channel account: %w", err)
+
+			return "", fmt.Errorf("could not get an idle channel account after %v: %w", time.Duration(sc.RetryCount())*sc.RetryInterval(), err)
 		}
 
 		return channelAccount.PublicKey, nil

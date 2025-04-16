@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	rpcHealthCheckSleepTime   = 5 * time.Second
-	rpcHealthCheckMaxWaitTime = 60 * time.Second
-	getHealthMethodName       = "getHealth"
+	defaultHealthCheckTickInterval    = 5 * time.Second
+	defaultHealthCheckWarningInterval = 60 * time.Second
+	getHealthMethodName               = "getHealth"
 )
 
 type RPCService interface {
@@ -34,10 +34,12 @@ type RPCService interface {
 }
 
 type rpcService struct {
-	rpcURL           string
-	httpClient       utils.HTTPClient
-	heartbeatChannel chan entities.RPCGetHealthResult
-	metricsService   metrics.MetricsService
+	rpcURL                     string
+	httpClient                 utils.HTTPClient
+	heartbeatChannel           chan entities.RPCGetHealthResult
+	metricsService             metrics.MetricsService
+	healthCheckWarningInterval time.Duration
+	healthCheckTickInterval    time.Duration
 }
 
 var PageLimit = 200
@@ -57,10 +59,12 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService me
 
 	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
 	return &rpcService{
-		rpcURL:           rpcURL,
-		httpClient:       httpClient,
-		heartbeatChannel: heartbeatChannel,
-		metricsService:   metricsService,
+		rpcURL:                     rpcURL,
+		httpClient:                 httpClient,
+		heartbeatChannel:           heartbeatChannel,
+		metricsService:             metricsService,
+		healthCheckWarningInterval: defaultHealthCheckWarningInterval,
+		healthCheckTickInterval:    defaultHealthCheckTickInterval,
 	}, nil
 }
 
@@ -172,9 +176,23 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	return int64(accountEntry.SeqNum), nil
 }
 
+func (r *rpcService) HealthCheckWarningInterval() time.Duration {
+	if utils.IsEmpty(r.healthCheckWarningInterval) {
+		return defaultHealthCheckWarningInterval
+	}
+	return r.healthCheckWarningInterval
+}
+
+func (r *rpcService) HealthCheckTickInterval() time.Duration {
+	if utils.IsEmpty(r.healthCheckTickInterval) {
+		return defaultHealthCheckTickInterval
+	}
+	return r.healthCheckTickInterval
+}
+
 func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
-	healthCheckTicker := time.NewTicker(rpcHealthCheckSleepTime)
-	warningTicker := time.NewTicker(rpcHealthCheckMaxWaitTime)
+	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
+	warningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
 		healthCheckTicker.Stop()
 		warningTicker.Stop()
@@ -186,9 +204,9 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-warningTicker.C:
-			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
+			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", r.HealthCheckWarningInterval()))
 			r.metricsService.SetRPCServiceHealth(false)
-			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+			warningTicker.Reset(r.HealthCheckWarningInterval())
 		case <-healthCheckTicker.C:
 			result, err := r.GetHealth()
 			if err != nil {
@@ -199,7 +217,7 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 			r.heartbeatChannel <- result
 			r.metricsService.SetRPCServiceHealth(true)
 			r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
-			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+			warningTicker.Reset(r.HealthCheckWarningInterval())
 		}
 	}
 }
@@ -233,13 +251,13 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
-	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
+	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)
