@@ -10,7 +10,7 @@ import (
 )
 
 func TestSentryTracker_CaptureMessage(t *testing.T) {
-	mockSentry := setupMockSentry(t)
+	mockSentry := NewMockSentry(t)
 	mockSentry.
 		On("Init", mock.Anything).Return(nil).Once().
 		On("CaptureMessage", "Test message").Return((*sentry.EventID)(nil)).Once()
@@ -23,7 +23,7 @@ func TestSentryTracker_CaptureMessage(t *testing.T) {
 }
 
 func TestSentryTracker_CaptureException(t *testing.T) {
-	mockSentry := setupMockSentry(t)
+	mockSentry := NewMockSentry(t)
 	testError := errors.New("Test exception")
 	mockSentry.
 		On("Init", mock.Anything).Return(nil).Once().
@@ -37,7 +37,7 @@ func TestSentryTracker_CaptureException(t *testing.T) {
 }
 
 func TestNewSentryTracker_Success(t *testing.T) {
-	mockSentry := setupMockSentry(t)
+	mockSentry := NewMockSentry(t)
 	mockSentry.
 		On("Init", mock.Anything).Return(nil).Once()
 

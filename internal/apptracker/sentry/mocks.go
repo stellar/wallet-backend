@@ -38,7 +38,7 @@ func (m *MockSentry) Recover() *sentry.EventID {
 	return args.Get(0).(*sentry.EventID)
 }
 
-func setupMockSentry(t *testing.T) *MockSentry {
+func NewMockSentry(t *testing.T) *MockSentry {
 	t.Helper()
 
 	mockSentry := &MockSentry{}
