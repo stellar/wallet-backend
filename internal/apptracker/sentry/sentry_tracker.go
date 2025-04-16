@@ -1,6 +1,7 @@
 package sentry
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -31,7 +32,7 @@ func NewSentryTracker(dsn string, env string, flushFreq int) (*SentryTracker, er
 		Dsn:         dsn,
 		Environment: env,
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to initialize sentry: %w", err)
 	}
 	defer FlushFunc(time.Second * time.Duration(flushFreq))
 	defer RecoverFunc()

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -41,70 +40,94 @@ func (m *MockSentry) Recover() *sentry.EventID {
 	return args.Get(0).(*sentry.EventID)
 }
 
-func TestSentryTracker_CaptureMessage(t *testing.T) {
-	mockSentry := MockSentry{}
-	captureMessageFunc = mockSentry.CaptureMessage
-	defer func() { captureMessageFunc = sentry.CaptureMessage }()
-	mockSentry.On("CaptureMessage", "Test message").Return((*sentry.EventID)(nil))
-	tracker, err := NewSentryTracker("sentrydsn", "test", 5)
-	require.NoError(t, err)
-	tracker.CaptureMessage("Test message")
+const testSentryDSN = "https://username@password.test.com/some-id"
 
-	mockSentry.AssertCalled(t, "CaptureMessage", "Test message")
-}
+func setupMockSentry(t *testing.T) *MockSentry {
+	t.Helper()
 
-func TestSentryTracker_CaptureException(t *testing.T) {
-	mockSentry := MockSentry{}
-	captureExceptionFunc = mockSentry.CaptureException
-	defer func() { captureExceptionFunc = sentry.CaptureException }() // Reset after the test
-	testError := errors.New("Test exception")
-	mockSentry.On("CaptureException", testError).Return((*sentry.EventID)(nil))
-	tracker, err := NewSentryTracker("sentrydsn", "test", 5)
-	require.NoError(t, err)
-	tracker.CaptureException(testError)
+	mockSentry := &MockSentry{}
+	mockSentry.
+		On("Flush", mock.Anything).Return(true).Once().
+		On("Recover").Return((*sentry.EventID)(nil)).Once()
 
-	mockSentry.AssertCalled(t, "CaptureException", testError)
-}
+	// Save the original functions
+	originalInitFunc := InitFunc
+	originalFlushFunc := FlushFunc
+	originalRecoverFunc := RecoverFunc
+	originalCaptureMessageFunc := captureMessageFunc
+	originalCaptureExceptionFunc := captureExceptionFunc
 
-func TestNewSentryTracker_Success(t *testing.T) {
-	mockSentry := MockSentry{}
-
+	// Set the mock functions
 	InitFunc = mockSentry.Init
 	FlushFunc = mockSentry.Flush
 	RecoverFunc = mockSentry.Recover
+	captureMessageFunc = mockSentry.CaptureMessage
+	captureExceptionFunc = mockSentry.CaptureException
 
-	defer func() {
-		InitFunc = sentry.Init
-		FlushFunc = sentry.Flush
-		RecoverFunc = sentry.Recover
-	}()
+	// Restore the original functions after the test
+	t.Cleanup(func() {
+		InitFunc = originalInitFunc
+		FlushFunc = originalFlushFunc
+		RecoverFunc = originalRecoverFunc
+		captureMessageFunc = originalCaptureMessageFunc
+		captureExceptionFunc = originalCaptureExceptionFunc
+		mockSentry.AssertExpectations(t)
+	})
 
-	mockSentry.On("Init", mock.Anything).Return(nil)
-	mockSentry.On("Flush", time.Second*5).Return(true)
-	mockSentry.On("Recover").Return((*sentry.EventID)(nil))
+	return mockSentry
+}
+
+func TestSentryTracker_CaptureMessage(t *testing.T) {
+	mockSentry := setupMockSentry(t)
+	mockSentry.
+		On("Init", mock.Anything).Return(nil).Once().
+		On("CaptureMessage", "Test message").Return((*sentry.EventID)(nil)).Once()
+
+	tracker, err := NewSentryTracker(testSentryDSN, "test", 5)
+	require.NoError(t, err)
+	require.NotNil(t, tracker)
+
+	tracker.CaptureMessage("Test message")
+}
+
+func TestSentryTracker_CaptureException(t *testing.T) {
+	mockSentry := setupMockSentry(t)
+	testError := errors.New("Test exception")
+	mockSentry.
+		On("Init", mock.Anything).Return(nil).Once().
+		On("CaptureException", testError).Return((*sentry.EventID)(nil)).Once()
+
+	tracker, err := NewSentryTracker(testSentryDSN, "test", 5)
+	require.NoError(t, err)
+	require.NotNil(t, tracker)
+
+	tracker.CaptureException(testError)
+}
+
+func TestNewSentryTracker_Success(t *testing.T) {
+	mockSentry := setupMockSentry(t)
+	mockSentry.
+		On("Init", mock.Anything).Return(nil).Once()
 
 	tracker, err := NewSentryTracker("dsn", "test-env", 5)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, tracker)
-
-	mockSentry.AssertCalled(t, "Init", mock.Anything)
-	mockSentry.AssertCalled(t, "Flush", time.Second*5)
-	mockSentry.AssertCalled(t, "Recover")
+	require.NoError(t, err)
+	require.NotNil(t, tracker)
 }
 
 func TestNewSentryTracker_InitFailure(t *testing.T) {
 	mockSentry := MockSentry{}
 	InitFunc = mockSentry.Init
-	defer func() {
+	t.Cleanup(func() {
 		InitFunc = sentry.Init
-	}()
-	initError := errors.New("init error")
-	mockSentry.On("Init", mock.Anything).Return(initError)
-	tracker, err := NewSentryTracker("dsn", "test-env", 5)
-	assert.Error(t, err)
-	assert.Equal(t, initError, err)
-	assert.Nil(t, tracker)
+		mockSentry.AssertExpectations(t)
+	})
 
-	mockSentry.AssertCalled(t, "Init", mock.Anything)
+	initError := errors.New("init error")
+	mockSentry.
+		On("Init", mock.Anything).Return(initError).Once()
+
+	tracker, err := NewSentryTracker("dsn", "test-env", 5)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "unable to initialize sentry: init error")
+	require.Nil(t, tracker)
 }
