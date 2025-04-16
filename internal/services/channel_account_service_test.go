@@ -105,7 +105,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
 
 		// Create and set up the heartbeat channel
-		health, _ := mockRPCService.GetHealth()
+		health, err := mockRPCService.GetHealth()
+		require.NoError(t, err)
 		heartbeatChan <- health
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
@@ -181,7 +182,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
 
 		// Create and set up the heartbeat channel
-		health, _ := mockRPCService.GetHealth()
+		health, err := mockRPCService.GetHealth()
+		require.NoError(t, err)
 		heartbeatChan <- health
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 

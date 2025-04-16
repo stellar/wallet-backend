@@ -34,7 +34,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
@@ -62,8 +63,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
 	payload.WebhookURL = "www.stellar.org"
-	jsonData, _ := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
-
+	jsonData, err := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
+	require.NoError(t, err)
 	httpResponse1 := &http.Response{
 		StatusCode: http.StatusBadGateway,
 		Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "OK"}}`)),
@@ -102,7 +103,8 @@ func TestUnlockChannelAccount(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{

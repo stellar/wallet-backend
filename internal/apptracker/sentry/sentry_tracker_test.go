@@ -8,6 +8,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // MockSentry is a mock struct to capture function calls
@@ -45,7 +46,8 @@ func TestSentryTracker_CaptureMessage(t *testing.T) {
 	captureMessageFunc = mockSentry.CaptureMessage
 	defer func() { captureMessageFunc = sentry.CaptureMessage }()
 	mockSentry.On("CaptureMessage", "Test message").Return((*sentry.EventID)(nil))
-	tracker, _ := NewSentryTracker("sentrydsn", "test", 5)
+	tracker, err := NewSentryTracker("sentrydsn", "test", 5)
+	require.NoError(t, err)
 	tracker.CaptureMessage("Test message")
 
 	mockSentry.AssertCalled(t, "CaptureMessage", "Test message")
@@ -57,7 +59,8 @@ func TestSentryTracker_CaptureException(t *testing.T) {
 	defer func() { captureExceptionFunc = sentry.CaptureException }() // Reset after the test
 	testError := errors.New("Test exception")
 	mockSentry.On("CaptureException", testError).Return((*sentry.EventID)(nil))
-	tracker, _ := NewSentryTracker("sentrydsn", "test", 5)
+	tracker, err := NewSentryTracker("sentrydsn", "test", 5)
+	require.NoError(t, err)
 	tracker.CaptureException(testError)
 
 	mockSentry.AssertCalled(t, "CaptureException", testError)

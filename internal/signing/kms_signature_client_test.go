@@ -24,7 +24,8 @@ func TestKMSSignatureClientGetAccountPublicKey(t *testing.T) {
 	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	sc := kmsSignatureClient{distributionAccountPublicKey: distributionAccount.Address()}
-	publicKey, _ := sc.GetAccountPublicKey(ctx)
+	publicKey, err := sc.GetAccountPublicKey(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, distributionAccount.Address(), publicKey)
 }
 

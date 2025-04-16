@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildOperations(t *testing.T) {
@@ -21,14 +22,17 @@ func TestBuildOperations(t *testing.T) {
 			Amount:        "10",
 			SourceAccount: srcAccount,
 		}
-		op, _ := c.BuildXDR()
+		op, err := c.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, dstAccount, ops[0].(*txnbuild.CreateAccount).Destination)
@@ -43,14 +47,17 @@ func TestBuildOperations(t *testing.T) {
 			Asset:         txnbuild.NativeAsset{},
 			SourceAccount: srcAccount,
 		}
-		op, _ := p.BuildXDR()
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, string("10.0000000"), ops[0].(*txnbuild.Payment).Amount)
@@ -68,14 +75,17 @@ func TestBuildOperations(t *testing.T) {
 			SourceAccount: srcAccount,
 			Price:         xdr.Price{N: 10, D: 10},
 		}
-		op, _ := m.BuildXDR()
+		op, err := m.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, string("10.0000000"), ops[0].(*txnbuild.ManageSellOffer).Amount)
@@ -94,15 +104,17 @@ func TestBuildOperations(t *testing.T) {
 			Price:         xdr.Price{N: 10, D: 10},
 			SourceAccount: srcAccount,
 		}
-		op, _ := c.BuildXDR()
+		op, err := c.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
-
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, string("10.0000000"), ops[0].(*txnbuild.CreatePassiveSellOffer).Amount)
 		assert.Equal(t, txnbuild.NativeAsset{}, ops[0].(*txnbuild.CreatePassiveSellOffer).Selling)
@@ -115,14 +127,17 @@ func TestBuildOperations(t *testing.T) {
 		s := txnbuild.SetOptions{
 			SourceAccount: srcAccount,
 		}
-		op, _ := s.BuildXDR()
+		op, err := s.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})
@@ -134,14 +149,17 @@ func TestBuildOperations(t *testing.T) {
 			Destination:   dstAccount,
 			SourceAccount: srcAccount,
 		}
-		op, _ := a.BuildXDR()
+		op, err := a.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, dstAccount, ops[0].(*txnbuild.AccountMerge).Destination)
@@ -152,14 +170,17 @@ func TestBuildOperations(t *testing.T) {
 		i := txnbuild.Inflation{
 			SourceAccount: srcAccount,
 		}
-		op, _ := i.BuildXDR()
+		op, err := i.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})
@@ -170,14 +191,17 @@ func TestBuildOperations(t *testing.T) {
 			Name:          "foo",
 			SourceAccount: srcAccount,
 		}
-		op, _ := m.BuildXDR()
+		op, err := m.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, "foo", ops[0].(*txnbuild.ManageData).Name)
@@ -189,14 +213,17 @@ func TestBuildOperations(t *testing.T) {
 			BumpTo:        int64(100),
 			SourceAccount: srcAccount,
 		}
-		op, _ := b.BuildXDR()
+		op, err := b.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, int64(100), ops[0].(*txnbuild.BumpSequence).BumpTo)
@@ -212,14 +239,17 @@ func TestBuildOperations(t *testing.T) {
 			OfferID:       int64(100),
 			SourceAccount: srcAccount,
 		}
-		op, _ := m.BuildXDR()
+		op, err := m.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, txnbuild.NativeAsset{}, ops[0].(*txnbuild.ManageBuyOffer).Selling)
@@ -241,14 +271,17 @@ func TestBuildOperations(t *testing.T) {
 			Path:          []txnbuild.Asset{},
 			SourceAccount: srcAccount,
 		}
-		op, _ := p.BuildXDR()
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, txnbuild.NativeAsset{}, ops[0].(*txnbuild.PathPaymentStrictSend).SendAsset)
@@ -266,14 +299,17 @@ func TestBuildOperations(t *testing.T) {
 			Asset:         txnbuild.NativeAsset{},
 			SourceAccount: srcAccount,
 		}
-		op, _ := c.BuildXDR()
+		op, err := c.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, "10.0000000", ops[0].(*txnbuild.CreateClaimableBalance).Amount)
@@ -285,14 +321,17 @@ func TestBuildOperations(t *testing.T) {
 		e := txnbuild.EndSponsoringFutureReserves{
 			SourceAccount: srcAccount,
 		}
-		op, _ := e.BuildXDR()
+		op, err := e.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})
@@ -305,14 +344,17 @@ func TestBuildOperations(t *testing.T) {
 			MinPrice:      xdr.Price{N: 10, D: 10},
 			MaxPrice:      xdr.Price{N: 10, D: 10},
 		}
-		op, _ := l.BuildXDR()
+		op, err := l.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, "10.0000000", ops[0].(*txnbuild.LiquidityPoolDeposit).MaxAmountA)
@@ -329,14 +371,17 @@ func TestBuildOperations(t *testing.T) {
 			MinAmountA:    "10",
 			MinAmountB:    "10",
 		}
-		op, _ := l.BuildXDR()
+		op, err := l.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 		assert.Equal(t, "10.0000000", ops[0].(*txnbuild.LiquidityPoolWithdraw).Amount)
@@ -350,14 +395,17 @@ func TestBuildOperations(t *testing.T) {
 			ExtendTo:      uint32(10),
 			SourceAccount: srcAccount,
 		}
-		op, _ := e.BuildXDR()
+		op, err := e.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})
@@ -367,14 +415,17 @@ func TestBuildOperations(t *testing.T) {
 		r := txnbuild.RestoreFootprint{
 			SourceAccount: srcAccount,
 		}
-		op, _ := r.BuildXDR()
+		op, err := r.BuildXDR()
+		require.NoError(t, err)
 		var buf strings.Builder
 		enc := xdr3.NewEncoder(&buf)
-		_ = op.EncodeTo(enc)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
 		opXDR := buf.String()
 		opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		ops, _ := BuildOperations([]string{opXDRBase64})
+		ops, err := BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
 		assert.Equal(t, srcAccount, ops[0].GetSourceAccount())
 	})

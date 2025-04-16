@@ -27,9 +27,9 @@ linters:
         - -ST1000
         - -QF1008
 
-    # errcheck:
-    #   # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`.
-    #   # check-blank: true
+    errcheck:
+      # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`.
+      check-blank: true
 
   exclusions:
     paths:

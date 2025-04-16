@@ -113,7 +113,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	channelAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
-	txService, _ := NewTransactionService(TransactionServiceOptions{
+	txService, err := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
@@ -121,6 +121,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
+	require.NoError(t, err)
+
 	t.Run("channel_account_signature_client_get_account_public_key_err", func(t *testing.T) {
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -297,7 +299,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	channelAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
-	txService, _ := NewTransactionService(TransactionServiceOptions{
+	txService, err := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
@@ -305,7 +307,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
-
+	require.NoError(t, err)
 	t.Run("distribution_account_signature_client_get_account_public_key_err", func(t *testing.T) {
 		tx := utils.BuildTestTransaction(t)
 		distributionAccountSignatureClient.

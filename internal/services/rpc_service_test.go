@@ -45,7 +45,8 @@ func TestSendRPCRequest(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
@@ -172,7 +173,8 @@ func TestSendTransaction(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
@@ -189,7 +191,8 @@ func TestSendTransaction(t *testing.T) {
 			"method":  "sendTransaction",
 			"params":  params,
 		}
-		jsonData, _ := json.Marshal(payload)
+		jsonData, err := json.Marshal(payload)
+		require.NoError(t, err)
 
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
@@ -250,7 +253,8 @@ func TestGetTransaction(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
@@ -267,7 +271,8 @@ func TestGetTransaction(t *testing.T) {
 			"method":  "getTransaction",
 			"params":  params,
 		}
-		jsonData, _ := json.Marshal(payload)
+		jsonData, err := json.Marshal(payload)
+		require.NoError(t, err)
 
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
@@ -343,7 +348,8 @@ func TestGetTransactions(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
@@ -377,7 +383,8 @@ func TestGetTransactions(t *testing.T) {
 			"method":  "getTransactions",
 			"params":  params,
 		}
-		jsonData, _ := json.Marshal(payload)
+		jsonData, err := json.Marshal(payload)
+		require.NoError(t, err)
 
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
@@ -423,7 +430,8 @@ func TestSendGetHealth(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, _ := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
@@ -436,7 +444,8 @@ func TestSendGetHealth(t *testing.T) {
 			"id":      1,
 			"method":  "getHealth",
 		}
-		jsonData, _ := json.Marshal(payload)
+		jsonData, err := json.Marshal(payload)
+		require.NoError(t, err)
 
 		httpResponse := http.Response{
 			StatusCode: http.StatusOK,
