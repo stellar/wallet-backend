@@ -11,10 +11,10 @@ import (
 )
 
 type IntegrationTestsOptions struct {
-	BaseFee                       int64
-	DistributionAccountPrivateKey string
-	NetworkPassphrase             string
-	RPCService                    services.RPCService
+	BaseFee              int64
+	NetworkPassphrase    string
+	RPCService           services.RPCService
+	ClientAuthPrivateKey string
 }
 
 func (o *IntegrationTestsOptions) Validate() error {
@@ -22,8 +22,8 @@ func (o *IntegrationTestsOptions) Validate() error {
 		return fmt.Errorf("base fee is lower than the minimum network fee")
 	}
 
-	if o.DistributionAccountPrivateKey == "" {
-		return fmt.Errorf("distribution account private key cannot be empty")
+	if o.ClientAuthPrivateKey == "" {
+		return fmt.Errorf("client auth private key cannot be empty")
 	}
 
 	if o.NetworkPassphrase == "" {
@@ -38,10 +38,10 @@ func (o *IntegrationTestsOptions) Validate() error {
 }
 
 type IntegrationTests struct {
-	BaseFee                       int64
-	DistributionAccountPrivateKey string
-	NetworkPassphrase             string
-	RPCService                    services.RPCService
+	BaseFee              int64
+	NetworkPassphrase    string
+	RPCService           services.RPCService
+	ClientAuthPrivateKey string
 }
 
 func (i *IntegrationTests) Run(ctx context.Context) error {
@@ -57,8 +57,9 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &IntegrationTests{
-		RPCService:                    opts.RPCService,
-		BaseFee:                       opts.BaseFee,
-		DistributionAccountPrivateKey: opts.DistributionAccountPrivateKey,
+		BaseFee:              opts.BaseFee,
+		NetworkPassphrase:    opts.NetworkPassphrase,
+		RPCService:           opts.RPCService,
+		ClientAuthPrivateKey: opts.ClientAuthPrivateKey,
 	}, nil
 }
