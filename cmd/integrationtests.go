@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"go/types"
 	"net/http"
 	"time"
 
@@ -22,12 +23,12 @@ type integrationTestsCmd struct {
 }
 
 type integrationTestsCmdConfig struct {
-	BaseFee                       int
-	DatabaseURL                   string
-	DistributionAccountPrivateKey string
-	LogLevel                      logrus.Level
-	NetworkPassphrase             string
-	RPCURL                        string
+	BaseFee              int
+	DatabaseURL          string
+	LogLevel             logrus.Level
+	NetworkPassphrase    string
+	RPCURL               string
+	ClientAuthPrivateKey string
 }
 
 func (c *integrationTestsCmd) Command() *cobra.Command {
@@ -36,10 +37,17 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 	cfgOpts := config.ConfigOptions{
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
-		utils.DistributionAccountPrivateKeyOption(&cfg.DistributionAccountPrivateKey),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.RPCURLOption(&cfg.RPCURL),
+		{
+			Name:           "client-auth-private-key",
+			Usage:          "The private key used to authenticate the client when making HTTP requests to the wallet-backend.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
+			ConfigKey:      &cfg.ClientAuthPrivateKey,
+			Required:       true,
+		},
 	}
 
 	cmd := &cobra.Command{
@@ -72,10 +80,10 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			}
 
 			c.integrationTests, err = integrationtests.NewIntegrationTests(ctx, integrationtests.IntegrationTestsOptions{
-				BaseFee:                       int64(cfg.BaseFee),
-				DistributionAccountPrivateKey: cfg.DistributionAccountPrivateKey,
-				NetworkPassphrase:             cfg.NetworkPassphrase,
-				RPCService:                    rpcService,
+				BaseFee:              int64(cfg.BaseFee),
+				NetworkPassphrase:    cfg.NetworkPassphrase,
+				RPCService:           rpcService,
+				ClientAuthPrivateKey: cfg.ClientAuthPrivateKey,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
