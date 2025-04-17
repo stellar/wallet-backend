@@ -34,7 +34,7 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
 
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
-		assert.ErrorContains(t, err, ErrStellarSignatureNotVerified.Error())
+		assert.ErrorContains(t, err, "unable to verify the signature for the given payload")
 	})
 
 	t.Run("successfully_verifies_signature", func(t *testing.T) {
@@ -70,6 +70,12 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		require.NoError(t, err)
 
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
+		assert.NoError(t, err)
+
+		// When there's no request body
+		signatureHeaderContent, err = sigCreator.CreateSignatureHeader(host.String(), now, nil)
+		require.NoError(t, err)
+		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte{})
 		assert.NoError(t, err)
 	})
 }

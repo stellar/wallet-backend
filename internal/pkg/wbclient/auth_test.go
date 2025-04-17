@@ -2,6 +2,8 @@ package wbclient
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
@@ -26,6 +28,9 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 	signatureVerifier, err := auth.NewStellarSignatureVerifier(hostname, signingKey.Address())
 	require.NoError(t, err)
 
+	expectedRequestBody := []byte(`{"value": "expected value"}`)
+	wrongRequestBody := []byte(`{"value": "wrong value"}`)
+
 	testCases := []struct {
 		name            string
 		timestampUnix   int64
@@ -39,37 +44,37 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 			name:            "🔴expired",
 			timestampUnix:   expiredUnix,
 			hostname:        hostname,
-			requestBody:     []byte(`{"value": "expected value"}`),
-			bodyToBeSigned:  []byte(`{"value": "expected value"}`),
+			requestBody:     expectedRequestBody,
+			bodyToBeSigned:  expectedRequestBody,
 			signer:          signingKey,
-			wantErrContains: []string{"signature timestamp has expired", auth.ErrStellarSignatureNotVerified.Error()},
+			wantErrContains: []string{"signature timestamp has expired"},
 		},
 		{
 			name:            "🔴wrong_hostname",
 			timestampUnix:   nowUnix,
 			hostname:        wrongHostname,
-			requestBody:     []byte(`{"value": "expected value"}`),
-			bodyToBeSigned:  []byte(`{"value": "expected value"}`),
+			requestBody:     expectedRequestBody,
+			bodyToBeSigned:  expectedRequestBody,
 			signer:          signingKey,
-			wantErrContains: []string{"unable to verify the signature", auth.ErrStellarSignatureNotVerified.Error()},
+			wantErrContains: []string{"unable to verify the signature"},
 		},
 		{
 			name:            "🔴wrong_body",
 			timestampUnix:   nowUnix,
 			hostname:        hostname,
-			requestBody:     []byte(`{"value": "expected value"}`),
-			bodyToBeSigned:  []byte(`{"value": "wrong value"}`),
+			requestBody:     expectedRequestBody,
+			bodyToBeSigned:  wrongRequestBody,
 			signer:          signingKey,
-			wantErrContains: []string{"unable to verify the signature", auth.ErrStellarSignatureNotVerified.Error()},
+			wantErrContains: []string{"unable to verify the signature"},
 		},
 		{
 			name:            "🔴wrong_signer",
 			timestampUnix:   nowUnix,
 			hostname:        hostname,
-			requestBody:     []byte(`{"value": "expected value"}`),
-			bodyToBeSigned:  []byte(`{"value": "expected value"}`),
+			requestBody:     expectedRequestBody,
+			bodyToBeSigned:  expectedRequestBody,
 			signer:          wrongSigningKey,
-			wantErrContains: []string{"unable to verify the signature", auth.ErrStellarSignatureNotVerified.Error()},
+			wantErrContains: []string{"unable to verify the signature"},
 		},
 		{
 			name:            "🟢empty_body",
@@ -84,8 +89,8 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 			name:            "🟢existing_body",
 			timestampUnix:   nowUnix,
 			hostname:        hostname,
-			requestBody:     []byte(`{"value": "expected value"}`),
-			bodyToBeSigned:  []byte(`{"value": "expected value"}`),
+			requestBody:     expectedRequestBody,
+			bodyToBeSigned:  expectedRequestBody,
 			signer:          signingKey,
 			wantErrContains: nil,
 		},
@@ -107,4 +112,21 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("🟢manually_compare_format", func(t *testing.T) {
+		host, err := url.ParseRequestURI(hostname)
+		require.NoError(t, err)
+
+		reqBody := []byte(`{"value": "expected value"}`)
+		sig := fmt.Sprintf("%d.%s.%s", nowUnix, host.Hostname(), string(reqBody))
+		sig, err = signingKey.SignBase64([]byte(sig))
+		require.NoError(t, err)
+		wantSignatureHeader := fmt.Sprintf("t=%d, s=%s", nowUnix, sig)
+
+		signatureCreator := SignatureCreator{Signer: signingKey}
+		signatureHeader, err := signatureCreator.CreateSignatureHeader(hostname, nowUnix, reqBody)
+		require.NoError(t, err)
+
+		assert.Equal(t, wantSignatureHeader, signatureHeader)
+	})
 }

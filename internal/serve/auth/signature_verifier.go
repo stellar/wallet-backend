@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -19,8 +18,6 @@ import (
 type SignatureVerifier interface {
 	VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error
 }
-
-var ErrStellarSignatureNotVerified = errors.New("neither Signature nor X-Stellar-Signature header could be verified")
 
 type InvalidTimestampFormatError struct {
 	TimestampString     string
@@ -54,18 +51,18 @@ var _ SignatureVerifier = (*StellarSignatureVerifier)(nil)
 func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error {
 	t, s, err := ExtractTimestampedSignature(signatureHeaderContent)
 	if err != nil {
-		return fmt.Errorf("unable to extract timestamped signature: %w: %w", err, ErrStellarSignatureNotVerified)
+		return fmt.Errorf("unable to extract timestamped signature: %w", err)
 	}
 
 	// 2 seconds
 	err = VerifyGracePeriodSeconds(t, 2*time.Second)
 	if err != nil {
-		return fmt.Errorf("signature timestamp has expired: %w: %w", err, ErrStellarSignatureNotVerified)
+		return fmt.Errorf("signature timestamp has expired: %w", err)
 	}
 
 	signatureBytes, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return fmt.Errorf("unable to decode signature value %s: %w: %w", s, err, ErrStellarSignatureNotVerified)
+		return fmt.Errorf("unable to decode signature value %s: %w", s, err)
 	}
 
 	payload := t + "." + sv.ServerHostname + "." + string(rawReqBody)
@@ -80,7 +77,7 @@ func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatu
 
 	err = kp.Verify([]byte(payload), signatureBytes)
 	if err != nil {
-		return fmt.Errorf("unable to verify the signature: %w: %w", err, ErrStellarSignatureNotVerified)
+		return fmt.Errorf("unable to verify the signature for the given payload: %w", err)
 	}
 
 	return nil
