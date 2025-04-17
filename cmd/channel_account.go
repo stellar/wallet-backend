@@ -81,8 +81,6 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)
 			}
-			ctx := cmd.Context()
-
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
@@ -92,6 +90,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
 
+			ctx := cmd.Context()
 			distAccSigClientOpts.DBConnectionPool = dbConnectionPool
 			distAccSigClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
 			distAccSigClient, err := utils.SignatureClientResolver(&distAccSigClientOpts)
