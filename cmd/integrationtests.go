@@ -22,12 +22,12 @@ type integrationTestsCmd struct {
 }
 
 type integrationTestsCmdConfig struct {
-	BaseFee                       int
-	DatabaseURL                   string
-	DistributionAccountPrivateKey string
-	LogLevel                      logrus.Level
-	NetworkPassphrase             string
-	RPCURL                        string
+	BaseFee           int
+	DatabaseURL       string
+	LogLevel          logrus.Level
+	NetworkPassphrase string
+	RPCURL            string
+	WalletSigningKey  string
 }
 
 func (c *integrationTestsCmd) Command() *cobra.Command {
@@ -36,7 +36,7 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 	cfgOpts := config.ConfigOptions{
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
-		utils.DistributionAccountPrivateKeyOption(&cfg.DistributionAccountPrivateKey),
+		utils.WalletSigningKeyOption(&cfg.WalletSigningKey),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.RPCURLOption(&cfg.RPCURL),
@@ -72,10 +72,10 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			}
 
 			c.integrationTests, err = integrationtests.NewIntegrationTests(ctx, integrationtests.IntegrationTestsOptions{
-				BaseFee:                       int64(cfg.BaseFee),
-				DistributionAccountPrivateKey: cfg.DistributionAccountPrivateKey,
-				NetworkPassphrase:             cfg.NetworkPassphrase,
-				RPCService:                    rpcService,
+				BaseFee:           int64(cfg.BaseFee),
+				NetworkPassphrase: cfg.NetworkPassphrase,
+				RPCService:        rpcService,
+				WalletSigningKey:  cfg.WalletSigningKey,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)

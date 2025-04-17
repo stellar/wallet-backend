@@ -174,6 +174,17 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 	return awsOpts
 }
 
+func WalletSigningKeyOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:           "wallet-signing-key",
+		Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionStellarPublicKey,
+		ConfigKey:      configKey,
+		Required:       true,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))

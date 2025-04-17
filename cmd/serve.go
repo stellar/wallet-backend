@@ -47,6 +47,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.WebhookHandlerChannelMaxWorkersOptions(&cfg.WebhookHandlerServiceChannelMaxWorkers),
 		utils.WebhookHandlerChannelMaxRetriesOption(&cfg.WebhookHandlerServiceChannelMaxRetries),
 		utils.WebhookHandlerChannelMinWaitBtwnRetriesMSOption(&cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS),
+		utils.WalletSigningKeyOption(&cfg.WalletSigningKey),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -62,14 +63,6 @@ func (c *serveCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.ServerBaseURL,
 			FlagDefault: "http://localhost:8001",
 			Required:    true,
-		},
-		{
-			Name:           "wallet-signing-key",
-			Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
-			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionStellarPublicKey,
-			ConfigKey:      &cfg.WalletSigningKey,
-			Required:       true,
 		},
 		{
 			Name:           "supported-assets",
