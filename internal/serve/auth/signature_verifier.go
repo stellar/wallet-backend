@@ -54,21 +54,18 @@ var _ SignatureVerifier = (*StellarSignatureVerifier)(nil)
 func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error {
 	t, s, err := ExtractTimestampedSignature(signatureHeaderContent)
 	if err != nil {
-		log.Ctx(ctx).Error(err)
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("unable to extract timestamped signature: %w: %w", err, ErrStellarSignatureNotVerified)
 	}
 
 	// 2 seconds
 	err = VerifyGracePeriodSeconds(t, 2*time.Second)
 	if err != nil {
-		log.Ctx(ctx).Error(err)
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("signature timestamp has expired: %w: %w", err, ErrStellarSignatureNotVerified)
 	}
 
 	signatureBytes, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		log.Ctx(ctx).Errorf("unable to decode signature value %s: %s", s, err.Error())
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("unable to decode signature value %s: %w: %w", s, err, ErrStellarSignatureNotVerified)
 	}
 
 	payload := t + "." + sv.ServerHostname + "." + string(rawReqBody)
@@ -76,13 +73,14 @@ func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatu
 	// TODO: perhaps add possibility to have more than one signing key.
 	kp, err := keypair.ParseAddress(sv.WalletSigningKey)
 	if err != nil {
-		return fmt.Errorf("parsing wallet signing key %s: %w", sv.WalletSigningKey, err)
+		err = fmt.Errorf("parsing wallet signing key %s: %w", sv.WalletSigningKey, err)
+		log.Ctx(ctx).Error(err)
+		return err
 	}
 
 	err = kp.Verify([]byte(payload), signatureBytes)
 	if err != nil {
-		log.Ctx(ctx).Errorf("unable to verify the signature: %s", err.Error())
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("unable to verify the signature: %w: %w", err, ErrStellarSignatureNotVerified)
 	}
 
 	return nil

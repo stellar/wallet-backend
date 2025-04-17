@@ -32,7 +32,7 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
 
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
-		assert.EqualError(t, err, ErrStellarSignatureNotVerified.Error())
+		assert.ErrorContains(t, err, ErrStellarSignatureNotVerified.Error())
 	})
 
 	t.Run("successfully_verifies_signature", func(t *testing.T) {
