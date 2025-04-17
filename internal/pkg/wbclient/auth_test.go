@@ -1,8 +1,10 @@
 package wbclient
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"testing"
 	"time"
@@ -14,7 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 )
 
-func Test_SignatureCreator_CreateSignature(t *testing.T) {
+func Test_RequestSigner(t *testing.T) {
 	hostname := "https://example.com"
 	wrongHostname := "https://wrong.example.com"
 	signingKey := keypair.MustParseFull("SBFZ723B5G7VKMV5J5J3DEDGQOLTF7YQ4EXEGZI3MZYTNWYE5FGCNGCK")
@@ -96,24 +98,51 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			signatureCreator := SignatureCreator{Signer: tc.signer}
-			signatureHeader, err := signatureCreator.CreateSignatureHeader(tc.hostname, tc.timestampUnix, tc.bodyToBeSigned)
-			require.NoError(t, err)
+	t.Run("build_signature_header", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				sigCreator := RequestSigner{Signer: tc.signer}
+				signatureHeader, err := sigCreator.BuildSignatureHeader(tc.hostname, tc.timestampUnix, tc.bodyToBeSigned)
+				require.NoError(t, err)
 
-			err = signatureVerifier.VerifySignature(ctx, signatureHeader, tc.requestBody)
-			if len(tc.wantErrContains) == 0 {
-				assert.NoError(t, err)
-			} else {
-				for _, wantErrContains := range tc.wantErrContains {
-					assert.ErrorContains(t, err, wantErrContains)
+				err = signatureVerifier.VerifySignature(ctx, signatureHeader, tc.requestBody)
+				if len(tc.wantErrContains) == 0 {
+					assert.NoError(t, err)
+				} else {
+					for _, wantErrContains := range tc.wantErrContains {
+						assert.ErrorContains(t, err, wantErrContains)
+					}
 				}
-			}
-		})
-	}
+			})
+		}
+	})
 
-	t.Run("🟢manually_compare_format", func(t *testing.T) {
+	t.Run("sign_http_request", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				request, err := http.NewRequest(http.MethodPost, tc.hostname, bytes.NewBuffer(tc.bodyToBeSigned))
+				require.NoError(t, err)
+
+				sigCreator := RequestSigner{Signer: tc.signer}
+				err = sigCreator.SignHTTPRequest(request, tc.timestampUnix)
+				require.NoError(t, err)
+
+				signatureHeader := request.Header.Get("Signature")
+				require.NotEmpty(t, signatureHeader)
+
+				err = signatureVerifier.VerifySignature(ctx, signatureHeader, tc.requestBody)
+				if len(tc.wantErrContains) == 0 {
+					assert.NoError(t, err)
+				} else {
+					for _, wantErrContains := range tc.wantErrContains {
+						assert.ErrorContains(t, err, wantErrContains)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("🟢manually_compare_signature_format", func(t *testing.T) {
 		host, err := url.ParseRequestURI(hostname)
 		require.NoError(t, err)
 
@@ -123,8 +152,8 @@ func Test_SignatureCreator_CreateSignature(t *testing.T) {
 		require.NoError(t, err)
 		wantSignatureHeader := fmt.Sprintf("t=%d, s=%s", nowUnix, sig)
 
-		signatureCreator := SignatureCreator{Signer: signingKey}
-		signatureHeader, err := signatureCreator.CreateSignatureHeader(hostname, nowUnix, reqBody)
+		signatureCreator := RequestSigner{Signer: signingKey}
+		signatureHeader, err := signatureCreator.BuildSignatureHeader(hostname, nowUnix, reqBody)
 		require.NoError(t, err)
 
 		assert.Equal(t, wantSignatureHeader, signatureHeader)

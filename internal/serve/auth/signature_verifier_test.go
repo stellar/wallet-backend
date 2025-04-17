@@ -62,18 +62,18 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 	t.Run("successfully_verifies_signature_using_the_public_package", func(t *testing.T) {
 		now := time.Now().Unix()
 		reqBody := `{"value": "new value"}`
-		sigCreator := wbclient.SignatureCreator{
+		sigCreator := wbclient.RequestSigner{
 			Signer: signingKey,
 		}
 
-		signatureHeaderContent, err := sigCreator.CreateSignatureHeader(host.String(), now, []byte(reqBody))
+		signatureHeaderContent, err := sigCreator.BuildSignatureHeader(host.String(), now, []byte(reqBody))
 		require.NoError(t, err)
 
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
 		assert.NoError(t, err)
 
 		// When there's no request body
-		signatureHeaderContent, err = sigCreator.CreateSignatureHeader(host.String(), now, nil)
+		signatureHeaderContent, err = sigCreator.BuildSignatureHeader(host.String(), now, nil)
 		require.NoError(t, err)
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte{})
 		assert.NoError(t, err)
