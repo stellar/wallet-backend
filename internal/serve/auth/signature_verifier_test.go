@@ -11,6 +11,8 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/pkg/wbclient"
 )
 
 func TestSignatureVerifierVerifySignature(t *testing.T) {
@@ -54,6 +56,20 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		signatureHeaderContent = fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
 
 		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte{})
+		assert.NoError(t, err)
+	})
+
+	t.Run("successfully_verifies_signature_using_the_public_package", func(t *testing.T) {
+		now := time.Now().Unix()
+		reqBody := `{"value": "new value"}`
+		sigCreator := wbclient.SignatureCreator{
+			Signer: signingKey,
+		}
+
+		signatureHeaderContent, err := sigCreator.CreateSignatureHeader(host.String(), now, []byte(reqBody))
+		require.NoError(t, err)
+
+		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
 		assert.NoError(t, err)
 	})
 }
