@@ -106,8 +106,3 @@ func OperationXDRToTxnBuildOp(opXDR xdr.Operation) (txnbuild.Operation, error) {
 
 	return operation, nil
 }
-
-// Ptr returns a pointer to the given value of any type.
-func Ptr[T any](v T) *T {
-	return &v
-}

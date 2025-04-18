@@ -170,6 +170,7 @@ func Test_ConvertingObjectTypes_BetweenXDRAndTxnbuild(t *testing.T) {
 		},
 		{
 			name: "allow_trust",
+			//nolint:staticcheck // this test is used to prevent the usage of the deprecated operation
 			operation: &txnbuild.AllowTrust{
 				Trustor:       account2,
 				Type:          usdcAsset,
@@ -319,5 +320,4 @@ func Test_ConvertingObjectTypes_BetweenXDRAndTxnbuild(t *testing.T) {
 			}
 		})
 	}
-
 }
