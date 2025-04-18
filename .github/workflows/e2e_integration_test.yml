@@ -26,12 +26,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checks
+        run: |
+          pwd
+          ls -la
+
       - name: Cleanup data
-        run: docker compose -f docker-compose.yml down -v
+        run: docker compose -f docker-compose.yaml down -v
         shell: bash
 
       - name: Run Docker Compose for SDP, Anchor Platform and TSS
-        run: docker compose -f docker-compose.yml up --build -V -d
+        run: docker compose -f docker-compose.yaml up --build -V -d
         shell: bash
 
       - name: Install curl
@@ -70,5 +75,5 @@ jobs:
 
       - name: Docker logs
         if: always()
-        run: docker compose -f docker-compose.yml logs && docker compose -f docker-compose.yml down
+        run: docker compose -f docker-compose.yaml logs && docker compose -f docker-compose.yaml down
         shell: bash
