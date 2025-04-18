@@ -374,11 +374,12 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/tss", func(r chi.Router) {
 			handler := &httphandler.TSSHandler{
-				Router:            deps.TSSRouter,
-				Store:             deps.TSSStore,
-				AppTracker:        deps.AppTracker,
-				NetworkPassphrase: deps.NetworkPassphrase,
-				MetricsService:    deps.MetricsService,
+				Router:             deps.TSSRouter,
+				Store:              deps.TSSStore,
+				AppTracker:         deps.AppTracker,
+				NetworkPassphrase:  deps.NetworkPassphrase,
+				MetricsService:     deps.MetricsService,
+				TransactionService: deps.TSSTransactionService,
 			}
 
 			r.Get("/transactions/{transactionhash}", handler.GetTransaction)
