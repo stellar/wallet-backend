@@ -23,6 +23,7 @@ type integrationTestsCmd struct {
 
 type integrationTestsCmdConfig struct {
 	BaseFee           int
+	ServerBaseURL     string
 	DatabaseURL       string
 	LogLevel          logrus.Level
 	NetworkPassphrase string
@@ -35,6 +36,7 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 
 	cfgOpts := config.ConfigOptions{
 		utils.BaseFeeOption(&cfg.BaseFee),
+		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.WalletSigningKeyOption(&cfg.WalletSigningKey),
 		utils.LogLevelOption(&cfg.LogLevel),

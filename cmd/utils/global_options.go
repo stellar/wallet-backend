@@ -174,6 +174,17 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 	return awsOpts
 }
 
+func ServerBaseURLOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "server-base-url",
+		Usage:       "The server base URL",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "http://localhost:8001",
+		Required:    true,
+	}
+}
+
 func WalletSigningKeyOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:           "wallet-signing-key",
