@@ -20,6 +20,7 @@ services:
     entrypoint: ["/bin/bash", "/config/soroban_rpc_startup.sh"]
 
   api:
+    container_name: api
     image: stellar/wallet-backend:development
     build:
       context: ./
@@ -67,6 +68,7 @@ services:
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
 
   ingest:
+    container_name: ingest
     image: stellar/wallet-backend:development
     build:
       context: ./
