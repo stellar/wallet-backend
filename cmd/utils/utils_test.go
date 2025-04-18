@@ -5,8 +5,9 @@ import (
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
-	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/stellar/wallet-backend/internal/signing"
 )
 
 func TestSignatureClientResolver(t *testing.T) {
@@ -25,14 +26,14 @@ func TestSignatureClientResolver(t *testing.T) {
 			Type:                         signing.EnvSignatureClientType,
 			DistributionAccountSecretKey: "invalid",
 		})
-		assert.EqualError(t, err, "parsing distribution account private key: base32 decode failed: illegal base32 data at input byte 7")
+		assert.EqualError(t, err, "resolving signature client: parsing distribution account private key: base32 decode failed: illegal base32 data at input byte 7")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{
 			Type:                         signing.EnvSignatureClientType,
 			DistributionAccountSecretKey: keypair.MustRandom().Seed(),
 		})
-		assert.EqualError(t, err, "invalid network passphrase provided: ")
+		assert.EqualError(t, err, "resolving signature client: invalid network passphrase provided: ")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{
@@ -49,7 +50,7 @@ func TestSignatureClientResolver(t *testing.T) {
 			Type:                         signing.KMSSignatureClientType,
 			DistributionAccountPublicKey: keypair.MustRandom().Address(),
 		})
-		assert.EqualError(t, err, "instantiating kms client: aws region cannot be empty")
+		assert.EqualError(t, err, "resolving signature client: instantiating kms client: aws region cannot be empty")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{
@@ -65,7 +66,7 @@ func TestSignatureClientResolver(t *testing.T) {
 			DistributionAccountPublicKey: keypair.MustRandom().Address(),
 			AWSRegion:                    "us-east-2",
 		})
-		assert.EqualError(t, err, "invalid network passphrase provided: ")
+		assert.EqualError(t, err, "resolving signature client: invalid network passphrase provided: ")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{
@@ -74,7 +75,7 @@ func TestSignatureClientResolver(t *testing.T) {
 			NetworkPassphrase:            network.PublicNetworkPassphrase,
 			AWSRegion:                    "us-east-2",
 		})
-		assert.EqualError(t, err, "aws key arn cannot be empty")
+		assert.EqualError(t, err, "resolving signature client: aws key arn cannot be empty")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{

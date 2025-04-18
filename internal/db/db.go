@@ -47,10 +47,12 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
 }
 
+//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.BeginTxx method
 func (db *ConnectionPoolImplementation) BeginTxx(ctx context.Context, opts *sql.TxOptions) (Transaction, error) {
 	return db.DB.BeginTxx(ctx, opts)
 }
 
+//nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.PingContext method
 func (db *ConnectionPoolImplementation) Ping(ctx context.Context) error {
 	return db.DB.PingContext(ctx)
 }

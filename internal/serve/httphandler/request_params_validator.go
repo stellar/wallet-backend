@@ -2,10 +2,12 @@ package httphandler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/stellar/go/support/http/httpdecode"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/validators"
@@ -39,9 +41,14 @@ func DecodePathAndValidate(ctx context.Context, req *http.Request, reqPath inter
 }
 
 func ValidateRequestParams(ctx context.Context, reqParams interface{}, appTracker apptracker.AppTracker) *httperror.ErrorResponse {
-	val := validators.NewValidator()
+	val, err := validators.NewValidator()
+	if err != nil {
+		return httperror.InternalServerError(ctx, "Internal error while creating a new validator.", err, nil, appTracker)
+	}
+
 	if err := val.StructCtx(ctx, reqParams); err != nil {
-		if vErrs, ok := err.(validator.ValidationErrors); ok {
+		var vErrs validator.ValidationErrors
+		if ok := errors.As(err, &vErrs); ok {
 			extras := validators.ParseValidationError(vErrs)
 			return httperror.BadRequest("Validation error.", extras)
 		}

@@ -199,7 +199,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 	})
-
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
@@ -66,14 +67,14 @@ func (p *errorNonJitterPool) Receive(payload tss.Payload) {
 	for i = 0; i < p.MaxRetries; i++ {
 		time.Sleep(time.Duration(p.WaitBtwnRetriesMS) * time.Millisecond)
 
-		oldStatus := payload.RpcSubmitTxResponse.Status.Status()
+		oldStatus := payload.RPCSubmitTxResponse.Status.Status()
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorNonJitterChannelName, payload)
 		if err != nil {
 			log.Errorf("%s: unable to sign and submit transaction: %v", ErrorNonJitterChannelName, err)
 			return
 		}
 
-		payload.RpcSubmitTxResponse = rpcSendResp
+		payload.RPCSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.NonJitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {

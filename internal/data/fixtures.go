@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 func InsertTestPayments(t *testing.T, ctx context.Context, payments []Payment, connectionPool db.ConnectionPool) {

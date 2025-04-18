@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/kms/kmsiface"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
+
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
@@ -40,7 +41,7 @@ func (s *kmsImportService) ImportDistributionAccountKey(ctx context.Context, dis
 
 	kp, err := keypair.ParseFull(distributionAccountSeed)
 	if err != nil {
-		return fmt.Errorf("parsing distribution private key: %s", err)
+		return fmt.Errorf("parsing distribution account private key: %w", err)
 	}
 
 	if kp.Address() != s.distributionAccountPublicKey {
@@ -59,9 +60,6 @@ func (s *kmsImportService) ImportDistributionAccountKey(ctx context.Context, dis
 
 	err = s.keypairStore.Insert(ctx, kp.Address(), output.CiphertextBlob)
 	if err != nil {
-		if errors.Is(err, store.ErrPublicKeyAlreadyExists) {
-			return err
-		}
 		return fmt.Errorf("storing distribution account encrypted private key: %w", err)
 	}
 

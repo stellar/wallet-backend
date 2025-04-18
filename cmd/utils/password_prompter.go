@@ -21,12 +21,19 @@ type defaultPasswordPrompter struct {
 var _ PasswordPrompter = (*defaultPasswordPrompter)(nil)
 
 func (pp *defaultPasswordPrompter) Run() (string, error) {
-	fmt.Fprint(pp.stdout, pp.inputLabelText, " ")
+	_, err := fmt.Fprint(pp.stdout, pp.inputLabelText, " ")
+	if err != nil {
+		return "", fmt.Errorf("writing input label text: %w", err)
+	}
+
 	password, err := term.ReadPassword(int(pp.stdin.Fd()))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("reading password: %w", err)
 	}
-	fmt.Fprintln(pp.stdout)
+	_, err = fmt.Fprintln(pp.stdout)
+	if err != nil {
+		return "", fmt.Errorf("writing newline: %w", err)
+	}
 
 	return string(password), nil
 }

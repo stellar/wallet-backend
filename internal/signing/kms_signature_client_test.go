@@ -10,20 +10,22 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestKMSSignatureClientGetAccountPublicKey(t *testing.T) {
 	ctx := context.Background()
 	distributionAccount := keypair.MustRandom()
 	sc := kmsSignatureClient{distributionAccountPublicKey: distributionAccount.Address()}
-	publicKey, _ := sc.GetAccountPublicKey(ctx)
+	publicKey, err := sc.GetAccountPublicKey(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, distributionAccount.Address(), publicKey)
 }
 
@@ -171,7 +173,7 @@ func TestKMSSignatureClientSignStellarTransaction(t *testing.T) {
 		defer kmsClient.AssertExpectations(t)
 
 		signedTx, err := sc.SignStellarTransaction(ctx, tx, distributionAccount.Address())
-		assert.EqualError(t, err, "decrypting distribution account private key in *signing.kmsSignatureClient: unexpected error")
+		assert.ErrorContains(t, err, "decrypting distribution account private key in *signing.kmsSignatureClient: unexpected error")
 		assert.Nil(t, signedTx)
 	})
 
@@ -214,7 +216,7 @@ func TestKMSSignatureClientSignStellarTransaction(t *testing.T) {
 		defer kmsClient.AssertExpectations(t)
 
 		signedTx, err := sc.SignStellarTransaction(ctx, tx, distributionAccount.Address())
-		assert.EqualError(t, err, "parsing distribution account private key in *signing.kmsSignatureClient: base32 decode failed: illegal base32 data at input byte 7")
+		assert.ErrorContains(t, err, "parsing distribution account private key in *signing.kmsSignatureClient: base32 decode failed: illegal base32 data at input byte 7")
 		assert.Nil(t, signedTx)
 	})
 
@@ -369,7 +371,7 @@ func TestKMSSignatureClientSignStellarFeeBumpTransaction(t *testing.T) {
 		defer kmsClient.AssertExpectations(t)
 
 		signedFeeBumpTx, err := sc.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
-		assert.EqualError(t, err, "decrypting distribution account private key in *signing.kmsSignatureClient: unexpected error")
+		assert.ErrorContains(t, err, "decrypting distribution account private key in *signing.kmsSignatureClient: unexpected error")
 		assert.Nil(t, signedFeeBumpTx)
 	})
 
@@ -419,7 +421,7 @@ func TestKMSSignatureClientSignStellarFeeBumpTransaction(t *testing.T) {
 		defer kmsClient.AssertExpectations(t)
 
 		signedFeeBumpTx, err := sc.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
-		assert.EqualError(t, err, "parsing distribution account private key in *signing.kmsSignatureClient: base32 decode failed: illegal base32 data at input byte 7")
+		assert.ErrorContains(t, err, "parsing distribution account private key in *signing.kmsSignatureClient: base32 decode failed: illegal base32 data at input byte 7")
 		assert.Nil(t, signedFeeBumpTx)
 	})
 

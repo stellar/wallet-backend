@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -12,8 +15,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestJitterSend(t *testing.T) {
@@ -51,7 +52,7 @@ func TestJitterSend(t *testing.T) {
 		Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 		Code:   tss.RPCTXCode{TxResultCode: tss.NonJitterErrorCodes[0]},
 	}
-	payload.RpcSubmitTxResponse = rpcResp
+	payload.RPCSubmitTxResponse = rpcResp
 
 	txManagerMock.
 		On("BuildAndSubmitTransaction", context.Background(), ErrorJitterChannelName, payload).

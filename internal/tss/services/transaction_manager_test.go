@@ -6,6 +6,10 @@ import (
 	"testing"
 
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -14,9 +18,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBuildAndSubmitTransaction(t *testing.T) {
@@ -28,21 +29,26 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	dbStore, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	txServiceMock := TransactionServiceMock{}
 	rpcServiceMock := services.RPCServiceMock{}
 	txManager := NewTransactionManager(TransactionManagerConfigs{
 		TxService:  &txServiceMock,
 		RPCService: &rpcServiceMock,
-		Store:      store,
+		Store:      dbStore,
 	})
 	networkPass := "passphrase"
-	tx := utils.BuildTestTransaction()
-	txHash, _ := tx.HashHex(networkPass)
-	txXDR, _ := tx.Base64()
-	feeBumpTx := utils.BuildTestFeeBumpTransaction()
-	feeBumpTxXDR, _ := feeBumpTx.Base64()
-	feeBumpTxHash, _ := feeBumpTx.HashHex(networkPass)
+	tx := utils.BuildTestTransaction(t)
+	txHash, err := tx.HashHex(networkPass)
+	require.NoError(t, err)
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+	feeBumpTx := utils.BuildTestFeeBumpTransaction(t)
+	feeBumpTxXDR, err := feeBumpTx.Base64()
+	require.NoError(t, err)
+	feeBumpTxHash, err := feeBumpTx.HashHex(networkPass)
+	require.NoError(t, err)
 	payload := tss.Payload{}
 	payload.WebhookURL = "www.stellar.com"
 	payload.TransactionHash = txHash
@@ -55,19 +61,23 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		txServiceMock.
 			On("BuildFeeBumpTransaction", context.Background(), tx).
 			Return(nil, errors.New("signing failed")).
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
-
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		require.Error(t, err)
 		assert.Equal(t, tss.RPCSendTxResponse{}, txSendResp)
 		assert.Equal(t, "channel: Unable to build fee bump transaction: signing failed", err.Error())
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 	})
 
@@ -82,7 +92,8 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{Status: entities.ErrorStatus}
 
 		txServiceMock.
@@ -98,16 +109,21 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.RPCFailCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: RPC fail: RPC down", err.Error())
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 
-		try, _ := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.RPCFailCode), try.Code)
 	})
@@ -123,7 +139,8 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.PendingStatus,
 			ErrorResultXDR: "",
@@ -142,16 +159,21 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.PendingStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.EmptyCode, txSendResp.Code.OtherCodes)
 		assert.Empty(t, err)
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.PendingStatus), tx.Status)
 
-		try, _ := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.PendingStatus), try.Status)
 		assert.Equal(t, int32(tss.EmptyCode), try.Code)
 	})
@@ -167,7 +189,8 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
 			ErrorResultXDR: "ABCD",
@@ -186,16 +209,22 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		require.Error(t, err)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.UnmarshalBinaryCode, txSendResp.Code.OtherCodes)
 		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABCD", err.Error())
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(tss.NewStatus), tx.Status)
 
-		try, _ := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(tss.UnmarshalBinaryCode), try.Code)
 	})
@@ -211,7 +240,8 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
 			ErrorResultXDR: "AAAAAAAAAMj////9AAAAAA==",
@@ -230,16 +260,21 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 			Once()
 		payload.FeeBump = true
 
-		txSendResp, err := txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
+		var txSendResp tss.RPCSendTxResponse
+		txSendResp, err = txManager.BuildAndSubmitTransaction(context.Background(), "channel", payload)
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
 		assert.Empty(t, err)
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		var tx store.Transaction
+		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), tx.Status)
 
-		try, _ := store.GetTry(context.Background(), feeBumpTxHash)
+		var try store.Try
+		try, err = dbStore.GetTry(context.Background(), feeBumpTxHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
 	})
@@ -255,7 +290,8 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = dbStore.UpsertTransaction(context.Background(), payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 		sendResp := entities.RPCSendTransactionResult{
 			Status:         entities.ErrorStatus,
 			ErrorResultXDR: "AAAAAAAAAMj////9AAAAAA==",
@@ -280,10 +316,12 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 		assert.Equal(t, xdr.TransactionResultCodeTxTooLate, txSendResp.Code.TxResultCode)
 		assert.Empty(t, err)
 
-		tx, _ := store.GetTransaction(context.Background(), payload.TransactionHash)
+		tx, err := dbStore.GetTransaction(context.Background(), payload.TransactionHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), tx.Status)
 
-		try, _ := store.GetTry(context.Background(), txHash)
+		try, err := dbStore.GetTry(context.Background(), txHash)
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.ErrorStatus), try.Status)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), try.Code)
 	})

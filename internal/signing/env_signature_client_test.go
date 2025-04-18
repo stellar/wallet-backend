@@ -17,7 +17,8 @@ func TestEnvSignatureClientGetAccountPublicKey(t *testing.T) {
 	distributionAccount := keypair.MustRandom()
 	sc, err := NewEnvSignatureClient(distributionAccount.Seed(), network.TestNetworkPassphrase)
 	require.NoError(t, err)
-	publicKey, _ := sc.GetAccountPublicKey(ctx)
+	publicKey, err := sc.GetAccountPublicKey(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, distributionAccount.Address(), publicKey)
 }
 

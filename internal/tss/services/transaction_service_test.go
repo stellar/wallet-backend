@@ -36,7 +36,6 @@ func TestValidateOptions(t *testing.T) {
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "DB cannot be nil", err.Error())
-
 	})
 	t.Run("return_error_when_distribution_signature_client_nil", func(t *testing.T) {
 		opts := TransactionServiceOptions{
@@ -49,7 +48,6 @@ func TestValidateOptions(t *testing.T) {
 		}
 		err := opts.ValidateOptions()
 		assert.Equal(t, "distribution account signature client cannot be nil", err.Error())
-
 	})
 
 	t.Run("return_error_when_channel_signature_client_nil", func(t *testing.T) {
@@ -115,7 +113,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	channelAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
-	txService, _ := NewTransactionService(TransactionServiceOptions{
+	txService, err := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
@@ -123,7 +121,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
-	atomicTxErrorPrefix := "running atomic function in RunInTransactionWithResult: "
+	require.NoError(t, err)
+
 	t.Run("channel_account_signature_client_get_account_public_key_err", func(t *testing.T) {
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -134,7 +133,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"getting channel account public key: channel accounts unavailable", err.Error())
+		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
 	})
 
 	t.Run("rpc_client_get_account_seq_err", func(t *testing.T) {
@@ -154,8 +153,8 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key: %s: rpc service down", channelAccount.Address())
-		assert.Equal(t, atomicTxErrorPrefix+expectedErr.Error(), err.Error())
+		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key %q: rpc service down", channelAccount.Address())
+		assert.Equal(t, expectedErr.Error(), err.Error())
 	})
 
 	t.Run("build_tx_fails", func(t *testing.T) {
@@ -175,8 +174,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		channelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"building transaction: transaction has no operations", err.Error())
-
+		assert.Equal(t, "building transaction: transaction has no operations", err.Error())
 	})
 
 	t.Run("lock_channel_account_to_tx_err", func(t *testing.T) {
@@ -211,7 +209,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccountSignatureClient.AssertExpectations(t)
 		channelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, atomicTxErrorPrefix+"assigning channel account to tx: unable to assign channel account to tx", err.Error())
+		assert.Equal(t, "assigning channel account to tx: unable to assign channel account to tx", err.Error())
 	})
 
 	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
@@ -253,7 +251,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	})
 
 	t.Run("returns_signed_tx", func(t *testing.T) {
-		signedTx := utils.BuildTestTransaction()
+		signedTx := utils.BuildTestTransaction(t)
 		channelAccount := keypair.MustRandom()
 		channelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -301,7 +299,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	channelAccountSignatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	mockRPCService := &services.RPCServiceMock{}
-	txService, _ := NewTransactionService(TransactionServiceOptions{
+	txService, err := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
@@ -309,9 +307,9 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 		RPCService:                         mockRPCService,
 		BaseFee:                            114,
 	})
-
+	require.NoError(t, err)
 	t.Run("distribution_account_signature_client_get_account_public_key_err", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return("", errors.New("channel accounts unavailable")).
@@ -339,7 +337,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("signing_feebump_tx_fails", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
+		tx := utils.BuildTestTransaction(t)
 		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -357,8 +355,8 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 
 	t.Run("returns_singed_feebump_tx", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
-		feeBump := utils.BuildTestFeeBumpTransaction()
+		tx := utils.BuildTestTransaction(t)
+		feeBump := utils.BuildTestFeeBumpTransaction(t)
 		distributionAccount := keypair.MustRandom()
 		distributionAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
@@ -374,5 +372,4 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 		assert.Equal(t, feeBump, feeBumpTx)
 		assert.NoError(t, err)
 	})
-
 }

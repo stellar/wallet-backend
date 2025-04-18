@@ -6,3 +6,4 @@ captive-core*/
 env.sh
 .idea
 __debug_bin*
+c.out

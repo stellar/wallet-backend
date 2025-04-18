@@ -17,16 +17,16 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/services/servicesmocks"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAccountHandlerRegisterAccount(t *testing.T) {
@@ -63,7 +63,8 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 
 		// Prepare request
 		address := keypair.MustRandom().Address()
-		req, err := http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
 		require.NoError(t, err)
 
 		// Serve request
@@ -173,7 +174,8 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 		require.NoError(t, err)
 
 		// Prepare request
-		req, err := http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
 		require.NoError(t, err)
 
 		// Serve request
@@ -229,7 +231,7 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 }
 
 func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
-	asService := servicesmocks.AccountSponsorshipServiceMock{}
+	asService := services.AccountSponsorshipServiceMock{}
 	defer asService.AssertExpectations(t)
 
 	assets := []entities.Asset{
@@ -552,7 +554,7 @@ func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
 }
 
 func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
-	asService := servicesmocks.AccountSponsorshipServiceMock{}
+	asService := services.AccountSponsorshipServiceMock{}
 	defer asService.AssertExpectations(t)
 
 	handler := &AccountHandler{
@@ -837,7 +839,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 
 		asService.
 			On("WrapTransaction", req.Context(), tx).
-			Return("", "", &services.ErrOperationNotAllowed{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
+			Return("", "", &services.OperationNotAllowedError{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
 			Once()
 
 		http.HandlerFunc(handler.CreateFeeBumpTransaction).ServeHTTP(rw, req)

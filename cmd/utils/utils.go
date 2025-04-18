@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/support/config"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
@@ -41,7 +42,14 @@ type SignatureClientOptions struct {
 	EncryptionPassphrase string
 }
 
-func SignatureClientResolver(signatureClientOpts *SignatureClientOptions) (signing.SignatureClient, error) {
+//nolint:wrapcheck // defer is used to wrap the error
+func SignatureClientResolver(signatureClientOpts *SignatureClientOptions) (sigClient signing.SignatureClient, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("resolving signature client: %w", err)
+		}
+	}()
+
 	switch signatureClientOpts.Type {
 	case signing.EnvSignatureClientType:
 		return signing.NewEnvSignatureClient(signatureClientOpts.DistributionAccountSecretKey, signatureClientOpts.NetworkPassphrase)

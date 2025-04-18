@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	internalUtils "github.com/stellar/wallet-backend/internal/utils"
 )
 
 // ChAccCmdServiceInterface is the interface for the channel account command service. It is used to allow mocking the
@@ -32,6 +33,7 @@ type ChAccCmdService struct{}
 
 var _ ChAccCmdServiceInterface = (*ChAccCmdService)(nil)
 
+//nolint:wrapcheck // Skipping wrapcheck because this is just a proxy to the service.
 func (s *ChAccCmdService) EnsureChannelAccounts(ctx context.Context, chAccService services.ChannelAccountService, amount int64) error {
 	return chAccService.EnsureChannelAccounts(ctx, amount)
 }
@@ -126,7 +128,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			defer distAccSigClientOpts.DBConnectionPool.Close()
+			defer internalUtils.DeferredClose(cmd.Context(), distAccSigClientOpts.DBConnectionPool, "closing distAccSigClient's db connection pool")
 			amount, err := strconv.Atoi(args[0])
 			if err != nil {
 				return fmt.Errorf("invalid [amount] argument=%s", args[0])

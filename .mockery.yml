@@ -5,7 +5,7 @@ formatter: goimports
 log-level: info
 structname: "{{.Mock}}{{.InterfaceName}}"
 pkgname: "{{.SrcPackageName}}"
-filename: "mock_{{.InterfaceName | snakecase}}.go"
+filename: "mocks.go"
 recursive: false
 require-template-schema-exists: true
 template: testify
@@ -14,5 +14,3 @@ packages:
   github.com/stellar/wallet-backend/cmd:
     interfaces:
       ChAccCmdServiceInterface:
-        config:
-          filename: "channel_account_mocks.go"

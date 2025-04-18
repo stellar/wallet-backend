@@ -11,11 +11,12 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/wallet-backend/internal/apptracker"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/serve/auth"
 )
 
 func TestSignatureMiddleware(t *testing.T) {
@@ -160,10 +161,10 @@ func TestRecoverHandler(t *testing.T) {
 
 	// assert response
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
-	wantJson := `{
+	wantJSON := `{
 		"error": "An error occurred while processing this request."
 	}`
-	assert.JSONEq(t, wantJson, rr.Body.String())
+	assert.JSONEq(t, wantJSON, rr.Body.String())
 
 	entries := getEntries()
 	require.Len(t, entries, 2)

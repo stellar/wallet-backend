@@ -12,6 +12,10 @@ import (
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -20,9 +24,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWebhookHandlerServiceChannel(t *testing.T) {
@@ -33,7 +34,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{
@@ -61,8 +63,8 @@ func TestWebhookHandlerServiceChannel(t *testing.T) {
 	payload.TransactionHash = "hash"
 	payload.TransactionXDR = "xdr"
 	payload.WebhookURL = "www.stellar.org"
-	jsonData, _ := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
-
+	jsonData, err := json.Marshal(tssutils.PayloadTOTSSResponse(payload))
+	require.NoError(t, err)
 	httpResponse1 := &http.Response{
 		StatusCode: http.StatusBadGateway,
 		Body:       io.NopCloser(strings.NewReader(`{"result": {"status": "OK"}}`)),
@@ -101,7 +103,8 @@ func TestUnlockChannelAccount(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	channelAccountStore := channelAccountStore.ChannelAccountStoreMock{}
 	mockHTTPClient := utils.MockHTTPClient{}
 	cfg := WebhookChannelConfigs{

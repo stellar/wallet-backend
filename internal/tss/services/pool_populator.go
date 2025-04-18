@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
@@ -84,7 +85,7 @@ func (p *poolPopulator) routeNewTransactions(ctx context.Context) error {
 			return fmt.Errorf("getting latest try for transaction: %w", err)
 		}
 		if try == (store.Try{}) || try.Code == int32(tss.RPCFailCode) || try.Code == int32(tss.NewCode) {
-			payload.RpcSubmitTxResponse.Status = tss.RPCTXStatus{OtherStatus: tss.NewStatus}
+			payload.RPCSubmitTxResponse.Status = tss.RPCTXStatus{OtherStatus: tss.NewStatus}
 		}
 		err = p.Router.Route(payload)
 		if err != nil {
@@ -111,7 +112,7 @@ func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 		}
 		if slices.Contains(tss.FinalCodes, xdr.TransactionResultCode(try.Code)) {
 			// route to webhook channel
-			payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
+			payload.RPCSubmitTxResponse = tss.RPCSendTxResponse{
 				TransactionHash: try.Hash,
 				TransactionXDR:  try.XDR,
 				Status:          tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
@@ -120,12 +121,11 @@ func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 			}
 		} else if try.Code == int32(tss.RPCFailCode) || try.Code == int32(tss.NewCode) {
 			// route to the error jitter channel
-			payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
+			payload.RPCSubmitTxResponse = tss.RPCSendTxResponse{
 				TransactionHash: try.Hash,
 				TransactionXDR:  try.XDR,
 				Status:          tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
 			}
-
 		}
 		err = p.Router.Route(payload)
 		if err != nil {
@@ -150,7 +150,7 @@ func (p *poolPopulator) routeFinalTransactions(ctx context.Context, status tss.R
 		if err != nil {
 			return fmt.Errorf("gretting latest try for transaction: %w", err)
 		}
-		payload.RpcGetIngestTxResponse = tss.RPCGetIngestTxResponse{
+		payload.RPCGetIngestTxResponse = tss.RPCGetIngestTxResponse{
 			Status:      status.RPCStatus,
 			Code:        tss.RPCTXCode{TxResultCode: xdr.TransactionResultCode(try.Code)},
 			EnvelopeXDR: try.XDR,
@@ -179,7 +179,7 @@ func (p *poolPopulator) routeNotSentTransactions(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("gretting latest try for transaction: %w", err)
 		}
-		payload.RpcSubmitTxResponse = tss.RPCSendTxResponse{
+		payload.RPCSubmitTxResponse = tss.RPCSendTxResponse{
 			TransactionHash: try.Hash,
 			TransactionXDR:  try.XDR,
 			Status:          tss.RPCTXStatus{RPCStatus: entities.RPCStatus(try.Status)},

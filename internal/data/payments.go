@@ -44,7 +44,7 @@ func (m *PaymentModel) GetLatestLedgerSynced(ctx context.Context, cursorName str
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "ingest_store", duration)
 	m.MetricsService.IncDBQuery("SELECT", "ingest_store")
 	// First run, key does not exist yet
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {

@@ -7,10 +7,11 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
 func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, channelAccounts ...ChannelAccount) {
@@ -149,7 +150,6 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
 	assert.NoError(t, err)
 	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
-
 }
 
 func TestUnlockChannelAccountFromTx(t *testing.T) {
@@ -183,7 +183,6 @@ func TestUnlockChannelAccountFromTx(t *testing.T) {
 func TestChannelAccountModelBatchInsert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
@@ -192,7 +191,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	t.Run("channel_accounts_empty", func(t *testing.T) {
-		err := m.BatchInsert(ctx, dbConnectionPool, []*ChannelAccount{})
+		err = m.BatchInsert(ctx, dbConnectionPool, []*ChannelAccount{})
 		require.NoError(t, err)
 	})
 
@@ -202,7 +201,7 @@ func TestChannelAccountModelBatchInsert(t *testing.T) {
 				PublicKey: "",
 			},
 		}
-		err := m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
+		err = m.BatchInsert(ctx, dbConnectionPool, channelAccounts)
 		assert.EqualError(t, err, "public key cannot be empty")
 
 		channelAccounts = []*ChannelAccount{

@@ -4,6 +4,4 @@ import (
 	"errors"
 )
 
-var (
-	OriginalXDRMalformed = errors.New("transaction string is malformed")
-)
+var ErrOriginalXDRMalformed = errors.New("transaction string (XDR) is malformed")

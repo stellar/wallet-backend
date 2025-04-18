@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"

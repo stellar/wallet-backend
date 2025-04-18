@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/errors"
@@ -39,16 +40,17 @@ func NewTransactionManager(cfg TransactionManagerConfigs) *transactionManager {
 func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload) (tss.RPCSendTxResponse, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(payload.TransactionXDR)
 	if err != nil {
-		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
+		return tss.RPCSendTxResponse{}, errors.ErrOriginalXDRMalformed
 	}
 	tx, txEmpty := genericTx.Transaction()
 	if !txEmpty {
-		return tss.RPCSendTxResponse{}, errors.OriginalXDRMalformed
+		return tss.RPCSendTxResponse{}, errors.ErrOriginalXDRMalformed
 	}
 	var tryTxHash string
 	var tryTxXDR string
 	if payload.FeeBump {
-		feeBumpTx, err := t.TxService.BuildFeeBumpTransaction(ctx, tx)
+		var feeBumpTx *txnbuild.FeeBumpTransaction
+		feeBumpTx, err = t.TxService.BuildFeeBumpTransaction(ctx, tx)
 		if err != nil {
 			return tss.RPCSendTxResponse{}, fmt.Errorf("%s: Unable to build fee bump transaction: %w", channelName, err)
 		}

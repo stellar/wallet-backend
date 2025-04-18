@@ -41,8 +41,10 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
 
@@ -123,7 +125,6 @@ func TestGetLedgerTransactions(t *testing.T) {
 		assert.Equal(t, txns[2].Hash, "hash3")
 		assert.NoError(t, err)
 	})
-
 }
 
 func TestProcessTSSTransactions(t *testing.T) {
@@ -140,8 +141,10 @@ func TestProcessTSSTransactions(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	require.NoError(t, err)
 
 	t.Run("routes_to_tss_router", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
@@ -172,8 +175,10 @@ func TestProcessTSSTransactions(t *testing.T) {
 			},
 		}
 
-		_ = tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
+		err = tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
+		err = tssStore.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
+		require.NoError(t, err)
 
 		mockRouter.
 			On("Route", mock.AnythingOfType("tss.Payload")).
@@ -183,9 +188,11 @@ func TestProcessTSSTransactions(t *testing.T) {
 		err := ingestService.processTSSTransactions(context.Background(), transactions)
 		assert.NoError(t, err)
 
-		updatedTX, _ := tssStore.GetTransaction(context.Background(), "hash")
+		updatedTX, err := tssStore.GetTransaction(context.Background(), "hash")
+		require.NoError(t, err)
 		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)
-		updatedTry, _ := tssStore.GetTry(context.Background(), "feebumphash")
+		updatedTry, err := tssStore.GetTry(context.Background(), "feebumphash")
+		require.NoError(t, err)
 		assert.Equal(t, "AAAAAAAAAMj////9AAAAAA==", updatedTry.ResultXDR)
 		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), updatedTry.Code)
 	})
@@ -205,8 +212,10 @@ func TestIngestPayments(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRouter := tssrouter.MockRouter{}
-	tssStore, _ := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	ingestService, _ := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockMetricsService)
+	require.NoError(t, err)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
 	usdIssuer := keypair.MustRandom().Address()
@@ -224,22 +233,26 @@ func TestIngestPayments(t *testing.T) {
 		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = models.Account.Insert(context.Background(), srcAccount)
+		err = models.Account.Insert(context.Background(), srcAccount)
+		require.NoError(t, err)
 		paymentOp := txnbuild.Payment{
 			SourceAccount: srcAccount,
 			Destination:   destAccount,
 			Amount:        "10",
 			Asset:         txnbuild.NativeAsset{},
 		}
-		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		var transaction *txnbuild.Transaction
+		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: keypair.MustRandom().Address(),
 			},
 			Operations:    []txnbuild.Operation{&paymentOp},
 			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 		})
-
-		txEnvXDR, _ := transaction.Base64()
+		require.NoError(t, err)
+		var txEnvXDR string
+		txEnvXDR, err = transaction.Base64()
+		require.NoError(t, err)
 
 		ledgerTransaction := entities.Transaction{
 			Status:           entities.SuccessStatus,
@@ -253,10 +266,11 @@ func TestIngestPayments(t *testing.T) {
 
 		ledgerTransactions := []entities.Transaction{ledgerTransaction}
 
-		err := ingestService.ingestPayments(context.Background(), ledgerTransactions)
-		assert.NoError(t, err)
+		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
+		require.NoError(t, err)
 
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		var payments []data.Payment
+		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, payments[0].TransactionHash, "abcd")
 	})
@@ -273,7 +287,8 @@ func TestIngestPayments(t *testing.T) {
 		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = models.Account.Insert(context.Background(), srcAccount)
+		err = models.Account.Insert(context.Background(), srcAccount)
+		require.NoError(t, err)
 
 		path := []txnbuild.Asset{
 			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
@@ -289,20 +304,26 @@ func TestIngestPayments(t *testing.T) {
 			DestAsset:     txnbuild.NativeAsset{},
 			Path:          path,
 		}
-		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		var transaction *txnbuild.Transaction
+		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: keypair.MustRandom().Address(),
 			},
 			Operations:    []txnbuild.Operation{&pathPaymentOp},
 			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 		})
+		require.NoError(t, err)
 
 		signer := keypair.MustRandom()
-		_ = models.Account.Insert(context.Background(), signer.Address())
+		err = models.Account.Insert(context.Background(), signer.Address())
+		require.NoError(t, err)
+		var signedTx *txnbuild.Transaction
+		signedTx, err = transaction.Sign(network.TestNetworkPassphrase, signer)
+		require.NoError(t, err)
 
-		signedTx, _ := transaction.Sign(network.TestNetworkPassphrase, signer)
-
-		txEnvXDR, _ := signedTx.Base64()
+		var txEnvXDR string
+		txEnvXDR, err = signedTx.Base64()
+		require.NoError(t, err)
 
 		ledgerTransaction := entities.Transaction{
 			Status:           entities.SuccessStatus,
@@ -319,7 +340,8 @@ func TestIngestPayments(t *testing.T) {
 		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
 		require.NoError(t, err)
 
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		var payments []data.Payment
+		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
 		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
@@ -343,7 +365,8 @@ func TestIngestPayments(t *testing.T) {
 		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 1).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = models.Account.Insert(context.Background(), srcAccount)
+		err = models.Account.Insert(context.Background(), srcAccount)
+		require.NoError(t, err)
 
 		path := []txnbuild.Asset{
 			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
@@ -359,20 +382,24 @@ func TestIngestPayments(t *testing.T) {
 			DestAsset:     txnbuild.NativeAsset{},
 			Path:          path,
 		}
-		transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: keypair.MustRandom().Address(),
 			},
 			Operations:    []txnbuild.Operation{&pathPaymentOp},
 			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 		})
+		require.NoError(t, err)
 
 		signer := keypair.MustRandom()
-		_ = models.Account.Insert(context.Background(), signer.Address())
+		err = models.Account.Insert(context.Background(), signer.Address())
+		require.NoError(t, err)
 
-		signedTx, _ := transaction.Sign(network.TestNetworkPassphrase, signer)
+		signedTx, err := transaction.Sign(network.TestNetworkPassphrase, signer)
+		require.NoError(t, err)
 
-		txEnvXDR, _ := signedTx.Base64()
+		txEnvXDR, err := signedTx.Base64()
+		require.NoError(t, err)
 
 		ledgerTransaction := entities.Transaction{
 			Status:           entities.SuccessStatus,
@@ -409,7 +436,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
 		cancel()
-		_ = dbConnectionPool.Close()
+		require.NoError(t, dbConnectionPool.Close())
 		dbt.Close()
 	}()
 
@@ -450,14 +477,16 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		Amount:        "10",
 		Asset:         txnbuild.NativeAsset{},
 	}
-	transaction, _ := txnbuild.NewTransaction(txnbuild.TransactionParams{
+	transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: keypair.MustRandom().Address(),
 		},
 		Operations:    []txnbuild.Operation{&paymentOp},
 		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
 	})
-	txEnvXDR, _ := transaction.Base64()
+	require.NoError(t, err)
+	txEnvXDR, err := transaction.Base64()
+	require.NoError(t, err)
 	mockResult := entities.RPCGetTransactionsResult{
 		Transactions: []entities.Transaction{{
 			Status:           entities.SuccessStatus,
@@ -509,7 +538,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() {
 		cancel()
-		_ = dbConnectionPool.Close()
+		require.NoError(t, dbConnectionPool.Close())
 		dbt.Close()
 		log.DefaultLogger.SetOutput(os.Stderr)
 	}()

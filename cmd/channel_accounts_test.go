@@ -32,8 +32,8 @@ func Test_ChannelAccountsCommand_EnsureCommand(t *testing.T) {
 	})
 
 	t.Run("🟢executes_successfully", func(t *testing.T) {
-		mChAccService.
-			On("EnsureChannelAccounts", mock.AnythingOfType("context.backgroundCtx"), mock.AnythingOfType("*services.channelAccountService"), int64(2)).
+		mChAccService.EXPECT().
+			EnsureChannelAccounts(mock.AnythingOfType("context.backgroundCtx"), mock.AnythingOfType("*services.channelAccountService"), int64(2)).
 			Return(nil).
 			Once()
 		err := rootCmd.Execute()
@@ -41,8 +41,8 @@ func Test_ChannelAccountsCommand_EnsureCommand(t *testing.T) {
 	})
 
 	t.Run("🔴fails_if_ChannelAccountsService_fails", func(t *testing.T) {
-		mChAccService.
-			On("EnsureChannelAccounts", mock.AnythingOfType("context.backgroundCtx"), mock.AnythingOfType("*services.channelAccountService"), int64(2)).
+		mChAccService.EXPECT().
+			EnsureChannelAccounts(mock.AnythingOfType("context.backgroundCtx"), mock.AnythingOfType("*services.channelAccountService"), int64(2)).
 			Return(errors.New("foo bar baz")).
 			Once()
 		err := rootCmd.Execute()
@@ -50,6 +50,4 @@ func Test_ChannelAccountsCommand_EnsureCommand(t *testing.T) {
 		assert.ErrorContains(t, err, "ensuring the number of channel accounts is created")
 		assert.ErrorContains(t, err, "foo bar baz")
 	})
-
-	mChAccService.AssertExpectations(t)
 }

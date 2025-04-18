@@ -140,7 +140,6 @@ func StartLedgerOption(configKey *int) *config.ConfigOption {
 		FlagDefault: 0,
 		Required:    true,
 	}
-
 }
 
 func EndLedgerOption(configKey *int) *config.ConfigOption {
@@ -152,7 +151,6 @@ func EndLedgerOption(configKey *int) *config.ConfigOption {
 		FlagDefault: 0,
 		Required:    true,
 	}
-
 }
 
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {

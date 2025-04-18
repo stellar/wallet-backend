@@ -6,6 +6,7 @@ import (
 
 	"github.com/stellar/go/support/render/httpjson"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
@@ -138,10 +139,10 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 
 	feeBumpTxe, networkPassphrase, err := h.AccountSponsorshipService.WrapTransaction(ctx, tx)
 	if err != nil {
-		var errOperationNotAllowed *services.ErrOperationNotAllowed
+		var opNotAllowedErr *services.OperationNotAllowedError
 		switch {
 		case errors.Is(err, services.ErrAccountNotEligibleForBeingSponsored), errors.Is(err, services.ErrFeeExceedsMaximumBaseFee),
-			errors.Is(err, services.ErrNoSignaturesProvided), errors.As(err, &errOperationNotAllowed):
+			errors.Is(err, services.ErrNoSignaturesProvided), errors.As(err, &opNotAllowedErr):
 			httperror.BadRequest(err.Error(), nil).Render(rw)
 			return
 		default:

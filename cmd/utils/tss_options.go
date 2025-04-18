@@ -24,7 +24,6 @@ func RPCCallerChannelMaxWorkersOption(configKey *int) *config.ConfigOption {
 		ConfigKey:   configKey,
 		FlagDefault: 100,
 	}
-
 }
 
 func ErrorHandlerJitterChannelBufferSizeOption(configKey *int) *config.ConfigOption {
@@ -58,7 +57,6 @@ func ErrorHandlerNonJitterChannelBufferSizeOption(configKey *int) *config.Config
 		FlagDefault: 1000,
 		Required:    true,
 	}
-
 }
 
 func ErrorHandlerNonJitterChannelMaxWorkersOption(configKey *int) *config.ConfigOption {
@@ -103,7 +101,6 @@ func ErrorHandlerJitterChannelMaxRetriesOptions(configKey *int) *config.ConfigOp
 		FlagDefault: 3,
 		Required:    true,
 	}
-
 }
 
 func ErrorHandlerNonJitterChannelMaxRetriesOption(configKey *int) *config.ConfigOption {

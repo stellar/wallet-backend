@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -13,8 +16,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSend(t *testing.T) {
@@ -25,7 +26,8 @@ func TestSend(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
@@ -52,7 +54,7 @@ func TestSend(t *testing.T) {
 	rpcResp := tss.RPCSendTxResponse{
 		Status: tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
 	}
-	payload.RpcSubmitTxResponse = rpcResp
+	payload.RPCSubmitTxResponse = rpcResp
 
 	txManagerMock.
 		On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).
@@ -78,7 +80,8 @@ func TestReceive(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	txManagerMock := services.TransactionManagerMock{}
 	routerMock := router.MockRouter{}
 	cfgs := RPCCallerChannelConfigs{
@@ -123,7 +126,7 @@ func TestReceive(t *testing.T) {
 		rpcResp := tss.RPCSendTxResponse{
 			Status: tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
 		}
-		payload.RpcSubmitTxResponse = rpcResp
+		payload.RPCSubmitTxResponse = rpcResp
 
 		txManagerMock.
 			On("BuildAndSubmitTransaction", context.Background(), RPCCallerChannelName, payload).

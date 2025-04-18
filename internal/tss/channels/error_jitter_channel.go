@@ -7,11 +7,12 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
+	"golang.org/x/exp/rand"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/services"
-	"golang.org/x/exp/rand"
 )
 
 type ErrorJitterChannelConfigs struct {
@@ -72,14 +73,14 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		currentBackoff := p.MinWaitBtwnRetriesMS * (1 << i)
 		time.Sleep(jitter(time.Duration(currentBackoff)) * time.Millisecond)
 
-		oldStatus := payload.RpcSubmitTxResponse.Status.Status()
+		oldStatus := payload.RPCSubmitTxResponse.Status.Status()
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorJitterChannelName, payload)
 		if err != nil {
 			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
 			return
 		}
 
-		payload.RpcSubmitTxResponse = rpcSendResp
+		payload.RPCSubmitTxResponse = rpcSendResp
 		if !slices.Contains(tss.JitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {

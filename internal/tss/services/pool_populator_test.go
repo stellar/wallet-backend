@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -13,9 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/store"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRouteNewTransactions(t *testing.T) {
@@ -27,10 +28,13 @@ func TestRouteNewTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockRPCSerive := services.RPCServiceMock{}
-	populator, _ := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	populator, err := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	require.NoError(t, err)
+
 	t.Run("tx_has_no_try", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
@@ -40,20 +44,21 @@ func TestRouteNewTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash:     "hash",
 			TransactionXDR:      "xdr",
 			WebhookURL:          "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
 		}
 		mockRouter.
 			On("Route", expectedPayload).
 			Return(nil).
 			Once()
 
-		err := populator.routeNewTransactions(context.Background())
+		err = populator.routeNewTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
@@ -68,14 +73,16 @@ func TestRouteNewTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "ABCD")
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "ABCD")
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash:     "hash",
 			TransactionXDR:      "xdr",
 			WebhookURL:          "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{Status: tss.RPCTXStatus{OtherStatus: tss.NewStatus}},
 		}
 
 		mockRouter.
@@ -97,10 +104,11 @@ func TestRouteErrorTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockRPCSerive := services.RPCServiceMock{}
-	populator, _ := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	populator, err := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
 
 	t.Run("tx_has_final_error_code", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
@@ -113,14 +121,16 @@ func TestRouteErrorTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxInsufficientBalance}, "ABCD")
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxInsufficientBalance}, "ABCD")
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.ErrorStatus},
@@ -134,7 +144,7 @@ func TestRouteErrorTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := populator.routeErrorTransactions(context.Background())
+		err = populator.routeErrorTransactions(context.Background())
 		assert.Empty(t, err)
 	})
 
@@ -149,14 +159,16 @@ func TestRouteErrorTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{OtherCodes: tss.RPCFailCode}, "ABCD")
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.ErrorStatus}, tss.RPCTXCode{OtherCodes: tss.RPCFailCode}, "ABCD")
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.TryAgainLaterStatus},
@@ -182,11 +194,12 @@ func TestRouteFinalTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockRPCSerive := services.RPCServiceMock{}
-	populator, _ := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
-
+	populator, err := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	require.NoError(t, err)
 	t.Run("route_successful_tx", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Once()
@@ -198,14 +211,16 @@ func TestRouteFinalTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}, "ABCD")
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}, "ABCD")
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcGetIngestTxResponse: tss.RPCGetIngestTxResponse{
+			RPCGetIngestTxResponse: tss.RPCGetIngestTxResponse{
 				Status:      entities.SuccessStatus,
 				Code:        tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess},
 				EnvelopeXDR: "feebumpxdr",
@@ -232,10 +247,12 @@ func TestNotSentTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockRPCSerive := services.RPCServiceMock{}
-	populator, _ := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	populator, err := NewPoolPopulator(&mockRouter, store, &mockRPCSerive)
+	require.NoError(t, err)
 
 	t.Run("routes_not_sent_txns", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Once()
@@ -248,14 +265,16 @@ func TestNotSentTransactions(t *testing.T) {
 		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		_ = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NotSentStatus})
-		_ = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}, "ABCD")
+		err = store.UpsertTransaction(context.Background(), "localhost:8000/webhook", "hash", "xdr", tss.RPCTXStatus{OtherStatus: tss.NotSentStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(context.Background(), "hash", "feebumphash", "feebumpxdr", tss.RPCTXStatus{RPCStatus: entities.SuccessStatus}, tss.RPCTXCode{TxResultCode: xdr.TransactionResultCodeTxSuccess}, "ABCD")
+		require.NoError(t, err)
 
 		expectedPayload := tss.Payload{
 			TransactionHash: "hash",
 			TransactionXDR:  "xdr",
 			WebhookURL:      "localhost:8000/webhook",
-			RpcSubmitTxResponse: tss.RPCSendTxResponse{
+			RPCSubmitTxResponse: tss.RPCSendTxResponse{
 				TransactionHash: "feebumphash",
 				TransactionXDR:  "feebumpxdr",
 				Status:          tss.RPCTXStatus{RPCStatus: entities.SuccessStatus},

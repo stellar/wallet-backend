@@ -17,6 +17,10 @@ import (
 	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -26,9 +30,6 @@ import (
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBuildTransactions(t *testing.T) {
@@ -39,7 +40,8 @@ func TestBuildTransactions(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 	mockMetricsService := metrics.NewMockMetricsService()
-	store, _ := store.NewStore(dbConnectionPool, mockMetricsService)
+	store, err := store.NewStore(dbConnectionPool, mockMetricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockTxService := tssservices.TransactionServiceMock{}
@@ -59,11 +61,13 @@ func TestBuildTransactions(t *testing.T) {
 		Asset:         txnbuild.NativeAsset{},
 		SourceAccount: srcAccount,
 	}
-	op, _ := p.BuildXDR()
+	op, err := p.BuildXDR()
+	require.NoError(t, err)
 
 	var buf strings.Builder
 	enc := xdr3.NewEncoder(&buf)
-	_ = op.EncodeTo(enc)
+	err = op.EncodeTo(enc)
+	require.NoError(t, err)
 
 	opXDR := buf.String()
 	opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
@@ -77,9 +81,10 @@ func TestBuildTransactions(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		expectedOps, _ := utils.BuildOperations([]string{opXDRBase64})
+		expectedOps, err := utils.BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
 
-		err := errors.New("unable to find channel account")
+		err = errors.New("unable to find channel account")
 		mockTxService.
 			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
 			Return(nil, err).
@@ -107,8 +112,9 @@ func TestBuildTransactions(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		expectedOps, _ := utils.BuildOperations([]string{opXDRBase64})
-		tx := utils.BuildTestTransaction()
+		expectedOps, err := utils.BuildOperations([]string{opXDRBase64})
+		require.NoError(t, err)
+		tx := utils.BuildTestTransaction(t)
 
 		mockTxService.
 			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
@@ -123,11 +129,12 @@ func TestBuildTransactions(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var buildTxResp BuildTransactionsResponse
-		_ = json.Unmarshal(respBody, &buildTxResp)
-		expectedTxXDR, _ := tx.Base64()
+		err = json.Unmarshal(respBody, &buildTxResp)
+		require.NoError(t, err)
+		expectedTxXDR, err := tx.Base64()
+		require.NoError(t, err)
 		assert.Equal(t, expectedTxXDR, buildTxResp.TransactionXDRs[0])
 	})
-
 }
 
 func TestSubmitTransactions(t *testing.T) {
@@ -140,7 +147,8 @@ func TestSubmitTransactions(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
 	require.NoError(t, err)
 	metricsService := metrics.NewMetricsService(sqlxDB)
-	store, _ := store.NewStore(dbConnectionPool, metricsService)
+	store, err := store.NewStore(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockAppTracker := apptracker.MockAppTracker{}
 	txServiceMock := tssservices.TransactionServiceMock{}
@@ -195,12 +203,12 @@ func TestSubmitTransactions(t *testing.T) {
 		expectedRespBody = `{"error": "bad transaction xdr"}`
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		assert.JSONEq(t, expectedRespBody, string(respBody))
-
 	})
 
 	t.Run("happy_path", func(t *testing.T) {
-		tx := utils.BuildTestTransaction()
-		txXDR, _ := tx.Base64()
+		tx := utils.BuildTestTransaction(t)
+		txXDR, err := tx.Base64()
+		require.NoError(t, err)
 		reqBody := fmt.Sprintf(`{
 			"webhook": "localhost:8080",
 			"transactions": [%q]
@@ -227,7 +235,8 @@ func TestSubmitTransactions(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var txSubmissionResp TransactionSubmissionResponse
-		_ = json.Unmarshal(respBody, &txSubmissionResp)
+		err = json.Unmarshal(respBody, &txSubmissionResp)
+		require.NoError(t, err)
 
 		assert.Equal(t, 1, len(txSubmissionResp.TransactionHashes))
 
@@ -246,7 +255,8 @@ func TestGetTransaction(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(context.Background())
 	require.NoError(t, err)
 	metricsService := metrics.NewMetricsService(sqlxDB)
-	store, _ := store.NewStore(dbConnectionPool, metricsService)
+	store, err := store.NewStore(dbConnectionPool, metricsService)
+	require.NoError(t, err)
 	mockRouter := router.MockRouter{}
 	mockAppTracker := apptracker.MockAppTracker{}
 	txServiceMock := tssservices.TransactionServiceMock{}
@@ -274,25 +284,29 @@ func TestGetTransaction(t *testing.T) {
 	t.Run("returns_empty_try", func(t *testing.T) {
 		txHash := "hash"
 		ctx := context.Background()
-		_ = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		req, err := http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
+		err = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
+		var req *http.Request
+		req, err = http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
 		require.NoError(t, err)
 
 		// Serve request
 		rw := httptest.NewRecorder()
 		r.ServeHTTP(rw, req)
 		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
+		var respBody []byte
+		respBody, err = io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		var tssResp tss.TSSResponse
-		_ = json.Unmarshal(respBody, &tssResp)
+		err = json.Unmarshal(respBody, &tssResp)
+		require.NoError(t, err)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, txHash, tssResp.TransactionHash)
 		assert.Equal(t, fmt.Sprint(tss.NoCode), tssResp.TransactionResultCode)
 		assert.Equal(t, fmt.Sprint(tss.NewStatus), tssResp.Status)
-		assert.Equal(t, "", tssResp.ResultXDR)
-		assert.Equal(t, "", tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.ResultXDR)
+		assert.Empty(t, tssResp.EnvelopeXDR)
 
 		clearTransactions(ctx)
 	})
@@ -301,8 +315,10 @@ func TestGetTransaction(t *testing.T) {
 		txHash := "hash"
 		resultXdr := "resultXdr"
 		ctx := context.Background()
-		_ = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		_ = store.UpsertTry(ctx, txHash, "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, resultXdr)
+		err = store.UpsertTransaction(ctx, "localhost:8080/webhook", txHash, "xdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		require.NoError(t, err)
+		err = store.UpsertTry(ctx, txHash, "feebumphash", "feebumpxdr", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, resultXdr)
+		require.NoError(t, err)
 		req, err := http.NewRequest(http.MethodGet, path.Join(endpoint, txHash), nil)
 		require.NoError(t, err)
 
@@ -313,7 +329,8 @@ func TestGetTransaction(t *testing.T) {
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		var tssResp tss.TSSResponse
-		_ = json.Unmarshal(respBody, &tssResp)
+		err = json.Unmarshal(respBody, &tssResp)
+		require.NoError(t, err)
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, txHash, tssResp.TransactionHash)
@@ -336,13 +353,12 @@ func TestGetTransaction(t *testing.T) {
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		var tssResp tss.TSSResponse
-		_ = json.Unmarshal(respBody, &tssResp)
+		err = json.Unmarshal(respBody, &tssResp)
+		require.NoError(t, err)
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Empty(t, tssResp.TransactionHash)
 		assert.Empty(t, tssResp.EnvelopeXDR)
 		assert.Empty(t, tssResp.Status)
-
 	})
-
 }

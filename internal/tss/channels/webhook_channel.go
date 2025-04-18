@@ -11,8 +11,9 @@ import (
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
+	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssutils "github.com/stellar/wallet-backend/internal/tss/utils"
@@ -89,7 +90,7 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		if err != nil {
 			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
 		} else {
-			defer httpResp.Body.Close()
+			defer utils.DeferredClose(ctx, httpResp.Body, "closing response body in the Receive function")
 			if httpResp.StatusCode == http.StatusOK {
 				sent = true
 				err := p.Store.UpsertTransaction(
@@ -110,7 +111,6 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 			log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
 		}
 	}
-
 }
 
 func (p *webhookPool) UnlockChannelAccount(ctx context.Context, txXDR string) error {

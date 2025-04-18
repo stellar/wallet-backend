@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
 func createKeypairFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, kp Keypair) {
@@ -64,7 +65,7 @@ func TestKeypairModelInsert(t *testing.T) {
 	t.Run("keypair_already_exists", func(t *testing.T) {
 		kpFull := keypair.MustRandom()
 		createKeypairFixture(t, ctx, dbConnectionPool, Keypair{PublicKey: kpFull.Address(), EncryptedPrivateKey: []byte(kpFull.Seed())})
-		err := m.Insert(ctx, kpFull.Address(), []byte(kpFull.Seed()))
+		err = m.Insert(ctx, kpFull.Address(), []byte(kpFull.Seed()))
 		assert.ErrorIs(t, err, ErrPublicKeyAlreadyExists)
 	})
 

@@ -9,9 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/apptracker"
 )
 
 func TestErrorResponseRender(t *testing.T) {

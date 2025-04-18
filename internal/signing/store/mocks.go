@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type ChannelAccountStoreMock struct {

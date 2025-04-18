@@ -24,8 +24,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
@@ -36,7 +36,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
 	passphrase := "test"
-	s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
+	s, outerErr := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         &mockRPCService,
 		BaseFee:                            100 * txnbuild.MinBaseFee,
@@ -45,7 +45,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
 		EncryptionPassphrase:               passphrase,
 	})
-	require.NoError(t, err)
+	require.NoError(t, outerErr)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	t.Run("sufficient_number_of_channel_accounts", func(t *testing.T) {
 		channelAccountStore.
@@ -89,7 +90,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 					channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, caOp.Destination)
 				}
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -106,7 +107,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
 
 		// Create and set up the heartbeat channel
-		health, _ := mockRPCService.GetHealth()
+		health, err := mockRPCService.GetHealth()
+		require.NoError(t, err)
 		heartbeatChan <- health
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
@@ -165,7 +167,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				tx, ok := args.Get(1).(*txnbuild.Transaction)
 				require.True(t, ok)
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -182,7 +184,8 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
 
 		// Create and set up the heartbeat channel
-		health, _ := mockRPCService.GetHealth()
+		health, err := mockRPCService.GetHealth()
+		require.NoError(t, err)
 		heartbeatChan <- health
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
@@ -223,7 +226,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				tx, ok := args.Get(1).(*txnbuild.Transaction)
 				require.True(t, ok)
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
 				require.NoError(t, err)
 
 				signedTx = *tx
@@ -258,7 +261,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once()
 		defer mockRPCService.AssertExpectations(t)
 
-		err = s.EnsureChannelAccounts(ctx, 5)
+		err := s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
 	})
@@ -316,6 +319,7 @@ func TestSubmitTransaction(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
@@ -371,6 +375,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 

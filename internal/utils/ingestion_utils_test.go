@@ -14,9 +14,9 @@ func TestMemo(t *testing.T) {
 			Type: xdr.MemoTypeMemoNone,
 		}
 
-		memo_value, memo_type := Memo(memo, "")
-		assert.Equal(t, (*string)(nil), memo_value)
-		assert.Equal(t, xdr.MemoTypeMemoNone.String(), memo_type)
+		memoValue, memoType := Memo(memo, "")
+		assert.Equal(t, (*string)(nil), memoValue)
+		assert.Equal(t, xdr.MemoTypeMemoNone.String(), memoType)
 	})
 
 	t.Run("type_text", func(t *testing.T) {
@@ -25,9 +25,9 @@ func TestMemo(t *testing.T) {
 			Text: PointOf("test"),
 		}
 
-		memo_value, memo_type := Memo(memo, "")
-		assert.Equal(t, "test", *memo_value)
-		assert.Equal(t, xdr.MemoTypeMemoText.String(), memo_type)
+		memoValue, memoType := Memo(memo, "")
+		assert.Equal(t, "test", *memoValue)
+		assert.Equal(t, xdr.MemoTypeMemoText.String(), memoType)
 	})
 
 	t.Run("type_id", func(t *testing.T) {
@@ -36,9 +36,9 @@ func TestMemo(t *testing.T) {
 			Id:   PointOf(xdr.Uint64(12345)),
 		}
 
-		memo_value, memo_type := Memo(memo, "")
-		assert.Equal(t, "12345", *memo_value)
-		assert.Equal(t, xdr.MemoTypeMemoId.String(), memo_type)
+		memoValue, memoType := Memo(memo, "")
+		assert.Equal(t, "12345", *memoValue)
+		assert.Equal(t, xdr.MemoTypeMemoId.String(), memoType)
 	})
 
 	t.Run("type_hash", func(t *testing.T) {
@@ -50,9 +50,9 @@ func TestMemo(t *testing.T) {
 			Hash: &value,
 		}
 
-		memo_value, memo_type := Memo(memo, "")
-		assert.Equal(t, value.HexString(), *memo_value)
-		assert.Equal(t, xdr.MemoTypeMemoHash.String(), memo_type)
+		memoValue, memoType := Memo(memo, "")
+		assert.Equal(t, value.HexString(), *memoValue)
+		assert.Equal(t, xdr.MemoTypeMemoHash.String(), memoType)
 	})
 
 	t.Run("type_return", func(t *testing.T) {
@@ -64,8 +64,8 @@ func TestMemo(t *testing.T) {
 			RetHash: &value,
 		}
 
-		memo_value, memo_type := Memo(memo, "")
-		assert.Equal(t, value.HexString(), *memo_value)
-		assert.Equal(t, xdr.MemoTypeMemoReturn.String(), memo_type)
+		memoValue, memoType := Memo(memo, "")
+		assert.Equal(t, value.HexString(), *memoValue)
+		assert.Equal(t, xdr.MemoTypeMemoReturn.String(), memoType)
 	})
 }

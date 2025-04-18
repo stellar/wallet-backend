@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/txnbuild"
+
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
@@ -85,7 +86,7 @@ func (sc *kmsSignatureClient) SignStellarTransaction(ctx context.Context, tx *tx
 
 	kpFull, err := sc.getKPFull(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting keypair full in %T: %w", sc, err)
 	}
 
 	signedTx, err := tx.Sign(sc.NetworkPassphrase(), kpFull)
@@ -103,7 +104,7 @@ func (sc *kmsSignatureClient) SignStellarFeeBumpTransaction(ctx context.Context,
 
 	kpFull, err := sc.getKPFull(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getting keypair full in %T: %w", sc, err)
 	}
 
 	signedFeeBumpTx, err := feeBumpTx.Sign(sc.NetworkPassphrase(), kpFull)

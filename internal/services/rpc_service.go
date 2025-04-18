@@ -10,15 +10,16 @@ import (
 	"time"
 
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
-	rpcHealthCheckSleepTime   = 5 * time.Second
-	rpcHealthCheckMaxWaitTime = 60 * time.Second
-	getHealthMethodName       = "getHealth"
+	defaultHealthCheckTickInterval    = 5 * time.Second
+	defaultHealthCheckWarningInterval = 60 * time.Second
+	getHealthMethodName               = "getHealth"
 )
 
 type RPCService interface {
@@ -33,10 +34,12 @@ type RPCService interface {
 }
 
 type rpcService struct {
-	rpcURL           string
-	httpClient       utils.HTTPClient
-	heartbeatChannel chan entities.RPCGetHealthResult
-	metricsService   metrics.MetricsService
+	rpcURL                     string
+	httpClient                 utils.HTTPClient
+	heartbeatChannel           chan entities.RPCGetHealthResult
+	metricsService             metrics.MetricsService
+	healthCheckWarningInterval time.Duration
+	healthCheckTickInterval    time.Duration
 }
 
 var PageLimit = 200
@@ -56,10 +59,12 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService me
 
 	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
 	return &rpcService{
-		rpcURL:           rpcURL,
-		httpClient:       httpClient,
-		heartbeatChannel: heartbeatChannel,
-		metricsService:   metricsService,
+		rpcURL:                     rpcURL,
+		httpClient:                 httpClient,
+		heartbeatChannel:           heartbeatChannel,
+		metricsService:             metricsService,
+		healthCheckWarningInterval: defaultHealthCheckWarningInterval,
+		healthCheckTickInterval:    defaultHealthCheckTickInterval,
 	}, nil
 }
 
@@ -69,7 +74,6 @@ func (r *rpcService) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
 
 func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error) {
 	resultBytes, err := r.sendRPCRequest("getTransaction", entities.RPCParams{Hash: transactionHash})
-
 	if err != nil {
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("sending getTransaction request: %w", err)
 	}
@@ -110,7 +114,7 @@ func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limi
 func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	resultBytes, err := r.sendRPCRequest("getHealth", entities.RPCParams{})
 	if err != nil {
-		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %v", err)
+		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %w", err)
 	}
 
 	var result entities.RPCGetHealthResult
@@ -139,7 +143,6 @@ func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntri
 }
 
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
-
 	resultBytes, err := r.sendRPCRequest("sendTransaction", entities.RPCParams{Transaction: transactionXDR})
 	if err != nil {
 		return entities.RPCSendTransactionResult{}, fmt.Errorf("sending sendTransaction request: %w", err)
@@ -173,9 +176,23 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	return int64(accountEntry.SeqNum), nil
 }
 
+func (r *rpcService) HealthCheckWarningInterval() time.Duration {
+	if utils.IsEmpty(r.healthCheckWarningInterval) {
+		return defaultHealthCheckWarningInterval
+	}
+	return r.healthCheckWarningInterval
+}
+
+func (r *rpcService) HealthCheckTickInterval() time.Duration {
+	if utils.IsEmpty(r.healthCheckTickInterval) {
+		return defaultHealthCheckTickInterval
+	}
+	return r.healthCheckTickInterval
+}
+
 func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
-	healthCheckTicker := time.NewTicker(rpcHealthCheckSleepTime)
-	warningTicker := time.NewTicker(rpcHealthCheckMaxWaitTime)
+	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
+	warningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
 		healthCheckTicker.Stop()
 		warningTicker.Stop()
@@ -187,9 +204,9 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-warningTicker.C:
-			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", rpcHealthCheckMaxWaitTime))
+			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", r.HealthCheckWarningInterval()))
 			r.metricsService.SetRPCServiceHealth(false)
-			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+			warningTicker.Reset(r.HealthCheckWarningInterval())
 		case <-healthCheckTicker.C:
 			result, err := r.GetHealth()
 			if err != nil {
@@ -200,7 +217,7 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 			r.heartbeatChannel <- result
 			r.metricsService.SetRPCServiceHealth(true)
 			r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
-			warningTicker.Reset(rpcHealthCheckMaxWaitTime)
+			warningTicker.Reset(r.HealthCheckWarningInterval())
 		}
 	}
 }
@@ -234,13 +251,13 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
-	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		r.metricsService.IncRPCEndpointFailure(method)
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
+	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)

@@ -17,24 +17,30 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.23.2"
+          cache: true
+          cache-dependency-path: go.sum
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.61
-          args: --timeout=5m
-          
       - name: ./gomod.sh
         run: ./gomod.sh
 
-      - name: exhaustive github.com/nishanths/exhaustive@v0.12.0
+      - name: Run `golangci-lint@v2.1.2`
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.2
+          golangci-lint run
+
+      - name: Run `shadow@v0.31.0`
+        run: |
+          go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0
+          shadow ./...
+
+      - name: Run `exhaustive@v0.12.0`
         run: |
           go install github.com/nishanths/exhaustive/cmd/exhaustive@v0.12.0
           exhaustive -default-signifies-exhaustive ./...
-    
-      - name: deadcode golang.org/x/tools/cmd/deadcode@v0.26.0
+
+      - name: Run `deadcode@v0.31.0`
         run: |
-          go install golang.org/x/tools/cmd/deadcode@v0.26.0
+          go install golang.org/x/tools/cmd/deadcode@v0.31.0
           output=$(deadcode -test ./...)
           if [[ -n "$output" ]]; then
             echo "🚨 Deadcode found:"
@@ -42,6 +48,20 @@ jobs:
             exit 1
           else
             echo "✅ No deadcode found"
+          fi
+
+      - name: Run `goimports@v0.31.0`
+        run: |
+          go install golang.org/x/tools/cmd/goimports@v0.31.0
+          # Find all .go files excluding paths containing 'mock' and run goimports
+          non_compliant_files=$(find . -type f -name "*.go" ! -path "*mock*" | xargs goimports -local "github.com/stellar/stellar-disbursement-platform-backend" -l)
+
+          if [ -n "$non_compliant_files" ]; then
+            echo "🚨 The following files are not compliant with goimports:"
+            echo "$non_compliant_files"
+            exit 1
+          else
+            echo "✅ All files are compliant with goimports."
           fi
 
   build:
@@ -54,6 +74,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.23.2"
+          cache: true
+          cache-dependency-path: go.sum
 
       - name: Build Project
         run: go build ./...
@@ -82,7 +104,7 @@ jobs:
       PGPASSWORD: postgres
       PGDATABASE: postgres
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,6 +113,30 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.23.2"
+          cache: true
+          cache-dependency-path: go.sum
 
-      - name: Run Tests
-        run: go test -v -race -cover ./...
+      - name: Install gotestsum@v1.11.0
+        run: go install gotest.tools/gotestsum@v1.11.0
+
+      - name: Run tests
+        run: gotestsum --format-hide-empty-pkg --format pkgname-and-test-fails -- -coverprofile=c.out ./... -timeout 3m -coverpkg ./...
+
+      - name: Validate Test Coverage Threshold
+        env:
+          TESTCOVERAGE_THRESHOLD: 65 # percentage
+        run: |
+          echo "Quality Gate:   Checking if test coverage is above threshold..."
+          echo "Threshold:      $TESTCOVERAGE_THRESHOLD%"
+          totalCoverage=`./scripts/exclude_from_coverage.sh && go tool cover -func=c.out  | grep total: | grep -Eo '[0-9]+\.[0-9]+'`
+          echo "Test Coverage:  $totalCoverage%"
+          echo "-------------------------"
+          if (( $(echo "$totalCoverage $TESTCOVERAGE_THRESHOLD" | awk '{print ($1 >= $2)}') )); then
+            echo "        $totalCoverage% > $TESTCOVERAGE_THRESHOLD%"
+            echo "Current test coverage is above threshold 🎉🎉🎉! Please keep up the good work!"
+          else
+            echo "        $totalCoverage% < $TESTCOVERAGE_THRESHOLD%"
+            echo "🚨 Current test coverage is below threshold 😱! Please add more unit tests or adjust threshold to a lower value."
+            echo "Failed 😭"
+            exit 1
+          fi

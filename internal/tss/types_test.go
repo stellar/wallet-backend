@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func TestParseToRPCSendTxResponse(t *testing.T) {
@@ -16,7 +17,7 @@ func TestParseToRPCSendTxResponse(t *testing.T) {
 		require.Error(t, err)
 
 		assert.Equal(t, entities.ErrorStatus, resp.Status)
-		assert.Equal(t, "sending sendTransaction request: sending POST request to RPC: connection failed", err.Error())
+		assert.ErrorContains(t, err, "sending sendTransaction request: sending POST request to RPC: connection failed")
 	})
 
 	t.Run("response_has_empty_errorResultXdr", func(t *testing.T) {
@@ -57,7 +58,7 @@ func TestParseToRPCGetIngestTxResponse(t *testing.T) {
 		require.Error(t, err)
 
 		assert.Equal(t, entities.ErrorStatus, resp.Status)
-		assert.Equal(t, "sending getTransaction request: sending POST request to RPC: connection failed", err.Error())
+		assert.ErrorContains(t, err, "sending getTransaction request: sending POST request to RPC: connection failed")
 	})
 
 	t.Run("unable_to_parse_createdAt", func(t *testing.T) {
@@ -68,7 +69,7 @@ func TestParseToRPCGetIngestTxResponse(t *testing.T) {
 		require.Error(t, err)
 
 		assert.Equal(t, entities.ErrorStatus, resp.Status)
-		assert.Equal(t, "unable to parse createdAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax", err.Error())
+		assert.ErrorContains(t, err, "unable to parse createdAt: strconv.ParseInt: parsing \"ABCD\": invalid syntax")
 	})
 
 	t.Run("response_has_createdAt_field", func(t *testing.T) {

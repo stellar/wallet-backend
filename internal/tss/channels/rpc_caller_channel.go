@@ -6,6 +6,7 @@ import (
 	"github.com/alitto/pond"
 
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
@@ -59,20 +60,18 @@ func (p *rpcCallerPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	// Create a new transaction record in the transactions table.
 	err := p.Store.UpsertTransaction(ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-
 	if err != nil {
 		log.Errorf("%s: unable to upsert transaction into transactions table: %e", RPCCallerChannelName, err)
 		return
 	}
 
 	rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, RPCCallerChannelName, payload)
-
 	if err != nil {
 		log.Errorf("%s: unable to sign and submit transaction: %e", RPCCallerChannelName, err)
 		return
 	}
 
-	payload.RpcSubmitTxResponse = rpcSendResp
+	payload.RPCSubmitTxResponse = rpcSendResp
 	err = p.Router.Route(payload)
 	if err != nil {
 		log.Errorf("%s: unable to route payload: %e", RPCCallerChannelName, err)

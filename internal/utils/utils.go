@@ -2,10 +2,14 @@ package utils
 
 import (
 	"bytes"
+	"context"
+	"fmt"
+	"io"
 	"reflect"
 	"strings"
 
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -41,7 +45,7 @@ func PointOf[T any](value T) *T {
 func GetAccountLedgerKey(address string) (string, error) {
 	decoded, err := strkey.Decode(strkey.VersionByteAccountID, address)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decoding address %q: %w", address, err)
 	}
 	var key xdr.Uint256
 	copy(key[:], decoded)
@@ -55,7 +59,7 @@ func GetAccountLedgerKey(address string) (string, error) {
 		},
 	}.MarshalBinaryBase64()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshalling ledger key: %w", err)
 	}
 	return keyXdr, nil
 }
@@ -64,7 +68,17 @@ func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEnt
 	var data xdr.LedgerEntryData
 	err := xdr.SafeUnmarshalBase64(entry.DataXDR, &data)
 	if err != nil {
-		return xdr.AccountEntry{}, err
+		return xdr.AccountEntry{}, fmt.Errorf("unmarshalling ledger entry data: %w", err)
 	}
 	return data.MustAccount(), nil
+}
+
+// DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.
+func DeferredClose(ctx context.Context, closer io.Closer, errMsg string) {
+	if err := closer.Close(); err != nil {
+		if errMsg == "" {
+			errMsg = "closing resource"
+		}
+		log.Ctx(ctx).Errorf("%s: %v", errMsg, err)
+	}
 }

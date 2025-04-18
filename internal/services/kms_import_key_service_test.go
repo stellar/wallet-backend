@@ -7,13 +7,14 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/stellar/go/keypair"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/signing/awskms"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/utils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestKMSImportServiceImportDistributionAccountKey(t *testing.T) {
