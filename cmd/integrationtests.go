@@ -29,6 +29,7 @@ type integrationTestsCmdConfig struct {
 	NetworkPassphrase    string
 	RPCURL               string
 	ClientAuthPrivateKey string
+	ServerBaseURL        string
 }
 
 func (c *integrationTestsCmd) Command() *cobra.Command {
@@ -36,6 +37,7 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 
 	cfgOpts := config.ConfigOptions{
 		utils.BaseFeeOption(&cfg.BaseFee),
+		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
