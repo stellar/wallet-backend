@@ -101,7 +101,7 @@ func OperationXDRToTxnBuildOp(opXDR xdr.Operation) (txnbuild.Operation, error) {
 
 	err := operation.FromXDR(opXDR)
 	if err != nil {
-		return nil, fmt.Errorf("decoding Operation FromXDR")
+		return nil, fmt.Errorf("decoding Operation FromXDR: %w", err)
 	}
 
 	return operation, nil
