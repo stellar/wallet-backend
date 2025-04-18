@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -88,6 +89,7 @@ func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
 	for k := range m {
 		pbks = append(pbks, k)
 	}
+	sort.Strings(pbks)
 	*key = pbks
 
 	return nil
