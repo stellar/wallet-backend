@@ -47,6 +47,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.WebhookHandlerChannelMaxWorkersOptions(&cfg.WebhookHandlerServiceChannelMaxWorkers),
 		utils.WebhookHandlerChannelMaxRetriesOption(&cfg.WebhookHandlerServiceChannelMaxRetries),
 		utils.WebhookHandlerChannelMinWaitBtwnRetriesMSOption(&cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS),
+		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -54,14 +55,6 @@ func (c *serveCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.Port,
 			FlagDefault: 8001,
 			Required:    false,
-		},
-		{
-			Name:        "server-base-url",
-			Usage:       "The server base URL",
-			OptType:     types.String,
-			ConfigKey:   &cfg.ServerBaseURL,
-			FlagDefault: "http://localhost:8001",
-			Required:    true,
 		},
 		{
 			Name:           "client-auth-public-keys",
