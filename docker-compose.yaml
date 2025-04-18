@@ -54,10 +54,10 @@ services:
       # Env Signature Client
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
 
-      # KMS Signature Client
+      # (optional) KMS Signature Client
       KMS_KEY_ARN: ${KMS_KEY_ARN}
       AWS_REGIONG: ${AWS_REGION}
-      # Using KMS locally is necessary to inject the AWS credentials envs.
+      # (optional) Using KMS locally is necessary to inject the AWS credentials envs.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
@@ -66,6 +66,10 @@ services:
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+
+      # (optional) Integration Tests
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
+      WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: ${WALLET_SOURCE_ACCOUNT_PRIVATE_KEY}
 
   ingest:
     container_name: ingest
