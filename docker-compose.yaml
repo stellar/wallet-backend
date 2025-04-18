@@ -1,15 +1,24 @@
 services:
   db:
-    image: postgres:12-alpine
+    container_name: db
+    image: postgres:14-alpine
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wallet-backend"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_DB: wallet-backend
+      PGDATA: /data/postgres
     volumes:
-      - postgres-db:/var/lib/postgresql/data
+      - postgres-db:/data/postgres
     ports:
       - 5432:5432
 
   stellar-rpc:
+    container_name: stellar-rpc
     image: stellar/stellar-rpc:stable
     ports:
       - 8000:8000
@@ -27,7 +36,7 @@ services:
       dockerfile: Dockerfile
     depends_on:
       db:
-        condition: service_started
+        condition: service_healthy
       stellar-rpc:
         condition: service_started
     ports:
@@ -44,7 +53,7 @@ services:
       RPC_URL: http://stellar-rpc:8000
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       PORT: 8001
-      SERVER_BASE_URL: http://localhost:8001
+      SERVER_BASE_URL: http://api:8001
       LOG_LEVEL: TRACE
       CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
       DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
@@ -79,7 +88,7 @@ services:
       dockerfile: Dockerfile
     depends_on:
       db:
-        condition: service_started
+        condition: service_healthy
       api:
         condition: service_started
       stellar-rpc:
