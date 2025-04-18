@@ -8,21 +8,22 @@ services:
       - postgres-db:/var/lib/postgresql/data
     ports:
       - 5432:5432
+
   stellar-rpc:
     image: stellar/stellar-rpc:stable
     ports:
-      - 8000:8000 
+      - 8000:8000
     volumes:
-      - ./config:/config 
+      - ./config:/config
     environment:
       NETWORK: ${NETWORK}
     entrypoint: ["/bin/bash", "/config/soroban_rpc_startup.sh"]
+
   api:
     image: stellar/wallet-backend:development
     build:
       context: ./
-      platforms:
-        - "linux/amd64"
+      dockerfile: Dockerfile
     depends_on:
       db:
         condition: service_started
@@ -36,9 +37,10 @@ services:
       - -c
       - |
         ./wallet-backend migrate up
-        ./wallet-backend channel-account ensure 5
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
         ./wallet-backend serve
     environment:
+      RPC_URL: http://stellar-rpc:8000
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       PORT: 8001
       SERVER_BASE_URL: http://localhost:8001
@@ -46,6 +48,7 @@ services:
       CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
       DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
       DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER}
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
 
       # Env Signature Client
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
@@ -62,10 +65,16 @@ services:
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+
   ingest:
     image: stellar/wallet-backend:development
+    build:
+      context: ./
+      dockerfile: Dockerfile
     depends_on:
       db:
+        condition: service_started
+      api:
         condition: service_started
       stellar-rpc:
         condition: service_started
@@ -75,6 +84,7 @@ services:
       - -c
       - ./wallet-backend ingest
     environment:
+      RPC_URL: http://stellar-rpc:8000
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
