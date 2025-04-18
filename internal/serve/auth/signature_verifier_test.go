@@ -11,6 +11,8 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 )
 
 func TestSignatureVerifierVerifySignature(t *testing.T) {
@@ -112,21 +114,42 @@ func TestSignatureVerifierVerifySignature(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			sig := fmt.Sprintf("%d.%s.%s", tc.timestamp, tc.hostName, tc.signedBody)
-			sig, err = tc.signer.SignBase64([]byte(sig))
-			require.NoError(t, err)
-			signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", tc.timestamp, sig)
+	t.Run("manual_signature_creation", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				sig := fmt.Sprintf("%d.%s.%s", tc.timestamp, tc.hostName, tc.signedBody)
+				sig, err = tc.signer.SignBase64([]byte(sig))
+				require.NoError(t, err)
+				signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", tc.timestamp, sig)
 
-			err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(tc.requestBody))
-			if tc.wantErrContains != "" {
-				assert.ErrorContains(t, err, tc.wantErrContains)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
+				err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(tc.requestBody))
+				if tc.wantErrContains != "" {
+					assert.ErrorContains(t, err, tc.wantErrContains)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("public_pkg", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				signer := wbclient.RequestSigner{
+					Signer: tc.signer,
+				}
+				signatureHeaderContent, err := signer.BuildSignatureHeader(tc.hostName, tc.timestamp, []byte(tc.signedBody))
+				require.NoError(t, err)
+
+				err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(tc.requestBody))
+				if tc.wantErrContains != "" {
+					assert.ErrorContains(t, err, tc.wantErrContains)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
 }
 
 func TestExtractTimestampedSignature(t *testing.T) {
