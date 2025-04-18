@@ -8,6 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/config"
 	"github.com/stellar/go/support/log"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 )
 
 type integrationTestsCmd struct {
@@ -23,13 +25,14 @@ type integrationTestsCmd struct {
 }
 
 type integrationTestsCmdConfig struct {
-	BaseFee              int
-	DatabaseURL          string
-	LogLevel             logrus.Level
-	NetworkPassphrase    string
-	RPCURL               string
-	ClientAuthPrivateKey string
-	ServerBaseURL        string
+	BaseFee                       int
+	DatabaseURL                   string
+	LogLevel                      logrus.Level
+	NetworkPassphrase             string
+	RPCURL                        string
+	ClientAuthPrivateKey          string
+	ServerBaseURL                 string
+	WalletSourceAccountPrivateKey string
 }
 
 func (c *integrationTestsCmd) Command() *cobra.Command {
@@ -48,6 +51,14 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			OptType:        types.String,
 			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
 			ConfigKey:      &cfg.ClientAuthPrivateKey,
+			Required:       true,
+		},
+		{
+			Name:           "wallet-source-account-private-key",
+			Usage:          "The private key of the source account that will be used to send the transactions for the integration tests",
+			OptType:        types.String,
+			ConfigKey:      &cfg.WalletSourceAccountPrivateKey,
+			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
 			Required:       true,
 		},
 	}
@@ -81,11 +92,25 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}
 
+			walletSigner, err := keypair.ParseFull(cfg.ClientAuthPrivateKey)
+			if err != nil {
+				return fmt.Errorf("parsing wallet signing key: %w", err)
+			}
+			wbClient := wbclient.NewClient(cfg.ServerBaseURL, wbclient.RequestSigner{
+				Signer: walletSigner,
+			})
+
+			sourceAccountKP, err := keypair.ParseFull(cfg.WalletSourceAccountPrivateKey)
+			if err != nil {
+				return fmt.Errorf("parsing wallet source account private key: %w", err)
+			}
+
 			c.integrationTests, err = integrationtests.NewIntegrationTests(ctx, integrationtests.IntegrationTestsOptions{
-				BaseFee:              int64(cfg.BaseFee),
-				NetworkPassphrase:    cfg.NetworkPassphrase,
-				RPCService:           rpcService,
-				ClientAuthPrivateKey: cfg.ClientAuthPrivateKey,
+				BaseFee:           int64(cfg.BaseFee),
+				NetworkPassphrase: cfg.NetworkPassphrase,
+				RPCService:        rpcService,
+				WBClient:          wbClient,
+				SourceAccountKP:   sourceAccountKP,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
