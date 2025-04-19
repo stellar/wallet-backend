@@ -45,7 +45,7 @@ docker services in their respective containers. This config is defined in `docke
 cp .env.example .env
 ```
 
-2. Add the environment variables:
+2. Add the environment variables (see `.env.example` for more details):
 
 ```bash
 CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=
