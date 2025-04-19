@@ -50,7 +50,7 @@ services:
         ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
         ./wallet-backend serve
     environment:
-      RPC_URL: http://stellar-rpc:8000
+      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       PORT: 8001
       SERVER_BASE_URL: http://api:8001
@@ -99,7 +99,7 @@ services:
       - -c
       - ./wallet-backend ingest
     environment:
-      RPC_URL: http://stellar-rpc:8000
+      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
