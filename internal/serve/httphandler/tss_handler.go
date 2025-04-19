@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssUtils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 type TSSHandler struct {
@@ -26,19 +27,6 @@ type TSSHandler struct {
 	NetworkPassphrase  string
 	TransactionService tssservices.TransactionService
 	MetricsService     metrics.MetricsService
-}
-
-type Transaction struct {
-	Operations []string `json:"operations" validate:"required"`
-	TimeBounds int64    `json:"timebounds" validate:"required"`
-}
-
-type BuildTransactionsRequest struct {
-	Transactions []Transaction `json:"transactions" validate:"required,gt=0"`
-}
-
-type BuildTransactionsResponse struct {
-	TransactionXDRs []string `json:"transaction_xdrs"`
 }
 
 type TransactionSubmissionRequest struct {
@@ -53,7 +41,7 @@ type TransactionSubmissionResponse struct {
 
 func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var reqParams BuildTransactionsRequest
+	var reqParams types.BuildTransactionsRequest
 	httpErr := DecodeJSONAndValidate(ctx, r, &reqParams, t.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(w)
@@ -78,7 +66,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		transactionXDRs = append(transactionXDRs, txXdrStr)
 	}
-	httpjson.Render(w, BuildTransactionsResponse{
+	httpjson.Render(w, types.BuildTransactionsResponse{
 		TransactionXDRs: transactionXDRs,
 	}, httpjson.JSON)
 }

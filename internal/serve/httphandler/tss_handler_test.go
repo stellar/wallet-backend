@@ -30,6 +30,7 @@ import (
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 func TestBuildTransactions(t *testing.T) {
@@ -128,7 +129,7 @@ func TestBuildTransactions(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var buildTxResp BuildTransactionsResponse
+		var buildTxResp types.BuildTransactionsResponse
 		err = json.Unmarshal(respBody, &buildTxResp)
 		require.NoError(t, err)
 		expectedTxXDR, err := tx.Base64()
