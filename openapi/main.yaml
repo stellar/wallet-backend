@@ -157,9 +157,11 @@ paths:
           in: query
           description: number of payments to return. Default is 50, maximum is 200
           required: false
-          default: 50
           schema:
             type: integer
+            default: 50
+            maximum: 200
+            minimum: 1
       responses:
         '200':
           description: Returns a list of payments and urls to fetch further payments
