@@ -65,8 +65,6 @@ jobs:
           wait_for_server http://localhost:8001/health 120
         shell: bash
 
-      # TODO: wait for the RPC server to be up
-
       - name: Run Integration Tests
         shell: bash
         run: |
