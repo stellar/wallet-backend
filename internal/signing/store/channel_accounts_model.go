@@ -27,7 +27,7 @@ var _ ChannelAccountStore = (*ChannelAccountModel)(nil)
 func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error) {
 	query := fmt.Sprintf(`
 		UPDATE channel_accounts
-		SET 
+		SET
 			locked_tx_hash = NULL,
 			locked_at = NOW(),
 			locked_until = NOW() + INTERVAL '%d seconds'
@@ -35,8 +35,9 @@ func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context,
 			SELECT
 				public_key
 			FROM channel_accounts
-			WHERE 
-				(locked_tx_hash IS NULL AND (locked_until IS NULL OR locked_until < NOW()))
+			WHERE
+				locked_until IS NULL
+				OR locked_until < NOW()
 			ORDER BY random()
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED

@@ -12,6 +12,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
+const (
+	MaxTimeoutInSeconds     = 300
+	DefaultTimeoutInSeconds = 10
+)
+
 type TransactionService interface {
 	NetworkPassphrase() string
 	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error)
@@ -84,6 +89,12 @@ func (t *transactionService) NetworkPassphrase() string {
 }
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
+	if timeoutInSecs > MaxTimeoutInSeconds {
+		return nil, fmt.Errorf("cannot be greater than 300 seconds")
+	}
+	if timeoutInSecs <= 0 {
+		timeoutInSecs = DefaultTimeoutInSeconds
+	}
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)

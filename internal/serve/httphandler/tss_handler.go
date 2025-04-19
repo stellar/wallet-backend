@@ -38,7 +38,7 @@ type BuildTransactionsRequest struct {
 }
 
 type BuildTransactionsResponse struct {
-	TransactionXDRs []string `json:"transactionxdrs"`
+	TransactionXDRs []string `json:"transaction_xdrs"`
 }
 
 type TransactionSubmissionRequest struct {

@@ -37,11 +37,13 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
-	t.Run("returns_error_when_there's_no_channel_account_available", func(t *testing.T) {
-		channelAccount1 := keypair.MustRandom()
-		channelAccount2 := keypair.MustRandom()
-		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
+	kp1 := keypair.MustRandom()
+	kp2 := keypair.MustRandom()
+	channelAccount1 := ChannelAccount{PublicKey: kp1.Address(), EncryptedPrivateKey: kp1.Seed()}
+	channelAccount2 := ChannelAccount{PublicKey: kp2.Address(), EncryptedPrivateKey: kp2.Seed()}
+	createChannelAccountFixture(t, ctx, dbConnectionPool, channelAccount1, channelAccount2)
 
+	t.Run("returns_error_when_there's_no_channel_account_available", func(t *testing.T) {
 		const lockChannelAccountQuery = `
 			UPDATE
 				channel_accounts
@@ -52,7 +54,7 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 			WHERE
 				public_key = ANY($1)
 		`
-		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.Address(), channelAccount2.Address()}))
+		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, pq.Array([]string{channelAccount1.PublicKey, channelAccount2.PublicKey}))
 		require.NoError(t, err)
 
 		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
@@ -61,27 +63,39 @@ func TestChannelAccountModelGetAndLockIdleChannelAccount(t *testing.T) {
 	})
 
 	t.Run("returns_channel_account_available", func(t *testing.T) {
-		channelAccount1 := keypair.MustRandom()
-		channelAccount2 := keypair.MustRandom()
-		createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount1.Address(), EncryptedPrivateKey: channelAccount1.Seed()}, ChannelAccount{PublicKey: channelAccount2.Address(), EncryptedPrivateKey: channelAccount2.Seed()})
-
 		const lockChannelAccountQuery = `
 				UPDATE
 					channel_accounts
 				SET
-					locked_at = NOW(),
-					locked_until = NOW() + '5 minutes'::INTERVAL,
-					locked_tx_hash = 'hash'
-				WHERE
-					public_key = $1
+					locked_at = NULL,
+					locked_until = NULL,
+					locked_tx_hash = NULL
 			`
-		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery, channelAccount1.Address())
+		_, err := dbConnectionPool.ExecContext(ctx, lockChannelAccountQuery)
 		require.NoError(t, err)
 
 		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
 		require.NoError(t, err)
-		assert.Equal(t, ca.PublicKey, channelAccount2.Address())
-		assert.Equal(t, ca.EncryptedPrivateKey, channelAccount2.Seed())
+		assert.Contains(t, []string{channelAccount1.PublicKey, channelAccount2.PublicKey}, ca.PublicKey)
+	})
+
+	t.Run("returns_channel_account_available_despite_locked_tx_hash", func(t *testing.T) {
+		const unlockAllChannelAccountsQuery = `
+				UPDATE
+					channel_accounts
+				SET
+					locked_at = NULL,
+					locked_until = NULL,
+					locked_tx_hash = 'hash'
+				WHERE
+					public_key = $1
+			`
+		_, err := dbConnectionPool.ExecContext(ctx, unlockAllChannelAccountsQuery, channelAccount1.PublicKey)
+		require.NoError(t, err)
+
+		ca, err := m.GetAndLockIdleChannelAccount(ctx, time.Minute)
+		require.NoError(t, err)
+		assert.Contains(t, []string{channelAccount1.PublicKey, channelAccount2.PublicKey}, ca.PublicKey)
 	})
 }
 

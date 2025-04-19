@@ -52,7 +52,7 @@ type Configs struct {
 	Port                    int
 	DatabaseURL             string
 	ServerBaseURL           string
-	WalletSigningKey        string
+	ClientAuthPublicKeys    []string
 	LogLevel                logrus.Level
 	EncryptionPassphrase    string
 	NumberOfChannelAccounts int
@@ -153,7 +153,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	signatureVerifier, err := auth.NewStellarSignatureVerifier(cfg.ServerBaseURL, cfg.WalletSigningKey)
+	signatureVerifier, err := auth.NewStellarSignatureVerifier(cfg.ServerBaseURL, cfg.ClientAuthPublicKeys...)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
@@ -374,11 +374,12 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/tss", func(r chi.Router) {
 			handler := &httphandler.TSSHandler{
-				Router:            deps.TSSRouter,
-				Store:             deps.TSSStore,
-				AppTracker:        deps.AppTracker,
-				NetworkPassphrase: deps.NetworkPassphrase,
-				MetricsService:    deps.MetricsService,
+				Router:             deps.TSSRouter,
+				Store:              deps.TSSStore,
+				AppTracker:         deps.AppTracker,
+				NetworkPassphrase:  deps.NetworkPassphrase,
+				MetricsService:     deps.MetricsService,
+				TransactionService: deps.TSSTransactionService,
 			}
 
 			r.Get("/transactions/{transactionhash}", handler.GetTransaction)

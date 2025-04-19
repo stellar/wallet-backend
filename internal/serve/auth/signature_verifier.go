@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -12,15 +11,11 @@ import (
 	"time"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/log"
 )
 
 type SignatureVerifier interface {
 	VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error
 }
-
-var ErrStellarSignatureNotVerified = errors.New("neither Signature nor X-Stellar-Signature header could be verified")
 
 type InvalidTimestampFormatError struct {
 	TimestampString     string
@@ -40,12 +35,12 @@ type ExpiredSignatureTimestampError struct {
 }
 
 func (e ExpiredSignatureTimestampError) Error() string {
-	return fmt.Sprintf("signature timestamp has expired. sig timestamp: %s, check time %s", e.ExpiredSignatureTimestamp.Format(time.RFC3339), e.CheckTime.Format(time.RFC3339))
+	return fmt.Sprintf("timestamp expired by %s", e.CheckTime.Sub(e.ExpiredSignatureTimestamp).String())
 }
 
 type StellarSignatureVerifier struct {
-	ServerHostname   string
-	WalletSigningKey string
+	ServerHostname       string
+	ClientAuthPublicKeys []keypair.FromAddress
 }
 
 var _ SignatureVerifier = (*StellarSignatureVerifier)(nil)
@@ -54,38 +49,30 @@ var _ SignatureVerifier = (*StellarSignatureVerifier)(nil)
 func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatureHeaderContent string, rawReqBody []byte) error {
 	t, s, err := ExtractTimestampedSignature(signatureHeaderContent)
 	if err != nil {
-		log.Ctx(ctx).Error(err)
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("unable to extract timestamped signature: %w", err)
 	}
 
 	// 2 seconds
 	err = VerifyGracePeriodSeconds(t, 2*time.Second)
 	if err != nil {
-		log.Ctx(ctx).Error(err)
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("signature timestamp has expired: %w", err)
 	}
 
 	signatureBytes, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		log.Ctx(ctx).Errorf("unable to decode signature value %s: %s", s, err.Error())
-		return ErrStellarSignatureNotVerified
+		return fmt.Errorf("unable to decode signature value %s: %w", s, err)
 	}
 
 	payload := t + "." + sv.ServerHostname + "." + string(rawReqBody)
 
-	// TODO: perhaps add possibility to have more than one signing key.
-	kp, err := keypair.ParseAddress(sv.WalletSigningKey)
-	if err != nil {
-		return fmt.Errorf("parsing wallet signing key %s: %w", sv.WalletSigningKey, err)
+	for _, kp := range sv.ClientAuthPublicKeys {
+		err = kp.Verify([]byte(payload), signatureBytes)
+		if err == nil {
+			return nil
+		}
 	}
 
-	err = kp.Verify([]byte(payload), signatureBytes)
-	if err != nil {
-		log.Ctx(ctx).Errorf("unable to verify the signature: %s", err.Error())
-		return ErrStellarSignatureNotVerified
-	}
-
-	return nil
+	return fmt.Errorf("unable to verify the signature for the given payload: %w", err)
 }
 
 func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s string, err error) {
@@ -138,9 +125,18 @@ func verifyGracePeriod(timestamp time.Time, gracePeriod time.Duration) error {
 	return nil
 }
 
-func NewStellarSignatureVerifier(serverHostName, walletSigningKey string) (*StellarSignatureVerifier, error) {
-	if !strkey.IsValidEd25519PublicKey(walletSigningKey) {
-		return nil, fmt.Errorf("invalid wallet signing key")
+func NewStellarSignatureVerifier(serverHostName string, clientAuthPublicKeys ...string) (*StellarSignatureVerifier, error) {
+	if len(clientAuthPublicKeys) == 0 {
+		return nil, fmt.Errorf("no client auth public keys provided")
+	}
+
+	kps := make([]keypair.FromAddress, len(clientAuthPublicKeys))
+	for i, publicKey := range clientAuthPublicKeys {
+		kp, err := keypair.ParseAddress(publicKey)
+		if err != nil {
+			return nil, fmt.Errorf("invalid client auth public key %q: %w", publicKey, err)
+		}
+		kps[i] = *kp
 	}
 
 	u, err := url.ParseRequestURI(serverHostName)
@@ -149,7 +145,7 @@ func NewStellarSignatureVerifier(serverHostName, walletSigningKey string) (*Stel
 	}
 
 	return &StellarSignatureVerifier{
-		ServerHostname:   u.Hostname(),
-		WalletSigningKey: walletSigningKey,
+		ServerHostname:       u.Hostname(),
+		ClientAuthPublicKeys: kps,
 	}, nil
 }

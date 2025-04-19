@@ -64,11 +64,11 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
-			Name:           "wallet-signing-key",
-			Usage:          "The public key of the Stellar account that signs the payloads when making HTTP Request to this server.",
+			Name:           "client-auth-public-keys",
+			Usage:          "A comma-separated list of public keys whose private keys are authorized to sign the payloads when making HTTP requests to this server.",
 			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionStellarPublicKey,
-			ConfigKey:      &cfg.WalletSigningKey,
+			CustomSetValue: utils.SetConfigOptionStellarPublicKeyList,
+			ConfigKey:      &cfg.ClientAuthPublicKeys,
 			Required:       true,
 		},
 		{

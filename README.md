@@ -54,11 +54,11 @@ DISTRIBUTION_ACCOUNT_PRIVATE_KEY=
 DISTRIBUTION_ACCOUNT_PUBLIC_KEY=
 NETWORK=testnet
 STELLAR_ENVIRONMENT=development
-WALLET_SIGNING_KEY=
+CLIENT_AUTH_PUBLIC_KEYS=
 ```
 
 Note that `CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE` is required to be set to a non-empty value. For development purposes,
-you can set it to any value. For production, you should set it to a secure passphrase. For `WALLET_SIGNING_KEY`, and 
+you can set it to any value. For production, you should set it to a secure passphrase. For `CLIENT_AUTH_PUBLIC_KEYS`, and 
 `DISTRIBUTION_ACCOUNT_PRIVATE_KEY` and `DISTRIBUTION_ACCOUNT_PUBLIC_KEY`, you can generate them using the Stellar CLI or by using tools like lab.stellar.org. Note that the `DISTRIBUTION_ACCOUNT_PUBLIC_KEY` is the public key of the account that will be used to sponsor accounts for channel accounts, and therefore must be a valid Stellar account.
 
 3. Start the containers:
