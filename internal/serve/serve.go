@@ -123,7 +123,7 @@ func Serve(cfg Configs) error {
 		ListenAddr: addr,
 		Handler:    handler(deps),
 		OnStarting: func() {
-			log.Infof("Starting Wallet Backend server on port %d", cfg.Port)
+			log.Infof("🌐 Starting Wallet Backend server on port %d", cfg.Port)
 			go populatePools(ctx, deps.PoolPopulator)
 		},
 		OnStopping: func() {

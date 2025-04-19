@@ -62,7 +62,7 @@ jobs:
             echo "Server at $endpoint is up."
           }
 
-          wait_for_server http://localhost:8000/health 120
+          wait_for_server http://localhost:8001/health 120
         shell: bash
 
       # TODO: wait for the RPC server to be up
