@@ -71,8 +71,6 @@ jobs:
         shell: bash
         run: |
           docker exec api bash -c "./wallet-backend integration-tests"
-        env:
-          CLIENT_AUTH_PRIVATE_KEY: ${{ vars.CLIENT_AUTH_PRIVATE_KEY }}
 
       - name: Docker logs
         if: always()
