@@ -475,12 +475,12 @@ paths:
                         items:
                           type: string
                           description: base64 operation xdr string
-                      timebounds:
+                      timeout:
                         type: integer
                         description: number of seconds after the current time that the transaction expires
                     required:
                       - operations
-                      - timebounds
+                      - timeout
               required:
                 - transactions
             example:
@@ -488,7 +488,7 @@ paths:
                 - opearations:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
-                  timebounds: 300
+                  timeout: 300
       responses:
         '200':
           description: "Successful response containing a list of base64 transaction xdr strings"
