@@ -3,12 +3,15 @@ package integrationtests
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -20,6 +23,7 @@ type IntegrationTestsOptions struct {
 	RPCService        services.RPCService
 	SourceAccountKP   *keypair.Full
 	WBClient          *wbclient.Client
+	DBConnectionPool  db.ConnectionPool
 }
 
 func (o *IntegrationTestsOptions) Validate() error {
@@ -47,11 +51,13 @@ func (o *IntegrationTestsOptions) Validate() error {
 }
 
 type IntegrationTests struct {
-	BaseFee           int64
-	NetworkPassphrase string
-	RPCService        services.RPCService
-	SourceAccountKP   *keypair.Full
-	WBClient          *wbclient.Client
+	BaseFee             int64
+	NetworkPassphrase   string
+	RPCService          services.RPCService
+	SourceAccountKP     *keypair.Full
+	WBClient            *wbclient.Client
+	ChannelAccountStore store.ChannelAccountStore
+	DBConnectionPool    db.ConnectionPool
 }
 
 func (it *IntegrationTests) Run(ctx context.Context) error {
@@ -77,6 +83,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		}
 		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
 	}
+	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
 	// Step 2: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
@@ -102,6 +109,38 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// TODO: verifyTxResult in wallet-backend")
 
 	return nil
+}
+
+// assertBuildTransactionResult asserts that the build transaction result is correct.
+func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, req types.BuildTransactionsRequest, resp types.BuildTransactionsResponse) {
+	assrt(len(req.Transactions) == len(resp.TransactionXDRs), "number of transactions in request and response must be the same")
+
+	for i, respTxXDR := range resp.TransactionXDRs {
+		genericTx, err := txnbuild.TransactionFromXDR(respTxXDR)
+		assrt(err == nil, "error building transaction from XDR: %v", err)
+		tx, ok := genericTx.Transaction()
+		assrt(ok, "genericTx must be a transaction")
+		txSourceAccount := tx.SourceAccount()
+		channelAccount, err := it.ChannelAccountStore.Get(ctx, it.DBConnectionPool, txSourceAccount.GetAccountID())
+		assrt(err == nil, "error getting channel account: %v", err)
+		assrt(channelAccount != nil, "channel account not found in the database")
+		responseOps := tx.Operations()
+		requestOpsXDRs := req.Transactions[i].Operations
+		assrt(len(responseOps) == len(requestOpsXDRs), "number of operations in request and response must be the same")
+		for j, requestOpXDRStr := range requestOpsXDRs {
+			requestOpXDR, err := utils.OperationXDRFromBase64(requestOpXDRStr)
+			assrt(err == nil, "error converting operation string to XDR: %v", err)
+			requestOp, err := utils.OperationXDRToTxnBuildOp(requestOpXDR)
+			assrt(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
+			assrt(reflect.DeepEqual(requestOp, responseOps[j]), "operation %d in request and response must be the same", j)
+		}
+	}
+}
+
+func assrt(condition bool, format string, args ...any) {
+	if !condition {
+		panic(fmt.Sprintf(format, args...))
+	}
 }
 
 func (i *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
@@ -161,10 +200,12 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &IntegrationTests{
-		BaseFee:           opts.BaseFee,
-		NetworkPassphrase: opts.NetworkPassphrase,
-		RPCService:        opts.RPCService,
-		SourceAccountKP:   opts.SourceAccountKP,
-		WBClient:          opts.WBClient,
+		BaseFee:             opts.BaseFee,
+		NetworkPassphrase:   opts.NetworkPassphrase,
+		RPCService:          opts.RPCService,
+		SourceAccountKP:     opts.SourceAccountKP,
+		WBClient:            opts.WBClient,
+		ChannelAccountStore: store.NewChannelAccountModel(opts.DBConnectionPool),
+		DBConnectionPool:    opts.DBConnectionPool,
 	}, nil
 }
