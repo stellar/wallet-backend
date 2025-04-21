@@ -143,11 +143,11 @@ func assrt(condition bool, format string, args ...any) {
 	}
 }
 
-func (i *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
+func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
 	var buildTxRequest types.BuildTransactionsRequest
 	paymentOp := &txnbuild.Payment{
-		SourceAccount: i.SourceAccountKP.Address(),
-		Destination:   i.SourceAccountKP.Address(),
+		SourceAccount: it.SourceAccountKP.Address(),
+		Destination:   it.SourceAccountKP.Address(),
 		Amount:        "10000000",
 		Asset:         txnbuild.NativeAsset{},
 	}
