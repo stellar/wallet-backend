@@ -58,6 +58,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("🆕 Starting integration tests...")
 
 	// Step 1: call /tss/transactions/build
+	fmt.Println("")
 	log.Ctx(ctx).Info("===> 1️⃣ Building transactions locally...")
 	buildTxRequest, err := it.prepareBuildTxRequest()
 	if err != nil {
@@ -69,8 +70,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		return fmt.Errorf("calling buildTransactions: %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
+	for i, txXDR := range builtTxResponse.TransactionXDRs {
+		txString, err := txString(txXDR)
+		if err != nil {
+			return fmt.Errorf("building transaction string: %w", err)
+		}
+		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
+	}
 
 	// Step 2: call /tx/create-fee-bump for each transaction
+	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
 	feeBumpedTxs := make([]string, len(builtTxResponse.TransactionXDRs))
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
@@ -80,6 +89,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		}
 		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
+
+		txString, err := txString(feeBumpedTxs[i])
+		if err != nil {
+			return fmt.Errorf("building transaction string: %w", err)
+		}
+		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
 	}
 
 	// TODO: submitTx")
@@ -112,6 +127,30 @@ func (i *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsReque
 	})
 
 	return buildTxRequest, nil
+}
+
+// txString returns a string representation of a transaction XDR.
+func txString(txXDR string) (string, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return "", fmt.Errorf("building transaction from XDR: %w", err)
+	}
+
+	opsSliceStr := func(ops []txnbuild.Operation) []string {
+		var opsStr []string
+		for _, op := range ops {
+			opsStr = append(opsStr, fmt.Sprintf("\n\t\t%#v", op))
+		}
+		return opsStr
+	}
+
+	if tx, ok := genericTx.Transaction(); ok {
+		return fmt.Sprintf("\n\ttx=%#v, \n\tops=%+v", tx, opsSliceStr(tx.Operations())), nil
+	} else if feeBumpTx, ok := genericTx.FeeBump(); ok {
+		return fmt.Sprintf("\n\tfeeBump=%#v, \n\ttx=%#v, \n\tops=%+v", feeBumpTx, feeBumpTx.InnerTransaction(), opsSliceStr(feeBumpTx.InnerTransaction().Operations())), nil
+	}
+
+	return fmt.Sprintf("%+v", genericTx), nil
 }
 
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {
