@@ -36,7 +36,7 @@ jobs:
         run: docker compose -f docker-compose.yaml down -v
         shell: bash
 
-      - name: Run Docker Compose for SDP, Anchor Platform and TSS
+      - name: Run Docker Compose (Without RPC)
         run: docker compose -f docker-compose.yaml up --build -V -d --scale stellar-rpc=0
         shell: bash
 
