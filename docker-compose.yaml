@@ -20,6 +20,12 @@ services:
   stellar-rpc:
     container_name: stellar-rpc
     image: stellar/stellar-rpc:stable
+    healthcheck:
+      test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 10s
     ports:
       - 8000:8000
     volumes:
@@ -31,6 +37,11 @@ services:
   api:
     container_name: api
     image: stellar/wallet-backend:development
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8001/health' | grep -q '\"status\": \"pass\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
     build:
       context: ./
       dockerfile: Dockerfile
@@ -90,7 +101,7 @@ services:
       db:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
       stellar-rpc:
         condition: service_started
     entrypoint: ""

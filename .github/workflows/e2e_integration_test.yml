@@ -44,27 +44,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y curl
         shell: bash
 
-      - name: Wait for the api to be up
-        run: |
-          wait_for_server() {
-            local endpoint=$1
-            local max_wait_time=$2
-
-            SECONDS=0
-            while ! curl -s $endpoint > /dev/null; do
-              echo "Waiting for server at $endpoint to be up... $SECONDS seconds elapsed"
-              sleep 4
-              if [ $SECONDS -ge $max_wait_time ]; then
-                echo "Server at $endpoint is not up after $max_wait_time seconds."
-                exit 1
-              fi
-            done
-            echo "Server at $endpoint is up."
-          }
-
-          wait_for_server http://localhost:8001/health 120
-        shell: bash
-
       - name: Run Integration Tests
         shell: bash
         run: |
