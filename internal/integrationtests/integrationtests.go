@@ -70,10 +70,10 @@ func (i *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
 
-	log.Ctx(ctx).Info("🚧 TODO: feeBumpTx")
-	log.Ctx(ctx).Info("🚧 TODO: submitTx")
-	log.Ctx(ctx).Info("🚧 TODO: waitForTxToBeInLedger")
-	log.Ctx(ctx).Info("🚧 TODO: verifyTxResult in wallet-backend")
+	// TODO: feeBumpTx")
+	// TODO: submitTx")
+	// TODO: waitForTxToBeInLedger")
+	// TODO: verifyTxResult in wallet-backend")
 
 	return nil
 }
