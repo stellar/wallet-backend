@@ -35,8 +35,16 @@ type ExpiredSignatureTimestampError struct {
 	CheckTime                 time.Time
 }
 
+func (e ExpiredSignatureTimestampError) TimeSinceExpiration() time.Duration {
+	timeSinceExpiration := e.CheckTime.Sub(e.ExpiredSignatureTimestamp)
+	if timeSinceExpiration < 0 {
+		return 0
+	}
+	return timeSinceExpiration
+}
+
 func (e ExpiredSignatureTimestampError) Error() string {
-	return fmt.Sprintf("timestamp expired by %s", e.CheckTime.Sub(e.ExpiredSignatureTimestamp).String())
+	return fmt.Sprintf("timestamp expired by %s", e.TimeSinceExpiration().String())
 }
 
 type StellarSignatureVerifier struct {

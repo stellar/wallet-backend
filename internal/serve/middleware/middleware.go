@@ -10,13 +10,18 @@ import (
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 )
 
 const MaxBodySize int64 = 10_240 // 10kb
 
-func SignatureMiddleware(signatureVerifier auth.SignatureVerifier, appTracker apptracker.AppTracker) func(next http.Handler) http.Handler {
+func SignatureMiddleware(
+	signatureVerifier auth.SignatureVerifier,
+	appTracker apptracker.AppTracker,
+	metricsService metrics.MetricsService,
+) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			sig := req.Header.Get("Signature")
@@ -39,6 +44,10 @@ func SignatureMiddleware(signatureVerifier auth.SignatureVerifier, appTracker ap
 
 			err = signatureVerifier.VerifySignature(ctx, sig, reqBody)
 			if err != nil {
+				var expirationErr auth.ExpiredSignatureTimestampError
+				if errors.As(err, &expirationErr) {
+					metricsService.IncSignatureVerificationExpired(expirationErr.TimeSinceExpiration().Seconds())
+				}
 				err = fmt.Errorf("checking request signature: %w", err)
 				log.Ctx(ctx).Error(err)
 				httperror.Unauthorized("", nil).Render(rw)

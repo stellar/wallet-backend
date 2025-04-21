@@ -32,6 +32,7 @@ type MetricsService interface {
 	ObserveDBQueryDuration(queryType, table string, duration float64)
 	IncDBQuery(queryType, table string)
 	RecordTSSTransactionStatusTransition(oldStatus, newStatus string)
+	IncSignatureVerificationExpired(expiredSeconds float64)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -70,6 +71,9 @@ type metricsService struct {
 	// DB Query Metrics
 	dbQueryDuration *prometheus.SummaryVec
 	dbQueriesTotal  *prometheus.CounterVec
+
+	// Signature Verification Metrics
+	signatureVerificationExpired *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -217,6 +221,16 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"query_type", "table"},
 	)
+
+	// Signature Verification Metrics
+	m.signatureVerificationExpired = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signature_verification_expired_total",
+			Help: "Total number of signature verifications that failed due to expiration",
+		},
+		[]string{"expired_seconds"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -243,6 +257,7 @@ func (m *metricsService) registerMetrics() {
 		m.requestsDuration,
 		m.dbQueryDuration,
 		m.dbQueriesTotal,
+		m.signatureVerificationExpired,
 	)
 }
 
@@ -423,4 +438,9 @@ func (m *metricsService) RecordTSSTransactionStatusTransition(oldStatus, newStat
 		m.tssTransactionCurrentStates.WithLabelValues(oldStatus).Dec()
 	}
 	m.tssTransactionCurrentStates.WithLabelValues(newStatus).Inc()
+}
+
+// Signature Verification Metrics
+func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
+	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
 }

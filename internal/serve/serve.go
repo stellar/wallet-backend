@@ -337,7 +337,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier, deps.AppTracker))
+		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
