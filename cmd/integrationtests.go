@@ -111,6 +111,7 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				RPCService:        rpcService,
 				WBClient:          wbClient,
 				SourceAccountKP:   sourceAccountKP,
+				DBConnectionPool:  dbConnectionPool,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
