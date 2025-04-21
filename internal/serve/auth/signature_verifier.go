@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -65,14 +66,20 @@ func (sv *StellarSignatureVerifier) VerifySignature(ctx context.Context, signatu
 
 	payload := t + "." + sv.ServerHostname + "." + string(rawReqBody)
 
-	for _, kp := range sv.ClientAuthPublicKeys {
-		err = kp.Verify([]byte(payload), signatureBytes)
-		if err == nil {
-			return nil
-		}
+	if len(sv.ClientAuthPublicKeys) == 0 {
+		return fmt.Errorf("no client auth public keys provided")
 	}
 
-	return fmt.Errorf("unable to verify the signature for the given payload: %w", err)
+	var sigVerifyErrors []error
+	for _, kp := range sv.ClientAuthPublicKeys {
+		if err := kp.Verify([]byte(payload), signatureBytes); err != nil {
+			sigVerifyErrors = append(sigVerifyErrors, err)
+			continue
+		}
+		return nil
+	}
+
+	return fmt.Errorf("unable to verify the signature for the given payload: %w", errors.Join(sigVerifyErrors...))
 }
 
 func ExtractTimestampedSignature(signatureHeaderContent string) (t string, s string, err error) {
