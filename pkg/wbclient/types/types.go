@@ -12,3 +12,12 @@ type BuildTransactionsRequest struct {
 type BuildTransactionsResponse struct {
 	TransactionXDRs []string `json:"transaction_xdrs"`
 }
+
+type CreateFeeBumpTransactionRequest struct {
+	Transaction string `json:"transaction" validate:"required"`
+}
+
+type TransactionEnvelopeResponse struct {
+	Transaction       string `json:"transaction"`
+	NetworkPassphrase string `json:"networkPassphrase"`
+}

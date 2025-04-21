@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	buildTransactionsPath = "/tss/transactions/build"
+	buildTransactionsPath        = "/tss/transactions/build"
+	createFeeBumpTransactionPath = "/tx/create-fee-bump"
 )
 
 type Client struct {
@@ -57,6 +58,33 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 	}
 
 	return &buildTxResponse, nil
+}
+
+func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
+	buildTxRequest := types.CreateFeeBumpTransactionRequest{Transaction: transactionXDR}
+
+	resp, err := c.request(ctx, http.MethodPost, createFeeBumpTransactionPath, buildTxRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(ctx, resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+
+	var feeBumpTxResponse types.TransactionEnvelopeResponse
+	err = json.Unmarshal(respBody, &feeBumpTxResponse)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling response body: %w", err)
+	}
+
+	return &feeBumpTxResponse, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {

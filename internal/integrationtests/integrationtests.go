@@ -54,23 +54,34 @@ type IntegrationTests struct {
 	WBClient          *wbclient.Client
 }
 
-func (i *IntegrationTests) Run(ctx context.Context) error {
+func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("🆕 Starting integration tests...")
 
 	// Step 1: call /tss/transactions/build
-	log.Ctx(ctx).Info("🚧 Building transactions locally...")
-	buildTxRequest, err := i.prepareBuildTxRequest()
+	log.Ctx(ctx).Info("===> 1️⃣ Building transactions locally...")
+	buildTxRequest, err := it.prepareBuildTxRequest()
 	if err != nil {
 		return fmt.Errorf("preparing build tx request: %w", err)
 	}
 	log.Ctx(ctx).Info("⏳ Calling {WalletBackend}.BuildTransactions...")
-	builtTxResponse, err := i.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
+	builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
 	if err != nil {
 		return fmt.Errorf("calling buildTransactions: %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
 
-	// TODO: feeBumpTx")
+	// Step 2: call /tx/create-fee-bump for each transaction
+	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
+	feeBumpedTxs := make([]string, len(builtTxResponse.TransactionXDRs))
+	for i, txXDR := range builtTxResponse.TransactionXDRs {
+		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, txXDR)
+		if err != nil {
+			return fmt.Errorf("calling feeBumpTransaction: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
+		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
+	}
+
 	// TODO: submitTx")
 	// TODO: waitForTxToBeInLedger")
 	// TODO: verifyTxResult in wallet-backend")
