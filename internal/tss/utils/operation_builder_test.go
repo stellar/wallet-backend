@@ -121,3 +121,49 @@ func Test_BuildOperations(t *testing.T) {
 
 	assert.Equal(t, operations, ops)
 }
+
+func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
+	testCases := []struct {
+		name            string
+		op              txnbuild.Operation
+		wantErrContains string
+	}{
+		{
+			name: "🔴fails_without_op_source_account",
+			op: &txnbuild.Payment{
+				Destination: keypair.MustRandom().Address(),
+				Amount:      "10.0000000",
+				Asset:       txnbuild.NativeAsset{},
+			},
+			wantErrContains: "all operations must have a source account explicitly set",
+		},
+		{
+			name: "🟢succeeds_with_op_source_account",
+			op: &txnbuild.Payment{
+				Destination:   keypair.MustRandom().Address(),
+				Amount:        "10.0000000",
+				Asset:         txnbuild.NativeAsset{},
+				SourceAccount: keypair.MustRandom().Address(),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opXDR, err := tc.op.BuildXDR()
+			require.NoError(t, err)
+			opXDRStr, err := utils.OperationXDRToBase64(opXDR)
+			require.NoError(t, err)
+
+			ops, err := BuildOperations([]string{opXDRStr})
+			if tc.wantErrContains != "" {
+				require.Nil(t, ops)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.op, ops[0])
+			}
+		})
+	}
+}

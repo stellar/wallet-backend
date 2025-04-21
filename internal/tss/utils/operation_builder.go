@@ -20,6 +20,11 @@ func BuildOperations(txOpXDRs []string) ([]txnbuild.Operation, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decoding Operation FromXDR")
 		}
+
+		if op.GetSourceAccount() == "" {
+			return nil, fmt.Errorf("all operations must have a source account explicitly set")
+		}
+
 		operations = append(operations, op)
 	}
 
