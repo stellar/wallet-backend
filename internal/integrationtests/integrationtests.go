@@ -49,6 +49,14 @@ func (o *IntegrationTestsOptions) Validate() error {
 		return fmt.Errorf("wallet backend client cannot be nil")
 	}
 
+	if o.DBConnectionPool == nil {
+		return fmt.Errorf("db connection pool cannot be nil")
+	}
+
+	if o.DistributionAccountSignatureClient == nil {
+		return fmt.Errorf("distribution account signature client cannot be nil")
+	}
+
 	return nil
 }
 
@@ -91,13 +99,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 1.5: sign transactions with the SourceAccountKP
 	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		tx, err := parseTxXDR(txXDR)
 		if err != nil {
-			return fmt.Errorf("building transaction from XDR: %w", err)
-		}
-		tx, ok := genericTx.Transaction()
-		if !ok {
-			return fmt.Errorf("genericTx must be a transaction")
+			return fmt.Errorf("parsing transaction from XDR: %w", err)
 		}
 		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
 		if err != nil {
@@ -130,6 +134,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
+
 	// TODO: submitTx")
 	// TODO: waitForTxToBeInLedger")
 	// TODO: verifyTxResult in wallet-backend")
@@ -139,63 +144,62 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
 func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, req types.BuildTransactionsRequest, resp types.BuildTransactionsResponse) {
-	assrt(len(req.Transactions) == len(resp.TransactionXDRs), "number of transactions in request and response must be the same")
+	assertOrFail(len(req.Transactions) == len(resp.TransactionXDRs), "number of transactions in request and response must be the same")
 
 	for i, respTxXDR := range resp.TransactionXDRs {
 		// Parse the transaction from the XDR
-		genericTx, err := txnbuild.TransactionFromXDR(respTxXDR)
-		assrt(err == nil, "error building transaction from XDR: %v", err)
-		tx, ok := genericTx.Transaction()
-		assrt(ok, "genericTx must be a transaction")
+		tx, err := parseTxXDR(respTxXDR)
+		assertOrFail(err == nil, "parsing transaction from XDR: %v", err)
 
 		// Assert that the tx source account is a channel account
 		txSourceAccount := tx.SourceAccount()
 		channelAccount, err := it.ChannelAccountStore.Get(ctx, it.DBConnectionPool, txSourceAccount.GetAccountID())
-		assrt(err == nil, "error getting channel account: %v", err)
-		assrt(channelAccount != nil, "channel account not found in the database")
+		assertOrFail(err == nil, "error getting channel account: %v", err)
+		assertOrFail(channelAccount != nil, "channel account not found in the database")
 		// Assert that the tx is signed by the channel account
-		assrt(len(tx.Signatures()) > 0, "transaction should be signed")
-		assrt(tx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
+		assertOrFail(len(tx.Signatures()) > 0, "transaction should be signed")
+		assertOrFail(tx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
 
 		// Assert the operations are the same
 		responseOps := tx.Operations()
 		requestOpsXDRs := req.Transactions[i].Operations
-		assrt(len(responseOps) == len(requestOpsXDRs), "number of operations in request and response must be the same")
+		assertOrFail(len(responseOps) == len(requestOpsXDRs), "number of operations in request and response must be the same")
 		for j, requestOpXDRStr := range requestOpsXDRs {
 			requestOpXDR, err := utils.OperationXDRFromBase64(requestOpXDRStr)
-			assrt(err == nil, "error converting operation string to XDR: %v", err)
+			assertOrFail(err == nil, "error converting operation string to XDR: %v", err)
 			requestOp, err := utils.OperationXDRToTxnBuildOp(requestOpXDR)
-			assrt(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
-			assrt(reflect.DeepEqual(requestOp, responseOps[j]), "operation %d in request and response must be the same", j)
+			assertOrFail(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
+			assertOrFail(reflect.DeepEqual(requestOp, responseOps[j]), "operation %d in request and response must be the same", j)
 		}
 	}
 }
 
+// assertFeeBumpTransactionResult asserts that the fee bump transaction result is correct.
 func (it *IntegrationTests) assertFeeBumpTransactionResult(ctx context.Context, req types.CreateFeeBumpTransactionRequest, resp types.TransactionEnvelopeResponse) {
-	genericTx, err := txnbuild.TransactionFromXDR(resp.Transaction)
-	assrt(err == nil, "error building transaction from XDR: %v", err)
-	feeBumpTx, ok := genericTx.FeeBump()
-	assrt(ok, "genericTx must be a fee bump transaction")
+	feeBumpTx, err := parseFeeBumpTxXDR(resp.Transaction)
+	assertOrFail(err == nil, "parsing fee bump transaction from XDR: %v", err)
 
 	// Assert that the inner transaction is the same as the request
 	innerTxXDR, err := feeBumpTx.InnerTransaction().Base64()
-	assrt(err == nil, "error converting inner transaction to base64: %v", err)
-	assrt(innerTxXDR == req.Transaction, "inner transaction in request and response must be the same")
+	assertOrFail(err == nil, "error converting inner transaction to base64: %v", err)
+	assertOrFail(innerTxXDR == req.Transaction, "inner transaction in request and response must be the same")
 
 	// Assert that the fee bump transaction is signed by the distribution account
-	assrt(len(feeBumpTx.Signatures()) > 0, "fee bump transaction should be signed")
+	assertOrFail(len(feeBumpTx.Signatures()) > 0, "fee bump transaction should be signed")
 	distPubKey, err := it.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
-	assrt(err == nil, "error getting distribution account public key: %v", err)
+	assertOrFail(err == nil, "error getting distribution account public key: %v", err)
 	distKP := keypair.MustParse(distPubKey)
-	assrt(feeBumpTx.Signatures()[0].Hint == distKP.Hint(), "signature at index 0 should be made by the distribution account public key")
+	assertOrFail(feeBumpTx.Signatures()[0].Hint == distKP.Hint(), "signature at index 0 should be made by the distribution account public key")
 }
 
-func assrt(condition bool, format string, args ...any) {
+// assertOrFail asserts that a condition is true. If the condition is not true, it panics with a message.
+func assertOrFail(condition bool, format string, args ...any) {
 	if !condition {
-		panic(fmt.Sprintf(format, args...))
+		panic(fmt.Sprintf("❌ Assertion failed: "+format, args...))
 	}
 }
 
+// prepareBuildTxRequest prepares a build transaction request with a payment operation.
 func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
 	var buildTxRequest types.BuildTransactionsRequest
 	paymentOp := &txnbuild.Payment{
@@ -221,7 +225,7 @@ func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequ
 	return buildTxRequest, nil
 }
 
-// txString returns a string representation of a transaction XDR.
+// txString returns a string representation of a transaction given its XDR.
 func txString(txXDR string) (string, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
 	if err != nil {
