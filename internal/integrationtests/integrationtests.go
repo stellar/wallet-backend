@@ -220,6 +220,7 @@ func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequ
 
 	buildTxRequest.Transactions = append(buildTxRequest.Transactions, types.Transaction{
 		Operations: []string{b64OpXDR},
+		TimeBounds: 300,
 	})
 
 	return buildTxRequest, nil
