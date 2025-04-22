@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -154,9 +156,56 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		hashes[i] = res.Hash
 	}
 
-	// TODO: waitForTxToBeInLedger")
+	// Step 4: poll the network for the transaction\
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 4️⃣ Waiting for transaction confirmation...")
+	retryOptions := []retry.Option{retry.Attempts(5), retry.Delay(6 * time.Second)}
+	for _, hash := range hashes {
+		err := it.waitForTransactionConfirmation(ctx, hash, retryOptions...)
+		if err != nil {
+			return fmt.Errorf("waiting for transaction confirmation: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
+	}
+
 	// TODO: verifyTxResult in wallet-backend")
 
+	return nil
+}
+
+func (it *IntegrationTests) waitForTransactionConfirmation(ctx context.Context, hash string, retryOptions ...retry.Option) error {
+	attemptsCount := 0
+	outerErr := retry.Do(
+		func() error {
+			attemptsCount++
+			log.Ctx(ctx).Infof("🔁 attemptsCount: %d", attemptsCount)
+			txResult, err := it.RPCService.GetTransaction(hash)
+			if err != nil {
+				return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
+			}
+
+			switch txResult.Status {
+			case entities.NotFoundStatus:
+				return fmt.Errorf("transaction not found")
+			case entities.SuccessStatus:
+				return nil
+			case entities.FailedStatus:
+				err = fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
+				return retry.Unrecoverable(err)
+			default:
+				return fmt.Errorf("unexpected transaction status: %s", txResult.Status)
+			}
+		},
+		append(
+			retryOptions,
+			retry.Context(ctx),
+			retry.LastErrorOnly(true),
+		)...,
+	)
+
+	if outerErr != nil {
+		return fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
+	}
 	return nil
 }
 

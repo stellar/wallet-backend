@@ -4,6 +4,7 @@ go 1.23.2
 
 require (
 	github.com/alitto/pond v1.9.2
+	github.com/avast/retry-go/v4 v4.6.1
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/getsentry/sentry-go v0.29.1
@@ -20,7 +21,7 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stellar/go v0.0.0-20241113194904-713725358e05
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/term v0.30.0
 )
