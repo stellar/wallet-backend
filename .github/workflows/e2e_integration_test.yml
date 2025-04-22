@@ -40,10 +40,6 @@ jobs:
         run: docker compose -f docker-compose.yaml up --build -V -d --scale stellar-rpc=0
         shell: bash
 
-      - name: Install curl
-        run: sudo apt-get update && sudo apt-get install -y curl
-        shell: bash
-
       - name: Run Integration Tests
         shell: bash
         run: |
