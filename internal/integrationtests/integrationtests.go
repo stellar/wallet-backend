@@ -88,6 +88,28 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
+	// Step 1.5: sign transactions with the SourceAccountKP
+	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
+	for i, txXDR := range builtTxResponse.TransactionXDRs {
+		genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+		if err != nil {
+			return fmt.Errorf("building transaction from XDR: %w", err)
+		}
+		tx, ok := genericTx.Transaction()
+		if !ok {
+			return fmt.Errorf("genericTx must be a transaction")
+		}
+		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
+		if err != nil {
+			return fmt.Errorf("signing transaction: %w", err)
+		}
+		signedTxXDR, err := signedTx.Base64()
+		if err != nil {
+			return fmt.Errorf("encoding transaction to base64: %w", err)
+		}
+		signedTxXDRs[i] = signedTxXDR
+	}
+
 	// Step 2: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
