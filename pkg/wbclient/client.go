@@ -17,6 +17,7 @@ import (
 const (
 	buildTransactionsPath        = "/tss/transactions/build"
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
+	getTransactionPath           = "/tss/transactions"
 )
 
 type Client struct {
@@ -41,23 +42,32 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
 
-	if c.isHTTPError(ctx, resp) {
+	if c.isHTTPError(resp) {
 		return nil, c.logHTTPError(ctx, resp)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	buildTxResponse, err := parseResponseBody[types.BuildTransactionsResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing response body: %w", err)
+	}
+
+	return buildTxResponse, nil
+}
+
+func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, error) {
+	respBodyBytes, err := io.ReadAll(respBody)
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
-	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+	defer utils.DeferredClose(ctx, respBody, "closing response body")
 
-	var buildTxResponse types.BuildTransactionsResponse
-	err = json.Unmarshal(respBody, &buildTxResponse)
+	var response T
+	err = json.Unmarshal(respBodyBytes, &response)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshalling response body: %w", err)
 	}
 
-	return &buildTxResponse, nil
+	return &response, nil
 }
 
 func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
@@ -68,23 +78,16 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
 
-	if c.isHTTPError(ctx, resp) {
+	if c.isHTTPError(resp) {
 		return nil, c.logHTTPError(ctx, resp)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	feeBumpTxResponse, err := parseResponseBody[types.TransactionEnvelopeResponse](ctx, resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
-
-	var feeBumpTxResponse types.TransactionEnvelopeResponse
-	err = json.Unmarshal(respBody, &feeBumpTxResponse)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshalling response body: %w", err)
+		return nil, fmt.Errorf("parsing response body: %w", err)
 	}
 
-	return &feeBumpTxResponse, nil
+	return feeBumpTxResponse, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {
@@ -118,12 +121,12 @@ func (c *Client) request(ctx context.Context, method, path string, bodyObj any) 
 	return resp, nil
 }
 
-func (c *Client) isHTTPError(ctx context.Context, resp *http.Response) bool {
+func (c *Client) isHTTPError(resp *http.Response) bool {
 	return resp.StatusCode >= 400
 }
 
 func (c *Client) logHTTPError(ctx context.Context, resp *http.Response) error {
-	if c.isHTTPError(ctx, resp) {
+	if c.isHTTPError(resp) {
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("reading response body to log error when statusCode=%d: %w", resp.StatusCode, err)
