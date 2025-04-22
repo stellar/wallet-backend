@@ -116,14 +116,22 @@ func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, re
 	assrt(len(req.Transactions) == len(resp.TransactionXDRs), "number of transactions in request and response must be the same")
 
 	for i, respTxXDR := range resp.TransactionXDRs {
+		// Parse the transaction from the XDR
 		genericTx, err := txnbuild.TransactionFromXDR(respTxXDR)
 		assrt(err == nil, "error building transaction from XDR: %v", err)
 		tx, ok := genericTx.Transaction()
 		assrt(ok, "genericTx must be a transaction")
+
+		// Assert that the tx source account is a channel account
 		txSourceAccount := tx.SourceAccount()
 		channelAccount, err := it.ChannelAccountStore.Get(ctx, it.DBConnectionPool, txSourceAccount.GetAccountID())
 		assrt(err == nil, "error getting channel account: %v", err)
 		assrt(channelAccount != nil, "channel account not found in the database")
+		// Assert that the tx is signed by the channel account
+		assrt(len(tx.Signatures()) > 0, "transaction should be signed")
+		assrt(tx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
+
+		// Assert the operations are the same
 		responseOps := tx.Operations()
 		requestOpsXDRs := req.Transactions[i].Operations
 		assrt(len(responseOps) == len(requestOpsXDRs), "number of operations in request and response must be the same")
