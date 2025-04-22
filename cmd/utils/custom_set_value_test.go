@@ -128,6 +128,74 @@ func TestSetConfigOptionStellarPublicKey(t *testing.T) {
 	}
 }
 
+func TestSetConfigOptionStellarPublicKeyList(t *testing.T) {
+	opts := struct{ publicKeyList []string }{}
+
+	co := config.ConfigOption{
+		Name:           "client-auth-public-keys",
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionStellarPublicKeyList,
+		ConfigKey:      &opts.publicKeyList,
+	}
+
+	oneKey := []string{"GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S"}
+	twoKeys := []string{"GAX46JJZ3NPUM2EUBTTGFM6ITDF7IGAFNBSVWDONPYZJREHFPP2I5U7S", "GCKIGGPF7GGJHWJFA5GYTABRRTNNCUV5LUP5CUWTMEVEZOOYK45RLQDC"}
+
+	testCases := []customSetterTestCase[[]string]{
+		{
+			name:            "🔴returns_an_error_if_the_public_keys_are_empty",
+			wantErrContains: "no public keys provided in client-auth-public-keys",
+		},
+		{
+			name:            "🔴returns_an_error_if_the_public_key_is_invalid",
+			args:            []string{"--client-auth-public-keys", "invalid_public_key"},
+			wantErrContains: `validating public key "invalid_public_key" in client-auth-public-keys: base32 decode failed: illegal base32 data at input byte 18`,
+		},
+		{
+			name:            "🔴returns_an_error_if_the_public_key_is_invalid_(private_key_instead)",
+			args:            []string{"--client-auth-public-keys", "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276"},
+			wantErrContains: `validating public key "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276" in client-auth-public-keys: invalid version byte`,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_CLI_flag/one_key",
+			args:       []string{"--client-auth-public-keys", strings.Join(oneKey, ",")},
+			wantResult: oneKey,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_CLI_flag/two_keys",
+			args:       []string{"--client-auth-public-keys", strings.Join(twoKeys, ",")},
+			wantResult: twoKeys,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_CLI_flag/repeated_keys_are_made_unique",
+			args:       []string{"--client-auth-public-keys", strings.Join(append(twoKeys, twoKeys...), ",")},
+			wantResult: twoKeys,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_ENV_flag/one_key",
+			envValue:   strings.Join(oneKey, ","),
+			wantResult: oneKey,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_ENV_flag/two_keys",
+			envValue:   strings.Join(twoKeys, ","),
+			wantResult: twoKeys,
+		},
+		{
+			name:       "🟢handles_Stellar_public_key_through_the_ENV_flag/repeated_keys_are_made_unique",
+			envValue:   strings.Join(append(twoKeys, twoKeys...), ","),
+			wantResult: twoKeys,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.publicKeyList = nil
+			customSetterTester(t, tc, co)
+		})
+	}
+}
+
 func TestSetConfigOptionStellarPrivateKey(t *testing.T) {
 	opts := struct{ distributionPrivateKey string }{}
 

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/stellar/go/support/log"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/auth"
 )
 
@@ -23,10 +25,12 @@ func TestSignatureMiddleware(t *testing.T) {
 	signatureVerifierMock := auth.MockSignatureVerifier{}
 	defer signatureVerifierMock.AssertExpectations(t)
 	appTrackerMock := apptracker.MockAppTracker{}
+	metricsServiceMock := metrics.NewMockMetricsService()
+	defer metricsServiceMock.AssertExpectations(t)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
-		r.Use(SignatureMiddleware(&signatureVerifierMock, &appTrackerMock))
+		r.Use(SignatureMiddleware(&signatureVerifierMock, &appTrackerMock, metricsServiceMock))
 
 		r.Get("/authenticated", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -83,6 +87,38 @@ func TestSignatureMiddleware(t *testing.T) {
 		entries := getEntries()
 		require.Len(t, entries, 1)
 		assert.Equal(t, entries[0].Message, "checking request signature: unexpected error")
+	})
+
+	t.Run("returns_Unauthorized_when_the_signature_is_expired", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/authenticated", nil)
+		req.Header.Set("Signature", "signature")
+
+		now := time.Now()
+		getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+		signatureVerifierMock.
+			On("VerifySignature", mock.Anything, "signature", []byte{}).
+			Return(auth.ExpiredSignatureTimestampError{
+				ExpiredSignatureTimestamp: now.Add(-1 * time.Second),
+				CheckTime:                 now,
+			}).
+			Once()
+		metricsServiceMock.
+			On("IncSignatureVerificationExpired", 1.0).
+			Once()
+
+		r.ServeHTTP(w, req)
+
+		resp := w.Result()
+		respBody, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		assert.JSONEq(t, `{"error": "Not authorized."}`, string(respBody))
+
+		entries := getEntries()
+		require.Len(t, entries, 1)
+		assert.Equal(t, entries[0].Message, "checking request signature: timestamp expired by 1s")
 	})
 
 	t.Run("returns_the_response_successfully", func(t *testing.T) {

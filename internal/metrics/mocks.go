@@ -100,3 +100,7 @@ func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 func (m *MockMetricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
 	m.Called(oldStatus, newStatus)
 }
+
+func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
+	m.Called(expiredSeconds)
+}

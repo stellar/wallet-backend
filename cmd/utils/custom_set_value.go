@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -57,6 +58,39 @@ func SetConfigOptionStellarPublicKey(co *config.ConfigOption) error {
 		return unexpectedTypeError(key, co)
 	}
 	*key = kp.Address()
+
+	return nil
+}
+
+func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
+	publicKeysStr := viper.GetString(co.Name)
+	publicKeysStr = strings.TrimSpace(publicKeysStr)
+	if publicKeysStr == "" {
+		return fmt.Errorf("no public keys provided in %s", co.Name)
+	}
+	publicKeysStr = strings.ReplaceAll(publicKeysStr, " ", "")
+	publicKeys := strings.Split(publicKeysStr, ",")
+
+	m := make(map[string]struct{})
+	for _, publicKey := range publicKeys {
+		_, err := keypair.ParseAddress(publicKey)
+		if err != nil {
+			return fmt.Errorf("validating public key %q in %s: %w", publicKey, co.Name, err)
+		}
+		m[publicKey] = struct{}{}
+	}
+
+	key, ok := co.ConfigKey.(*[]string)
+	if !ok {
+		return unexpectedTypeError(key, co)
+	}
+
+	pbks := make([]string, 0, len(m))
+	for k := range m {
+		pbks = append(pbks, k)
+	}
+	sort.Strings(pbks)
+	*key = pbks
 
 	return nil
 }

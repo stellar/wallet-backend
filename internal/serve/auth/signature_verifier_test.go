@@ -11,50 +11,144 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 )
 
 func TestSignatureVerifierVerifySignature(t *testing.T) {
 	host, err := url.ParseRequestURI("https://example.com")
 	require.NoError(t, err)
-	signingKey := keypair.MustRandom()
-
-	ctx := context.Background()
-	signatureVerifier, err := NewStellarSignatureVerifier(host.String(), signingKey.Address())
+	wrongHost, err := url.ParseRequestURI("https://wrong.example.com")
 	require.NoError(t, err)
 
-	t.Run("returns_error_when_the_wallet_signing_key_is_not_the_singer", func(t *testing.T) {
-		signer := keypair.MustRandom()
-		now := time.Now()
-		reqBody := `{"value": "new value"}`
-		sig := fmt.Sprintf("%d.%s.%s", now.Unix(), host.Hostname(), reqBody)
-		sig, err = signer.SignBase64([]byte(sig))
-		require.NoError(t, err)
-		signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
+	rightBody := `{"value": "right value"}`
+	wrongBody := `{"value": "wrong value"}`
 
-		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
-		assert.EqualError(t, err, ErrStellarSignatureNotVerified.Error())
+	signingKey1 := keypair.MustRandom()
+	signingKey2 := keypair.MustRandom()
+
+	now := time.Now()
+	nowUnix := now.Unix()
+	expiredUnix := now.Add(-1000 * time.Hour).Unix()
+
+	ctx := context.Background()
+	signatureVerifier, err := NewStellarSignatureVerifier(host.String(), signingKey1.Address(), signingKey2.Address())
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		signer          *keypair.Full
+		requestBody     string
+		signedBody      string
+		hostName        string
+		timestamp       int64
+		wantErrContains string
+	}{
+		{
+			name:            "🔴expired_timestamp",
+			signer:          signingKey1,
+			requestBody:     rightBody,
+			signedBody:      rightBody,
+			hostName:        host.Hostname(),
+			timestamp:       expiredUnix,
+			wantErrContains: "timestamp expired by 1000h",
+		},
+		{
+			name:            "🔴wrong_signer",
+			signer:          keypair.MustRandom(),
+			requestBody:     rightBody,
+			signedBody:      rightBody,
+			hostName:        host.Hostname(),
+			timestamp:       nowUnix,
+			wantErrContains: "unable to verify the signature for the given payload",
+		},
+		{
+			name:            "🔴wrong_host",
+			signer:          signingKey1,
+			requestBody:     rightBody,
+			signedBody:      rightBody,
+			hostName:        wrongHost.Hostname(),
+			timestamp:       nowUnix,
+			wantErrContains: "unable to verify the signature for the given payload",
+		},
+		{
+			name:            "🔴wrong_body",
+			signer:          signingKey1,
+			requestBody:     wrongBody,
+			signedBody:      rightBody,
+			hostName:        host.Hostname(),
+			timestamp:       nowUnix,
+			wantErrContains: "unable to verify the signature for the given payload",
+		},
+		{
+			name:        "🟢successful/signerKey1/with_body",
+			signer:      signingKey1,
+			requestBody: rightBody,
+			signedBody:  rightBody,
+			hostName:    host.Hostname(),
+			timestamp:   nowUnix,
+		},
+		{
+			name:        "🟢successful/signerKey1/without_body",
+			signer:      signingKey1,
+			requestBody: "",
+			signedBody:  "",
+			hostName:    host.Hostname(),
+			timestamp:   nowUnix,
+		},
+		{
+			name:        "🟢successful/signerKey2/with_body",
+			signer:      signingKey2,
+			requestBody: rightBody,
+			signedBody:  rightBody,
+			hostName:    host.Hostname(),
+			timestamp:   nowUnix,
+		},
+		{
+			name:        "🟢successful/signerKey2/without_body",
+			signer:      signingKey2,
+			requestBody: "",
+			signedBody:  "",
+			hostName:    host.Hostname(),
+			timestamp:   nowUnix,
+		},
+	}
+
+	t.Run("manual_signature_creation", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				sig := fmt.Sprintf("%d.%s.%s", tc.timestamp, tc.hostName, tc.signedBody)
+				sig, err = tc.signer.SignBase64([]byte(sig))
+				require.NoError(t, err)
+				signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", tc.timestamp, sig)
+
+				err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(tc.requestBody))
+				if tc.wantErrContains != "" {
+					assert.ErrorContains(t, err, tc.wantErrContains)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
 	})
 
-	t.Run("successfully_verifies_signature", func(t *testing.T) {
-		now := time.Now()
-		reqBody := `{"value": "new value"}`
-		sig := fmt.Sprintf("%d.%s.%s", now.Unix(), host.Hostname(), reqBody)
-		sig, err = signingKey.SignBase64([]byte(sig))
-		require.NoError(t, err)
-		signatureHeaderContent := fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
+	t.Run("public_pkg", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				signer := wbclient.RequestSigner{
+					Signer: tc.signer,
+				}
+				signatureHeaderContent, err := signer.BuildSignatureHeader(tc.hostName, tc.timestamp, []byte(tc.signedBody))
+				require.NoError(t, err)
 
-		err := signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(reqBody))
-		assert.NoError(t, err)
-
-		// When there's no request body
-		now = time.Now()
-		sig = fmt.Sprintf("%d.%s.%s", now.Unix(), host.Hostname(), "")
-		sig, err = signingKey.SignBase64([]byte(sig))
-		require.NoError(t, err)
-		signatureHeaderContent = fmt.Sprintf("t=%d, s=%s", now.Unix(), sig)
-
-		err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte{})
-		assert.NoError(t, err)
+				err = signatureVerifier.VerifySignature(ctx, signatureHeaderContent, []byte(tc.requestBody))
+				if tc.wantErrContains != "" {
+					assert.ErrorContains(t, err, tc.wantErrContains)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
 	})
 }
 
@@ -108,7 +202,7 @@ func TestVerifyGracePeriodSeconds(t *testing.T) {
 		ts := now.Unix()
 		err := VerifyGracePeriodSeconds(strconv.FormatInt(ts, 10), 2*time.Second)
 		assert.ErrorAs(t, err, &expiredSignatureTimestampErr)
-		assert.ErrorContains(t, err, fmt.Sprintf("signature timestamp has expired. sig timestamp: %s, check time", now.Format(time.RFC3339)))
+		assert.ErrorContains(t, err, "timestamp expired by 5")
 
 		now = time.Now().Add(-1 * time.Second)
 		ts = now.Unix()
