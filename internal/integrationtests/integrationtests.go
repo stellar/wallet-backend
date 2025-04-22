@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -135,7 +136,24 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
 
-	// TODO: submitTx")
+	// TODO: wait for RPC to be healthy
+
+	// Step 3: submit transactions
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 3️⃣ Submitting transactions...")
+	hashes := make([]string, len(feeBumpedTxs))
+	for i, txXDR := range feeBumpedTxs {
+		res, err := it.RPCService.SendTransaction(txXDR)
+		if err != nil {
+			return fmt.Errorf("sending transaction %d: %w", i, err)
+		}
+		log.Ctx(ctx).Infof("✅ submittedTx[%d]: %+v", i, res)
+		if res.Status != entities.PendingStatus {
+			return fmt.Errorf("transaction %d failed with status %s and errorResultXdr %s", i, res.Status, res.ErrorResultXDR)
+		}
+		hashes[i] = res.Hash
+	}
+
 	// TODO: waitForTxToBeInLedger")
 	// TODO: verifyTxResult in wallet-backend")
 
