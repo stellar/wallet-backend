@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
@@ -88,6 +90,27 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 	}
 
 	return feeBumpTxResponse, nil
+}
+
+func (c *Client) GetTransaction(ctx context.Context, hash string) (*tss.TSSResponse, error) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	path := fmt.Sprintf("%s/%s", getTransactionPath, hash)
+
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	tssResponse, err := parseResponseBody[tss.TSSResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing response body: %w", err)
+	}
+
+	return tssResponse, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {
