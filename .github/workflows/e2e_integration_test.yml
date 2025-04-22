@@ -1,0 +1,51 @@
+name: Integration Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "main"
+
+env:
+  CLIENT_AUTH_PUBLIC_KEYS: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+  CLIENT_AUTH_PRIVATE_KEY: "SBLIQC4PO4OJDNAUGJJL23H7HWME4VCW4PFAPIJ6SI4HHEYKJ2QO32HN"
+  DISTRIBUTION_ACCOUNT_PUBLIC_KEY: "GCEKH6XGQAKU7CYM7YIP3RNSAU55TILHLLHVOLN3HAIJTWI72VCPV4U7"
+  DISTRIBUTION_ACCOUNT_PRIVATE_KEY: "SBJXP3HESWCSYUUOYQLQEAW2K5BOKXHIMD2RVEGLRKDV3UY2ZKEAY36A"
+  DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: "ENV"
+  NUMBER_CHANNEL_ACCOUNTS: "2"
+  CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: "SBKHL2RDA7SFMRBILBEKFWR3ALJQL3HTAHIMRRGYC22SD2OQ4DFJCGII"
+  WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: "SAYU5NKZ3OB5CQE4BLFOUEDGZZRLXNRZD2YX23TEOUK44VTFI6JXRNII"
+  STELLAR_ENVIRONMENT: "GITHUB_WORKFLOW"
+  NETWORK: "testnet"
+  NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+  RPC_URL: "https://soroban-testnet.stellar.org"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checks
+        run: |
+          pwd
+          ls -la
+
+      - name: Cleanup data
+        run: docker compose -f docker-compose.yaml down -v
+        shell: bash
+
+      - name: Run Docker Compose (Without RPC)
+        run: docker compose -f docker-compose.yaml up --build -V -d --scale stellar-rpc=0
+        shell: bash
+
+      - name: Run Integration Tests
+        shell: bash
+        run: |
+          docker exec api bash -c "./wallet-backend integration-tests"
+
+      - name: Docker logs
+        if: always()
+        run: docker compose -f docker-compose.yaml logs && docker compose -f docker-compose.yaml down
+        shell: bash

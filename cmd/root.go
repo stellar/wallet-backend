@@ -8,6 +8,11 @@ import (
 	"github.com/stellar/go/support/log"
 )
 
+type RootConfig struct {
+	GitCommit string
+	Version   string
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:           "wallet-backend",
@@ -23,8 +28,8 @@ var rootCmd = &cobra.Command{
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	SetupCLI()
+func Execute(cfg RootConfig) {
+	SetupCLI(cfg)
 	err := rootCmd.Execute()
 	if err != nil {
 		panic(fmt.Errorf("executing root command: %w", err))
@@ -36,12 +41,15 @@ func preConfigureLogger() {
 	log.DefaultLogger.SetLevel(logrus.TraceLevel)
 }
 
-func SetupCLI() {
+func SetupCLI(cfg RootConfig) {
 	preConfigureLogger()
+	log.DefaultLogger.Infof("📦 Git Commit: %s", cfg.GitCommit)
+	log.DefaultLogger.Infof("📦 Version: %s", cfg.Version)
 
 	rootCmd.AddCommand((&serveCmd{}).Command())
 	rootCmd.AddCommand((&ingestCmd{}).Command())
 	rootCmd.AddCommand((&migrateCmd{}).Command())
 	rootCmd.AddCommand((&channelAccountCmd{}).Command(&ChAccCmdService{}))
 	rootCmd.AddCommand((&distributionAccountCmd{}).Command())
+	rootCmd.AddCommand((&integrationTestsCmd{}).Command())
 }

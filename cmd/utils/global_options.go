@@ -34,6 +34,17 @@ func LogLevelOption(configKey *logrus.Level) *config.ConfigOption {
 	}
 }
 
+func ServerBaseURLOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "server-base-url",
+		Usage:       "The server base URL",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "http://localhost:8001",
+		Required:    true,
+	}
+}
+
 func NetworkPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "network-passphrase",
