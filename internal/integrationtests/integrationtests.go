@@ -77,14 +77,20 @@ type IntegrationTests struct {
 func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("🆕 Starting integration tests...")
 
-	// Step 1: call /tss/transactions/build
+	// Step 1: Prepare transactions locally
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 1️⃣ Building transactions locally...")
-	buildTxRequest, err := it.prepareBuildTxRequest()
+	log.Ctx(ctx).Info("===> 1️⃣ [Local] Building transactions...")
+	classicOps, err := it.prepareClassicOps()
 	if err != nil {
-		return fmt.Errorf("preparing build tx request: %w", err)
+		return fmt.Errorf("preparing classic ops: %w", err)
 	}
-	log.Ctx(ctx).Info("⏳ Calling {WalletBackend}.BuildTransactions...")
+	buildTxRequest := types.BuildTransactionsRequest{
+		Transactions: []types.Transaction{{TimeBounds: 300, Operations: classicOps}},
+	}
+
+	// Step 2: call /tss/transactions/build
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
 	if err != nil {
 		return fmt.Errorf("calling buildTransactions: %w", err)
@@ -99,7 +105,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
-	// Step 1.5: sign transactions with the SourceAccountKP
+	// Step 3: sign transactions with the SourceAccountKP
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
 	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
 		tx, err := parseTxXDR(txXDR)
@@ -117,9 +125,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		signedTxXDRs[i] = signedTxXDR
 	}
 
-	// Step 2: call /tx/create-fee-bump for each transaction
+	// Step 4: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
+	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
 	feeBumpedTxs := make([]string, len(signedTxXDRs))
 	for i, txXDR := range signedTxXDRs {
 		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, txXDR)
@@ -140,9 +148,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 	// TODO: wait for RPC to be healthy
 
-	// Step 3: submit transactions
+	// Step 5: submit transactions to RPC
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 3️⃣ Submitting transactions...")
+	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Submitting transactions...")
 	hashes := make([]string, len(feeBumpedTxs))
 	for i, txXDR := range feeBumpedTxs {
 		res, err := it.RPCService.SendTransaction(txXDR)
@@ -156,9 +164,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		hashes[i] = res.Hash
 	}
 
-	// Step 4: poll the network for the transaction\
+	// Step 6: poll the network for the transaction\
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 4️⃣ Waiting for transaction confirmation...")
+	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Waiting for transaction confirmation...")
 	retryOptions := []retry.Option{retry.Attempts(5), retry.Delay(6 * time.Second)}
 	for _, hash := range hashes {
 		err := it.waitForTransactionConfirmation(ctx, hash, retryOptions...)
@@ -266,9 +274,8 @@ func assertOrFail(condition bool, format string, args ...any) {
 	}
 }
 
-// prepareBuildTxRequest prepares a build transaction request with a payment operation.
-func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
-	var buildTxRequest types.BuildTransactionsRequest
+// prepareClassicOps prepares a slice of strings, each representing a payment operation XDR. Currently only returns one operation (payment).
+func (it *IntegrationTests) prepareClassicOps() ([]string, error) {
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: it.SourceAccountKP.Address(),
 		Destination:   it.SourceAccountKP.Address(),
@@ -278,19 +285,14 @@ func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequ
 
 	paymentOpXDR, err := paymentOp.BuildXDR()
 	if err != nil {
-		return buildTxRequest, fmt.Errorf("building payment operation XDR: %w", err)
+		return nil, fmt.Errorf("building payment operation XDR: %w", err)
 	}
 	b64OpXDR, err := utils.OperationXDRToBase64(paymentOpXDR)
 	if err != nil {
-		return buildTxRequest, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
+		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
 	}
 
-	buildTxRequest.Transactions = append(buildTxRequest.Transactions, types.Transaction{
-		Operations: []string{b64OpXDR},
-		TimeBounds: 300,
-	})
-
-	return buildTxRequest, nil
+	return []string{b64OpXDR}, nil
 }
 
 // txString returns a string representation of a transaction given its XDR.
