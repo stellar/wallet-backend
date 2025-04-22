@@ -117,8 +117,8 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 2: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
-	feeBumpedTxs := make([]string, len(builtTxResponse.TransactionXDRs))
-	for i, txXDR := range builtTxResponse.TransactionXDRs {
+	feeBumpedTxs := make([]string, len(signedTxXDRs))
+	for i, txXDR := range signedTxXDRs {
 		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, txXDR)
 		if err != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", err)
