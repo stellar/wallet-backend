@@ -102,8 +102,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 			return fmt.Errorf("building transaction string: %w", err)
 		}
 		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
-	}
 
+		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
+	}
 	// TODO: submitTx")
 	// TODO: waitForTxToBeInLedger")
 	// TODO: verifyTxResult in wallet-backend")
@@ -143,6 +144,20 @@ func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, re
 			assrt(reflect.DeepEqual(requestOp, responseOps[j]), "operation %d in request and response must be the same", j)
 		}
 	}
+}
+
+func (it *IntegrationTests) assertFeeBumpTransactionResult(ctx context.Context, req types.CreateFeeBumpTransactionRequest, resp types.TransactionEnvelopeResponse) {
+	genericTx, err := txnbuild.TransactionFromXDR(resp.Transaction)
+	assrt(err == nil, "error building transaction from XDR: %v", err)
+	feeBumpTx, ok := genericTx.FeeBump()
+	assrt(ok, "genericTx must be a fee bump transaction")
+
+	// Assert that the inner transaction is the same as the request
+	innerTxXDR, err := feeBumpTx.InnerTransaction().Base64()
+	assrt(err == nil, "error converting inner transaction to base64: %v", err)
+	assrt(innerTxXDR == req.Transaction, "inner transaction in request and response must be the same")
+
+	// TODO: test the source account of the feeBumpTx
 }
 
 func assrt(condition bool, format string, args ...any) {
