@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
@@ -18,12 +19,13 @@ import (
 )
 
 type IntegrationTestsOptions struct {
-	BaseFee           int64
-	NetworkPassphrase string
-	RPCService        services.RPCService
-	SourceAccountKP   *keypair.Full
-	WBClient          *wbclient.Client
-	DBConnectionPool  db.ConnectionPool
+	BaseFee                            int64
+	NetworkPassphrase                  string
+	RPCService                         services.RPCService
+	SourceAccountKP                    *keypair.Full
+	WBClient                           *wbclient.Client
+	DBConnectionPool                   db.ConnectionPool
+	DistributionAccountSignatureClient signing.SignatureClient
 }
 
 func (o *IntegrationTestsOptions) Validate() error {
@@ -51,13 +53,14 @@ func (o *IntegrationTestsOptions) Validate() error {
 }
 
 type IntegrationTests struct {
-	BaseFee             int64
-	NetworkPassphrase   string
-	RPCService          services.RPCService
-	SourceAccountKP     *keypair.Full
-	WBClient            *wbclient.Client
-	ChannelAccountStore store.ChannelAccountStore
-	DBConnectionPool    db.ConnectionPool
+	BaseFee                            int64
+	NetworkPassphrase                  string
+	RPCService                         services.RPCService
+	SourceAccountKP                    *keypair.Full
+	WBClient                           *wbclient.Client
+	ChannelAccountStore                store.ChannelAccountStore
+	DBConnectionPool                   db.ConnectionPool
+	DistributionAccountSignatureClient signing.SignatureClient
 }
 
 func (it *IntegrationTests) Run(ctx context.Context) error {
@@ -157,7 +160,12 @@ func (it *IntegrationTests) assertFeeBumpTransactionResult(ctx context.Context, 
 	assrt(err == nil, "error converting inner transaction to base64: %v", err)
 	assrt(innerTxXDR == req.Transaction, "inner transaction in request and response must be the same")
 
-	// TODO: test the source account of the feeBumpTx
+	// Assert that the fee bump transaction is signed by the distribution account
+	assrt(len(feeBumpTx.Signatures()) > 0, "fee bump transaction should be signed")
+	distPubKey, err := it.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	assrt(err == nil, "error getting distribution account public key: %v", err)
+	distKP := keypair.MustParse(distPubKey)
+	assrt(feeBumpTx.Signatures()[0].Hint == distKP.Hint(), "signature at index 0 should be made by the distribution account public key")
 }
 
 func assrt(condition bool, format string, args ...any) {
@@ -223,12 +231,13 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	return &IntegrationTests{
-		BaseFee:             opts.BaseFee,
-		NetworkPassphrase:   opts.NetworkPassphrase,
-		RPCService:          opts.RPCService,
-		SourceAccountKP:     opts.SourceAccountKP,
-		WBClient:            opts.WBClient,
-		ChannelAccountStore: store.NewChannelAccountModel(opts.DBConnectionPool),
-		DBConnectionPool:    opts.DBConnectionPool,
+		BaseFee:                            opts.BaseFee,
+		NetworkPassphrase:                  opts.NetworkPassphrase,
+		RPCService:                         opts.RPCService,
+		SourceAccountKP:                    opts.SourceAccountKP,
+		WBClient:                           opts.WBClient,
+		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
+		DBConnectionPool:                   opts.DBConnectionPool,
+		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 	}, nil
 }

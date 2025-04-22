@@ -63,6 +63,10 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 		},
 	}
 
+	// Distribution Account Signature Client options
+	signatureClientOpts := utils.SignatureClientOptions{}
+	cfgOpts = append(cfgOpts, utils.DistributionAccountSignatureProviderOption(&signatureClientOpts)...)
+
 	cmd := &cobra.Command{
 		Use:   "integration-tests",
 		Short: "Run end-to-end integration tests",
@@ -80,6 +84,14 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("opening connection pool: %w", err)
 			}
+
+			signatureClientOpts.DBConnectionPool = dbConnectionPool
+			signatureClientOpts.NetworkPassphrase = cfg.NetworkPassphrase
+			signatureClient, err := utils.SignatureClientResolver(&signatureClientOpts)
+			if err != nil {
+				return fmt.Errorf("resolving distribution account signature client: %w", err)
+			}
+
 			db, err := dbConnectionPool.SqlxDB(ctx)
 			if err != nil {
 				return fmt.Errorf("getting sqlx db: %w", err)
@@ -106,12 +118,13 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			}
 
 			c.integrationTests, err = integrationtests.NewIntegrationTests(ctx, integrationtests.IntegrationTestsOptions{
-				BaseFee:           int64(cfg.BaseFee),
-				NetworkPassphrase: cfg.NetworkPassphrase,
-				RPCService:        rpcService,
-				WBClient:          wbClient,
-				SourceAccountKP:   sourceAccountKP,
-				DBConnectionPool:  dbConnectionPool,
+				BaseFee:                            int64(cfg.BaseFee),
+				NetworkPassphrase:                  cfg.NetworkPassphrase,
+				RPCService:                         rpcService,
+				WBClient:                           wbClient,
+				SourceAccountKP:                    sourceAccountKP,
+				DBConnectionPool:                   dbConnectionPool,
+				DistributionAccountSignatureClient: signatureClient,
 			})
 			if err != nil {
 				return fmt.Errorf("instantiating channel account services: %w", err)
