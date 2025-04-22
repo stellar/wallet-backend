@@ -205,7 +205,7 @@ func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequ
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: it.SourceAccountKP.Address(),
 		Destination:   it.SourceAccountKP.Address(),
-		Amount:        "10000000",
+		Amount:        "10",
 		Asset:         txnbuild.NativeAsset{},
 	}
 
