@@ -31,6 +31,7 @@ type RPCService interface {
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
 	TrackRPCServiceHealth(ctx context.Context)
+	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 }
 
 type rpcService struct {
@@ -152,6 +153,21 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
 		return entities.RPCSendTransactionResult{}, fmt.Errorf("parsing sendTransaction result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
+func (r *rpcService) SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error) {
+	resultBytes, err := r.sendRPCRequest("simulateTransaction", entities.RPCParams{Transaction: transactionXDR, ResourceConfig: resourceConfig})
+	if err != nil {
+		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("sending simulateTransaction request: %w", err)
+	}
+
+	var result entities.RPCSimulateTransactionResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("parsing simulateTransaction result JSON: %w", err)
 	}
 
 	return result, nil

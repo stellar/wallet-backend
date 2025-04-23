@@ -55,6 +55,11 @@ func (r *RPCServiceMock) GetAccountLedgerSequence(address string) (int64, error)
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (r *RPCServiceMock) SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error) {
+	args := r.Called(transactionXDR, resourceConfig)
+	return args.Get(0).(entities.RPCSimulateTransactionResult), args.Error(1)
+}
+
 type AccountSponsorshipServiceMock struct {
 	mock.Mock
 }

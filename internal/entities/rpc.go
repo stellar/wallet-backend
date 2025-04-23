@@ -2,6 +2,9 @@ package entities
 
 import (
 	"encoding/json"
+	"fmt"
+
+	"github.com/stellar/go/xdr"
 )
 
 type RPCStatus string
@@ -96,9 +99,110 @@ type RPCPagination struct {
 }
 
 type RPCParams struct {
-	Transaction string        `json:"transaction,omitempty"`
-	Hash        string        `json:"hash,omitempty"`
-	StartLedger int64         `json:"startLedger,omitempty"`
-	Pagination  RPCPagination `json:"pagination,omitempty"`
-	LedgerKeys  []string      `json:"keys,omitempty"`
+	Transaction    string            `json:"transaction,omitempty"`
+	Hash           string            `json:"hash,omitempty"`
+	StartLedger    int64             `json:"startLedger,omitempty"`
+	Pagination     RPCPagination     `json:"pagination,omitempty"`
+	LedgerKeys     []string          `json:"keys,omitempty"`
+	ResourceConfig RPCResourceConfig `json:"resourceConfig,omitempty"`
+}
+
+type RPCResourceConfig struct {
+	InstructionLeeway int `json:"instructionLeeway,omitempty"`
+}
+
+type RPCSimulateHostFunctionResult struct {
+	Auth []xdr.SorobanAuthorizationEntry `json:"auth"`
+	XDR  string                          `json:"xdr"`
+}
+
+func (r *RPCSimulateHostFunctionResult) UnmarshalJSON(data []byte) error {
+	type rawRPCSimulateHostFunctionResult struct {
+		Auth []string `json:"auth"`
+		XDR  string   `json:"xdr"`
+	}
+
+	var raw rawRPCSimulateHostFunctionResult
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("unmarshalling simulate host function result raw: %w", err)
+	}
+
+	r.Auth = make([]xdr.SorobanAuthorizationEntry, len(raw.Auth))
+	for i, auth := range raw.Auth {
+		if err := xdr.SafeUnmarshalBase64(auth, &r.Auth[i]); err != nil {
+			return fmt.Errorf("unmarshalling simulate host function result auth: %w", err)
+		}
+	}
+
+	r.XDR = raw.XDR
+
+	return nil
+}
+
+type RPCLedgerStateChange struct {
+	LedgerSequence int64 `json:"ledgerSequence"`
+}
+
+type RPCSimulateTransactionResult struct {
+	TransactionData xdr.SorobanTransactionData      `json:"transactionData"`
+	Events          []string                        `json:"events"`
+	MinResourceFee  string                          `json:"minResourceFee"`
+	Results         []RPCSimulateHostFunctionResult `json:"results"`
+	LatestLedger    int64                           `json:"latestLedger"`
+	// Error is only present if the transaction failed.
+	Error string `json:"error,omitempty"`
+	// RestorePreamble is only present if the transaction result indicates the account needs to be restored.
+	RestorePreamble struct {
+		MinResourceFee  string                     `json:"minResourceFee"`
+		TransactionData xdr.SorobanTransactionData `json:"transactionData"`
+	} `json:"restorePreamble,omitempty"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshalling for RPCSimulateTransactionResult,
+// parsing base64-encoded TransactionData and RestorePreamble.TransactionData into xdr.SorobanTransactionData.
+func (r *RPCSimulateTransactionResult) UnmarshalJSON(data []byte) error {
+	// Define raw structure for initial JSON unmarshalling
+	type rawRPCSimulateTransactionResult struct {
+		TransactionData string                          `json:"transactionData"`
+		Events          []string                        `json:"events"`
+		MinResourceFee  string                          `json:"minResourceFee"`
+		Results         []RPCSimulateHostFunctionResult `json:"results"`
+		LatestLedger    int64                           `json:"latestLedger"`
+		Error           string                          `json:"error,omitempty"`
+		RestorePreamble *struct {
+			MinResourceFee  string `json:"minResourceFee"`
+			TransactionData string `json:"transactionData"`
+		} `json:"restorePreamble,omitempty"`
+	}
+
+	var raw rawRPCSimulateTransactionResult
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("unmarshalling simulate transaction result raw: %w", err)
+	}
+
+	// Parse the main TransactionData field
+	var txData xdr.SorobanTransactionData
+	if err := xdr.SafeUnmarshalBase64(raw.TransactionData, &txData); err != nil {
+		return fmt.Errorf("unmarshalling transaction data: %w", err)
+	}
+	r.TransactionData = txData
+
+	// Assign other simple fields
+	r.Events = raw.Events
+	r.MinResourceFee = raw.MinResourceFee
+	r.Results = raw.Results
+	r.LatestLedger = raw.LatestLedger
+	r.Error = raw.Error
+
+	// If RestorePreamble is present, parse its TransactionData
+	if raw.RestorePreamble != nil {
+		var preambleTxData xdr.SorobanTransactionData
+		if err := xdr.SafeUnmarshalBase64(raw.RestorePreamble.TransactionData, &preambleTxData); err != nil {
+			return fmt.Errorf("unmarshalling restore preamble transaction data: %w", err)
+		}
+		r.RestorePreamble.MinResourceFee = raw.RestorePreamble.MinResourceFee
+		r.RestorePreamble.TransactionData = preambleTxData
+	}
+
+	return nil
 }
