@@ -100,9 +100,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		txString, err := txString(txXDR)
-		if err != nil {
-			return fmt.Errorf("building transaction string: %w", err)
+		txString, innerErr := txString(txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
 	}
@@ -113,17 +113,17 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
 	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		tx, err := parseTxXDR(txXDR)
-		if err != nil {
-			return fmt.Errorf("parsing transaction from XDR: %w", err)
+		tx, innerErr := parseTxXDR(txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("parsing transaction from XDR: %w", innerErr)
 		}
-		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
-		if err != nil {
-			return fmt.Errorf("signing transaction: %w", err)
+		signedTx, innerErr := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
+		if innerErr != nil {
+			return fmt.Errorf("signing transaction: %w", innerErr)
 		}
-		signedTxXDR, err := signedTx.Base64()
-		if err != nil {
-			return fmt.Errorf("encoding transaction to base64: %w", err)
+		signedTxXDR, innerErr := signedTx.Base64()
+		if innerErr != nil {
+			return fmt.Errorf("encoding transaction to base64: %w", innerErr)
 		}
 		signedTxXDRs[i] = signedTxXDR
 	}
@@ -133,16 +133,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
 	feeBumpedTxs := make([]string, len(signedTxXDRs))
 	for i, txXDR := range signedTxXDRs {
-		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, txXDR)
-		if err != nil {
-			return fmt.Errorf("calling feeBumpTransaction: %w", err)
+		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
 
-		txString, err := txString(feeBumpedTxs[i])
-		if err != nil {
-			return fmt.Errorf("building transaction string: %w", err)
+		txString, innerErr := txString(feeBumpedTxs[i])
+		if innerErr != nil {
+			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
 
