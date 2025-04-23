@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -242,6 +244,68 @@ func assertOrFail(condition bool, format string, args ...any) {
 	if !condition {
 		panic(fmt.Sprintf("❌ Assertion failed: "+format, args...))
 	}
+}
+
+func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
+	var nativeAssetContractID xdr.Hash
+	var err error
+	nativeAssetContractID, err = xdr.MustNewNativeAsset().ContractID(it.NetworkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("getting native asset contract ID: %w", err)
+	}
+
+	fromAccountID, err := xdr.AddressToAccountId(it.SourceAccountKP.Address())
+	if err != nil {
+		return nil, fmt.Errorf("marshalling from address: %w", err)
+	}
+	toAccountID := fromAccountID
+
+	invokeXLMTransferSAC := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &nativeAssetContractID,
+				},
+				FunctionName: "transfer",
+				Args: xdr.ScVec{
+					{
+						Type: xdr.ScValTypeScvAddress,
+						Address: &xdr.ScAddress{
+							Type:      xdr.ScAddressTypeScAddressTypeAccount,
+							AccountId: &fromAccountID,
+						},
+					},
+					{
+						Type: xdr.ScValTypeScvAddress,
+						Address: &xdr.ScAddress{
+							Type:      xdr.ScAddressTypeScAddressTypeAccount,
+							AccountId: &toAccountID,
+						},
+					},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: xdr.Int64(0),
+							Lo: xdr.Uint64(uint64(amount.MustParse("100000000"))),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	invokeXLMTransferSACXDR, err := invokeXLMTransferSAC.BuildXDR()
+	if err != nil {
+		return nil, fmt.Errorf("building payment operation XDR: %w", err)
+	}
+	b64OpXDR, err := utils.OperationXDRToBase64(invokeXLMTransferSACXDR)
+	if err != nil {
+		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
+	}
+
+	return []string{b64OpXDR}, nil
 }
 
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {
