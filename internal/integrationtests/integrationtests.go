@@ -85,6 +85,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
 
+	invokeContractOps, err := it.prepareInvokeContractOps()
+	if err != nil {
+		return fmt.Errorf("preparing invoke contract ops: %w", err)
+	}
+	log.Ctx(ctx).Warnf("✅ invokeContractOps: %+v", invokeContractOps)
+
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
@@ -254,11 +260,11 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 		return nil, fmt.Errorf("getting native asset contract ID: %w", err)
 	}
 
-	fromAccountID, err := xdr.AddressToAccountId(it.SourceAccountKP.Address())
+	fromSCAddress, err := SCAccountID(it.SourceAccountKP.Address())
 	if err != nil {
 		return nil, fmt.Errorf("marshalling from address: %w", err)
 	}
-	toAccountID := fromAccountID
+	toSCAddress := fromSCAddress
 
 	invokeXLMTransferSAC := &txnbuild.InvokeHostFunction{
 		HostFunction: xdr.HostFunction{
@@ -271,24 +277,18 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 				FunctionName: "transfer",
 				Args: xdr.ScVec{
 					{
-						Type: xdr.ScValTypeScvAddress,
-						Address: &xdr.ScAddress{
-							Type:      xdr.ScAddressTypeScAddressTypeAccount,
-							AccountId: &fromAccountID,
-						},
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &fromSCAddress,
 					},
 					{
-						Type: xdr.ScValTypeScvAddress,
-						Address: &xdr.ScAddress{
-							Type:      xdr.ScAddressTypeScAddressTypeAccount,
-							AccountId: &toAccountID,
-						},
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &toSCAddress,
 					},
 					{
 						Type: xdr.ScValTypeScvI128,
 						I128: &xdr.Int128Parts{
 							Hi: xdr.Int64(0),
-							Lo: xdr.Uint64(uint64(amount.MustParse("100000000"))),
+							Lo: xdr.Uint64(uint64(amount.MustParse("10"))),
 						},
 					},
 				},
@@ -296,16 +296,74 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 		},
 	}
 
+	_, err = it.prepareSimulateAndSignTransaction(invokeXLMTransferSAC)
+	if err != nil {
+		return nil, fmt.Errorf("preparing simulate and sign transaction: %w", err)
+	}
+
 	invokeXLMTransferSACXDR, err := invokeXLMTransferSAC.BuildXDR()
 	if err != nil {
 		return nil, fmt.Errorf("building payment operation XDR: %w", err)
 	}
+
 	b64OpXDR, err := utils.OperationXDRToBase64(invokeXLMTransferSACXDR)
 	if err != nil {
 		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
 	}
 
 	return []string{b64OpXDR}, nil
+}
+
+func (it *IntegrationTests) prepareSimulateAndSignTransaction(ops ...txnbuild.Operation) (string, error) {
+	ledgerSequence, err := it.RPCService.GetAccountLedgerSequence(it.SourceAccountKP.Address())
+	if err != nil {
+		return "", fmt.Errorf("getting account ledger sequence: %w", err)
+	}
+
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &txnbuild.SimpleAccount{
+			AccountID: it.SourceAccountKP.Address(),
+			Sequence:  ledgerSequence,
+		},
+		Operations: ops,
+		BaseFee:    txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+		IncrementSequenceNum: true,
+	})
+
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+	}
+
+	fmt.Println("")
+	log.Infof("🧪 txXDR: %s", txXDR)
+	fmt.Println("")
+
+	simulateResult, err := it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	if err != nil {
+		return "", fmt.Errorf("simulating transaction: %w", err)
+	}
+
+	log.Warnf("🧪 transactionData: %+v", simulateResult.TransactionData)
+	log.Warnf("🧪 auth: %+v", simulateResult.Results[0].Auth)
+	log.Warnf("🧪 simulateResult: %+v", simulateResult)
+
+	return txXDR, nil
+}
+
+func SCAccountID(address string) (xdr.ScAddress, error) {
+	accountID, err := xdr.AddressToAccountId(address)
+	if err != nil {
+		return xdr.ScAddress{}, fmt.Errorf("marshalling from address: %w", err)
+	}
+
+	return xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID,
+	}, nil
 }
 
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {
