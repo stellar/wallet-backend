@@ -3,7 +3,10 @@ package integrationtests
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"reflect"
+	"syscall"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -146,11 +149,17 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
 
-	// TODO: wait for RPC to be healthy
-
-	// Step 5: submit transactions to RPC
+	// Step 5: wait for RPC to be healthy
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Submitting transactions...")
+	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Waiting for RPC service to become healthy...")
+	err = WaitForRPCHealthAndRun(ctx, it.RPCService, 40*time.Second, nil)
+	if err != nil {
+		return fmt.Errorf("waiting for RPC service to become healthy: %w", err)
+	}
+
+	// Step 6: submit transactions to RPC
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
 	hashes := make([]string, len(feeBumpedTxs))
 	for i, txXDR := range feeBumpedTxs {
 		res, err := it.RPCService.SendTransaction(txXDR)
@@ -164,9 +173,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		hashes[i] = res.Hash
 	}
 
-	// Step 6: poll the network for the transaction\
+	// Step 7: poll the network for the transaction
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Waiting for transaction confirmation...")
+	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
 	retryOptions := []retry.Option{retry.Attempts(5), retry.Delay(6 * time.Second)}
 	for _, hash := range hashes {
 		err := it.waitForTransactionConfirmation(ctx, hash, retryOptions...)
@@ -336,4 +345,34 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		DBConnectionPool:                   opts.DBConnectionPool,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 	}, nil
+}
+
+// WaitForRPCHealthAndRun waits for the RPC service to become healthy and then runs the given function.
+func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration, onReady func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	log.Ctx(ctx).Info("⏳ Waiting for RPC service to become healthy...")
+	rpcHeartbeatChannel := rpcService.GetHeartbeatChannel()
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer signal.Stop(signalChan)
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context canceled while waiting for RPC service to become healthy: %w", ctx.Err())
+
+	case sig := <-signalChan:
+		return fmt.Errorf("received signal %s while waiting for RPC service to become healthy", sig)
+
+	case <-rpcHeartbeatChannel:
+		log.Ctx(ctx).Info("👍 RPC service is healthy")
+		if onReady != nil {
+			if err := onReady(); err != nil {
+				return fmt.Errorf("executing onReady after RPC became healthy: %w", err)
+			}
+		}
+		return nil
+	}
 }
