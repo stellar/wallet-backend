@@ -117,6 +117,11 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if innerErr != nil {
 			return fmt.Errorf("parsing transaction from XDR: %w", innerErr)
 		}
+		innerTxHash, innerErr := tx.HashHex(it.NetworkPassphrase)
+		if innerErr != nil {
+			return fmt.Errorf("hashing transaction: %w", innerErr)
+		}
+		log.Ctx(ctx).Infof("=====> innerHash: %s", innerTxHash)
 		signedTx, innerErr := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
 		if innerErr != nil {
 			return fmt.Errorf("signing transaction: %w", innerErr)
