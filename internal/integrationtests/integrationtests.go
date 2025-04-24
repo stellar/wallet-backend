@@ -159,7 +159,8 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
 	hashes := make([]string, len(feeBumpedTxs))
 	for i, txXDR := range feeBumpedTxs {
-		res, err := it.RPCService.SendTransaction(txXDR)
+		var res entities.RPCSendTransactionResult
+		res, err = it.RPCService.SendTransaction(txXDR)
 		if err != nil {
 			return fmt.Errorf("sending transaction %d: %w", i, err)
 		}
