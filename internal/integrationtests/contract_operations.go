@@ -111,6 +111,9 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 	if err != nil {
 		return "", "", fmt.Errorf("simulating transaction (1): %w", err)
 	}
+	if simulationResult.Error != "" {
+		return "", "", fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResult.Error)
+	}
 
 	// TODO: remove these logs
 	log.Warnf("🧪 transactionData: %+v", simulationResult.TransactionData)
@@ -160,6 +163,9 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		simulationResult, err = it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
 		if err != nil {
 			return "", "", fmt.Errorf("simulating transaction (2): %w", err)
+		}
+		if simulationResult.Error != "" {
+			return "", "", fmt.Errorf("transaction simulation (2) failed with error=%s", simulationResult.Error)
 		}
 	}
 
