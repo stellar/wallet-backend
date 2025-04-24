@@ -42,7 +42,6 @@ func Test_RPCSimulateTransactionResult_UnmarshalJSON_success(t *testing.T) {
 			}
 		],
 		"latestLedger": 621041,
-		"error": "foo bar baz",
 		"restorePreamble": {
 			"minResourceFee": "478428",
 			"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw="
@@ -69,9 +68,6 @@ func Test_RPCSimulateTransactionResult_UnmarshalJSON_success(t *testing.T) {
 	err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &wantAuthEntry)
 	require.NoError(t, err)
 	require.Equal(t, wantAuthEntry, result.Results[0].Auth[0])
-
-	// Assert error
-	require.Equal(t, "foo bar baz", result.Error)
 
 	// Assert restorePreamble
 	require.Equal(t, wantTxData, result.RestorePreamble.TransactionData)
