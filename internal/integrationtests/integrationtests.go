@@ -2,14 +2,20 @@ package integrationtests
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"reflect"
 	"time"
 
 	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/amount"
+	"github.com/stellar/go/hash"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/network"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -266,7 +272,7 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 	}
 	toSCAddress := fromSCAddress
 
-	invokeXLMTransferSAC := &txnbuild.InvokeHostFunction{
+	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			InvokeContract: &xdr.InvokeContractArgs{
@@ -314,25 +320,30 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 	return []string{b64OpXDR}, nil
 }
 
-func (it *IntegrationTests) prepareSimulateAndSignTransaction(ops ...txnbuild.Operation) (string, error) {
-	ledgerSequence, err := it.RPCService.GetAccountLedgerSequence(it.SourceAccountKP.Address())
+func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (string, error) {
+	healthResult, err := it.RPCService.GetHealth()
 	if err != nil {
-		return "", fmt.Errorf("getting account ledger sequence: %w", err)
+		return "", fmt.Errorf("getting health: %w", err)
+	}
+
+	txSourceAccountKP := keypair.MustRandom()
+	txSourceAccount := txnbuild.SimpleAccount{
+		AccountID: txSourceAccountKP.Address(),
+		Sequence:  0,
 	}
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: it.SourceAccountKP.Address(),
-			Sequence:  ledgerSequence,
-		},
-		Operations: ops,
-		BaseFee:    txnbuild.MinBaseFee,
+		SourceAccount: &txSourceAccount,
+		Operations:    []txnbuild.Operation{&op},
+		BaseFee:       txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(300),
 		},
 		IncrementSequenceNum: true,
 	})
-
+	if err != nil {
+		return "", fmt.Errorf("building transaction: %w", err)
+	}
 	txXDR, err := tx.Base64()
 	if err != nil {
 		return "", fmt.Errorf("encoding transaction to base64: %w", err)
@@ -349,7 +360,51 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(ops ...txnbuild.Op
 
 	log.Warnf("🧪 transactionData: %+v", simulateResult.TransactionData)
 	log.Warnf("🧪 auth: %+v", simulateResult.Results[0].Auth)
-	log.Warnf("🧪 simulateResult: %+v", simulateResult)
+	log.Warnf("🧪 simulateResult(1): %+v", simulateResult)
+	fmt.Println("")
+
+	// Sign AuthEntr
+	simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulateResult.Results))
+	for i, result := range simulateResult.Results {
+		updatedResult := result
+		for j, auth := range result.Auth {
+			nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+			if err != nil {
+				return "", fmt.Errorf("generating random nonce: %w", err)
+			}
+			updatedResult.Auth[j], err = authorizeEntry(auth, nonce.Int64(), healthResult.LatestLedger+100, it.NetworkPassphrase, it.SourceAccountKP)
+			if err != nil {
+				return "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
+			}
+		}
+
+		simulateResults[i] = updatedResult
+	}
+
+	op.Auth = simulateResults[0].Auth
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &txSourceAccount,
+		Operations:    []txnbuild.Operation{&op},
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+		IncrementSequenceNum: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("building transaction: %w", err)
+	}
+	txXDR, err = tx.Base64()
+	if err != nil {
+		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+	}
+	fmt.Println("will simulate transaction (2): ", txXDR)
+	simulateResult, err = it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	if err != nil {
+		return "", fmt.Errorf("simulating transaction (2): %w", err)
+	}
+
+	log.Warnf("🧪 simulateResult(2): %+v", simulateResult)
 
 	return txXDR, nil
 }
@@ -364,6 +419,98 @@ func SCAccountID(address string) (xdr.ScAddress, error) {
 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
 		AccountId: &accountID,
 	}, nil
+}
+
+func authorizeEntry(auth xdr.SorobanAuthorizationEntry, nounce int64, validUntilLedgerSeq uint32, networkPassphrase string, authEntrySigner *keypair.Full) (xdr.SorobanAuthorizationEntry, error) {
+	if auth.Credentials.Type != xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("unsupported credentials type %d", auth.Credentials.Type)
+	}
+
+	// 1: soroban auth entry
+	entry := xdr.SorobanAuthorizationEntry{
+		RootInvocation: auth.RootInvocation,
+		Credentials: xdr.SorobanCredentials{
+			Type: auth.Credentials.Type,
+			Address: &xdr.SorobanAddressCredentials{
+				Address:                   auth.Credentials.Address.Address,
+				Nonce:                     xdr.Int64(nounce),
+				SignatureExpirationLedger: xdr.Uint32(validUntilLedgerSeq),
+				Signature:                 xdr.ScVal{}, // will be replaced
+			},
+		},
+	}
+
+	// 2: build preimage
+	addrAuth := entry.Credentials.Address
+
+	preimage := xdr.HashIdPreimage{
+		Type: xdr.EnvelopeTypeEnvelopeTypeSorobanAuthorization,
+		SorobanAuthorization: &xdr.HashIdPreimageSorobanAuthorization{
+			NetworkId:                 network.ID(networkPassphrase),
+			Nonce:                     addrAuth.Nonce,
+			Invocation:                entry.RootInvocation,
+			SignatureExpirationLedger: addrAuth.SignatureExpirationLedger,
+		},
+	}
+	preimageBytes, err := preimage.MarshalBinary()
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("marshalling preimage: %w", err)
+	}
+	payload := hash.Hash(preimageBytes)
+
+	// 3: Produce signature
+	signature, err := authEntrySigner.Sign(payload[:])
+	publicKey := authEntrySigner.Address()
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("signing payload: %w", err)
+	}
+
+	// 4: Create the signature object for the auth entry
+	pubKeySymbol := xdr.ScSymbol("public_key")
+	pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, publicKey)
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("decoding public key: %w", err)
+	}
+	pubKeySCBytes := xdr.ScBytes(pubKeyBytes)
+	sigSymbol := xdr.ScSymbol("signature")
+	sigBytes := xdr.ScBytes(signature)
+	sigMap := &xdr.ScMap{
+		xdr.ScMapEntry{
+			Key: xdr.ScVal{
+				Type: xdr.ScValTypeScvSymbol,
+				Sym:  &pubKeySymbol,
+			},
+			Val: xdr.ScVal{
+				Type:  xdr.ScValTypeScvBytes,
+				Bytes: &pubKeySCBytes,
+			},
+		},
+		xdr.ScMapEntry{
+			Key: xdr.ScVal{
+				Type: xdr.ScValTypeScvSymbol,
+				Sym:  &sigSymbol,
+			},
+			Val: xdr.ScVal{
+				Type:  xdr.ScValTypeScvBytes,
+				Bytes: &sigBytes,
+			},
+		},
+	}
+	sigsVector := &xdr.ScVec{
+		xdr.ScVal{
+			Type: xdr.ScValTypeScvMap,
+			Map:  &sigMap,
+		},
+	}
+	scSignature := xdr.ScVal{
+		Type: xdr.ScValTypeScvVec,
+		Vec:  &sigsVector,
+	}
+
+	// 5: Update the auth entry with the signature
+	addrAuth.Signature = scSignature
+
+	return entry, nil
 }
 
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {

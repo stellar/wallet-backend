@@ -165,6 +165,7 @@ func (r *rpcService) SimulateTransaction(transactionXDR string, resourceConfig e
 	}
 
 	var result entities.RPCSimulateTransactionResult
+	fmt.Println("🧪 resultBytes: ", string(resultBytes))
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
 		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("parsing simulateTransaction result JSON: %w", err)
