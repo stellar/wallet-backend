@@ -10,6 +10,7 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -79,4 +80,23 @@ func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPC
 		return fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
 	}
 	return nil
+}
+
+func SCAccountID(address string) (xdr.ScAddress, error) {
+	accountID, err := xdr.AddressToAccountId(address)
+	if err != nil {
+		return xdr.ScAddress{}, fmt.Errorf("marshalling from address: %w", err)
+	}
+
+	return xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID,
+	}, nil
+}
+
+func SCContractID(contractID xdr.Hash) xdr.ScAddress {
+	return xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID,
+	}
 }

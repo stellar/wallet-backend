@@ -3,6 +3,7 @@ package integrationtests
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -91,12 +92,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
 
-	invokeContractOps, err := it.prepareInvokeContractOps()
+	invokeContractOp, simResultXDR, err := it.prepareInvokeContractOp()
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
-	log.Ctx(ctx).Warnf("✅ invokeContractOps: %+v", invokeContractOps)
-
+	log.Ctx(ctx).Warnf("✅ invokeContractOp: %+v", invokeContractOp)
+	log.Ctx(ctx).Warnf("✅ simResultXDR: %+v", simResultXDR)
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
@@ -258,17 +259,17 @@ func assertOrFail(condition bool, format string, args ...any) {
 	}
 }
 
-func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
+func (it *IntegrationTests) createInvokeContractOp() (txnbuild.InvokeHostFunction, error) {
 	var nativeAssetContractID xdr.Hash
 	var err error
-	nativeAssetContractID, err = xdr.MustNewNativeAsset().ContractID(it.NetworkPassphrase)
+	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(it.NetworkPassphrase)
 	if err != nil {
-		return nil, fmt.Errorf("getting native asset contract ID: %w", err)
+		return txnbuild.InvokeHostFunction{}, fmt.Errorf("getting native asset contract ID: %w", err)
 	}
 
 	fromSCAddress, err := SCAccountID(it.SourceAccountKP.Address())
 	if err != nil {
-		return nil, fmt.Errorf("marshalling from address: %w", err)
+		return txnbuild.InvokeHostFunction{}, fmt.Errorf("marshalling from address: %w", err)
 	}
 	toSCAddress := fromSCAddress
 
@@ -302,38 +303,31 @@ func (it *IntegrationTests) prepareInvokeContractOps() ([]string, error) {
 		},
 	}
 
-	_, err = it.prepareSimulateAndSignTransaction(invokeXLMTransferSAC)
-	if err != nil {
-		return nil, fmt.Errorf("preparing simulate and sign transaction: %w", err)
-	}
-
-	invokeXLMTransferSACXDR, err := invokeXLMTransferSAC.BuildXDR()
-	if err != nil {
-		return nil, fmt.Errorf("building payment operation XDR: %w", err)
-	}
-
-	b64OpXDR, err := utils.OperationXDRToBase64(invokeXLMTransferSACXDR)
-	if err != nil {
-		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
-	}
-
-	return []string{b64OpXDR}, nil
+	return invokeXLMTransferSAC, nil
 }
 
-func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (string, error) {
+func (it *IntegrationTests) prepareInvokeContractOp() (opXDR, simResultXDR string, err error) {
+	invokeXLMTransferSAC, err := it.createInvokeContractOp()
+	if err != nil {
+		return "", "", fmt.Errorf("creating invoke contract operation: %w", err)
+	}
+
+	return it.prepareSimulateAndSignTransaction(invokeXLMTransferSAC)
+}
+
+func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (opXDR, simResultXDR string, err error) {
+	// Step 1: Get health to get the latest ledger
 	healthResult, err := it.RPCService.GetHealth()
 	if err != nil {
-		return "", fmt.Errorf("getting health: %w", err)
+		return "", "", fmt.Errorf("getting health: %w", err)
 	}
+	latestLedger := healthResult.LatestLedger
 
-	txSourceAccountKP := keypair.MustRandom()
-	txSourceAccount := txnbuild.SimpleAccount{
-		AccountID: txSourceAccountKP.Address(),
-		Sequence:  0,
-	}
-
+	// Step 2: Simulation a transaction with a disposable txSourceAccount, to get the auth entries and simulation results.
+	simulationSourceAccKP := keypair.MustRandom()
+	simulationSourceAcc := txnbuild.SimpleAccount{AccountID: simulationSourceAccKP.Address(), Sequence: 0}
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txSourceAccount,
+		SourceAccount: &simulationSourceAcc,
 		Operations:    []txnbuild.Operation{&op},
 		BaseFee:       txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{
@@ -342,83 +336,83 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		IncrementSequenceNum: true,
 	})
 	if err != nil {
-		return "", fmt.Errorf("building transaction: %w", err)
+		return "", "", fmt.Errorf("building transaction (1): %w", err)
 	}
 	txXDR, err := tx.Base64()
 	if err != nil {
-		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+		return "", "", fmt.Errorf("encoding transaction to base64 (1): %w", err)
 	}
 
-	fmt.Println("")
-	log.Infof("🧪 txXDR: %s", txXDR)
-	fmt.Println("")
-
-	simulateResult, err := it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	simulationResult, err := it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
 	if err != nil {
-		return "", fmt.Errorf("simulating transaction: %w", err)
+		return "", "", fmt.Errorf("simulating transaction (1): %w", err)
 	}
 
-	log.Warnf("🧪 transactionData: %+v", simulateResult.TransactionData)
-	log.Warnf("🧪 auth: %+v", simulateResult.Results[0].Auth)
-	log.Warnf("🧪 simulateResult(1): %+v", simulateResult)
+	log.Warnf("🧪 transactionData: %+v", simulationResult.TransactionData)
+	log.Warnf("🧪 auth: %+v", simulationResult.Results[0].Auth)
+	log.Warnf("🧪 simulateResult(1): %+v", simulationResult)
 	fmt.Println("")
 
-	// Sign AuthEntr
-	simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulateResult.Results))
-	for i, result := range simulateResult.Results {
-		updatedResult := result
-		for j, auth := range result.Auth {
-			nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
-			if err != nil {
-				return "", fmt.Errorf("generating random nonce: %w", err)
+	if len(simulationResult.Results) > 0 {
+		// 3.1 If there are auth entries, sign them
+		simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResult.Results))
+		for i, result := range simulationResult.Results {
+			updatedResult := result
+			for j, auth := range result.Auth {
+				nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+				if err != nil {
+					return "", "", fmt.Errorf("generating random nonce: %w", err)
+				}
+				updatedResult.Auth[j], err = authorizeEntry(auth, nonce.Int64(), latestLedger+100, it.NetworkPassphrase, it.SourceAccountKP)
+				if err != nil {
+					return "", "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
+				}
 			}
-			updatedResult.Auth[j], err = authorizeEntry(auth, nonce.Int64(), healthResult.LatestLedger+100, it.NetworkPassphrase, it.SourceAccountKP)
-			if err != nil {
-				return "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
-			}
+
+			simulateResults[i] = updatedResult
 		}
 
-		simulateResults[i] = updatedResult
+		op.Auth = simulateResults[0].Auth
+
+		// 3.2 If there are auth entries, simulate the transaction again
+		tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount: &simulationSourceAcc,
+			Operations:    []txnbuild.Operation{&op},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{
+				TimeBounds: txnbuild.NewTimeout(300),
+			},
+			IncrementSequenceNum: true,
+		})
+		if err != nil {
+			return "", "", fmt.Errorf("building transaction (2): %w", err)
+		}
+		txXDR, err = tx.Base64()
+		if err != nil {
+			return "", "", fmt.Errorf("encoding transaction to base64 (2): %w", err)
+		}
+		simulationResult, err = it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+		if err != nil {
+			return "", "", fmt.Errorf("simulating transaction (2): %w", err)
+		}
 	}
 
-	op.Auth = simulateResults[0].Auth
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &txSourceAccount,
-		Operations:    []txnbuild.Operation{&op},
-		BaseFee:       txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
-		},
-		IncrementSequenceNum: true,
-	})
+	opXDRObj, err := op.BuildXDR()
 	if err != nil {
-		return "", fmt.Errorf("building transaction: %w", err)
+		return "", "", fmt.Errorf("building operation XDR: %w", err)
 	}
-	txXDR, err = tx.Base64()
+	opXDR, err = utils.OperationXDRToBase64(opXDRObj)
 	if err != nil {
-		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+		return "", "", fmt.Errorf("encoding operation XDR to base64: %w", err)
 	}
-	fmt.Println("will simulate transaction (2): ", txXDR)
-	simulateResult, err = it.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+
+	// TODO: fix this by creating a custom JSON marshaller for the simulation result.
+	simResBytes, err := json.Marshal(simulationResult)
 	if err != nil {
-		return "", fmt.Errorf("simulating transaction (2): %w", err)
+		return "", "", fmt.Errorf("encoding simulation result to JSON: %w", err)
 	}
 
-	log.Warnf("🧪 simulateResult(2): %+v", simulateResult)
-
-	return txXDR, nil
-}
-
-func SCAccountID(address string) (xdr.ScAddress, error) {
-	accountID, err := xdr.AddressToAccountId(address)
-	if err != nil {
-		return xdr.ScAddress{}, fmt.Errorf("marshalling from address: %w", err)
-	}
-
-	return xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID,
-	}, nil
+	return opXDR, string(simResBytes), nil
 }
 
 func authorizeEntry(auth xdr.SorobanAuthorizationEntry, nounce int64, validUntilLedgerSeq uint32, networkPassphrase string, authEntrySigner *keypair.Full) (xdr.SorobanAuthorizationEntry, error) {
