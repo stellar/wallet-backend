@@ -161,11 +161,13 @@ func (r *RPCRestorePreamble) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("unmarshalling restore preamble raw: %w", err)
 	}
 
-	var txData xdr.SorobanTransactionData
-	if err := xdr.SafeUnmarshalBase64(raw.TransactionData, &txData); err != nil {
-		return fmt.Errorf("unmarshalling transaction data: %w", err)
+	if raw.TransactionData != "" {
+		var txData xdr.SorobanTransactionData
+		if err := xdr.SafeUnmarshalBase64(raw.TransactionData, &txData); err != nil {
+			return fmt.Errorf("unmarshalling transaction data: %w", err)
+		}
+		r.TransactionData = txData
 	}
-	r.TransactionData = txData
 
 	// Assign fields that don't need special handling
 	r.MinResourceFee = raw.MinResourceFee
@@ -205,11 +207,13 @@ func (r *RPCSimulateTransactionResult) UnmarshalJSON(data []byte) error {
 	}
 
 	// Parse the main TransactionData field
-	var txData xdr.SorobanTransactionData
-	if err := xdr.SafeUnmarshalBase64(raw.TransactionData, &txData); err != nil {
-		return fmt.Errorf("unmarshalling transaction data: %w", err)
+	if raw.TransactionData != "" {
+		var txData xdr.SorobanTransactionData
+		if err := xdr.SafeUnmarshalBase64(raw.TransactionData, &txData); err != nil {
+			return fmt.Errorf("unmarshalling transaction data: %w", err)
+		}
+		r.TransactionData = txData
 	}
-	r.TransactionData = txData
 
 	// Assign fields that don't need special handling
 	r.Events = raw.Events

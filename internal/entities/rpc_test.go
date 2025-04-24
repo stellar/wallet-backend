@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_RPCSimulateTransactionResult_UnmarshalJSON(t *testing.T) {
+func Test_RPCSimulateTransactionResult_UnmarshalJSON_success(t *testing.T) {
 	resultJSON := `{
 		"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=",
 		"events": [
@@ -76,4 +76,33 @@ func Test_RPCSimulateTransactionResult_UnmarshalJSON(t *testing.T) {
 	// Assert restorePreamble
 	require.Equal(t, wantTxData, result.RestorePreamble.TransactionData)
 	require.Equal(t, "478428", result.RestorePreamble.MinResourceFee)
+}
+
+func Test_RPCSimulateTransactionResult_UnmarshalJSON_error(t *testing.T) {
+	resultJSON := `{
+		"error": "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
+		"events": [
+			"AAAAAAAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEA",
+			"AAAAAAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAABWVycm9yAAAAAAAAAgAAAAAAAAAGAAAAEAAAAAEAAAACAAAADgAAABhhY2NvdW50IGVudHJ5IGlzIG1pc3NpbmcAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQ=="
+		],
+		"latestLedger": 622844
+	}`
+
+	var result RPCSimulateTransactionResult
+	err := json.Unmarshal([]byte(resultJSON), &result)
+	require.NoError(t, err)
+
+	// Assert flat (non-nested) fields
+	require.Equal(t, int64(622844), result.LatestLedger)
+	require.Empty(t, result.MinResourceFee)
+	require.Empty(t, result.TransactionData)
+
+	// Assert results
+	require.Empty(t, result.Results)
+
+	// Assert error
+	require.Equal(t, "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n", result.Error)
+
+	// Assert restorePreamble
+	require.Empty(t, result.RestorePreamble)
 }
