@@ -11,8 +11,6 @@ import (
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
-
-	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 // SanitizeUTF8 sanitizes a string to comply to the UTF-8 character set and Postgres' code zero byte constraint
@@ -62,15 +60,6 @@ func GetAccountLedgerKey(address string) (string, error) {
 		return "", fmt.Errorf("marshalling ledger key: %w", err)
 	}
 	return keyXdr, nil
-}
-
-func GetAccountFromLedgerEntry(entry entities.LedgerEntryResult) (xdr.AccountEntry, error) {
-	var data xdr.LedgerEntryData
-	err := xdr.SafeUnmarshalBase64(entry.DataXDR, &data)
-	if err != nil {
-		return xdr.AccountEntry{}, fmt.Errorf("unmarshalling ledger entry data: %w", err)
-	}
-	return data.MustAccount(), nil
 }
 
 // DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.

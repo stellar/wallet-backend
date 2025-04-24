@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -185,10 +186,13 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	if len(result.Entries) == 0 {
 		return 0, fmt.Errorf("%w: entry not found for account public key", ErrAccountNotFound)
 	}
-	accountEntry, err := utils.GetAccountFromLedgerEntry(result.Entries[0])
+
+	var ledgerEntryData xdr.LedgerEntryData
+	err = xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &ledgerEntryData)
 	if err != nil {
 		return 0, fmt.Errorf("decoding account entry for account public key: %w", err)
 	}
+	accountEntry := ledgerEntryData.MustAccount()
 	return int64(accountEntry.SeqNum), nil
 }
 
