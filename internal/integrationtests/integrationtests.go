@@ -2,6 +2,7 @@ package integrationtests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -37,32 +38,23 @@ type IntegrationTestsOptions struct {
 }
 
 func (o *IntegrationTestsOptions) Validate() error {
-	if o.BaseFee < int64(txnbuild.MinBaseFee) {
-		return fmt.Errorf("base fee is lower than the minimum network fee")
+	rules := []struct {
+		condition bool
+		err       error
+	}{
+		{o.BaseFee < int64(txnbuild.MinBaseFee), errors.New("base fee is lower than the minimum network fee")},
+		{o.NetworkPassphrase == "", errors.New("network passphrase cannot be empty")},
+		{o.RPCService == nil, errors.New("rpc client cannot be nil")},
+		{o.SourceAccountKP == nil, errors.New("source account keypair cannot be nil")},
+		{o.WBClient == nil, errors.New("wallet backend client cannot be nil")},
+		{o.DBConnectionPool == nil, errors.New("db connection pool cannot be nil")},
+		{o.DistributionAccountSignatureClient == nil, errors.New("distribution account signature client cannot be nil")},
 	}
 
-	if o.NetworkPassphrase == "" {
-		return fmt.Errorf("network passphrase cannot be empty")
-	}
-
-	if o.RPCService == nil {
-		return fmt.Errorf("rpc client cannot be nil")
-	}
-
-	if o.SourceAccountKP == nil {
-		return fmt.Errorf("source account keypair cannot be nil")
-	}
-
-	if o.WBClient == nil {
-		return fmt.Errorf("wallet backend client cannot be nil")
-	}
-
-	if o.DBConnectionPool == nil {
-		return fmt.Errorf("db connection pool cannot be nil")
-	}
-
-	if o.DistributionAccountSignatureClient == nil {
-		return fmt.Errorf("distribution account signature client cannot be nil")
+	for _, rule := range rules {
+		if rule.condition {
+			return rule.err
+		}
 	}
 
 	return nil
@@ -77,6 +69,7 @@ type IntegrationTests struct {
 	ChannelAccountStore                store.ChannelAccountStore
 	DBConnectionPool                   db.ConnectionPool
 	DistributionAccountSignatureClient signing.SignatureClient
+	Fixtures                           Fixtures
 }
 
 func (it *IntegrationTests) Run(ctx context.Context) error {
@@ -85,7 +78,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 1: Prepare transactions locally
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 1️⃣ [Local] Building transactions...")
-	classicOps, err := it.prepareClassicOps()
+	classicOps, err := it.Fixtures.prepareClassicOps()
 	if err != nil {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
@@ -290,27 +283,6 @@ func assertOrFail(condition bool, format string, args ...any) {
 	}
 }
 
-// prepareClassicOps prepares a slice of strings, each representing a payment operation XDR. Currently only returns one operation (payment).
-func (it *IntegrationTests) prepareClassicOps() ([]string, error) {
-	paymentOp := &txnbuild.Payment{
-		SourceAccount: it.SourceAccountKP.Address(),
-		Destination:   it.SourceAccountKP.Address(),
-		Amount:        "10",
-		Asset:         txnbuild.NativeAsset{},
-	}
-
-	paymentOpXDR, err := paymentOp.BuildXDR()
-	if err != nil {
-		return nil, fmt.Errorf("building payment operation XDR: %w", err)
-	}
-	b64OpXDR, err := utils.OperationXDRToBase64(paymentOpXDR)
-	if err != nil {
-		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
-	}
-
-	return []string{b64OpXDR}, nil
-}
-
 // txString returns a string representation of a transaction given its XDR.
 func txString(txXDR string) (string, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
@@ -351,6 +323,9 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
 		DBConnectionPool:                   opts.DBConnectionPool,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
+		Fixtures: Fixtures{
+			SourceAccountKP: opts.SourceAccountKP,
+		},
 	}, nil
 }
 
