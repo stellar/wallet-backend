@@ -128,7 +128,8 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		for i, result := range simulationResult.Results {
 			updatedResult := result
 			for j, auth := range result.Auth {
-				nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+				var nonce *big.Int
+				nonce, err = rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 				if err != nil {
 					return "", "", fmt.Errorf("generating random nonce: %w", err)
 				}

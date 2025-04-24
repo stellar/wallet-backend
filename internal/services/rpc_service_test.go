@@ -784,14 +784,15 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 
 	entries := getLogs()
 	testSucceeded := false
+	logMessages := []string{}
 	for _, entry := range entries {
-		t.Logf("entry: %v\n", entry.Message)
+		logMessages = append(logMessages, entry.Message)
 		if strings.Contains(entry.Message, "rpc service unhealthy for over "+healthCheckWarningInterval.String()) {
 			testSucceeded = true
 			break
 		}
 	}
-	assert.True(t, testSucceeded)
+	assert.Truef(t, testSucceeded, "couldn't find log entry containing %q in %v", "rpc service unhealthy for over "+healthCheckWarningInterval.String(), logMessages)
 }
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {

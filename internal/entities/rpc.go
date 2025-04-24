@@ -174,6 +174,7 @@ func (r RPCSimulateHostFunctionResult) MarshalJSON() ([]byte, error) {
 	}
 	raw.XDR = xdrBase64
 
+	//nolint:wrapcheck
 	return json.Marshal(raw)
 }
 
@@ -225,6 +226,7 @@ func (r RPCRestorePreamble) MarshalJSON() ([]byte, error) {
 		raw.TransactionData = transactionDataBase64
 	}
 
+	//nolint:wrapcheck
 	return json.Marshal(raw)
 }
 
@@ -312,5 +314,6 @@ func (r RPCSimulateTransactionResult) MarshalJSON() ([]byte, error) {
 		raw.RestorePreamble = &r.RestorePreamble
 	}
 
+	//nolint:wrapcheck
 	return json.Marshal(raw)
 }
