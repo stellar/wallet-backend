@@ -250,33 +250,21 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockHTTPClient := utils.MockHTTPClient{}
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
-	require.NoError(t, err)
+	const rpcURL = "http://api.vibrantapp.com/soroban/rpc"
+	const transactionXDR = "AAAAAgAAAACnroqZn2p1MGBHWWDhZOaG3H73hXYtdc4Jz27c287ITQAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABoCqJrAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAIdHJhbnNmZXIAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEAAAAAAAAAAAAAAAAA"
 
-	t.Run("🟢successful_call_and_response", func(t *testing.T) {
-		mockMetricsService.On("IncRPCRequests", "simulateTransaction").Once()
-		mockMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
-		mockMetricsService.On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		transactionXDR := "AAAAAgAAAACnroqZn2p1MGBHWWDhZOaG3H73hXYtdc4Jz27c287ITQAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABoCqJrAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAIdHJhbnNmZXIAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEAAAAAAAAAAAAAAAAA"
-		params := entities.RPCParams{Transaction: transactionXDR}
-
-		payload := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      1,
-			"method":  "simulateTransaction",
-			"params":  params,
-		}
-		jsonData, err := json.Marshal(payload)
-		require.NoError(t, err)
-
-		httpResponse := http.Response{
-			StatusCode: http.StatusOK,
-			Body: io.NopCloser(strings.NewReader(`{
+	testCases := []struct {
+		name             string
+		httpResponseCode int
+		httpResponseBody string
+		httpResponseErr  error
+		wantResultFn     func(t *testing.T) entities.RPCSimulateTransactionResult
+		wantErrContains  string
+	}{
+		{
+			name:             "🟢successful_call_and_response",
+			httpResponseCode: http.StatusOK,
+			httpResponseBody: `{
 				"jsonrpc": "2.0",
 				"id": 8675309,
 				"result": {
@@ -317,70 +305,44 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 						"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw="
 					}
 				}
-			}`)),
-		}
+			}`,
+			wantResultFn: func(t *testing.T) entities.RPCSimulateTransactionResult {
+				var sorobanTxData xdr.SorobanTransactionData
+				err = xdr.SafeUnmarshalBase64("AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=", &sorobanTxData)
+				require.NoError(t, err)
 
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(&httpResponse, nil).
-			Once()
+				var authEntry xdr.SorobanAuthorizationEntry
+				err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &authEntry)
+				require.NoError(t, err)
 
-		result, err := rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
-		require.NoError(t, err)
-
-		var sorobanTxData xdr.SorobanTransactionData
-		err = xdr.SafeUnmarshalBase64("AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=", &sorobanTxData)
-		require.NoError(t, err)
-
-		var authEntry xdr.SorobanAuthorizationEntry
-		err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &authEntry)
-		require.NoError(t, err)
-
-		assert.Equal(t, entities.RPCSimulateTransactionResult{
-			TransactionData: sorobanTxData,
-			LatestLedger:    621041,
-			MinResourceFee:  "478428",
-			RestorePreamble: entities.RPCRestorePreamble{
-				MinResourceFee:  "478428",
-				TransactionData: sorobanTxData,
+				return entities.RPCSimulateTransactionResult{
+					TransactionData: sorobanTxData,
+					LatestLedger:    621041,
+					MinResourceFee:  "478428",
+					RestorePreamble: entities.RPCRestorePreamble{
+						MinResourceFee:  "478428",
+						TransactionData: sorobanTxData,
+					},
+					Results: []entities.RPCSimulateHostFunctionResult{
+						{
+							XDR:  xdr.ScVal{Type: xdr.ScValTypeScvVoid},
+							Auth: []xdr.SorobanAuthorizationEntry{authEntry},
+						},
+					},
+					Events: []string{
+						"AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAKAAAAAAAAAAAAAAAAAJiWgA==",
+						"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAMAAAAPAAAAB2ZuX2NhbGwAAAAADQAAACAvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAA8AAAAMX19jaGVja19hdXRoAAAAEAAAAAEAAAADAAAADQAAACAxIzp5Z9rHxuL2zPLeC4cem6Phs9cZLXvifVfl4OHopAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAEAAAAAEAAAABAAAAEAAAAAEAAAACAAAADwAAAAhDb250cmFjdAAAABEAAAABAAAAAwAAAA8AAAAEYXJncwAAABAAAAABAAAAAwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAACgAAAAAAAAAAAAAAAACYloAAAAAPAAAACGNvbnRyYWN0AAAAEgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAA8AAAAHZm5fbmFtZQAAAAAPAAAACHRyYW5zZmVy",
+						"AAAAAQAAAAAAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAMX19jaGVja19hdXRoAAAAAQ==",
+						"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAABAAAAAAAAAAQAAAAPAAAACHRyYW5zZmVyAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAOAAAABm5hdGl2ZQAAAAAACgAAAAAAAAAAAAAAAACYloA=",
+						"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAIdHJhbnNmZXIAAAAB",
+					},
+				}
 			},
-			Results: []entities.RPCSimulateHostFunctionResult{
-				{
-					XDR:  xdr.ScVal{Type: xdr.ScValTypeScvVoid},
-					Auth: []xdr.SorobanAuthorizationEntry{authEntry},
-				},
-			},
-			Events: []string{
-				"AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAKAAAAAAAAAAAAAAAAAJiWgA==",
-				"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAMAAAAPAAAAB2ZuX2NhbGwAAAAADQAAACAvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAA8AAAAMX19jaGVja19hdXRoAAAAEAAAAAEAAAADAAAADQAAACAxIzp5Z9rHxuL2zPLeC4cem6Phs9cZLXvifVfl4OHopAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAEAAAAAEAAAABAAAAEAAAAAEAAAACAAAADwAAAAhDb250cmFjdAAAABEAAAABAAAAAwAAAA8AAAAEYXJncwAAABAAAAABAAAAAwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAACgAAAAAAAAAAAAAAAACYloAAAAAPAAAACGNvbnRyYWN0AAAAEgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAA8AAAAHZm5fbmFtZQAAAAAPAAAACHRyYW5zZmVy",
-				"AAAAAQAAAAAAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAMX19jaGVja19hdXRoAAAAAQ==",
-				"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAABAAAAAAAAAAQAAAAPAAAACHRyYW5zZmVyAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAOAAAABm5hdGl2ZQAAAAAACgAAAAAAAAAAAAAAAACYloA=",
-				"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAIdHJhbnNmZXIAAAAB",
-			},
-		}, result)
-	})
-
-	t.Run("🟡successful_call_error_result", func(t *testing.T) {
-		mockMetricsService.On("IncRPCRequests", "simulateTransaction").Once()
-		mockMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
-		mockMetricsService.On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		transactionXDR := "AAAAAgAAAACnroqZn2p1MGBHWWDhZOaG3H73hXYtdc4Jz27c287ITQAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABoCqJrAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAIdHJhbnNmZXIAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEAAAAAAAAAAAAAAAAA"
-		params := entities.RPCParams{Transaction: transactionXDR}
-
-		payload := map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      1,
-			"method":  "simulateTransaction",
-			"params":  params,
-		}
-		jsonData, err := json.Marshal(payload)
-		require.NoError(t, err)
-
-		httpResponse := http.Response{
-			StatusCode: http.StatusOK,
-			Body: io.NopCloser(strings.NewReader(`{
+		},
+		{
+			name:             "🟡successful_call_error_result",
+			httpResponseCode: http.StatusOK,
+			httpResponseBody: `{
 				"jsonrpc": "2.0",
 				"id": 8675309,
 				"result": {
@@ -391,44 +353,75 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 					],
 					"latestLedger": 622844
 				}
-			}`)),
-		}
-
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
-			Return(&httpResponse, nil).
-			Once()
-
-		result, err := rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
-		require.NoError(t, err)
-
-		assert.Equal(t, entities.RPCSimulateTransactionResult{
-			Error: "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
-			Events: []string{
-				"AAAAAAAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEA",
-				"AAAAAAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAABWVycm9yAAAAAAAAAgAAAAAAAAAGAAAAEAAAAAEAAAACAAAADgAAABhhY2NvdW50IGVudHJ5IGlzIG1pc3NpbmcAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQ==",
+			}`,
+			wantResultFn: func(t *testing.T) entities.RPCSimulateTransactionResult {
+				return entities.RPCSimulateTransactionResult{
+					Error: "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
+					Events: []string{
+						"AAAAAAAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEA",
+						"AAAAAAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAABWVycm9yAAAAAAAAAgAAAAAAAAAGAAAAEAAAAAEAAAACAAAADgAAABhhY2NvdW50IGVudHJ5IGlzIG1pc3NpbmcAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQ==",
+					},
+					LatestLedger: 622844,
+				}
 			},
-			LatestLedger: 622844,
-		}, result)
-	})
+		},
+		{
+			name:             "🔴rpc_request_fails",
+			httpResponseCode: http.StatusBadRequest,
+			httpResponseErr:  errors.New("connection failed"),
+			wantErrContains:  "sending simulateTransaction request: sending POST request to RPC: connection failed",
+		},
+	}
 
-	t.Run("🔴rpc_request_fails", func(t *testing.T) {
-		mockMetricsService.On("IncRPCRequests", "simulateTransaction").Once()
-		mockMetricsService.On("IncRPCEndpointFailure", "simulateTransaction").Once()
-		mockMetricsService.On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
-		defer mockMetricsService.AssertExpectations(t)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mock Metrics
+			mMetricsService := metrics.NewMockMetricsService()
+			mMetricsService.On("IncRPCRequests", "simulateTransaction").Once()
+			mMetricsService.On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
+			if tc.httpResponseErr == nil {
+				mMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
+			} else {
+				mMetricsService.On("IncRPCEndpointFailure", "simulateTransaction").Once()
+			}
 
-		mockHTTPClient.
-			On("Post", rpcURL, "application/json", mock.Anything).
-			Return(&http.Response{}, errors.New("connection failed")).
-			Once()
+			// Mock HTTP Client
+			payload := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      1,
+				"method":  "simulateTransaction",
+				"params":  entities.RPCParams{Transaction: transactionXDR},
+			}
+			jsonData, err := json.Marshal(payload)
+			require.NoError(t, err)
 
-		result, err := rpcService.SimulateTransaction("XDR", entities.RPCResourceConfig{})
-		require.Error(t, err)
+			mHTTPClient := utils.MockHTTPClient{}
+			mHTTPClient.
+				On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+				Return(&http.Response{
+					StatusCode: tc.httpResponseCode,
+					Body:       io.NopCloser(strings.NewReader(tc.httpResponseBody)),
+				}, tc.httpResponseErr).
+				Once()
 
-		assert.Equal(t, entities.RPCSimulateTransactionResult{}, result)
-		assert.Equal(t, "sending simulateTransaction request: sending POST request to RPC: connection failed", err.Error())
-	})
+			// Simulate Transaction
+			rpcService, err := NewRPCService(rpcURL, &mHTTPClient, mMetricsService)
+			require.NoError(t, err)
+			simulateTransactionResult, err := rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
+
+			// Assert
+			if tc.wantErrContains == "" {
+				assert.Equal(t, tc.wantResultFn(t), simulateTransactionResult)
+				require.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			}
+
+			mMetricsService.AssertExpectations(t)
+			mHTTPClient.AssertExpectations(t)
+		})
+	}
 }
 
 func TestGetTransaction(t *testing.T) {
