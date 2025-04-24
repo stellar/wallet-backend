@@ -1,0 +1,116 @@
+package sorobanauth
+
+import (
+	"fmt"
+
+	"github.com/stellar/go/hash"
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/network"
+	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/xdr"
+)
+
+type AuthSigner struct {
+	NetworkPassphrase string
+}
+
+func (s *AuthSigner) AuthorizeEntry(auth xdr.SorobanAuthorizationEntry, nounce int64, validUntilLedgerSeq uint32, authEntrySigner *keypair.Full) (xdr.SorobanAuthorizationEntry, error) {
+	if auth.Credentials.Type != xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("unsupported credentials type %d", auth.Credentials.Type)
+	}
+
+	// 1: soroban auth entry
+	entry := xdr.SorobanAuthorizationEntry{
+		RootInvocation: auth.RootInvocation,
+		Credentials: xdr.SorobanCredentials{
+			Type: auth.Credentials.Type,
+			Address: &xdr.SorobanAddressCredentials{
+				Address:                   auth.Credentials.Address.Address,
+				Nonce:                     xdr.Int64(nounce),
+				SignatureExpirationLedger: xdr.Uint32(validUntilLedgerSeq),
+				Signature:                 xdr.ScVal{}, // will be replaced
+			},
+		},
+	}
+
+	// 2: build preimage
+	addrAuth := entry.Credentials.Address
+
+	preimage := xdr.HashIdPreimage{
+		Type: xdr.EnvelopeTypeEnvelopeTypeSorobanAuthorization,
+		SorobanAuthorization: &xdr.HashIdPreimageSorobanAuthorization{
+			NetworkId:                 network.ID(s.NetworkPassphrase),
+			Nonce:                     addrAuth.Nonce,
+			Invocation:                entry.RootInvocation,
+			SignatureExpirationLedger: addrAuth.SignatureExpirationLedger,
+		},
+	}
+	preimageBytes, err := preimage.MarshalBinary()
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("marshalling preimage: %w", err)
+	}
+	payload := hash.Hash(preimageBytes)
+
+	// 3: Produce signature
+	scSignature, err := s.signWithKeypair(authEntrySigner, payload)
+	if err != nil {
+		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("signing payload: %w", err)
+	}
+
+	// 4: Update the auth entry with the signature
+	addrAuth.Signature = scSignature
+
+	return entry, nil
+}
+
+func (s *AuthSigner) signWithKeypair(authEntrySigner *keypair.Full, payload [32]byte) (xdr.ScVal, error) {
+	// 1: Sign the payload
+	signature, err := authEntrySigner.Sign(payload[:])
+	publicKey := authEntrySigner.Address()
+	if err != nil {
+		return xdr.ScVal{}, fmt.Errorf("signing payload: %w", err)
+	}
+
+	// 2: Create the signature object for the auth entry
+	pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, publicKey)
+	if err != nil {
+		return xdr.ScVal{}, fmt.Errorf("decoding public key: %w", err)
+	}
+	scSignature := xdr.ScVal{
+		Type: xdr.ScValTypeScvVec,
+		Vec: Ptr(&xdr.ScVec{
+			xdr.ScVal{
+				Type: xdr.ScValTypeScvMap,
+				Map: Ptr(&xdr.ScMap{
+					xdr.ScMapEntry{
+						Key: xdr.ScVal{
+							Type: xdr.ScValTypeScvSymbol,
+							Sym:  Ptr(xdr.ScSymbol("public_key")),
+						},
+						Val: xdr.ScVal{
+							Type:  xdr.ScValTypeScvBytes,
+							Bytes: Ptr(xdr.ScBytes(pubKeyBytes)),
+						},
+					},
+					xdr.ScMapEntry{
+						Key: xdr.ScVal{
+							Type: xdr.ScValTypeScvSymbol,
+							Sym:  Ptr(xdr.ScSymbol("signature")),
+						},
+						Val: xdr.ScVal{
+							Type:  xdr.ScValTypeScvBytes,
+							Bytes: Ptr(xdr.ScBytes(signature)),
+						},
+					},
+				}),
+			},
+		}),
+	}
+
+	return scSignature, nil
+}
+
+// Ptr returns a pointer to the given value of any type.
+func Ptr[T any](v T) *T {
+	return &v
+}

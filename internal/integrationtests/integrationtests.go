@@ -8,13 +8,9 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
-	"github.com/stellar/go/hash"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/network"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -252,98 +248,6 @@ func assertOrFail(condition bool, format string, args ...any) {
 	if !condition {
 		panic(fmt.Sprintf("❌ Assertion failed: "+format, args...))
 	}
-}
-
-func authorizeEntry(auth xdr.SorobanAuthorizationEntry, nounce int64, validUntilLedgerSeq uint32, networkPassphrase string, authEntrySigner *keypair.Full) (xdr.SorobanAuthorizationEntry, error) {
-	if auth.Credentials.Type != xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
-		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("unsupported credentials type %d", auth.Credentials.Type)
-	}
-
-	// 1: soroban auth entry
-	entry := xdr.SorobanAuthorizationEntry{
-		RootInvocation: auth.RootInvocation,
-		Credentials: xdr.SorobanCredentials{
-			Type: auth.Credentials.Type,
-			Address: &xdr.SorobanAddressCredentials{
-				Address:                   auth.Credentials.Address.Address,
-				Nonce:                     xdr.Int64(nounce),
-				SignatureExpirationLedger: xdr.Uint32(validUntilLedgerSeq),
-				Signature:                 xdr.ScVal{}, // will be replaced
-			},
-		},
-	}
-
-	// 2: build preimage
-	addrAuth := entry.Credentials.Address
-
-	preimage := xdr.HashIdPreimage{
-		Type: xdr.EnvelopeTypeEnvelopeTypeSorobanAuthorization,
-		SorobanAuthorization: &xdr.HashIdPreimageSorobanAuthorization{
-			NetworkId:                 network.ID(networkPassphrase),
-			Nonce:                     addrAuth.Nonce,
-			Invocation:                entry.RootInvocation,
-			SignatureExpirationLedger: addrAuth.SignatureExpirationLedger,
-		},
-	}
-	preimageBytes, err := preimage.MarshalBinary()
-	if err != nil {
-		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("marshalling preimage: %w", err)
-	}
-	payload := hash.Hash(preimageBytes)
-
-	// 3: Produce signature
-	signature, err := authEntrySigner.Sign(payload[:])
-	publicKey := authEntrySigner.Address()
-	if err != nil {
-		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("signing payload: %w", err)
-	}
-
-	// 4: Create the signature object for the auth entry
-	pubKeySymbol := xdr.ScSymbol("public_key")
-	pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, publicKey)
-	if err != nil {
-		return xdr.SorobanAuthorizationEntry{}, fmt.Errorf("decoding public key: %w", err)
-	}
-	pubKeySCBytes := xdr.ScBytes(pubKeyBytes)
-	sigSymbol := xdr.ScSymbol("signature")
-	sigBytes := xdr.ScBytes(signature)
-	sigMap := &xdr.ScMap{
-		xdr.ScMapEntry{
-			Key: xdr.ScVal{
-				Type: xdr.ScValTypeScvSymbol,
-				Sym:  &pubKeySymbol,
-			},
-			Val: xdr.ScVal{
-				Type:  xdr.ScValTypeScvBytes,
-				Bytes: &pubKeySCBytes,
-			},
-		},
-		xdr.ScMapEntry{
-			Key: xdr.ScVal{
-				Type: xdr.ScValTypeScvSymbol,
-				Sym:  &sigSymbol,
-			},
-			Val: xdr.ScVal{
-				Type:  xdr.ScValTypeScvBytes,
-				Bytes: &sigBytes,
-			},
-		},
-	}
-	sigsVector := &xdr.ScVec{
-		xdr.ScVal{
-			Type: xdr.ScValTypeScvMap,
-			Map:  &sigMap,
-		},
-	}
-	scSignature := xdr.ScVal{
-		Type: xdr.ScValTypeScvVec,
-		Vec:  &sigsVector,
-	}
-
-	// 5: Update the auth entry with the signature
-	addrAuth.Signature = scSignature
-
-	return entry, nil
 }
 
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {

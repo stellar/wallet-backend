@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/utils"
 )
 
@@ -118,6 +119,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 	fmt.Println("")
 
 	if len(simulationResult.Results) > 0 {
+		authSigner := sorobanauth.AuthSigner{NetworkPassphrase: it.NetworkPassphrase}
 		// 3.1 If there are auth entries, sign them
 		simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResult.Results))
 		for i, result := range simulationResult.Results {
@@ -127,7 +129,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 				if err != nil {
 					return "", "", fmt.Errorf("generating random nonce: %w", err)
 				}
-				updatedResult.Auth[j], err = authorizeEntry(auth, nonce.Int64(), latestLedger+100, it.NetworkPassphrase, it.SourceAccountKP)
+				updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), latestLedger+100, it.SourceAccountKP)
 				if err != nil {
 					return "", "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
 				}
