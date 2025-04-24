@@ -24,6 +24,8 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
+const txTimeout = 60 * time.Second
+
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
 	NetworkPassphrase                  string
@@ -88,7 +90,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
 	buildTxRequest := types.BuildTransactionsRequest{
-		Transactions: []types.Transaction{{TimeBounds: 300, Operations: classicOps}},
+		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
 
 	// Step 2: call /tss/transactions/build
@@ -181,16 +183,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 7: poll the network for the transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
-	retryOptions := []retry.Option{retry.Attempts(5), retry.Delay(6 * time.Second)}
+	const retryDelay = 6 * time.Second
 	for _, hash := range hashes {
-		err := it.waitForTransactionConfirmation(ctx, hash, retryOptions...)
+		err := it.waitForTransactionConfirmation(ctx, hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
 		if err != nil {
 			return fmt.Errorf("waiting for transaction confirmation: %w", err)
 		}
 		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
 	}
 
-	// TODO: verifyTxResult in wallet-backend")
+	// TODO: verifyTxResult in wallet-backend
 
 	return nil
 }
