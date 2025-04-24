@@ -84,7 +84,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
 
-	invokeContractOp, simResultJSON, err := it.prepareInvokeContractOp()
+	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp()
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
@@ -259,6 +259,12 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
+	fixtures := Fixtures{
+		NetworkPassphrase: opts.NetworkPassphrase,
+		SourceAccountKP:   opts.SourceAccountKP,
+		RPCService:        opts.RPCService,
+	}
+
 	return &IntegrationTests{
 		BaseFee:                            opts.BaseFee,
 		NetworkPassphrase:                  opts.NetworkPassphrase,
@@ -268,8 +274,6 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
 		DBConnectionPool:                   opts.DBConnectionPool,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
-		Fixtures: Fixtures{
-			SourceAccountKP: opts.SourceAccountKP,
-		},
+		Fixtures:                           fixtures,
 	}, nil
 }
