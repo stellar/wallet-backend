@@ -79,16 +79,18 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
+	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
 
-	invokeContractOp, simResultXDR, err := it.prepareInvokeContractOp()
+	invokeContractOp, simResultJSON, err := it.prepareInvokeContractOp()
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
-	log.Ctx(ctx).Warnf("✅ invokeContractOp: %+v", invokeContractOp)
-	log.Ctx(ctx).Warnf("✅ simResultXDR: %+v", simResultXDR)
+	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
+	log.Ctx(ctx).Infof("👀 simResultJSON: %+v", simResultJSON)
+
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")

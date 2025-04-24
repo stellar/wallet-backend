@@ -22,6 +22,8 @@ func Test_AuthSigner_AuthorizeEntry(t *testing.T) {
 	// GBE5PW3RH2INLECD57ZRLZD7PF6C3JPY5DS4LRVMRUHYDI6Y4S6DB32D
 	signerKP2 := keypair.MustParseFull("SAFX2XP6Q7PRPXGMXRD2CRHD33QFH2RBPUJTSGKJ6HH6ADDDOTWZKJRV")
 
+	const unsignedAuthEntryXDR = "AAAAAQAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKVxxKYXs/ivgQAAAAAAAAABAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAABIAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAACgAAAAAAAAAAAAAAAAX14QAAAAAA"
+
 	testCases := []struct {
 		name                string
 		networkPassphrase   string
@@ -73,9 +75,8 @@ func Test_AuthSigner_AuthorizeEntry(t *testing.T) {
 		},
 	}
 
-	authEntryXDR := "AAAAAQAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKVxxKYXs/ivgQAAAAAAAAABAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAABIAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAACgAAAAAAAAAAAAAAAAX14QAAAAAA"
 	authEntry := xdr.SorobanAuthorizationEntry{}
-	err := xdr.SafeUnmarshalBase64(authEntryXDR, &authEntry)
+	err := xdr.SafeUnmarshalBase64(unsignedAuthEntryXDR, &authEntry)
 	require.NoError(t, err)
 
 	for _, tc := range testCases {

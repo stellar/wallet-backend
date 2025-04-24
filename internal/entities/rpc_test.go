@@ -86,7 +86,7 @@ func Test_RPCSimulateTransactionResult_JSON_success(t *testing.T) {
 	})
 }
 
-func Test_RPCSimulateTransactionResult_UnmarshalJSON_error(t *testing.T) {
+func Test_RPCSimulateTransactionResult_JSON_error(t *testing.T) {
 	const resultJSON = `{
 		"error": "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
 		"events": [

@@ -9,7 +9,6 @@ import (
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -20,7 +19,7 @@ import (
 
 // prepareInvokeContractOp prepares an invoke contract operation and simulates it to get the auth entries, sign them,
 // and retrieve the final simulation result.
-func (it *IntegrationTests) prepareInvokeContractOp() (opXDR, simResultXDR string, err error) {
+func (it *IntegrationTests) prepareInvokeContractOp() (opXDR, simResultJSON string, err error) {
 	invokeXLMTransferSAC, err := it.createInvokeContractOp()
 	if err != nil {
 		return "", "", fmt.Errorf("creating invoke contract operation: %w", err)
@@ -79,7 +78,7 @@ func (it *IntegrationTests) createInvokeContractOp() (txnbuild.InvokeHostFunctio
 
 // prepareSimulateAndSignTransaction simulates a transaction with a disposable source account, to get the auth entries
 // and simulation results.
-func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (opXDR, simResultXDR string, err error) {
+func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (opXDR, simResultJSON string, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := it.RPCService.GetHealth()
 	if err != nil {
@@ -87,7 +86,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 	}
 	latestLedger := healthResult.LatestLedger
 
-	// Step 2: Simulation a transaction with a disposable txSourceAccount, to get the auth entries and simulation results.
+	// Step 2: Simulate a transaction with a disposable txSourceAccount, to get the auth entries and simulation results.
 	simulationSourceAccKP := keypair.MustRandom()
 	simulationSourceAcc := txnbuild.SimpleAccount{AccountID: simulationSourceAccKP.Address(), Sequence: 0}
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -115,15 +114,9 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		return "", "", fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResult.Error)
 	}
 
-	// TODO: remove these logs
-	log.Warnf("🧪 transactionData: %+v", simulationResult.TransactionData)
-	log.Warnf("🧪 auth: %+v", simulationResult.Results[0].Auth)
-	log.Warnf("🧪 simulateResult(1): %+v", simulationResult)
-	fmt.Println("")
-
+	// 3. If there are auth entries, sign them
 	if len(simulationResult.Results) > 0 {
 		authSigner := sorobanauth.AuthSigner{NetworkPassphrase: it.NetworkPassphrase}
-		// 3.1 If there are auth entries, sign them
 		simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResult.Results))
 		for i, result := range simulationResult.Results {
 			updatedResult := result
@@ -144,7 +137,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 
 		op.Auth = simulateResults[0].Auth
 
-		// 3.2 If there are auth entries, simulate the transaction again
+		// 4. Simulate the transaction again to get the final simulation result with the signed auth entries.
 		tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &simulationSourceAcc,
 			Operations:    []txnbuild.Operation{&op},
@@ -170,6 +163,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		}
 	}
 
+	// 5. Build the operation XDR and encode it to base64.
 	opXDRObj, err := op.BuildXDR()
 	if err != nil {
 		return "", "", fmt.Errorf("building operation XDR: %w", err)
@@ -179,7 +173,7 @@ func (it *IntegrationTests) prepareSimulateAndSignTransaction(op txnbuild.Invoke
 		return "", "", fmt.Errorf("encoding operation XDR to base64: %w", err)
 	}
 
-	// TODO: fix this by creating a custom JSON marshaller for the simulation result.
+	// 6. Encode the simulation result to JSON.
 	simResBytes, err := json.Marshal(simulationResult)
 	if err != nil {
 		return "", "", fmt.Errorf("encoding simulation result to JSON: %w", err)

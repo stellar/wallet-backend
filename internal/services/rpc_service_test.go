@@ -379,8 +379,9 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Mock Metrics
 			mMetricsService := metrics.NewMockMetricsService()
-			mMetricsService.On("IncRPCRequests", "simulateTransaction").Once()
-			mMetricsService.On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
+			mMetricsService.
+				On("IncRPCRequests", "simulateTransaction").Once().
+				On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
 			if tc.httpResponseErr == nil {
 				mMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
 			} else {

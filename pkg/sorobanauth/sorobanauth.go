@@ -80,28 +80,28 @@ func (s *AuthSigner) signWithKeypair(authEntrySigner *keypair.Full, payload [32]
 	}
 	scSignature := xdr.ScVal{
 		Type: xdr.ScValTypeScvVec,
-		Vec: Ptr(&xdr.ScVec{
+		Vec: ptr(&xdr.ScVec{
 			xdr.ScVal{
 				Type: xdr.ScValTypeScvMap,
-				Map: Ptr(&xdr.ScMap{
+				Map: ptr(&xdr.ScMap{
 					xdr.ScMapEntry{
 						Key: xdr.ScVal{
 							Type: xdr.ScValTypeScvSymbol,
-							Sym:  Ptr(xdr.ScSymbol("public_key")),
+							Sym:  ptr(xdr.ScSymbol("public_key")),
 						},
 						Val: xdr.ScVal{
 							Type:  xdr.ScValTypeScvBytes,
-							Bytes: Ptr(xdr.ScBytes(pubKeyBytes)),
+							Bytes: ptr(xdr.ScBytes(pubKeyBytes)),
 						},
 					},
 					xdr.ScMapEntry{
 						Key: xdr.ScVal{
 							Type: xdr.ScValTypeScvSymbol,
-							Sym:  Ptr(xdr.ScSymbol("signature")),
+							Sym:  ptr(xdr.ScSymbol("signature")),
 						},
 						Val: xdr.ScVal{
 							Type:  xdr.ScValTypeScvBytes,
-							Bytes: Ptr(xdr.ScBytes(signature)),
+							Bytes: ptr(xdr.ScBytes(signature)),
 						},
 					},
 				}),
@@ -112,7 +112,7 @@ func (s *AuthSigner) signWithKeypair(authEntrySigner *keypair.Full, payload [32]
 	return scSignature, nil
 }
 
-// Ptr returns a pointer to the given value of any type.
-func Ptr[T any](v T) *T {
+// ptr returns a pointer to the given value of any type.
+func ptr[T any](v T) *T {
 	return &v
 }
