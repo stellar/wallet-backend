@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_RPCSimulateTransactionResult_UnmarshalJSON_success(t *testing.T) {
-	resultJSON := `{
+func Test_RPCSimulateTransactionResult_JSON_success(t *testing.T) {
+	const resultJSON = `{
 		"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=",
 		"events": [
 			"AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAKAAAAAAAAAAAAAAAAAJiWgA==",
@@ -48,34 +48,46 @@ func Test_RPCSimulateTransactionResult_UnmarshalJSON_success(t *testing.T) {
 		}
 	}`
 
-	var result RPCSimulateTransactionResult
-	err := json.Unmarshal([]byte(resultJSON), &result)
-	require.NoError(t, err)
+	t.Run("UnmarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
 
-	// Assert flat (non-nested) fields
-	require.Equal(t, int64(621041), result.LatestLedger)
-	require.Equal(t, "478428", result.MinResourceFee)
-	wantTxData := xdr.SorobanTransactionData{}
-	err = xdr.SafeUnmarshalBase64("AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=", &wantTxData)
-	require.NoError(t, err)
-	require.Equal(t, wantTxData, result.TransactionData)
+		// Assert flat (non-nested) fields
+		require.Equal(t, int64(621041), result.LatestLedger)
+		require.Equal(t, "478428", result.MinResourceFee)
+		wantTxData := xdr.SorobanTransactionData{}
+		err = xdr.SafeUnmarshalBase64("AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=", &wantTxData)
+		require.NoError(t, err)
+		require.Equal(t, wantTxData, result.TransactionData)
 
-	// Assert results
-	require.Len(t, result.Results, 1)
-	require.Equal(t, xdr.ScVal{Type: xdr.ScValTypeScvVoid}, result.Results[0].XDR)
-	require.Len(t, result.Results[0].Auth, 1)
-	wantAuthEntry := xdr.SorobanAuthorizationEntry{}
-	err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &wantAuthEntry)
-	require.NoError(t, err)
-	require.Equal(t, wantAuthEntry, result.Results[0].Auth[0])
+		// Assert results
+		require.Len(t, result.Results, 1)
+		require.Equal(t, xdr.ScVal{Type: xdr.ScValTypeScvVoid}, result.Results[0].XDR)
+		require.Len(t, result.Results[0].Auth, 1)
+		wantAuthEntry := xdr.SorobanAuthorizationEntry{}
+		err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &wantAuthEntry)
+		require.NoError(t, err)
+		require.Equal(t, wantAuthEntry, result.Results[0].Auth[0])
 
-	// Assert restorePreamble
-	require.Equal(t, wantTxData, result.RestorePreamble.TransactionData)
-	require.Equal(t, "478428", result.RestorePreamble.MinResourceFee)
+		// Assert restorePreamble
+		require.Equal(t, wantTxData, result.RestorePreamble.TransactionData)
+		require.Equal(t, "478428", result.RestorePreamble.MinResourceFee)
+	})
+
+	t.Run("MarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		marshaled, err := json.Marshal(&result)
+		require.NoError(t, err)
+		require.JSONEq(t, resultJSON, string(marshaled))
+	})
 }
 
 func Test_RPCSimulateTransactionResult_UnmarshalJSON_error(t *testing.T) {
-	resultJSON := `{
+	const resultJSON = `{
 		"error": "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
 		"events": [
 			"AAAAAAAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEA",
@@ -84,21 +96,33 @@ func Test_RPCSimulateTransactionResult_UnmarshalJSON_error(t *testing.T) {
 		"latestLedger": 622844
 	}`
 
-	var result RPCSimulateTransactionResult
-	err := json.Unmarshal([]byte(resultJSON), &result)
-	require.NoError(t, err)
+	t.Run("UnmarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
 
-	// Assert flat (non-nested) fields
-	require.Equal(t, int64(622844), result.LatestLedger)
-	require.Empty(t, result.MinResourceFee)
-	require.Empty(t, result.TransactionData)
+		// Assert flat (non-nested) fields
+		require.Equal(t, int64(622844), result.LatestLedger)
+		require.Empty(t, result.MinResourceFee)
+		require.Empty(t, result.TransactionData)
 
-	// Assert results
-	require.Empty(t, result.Results)
+		// Assert results
+		require.Empty(t, result.Results)
 
-	// Assert error
-	require.Equal(t, "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n", result.Error)
+		// Assert error
+		require.Equal(t, "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n", result.Error)
 
-	// Assert restorePreamble
-	require.Empty(t, result.RestorePreamble)
+		// Assert restorePreamble
+		require.Empty(t, result.RestorePreamble)
+	})
+
+	t.Run("MarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		marshaled, err := json.Marshal(&result)
+		require.NoError(t, err)
+		require.JSONEq(t, resultJSON, string(marshaled))
+	})
 }
