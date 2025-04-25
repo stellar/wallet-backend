@@ -80,9 +80,6 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
 	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
-	buildTxRequest := types.BuildTransactionsRequest{
-		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
-	}
 
 	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp()
 	if err != nil {
@@ -90,6 +87,13 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
 	log.Ctx(ctx).Infof("👀 simResultJSON: %+v", simResultJSON)
+
+	buildTxRequest := types.BuildTransactionsRequest{
+		Transactions: []types.Transaction{
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}},
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
+		},
+	}
 
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")

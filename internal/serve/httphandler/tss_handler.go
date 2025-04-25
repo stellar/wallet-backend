@@ -48,10 +48,12 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var transactionXDRs []string
-	for _, transaction := range reqParams.Transactions {
+	for i, transaction := range reqParams.Transactions {
 		ops, err := tssUtils.BuildOperations(transaction.Operations)
 		if err != nil {
-			httperror.BadRequest("bad operation xdr", nil).Render(w)
+			httperror.BadRequest("", map[string]any{
+				fmt.Sprintf("transactions[%d].operations", i): err.Error(),
+			}).Render(w)
 			return
 		}
 		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds)

@@ -3,7 +3,9 @@ package utils
 import (
 	"testing"
 
+	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -122,7 +124,19 @@ func Test_BuildOperations(t *testing.T) {
 	assert.Equal(t, operations, ops)
 }
 
-func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
+func Test_BuildOperations_EnforceSourceAccountForClassicOps(t *testing.T) {
+	var nativeAssetContractID xdr.Hash
+	var err error
+	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	accountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
+	require.NoError(t, err)
+	scAddress := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID,
+	}
+
 	testCases := []struct {
 		name            string
 		op              txnbuild.Operation
@@ -135,7 +149,7 @@ func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
 				Amount:      "10.0000000",
 				Asset:       txnbuild.NativeAsset{},
 			},
-			wantErrContains: "all operations must have a source account explicitly set",
+			wantErrContains: "all Stellar Classic operations must have a source account explicitly set",
 		},
 		{
 			name: "🟢succeeds_with_op_source_account",
@@ -144,6 +158,39 @@ func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
 				Amount:        "10.0000000",
 				Asset:         txnbuild.NativeAsset{},
 				SourceAccount: keypair.MustRandom().Address(),
+			},
+		},
+		{
+			name: "🟡ignore_empty_source_account_in_Soroban_ops",
+			op: &txnbuild.InvokeHostFunction{
+				HostFunction: xdr.HostFunction{
+					Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+					InvokeContract: &xdr.InvokeContractArgs{
+						ContractAddress: xdr.ScAddress{
+							Type:       xdr.ScAddressTypeScAddressTypeContract,
+							ContractId: &nativeAssetContractID,
+						},
+						FunctionName: "transfer",
+						Args: xdr.ScVec{
+							{
+								Type:    xdr.ScValTypeScvAddress,
+								Address: &scAddress,
+							},
+							{
+								Type:    xdr.ScValTypeScvAddress,
+								Address: &scAddress,
+							},
+							{
+								Type: xdr.ScValTypeScvI128,
+								I128: &xdr.Int128Parts{
+									Hi: xdr.Int64(0),
+									Lo: xdr.Uint64(uint64(amount.MustParse("10"))),
+								},
+							},
+						},
+					},
+				},
+				SourceAccount: "",
 			},
 		},
 	}
