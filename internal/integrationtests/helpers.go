@@ -93,10 +93,3 @@ func SCAccountID(address string) (xdr.ScAddress, error) {
 		AccountId: &accountID,
 	}, nil
 }
-
-func SCContractID(contractID xdr.Hash) xdr.ScAddress {
-	return xdr.ScAddress{
-		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: &contractID,
-	}
-}
