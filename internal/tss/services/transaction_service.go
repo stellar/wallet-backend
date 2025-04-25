@@ -95,10 +95,18 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	if timeoutInSecs <= 0 {
 		timeoutInSecs = DefaultTimeoutInSeconds
 	}
+
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
+
+	for _, op := range operations {
+		if op.GetSourceAccount() == channelAccountPublicKey {
+			return nil, fmt.Errorf("operation source account cannot be the channel account public key")
+		}
+	}
+
 	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)

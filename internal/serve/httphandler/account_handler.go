@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 type AccountHandler struct {
@@ -67,15 +68,6 @@ type SponsorAccountCreationRequest struct {
 	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`
 }
 
-type CreateFeeBumpTransactionRequest struct {
-	Transaction string `json:"transaction" validate:"required"`
-}
-
-type TransactionEnvelopeResponse struct {
-	Transaction       string `json:"transaction"`
-	NetworkPassphrase string `json:"networkPassphrase"`
-}
-
 func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
@@ -108,7 +100,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		return
 	}
 
-	respBody := TransactionEnvelopeResponse{
+	respBody := types.TransactionEnvelopeResponse{
 		Transaction:       txe,
 		NetworkPassphrase: networkPassphrase,
 	}
@@ -118,7 +110,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	var reqBody CreateFeeBumpTransactionRequest
+	var reqBody types.CreateFeeBumpTransactionRequest
 	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
@@ -151,7 +143,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 		}
 	}
 
-	respBody := TransactionEnvelopeResponse{
+	respBody := types.TransactionEnvelopeResponse{
 		Transaction:       feeBumpTxe,
 		NetworkPassphrase: networkPassphrase,
 	}

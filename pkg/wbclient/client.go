@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	buildTransactionsPath = "/tss/transactions/build"
+	buildTransactionsPath        = "/tss/transactions/build"
+	createFeeBumpTransactionPath = "/tx/create-fee-bump"
 )
 
 type Client struct {
@@ -34,17 +35,70 @@ func NewClient(baseURL string, requestSigner RequestSigner) *Client {
 
 func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Transaction) (*types.BuildTransactionsResponse, error) {
 	buildTxRequest := types.BuildTransactionsRequest{Transactions: transactions}
-	reqBody, err := json.Marshal(buildTxRequest)
+
+	resp, err := c.request(ctx, http.MethodPost, buildTransactionsPath, buildTxRequest)
 	if err != nil {
-		return nil, fmt.Errorf("marshalling request: %w", err)
+		return nil, fmt.Errorf("calling client request: %w", err)
 	}
 
-	u, err := url.JoinPath(c.BaseURL, buildTransactionsPath)
+	if c.isHTTPError(ctx, resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+
+	var buildTxResponse types.BuildTransactionsResponse
+	err = json.Unmarshal(respBody, &buildTxResponse)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling response body: %w", err)
+	}
+
+	return &buildTxResponse, nil
+}
+
+func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
+	buildTxRequest := types.CreateFeeBumpTransactionRequest{Transaction: transactionXDR}
+
+	resp, err := c.request(ctx, http.MethodPost, createFeeBumpTransactionPath, buildTxRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(ctx, resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+
+	var feeBumpTxResponse types.TransactionEnvelopeResponse
+	err = json.Unmarshal(respBody, &feeBumpTxResponse)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling response body: %w", err)
+	}
+
+	return &feeBumpTxResponse, nil
+}
+
+func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {
+	reqBody, err := json.Marshal(bodyObj)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling request body: %w", err)
+	}
+
+	u, err := url.JoinPath(c.BaseURL, path)
 	if err != nil {
 		return nil, fmt.Errorf("joining path: %w", err)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewBuffer(reqBody))
+	request, err := http.NewRequestWithContext(ctx, method, u, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -61,21 +115,23 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-	defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+	return resp, nil
+}
 
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("unexpected statusCode=%d, body=%s", resp.StatusCode, string(respBody))
+func (c *Client) isHTTPError(ctx context.Context, resp *http.Response) bool {
+	return resp.StatusCode >= 400
+}
+
+func (c *Client) logHTTPError(ctx context.Context, resp *http.Response) error {
+	if c.isHTTPError(ctx, resp) {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading response body to log error when statusCode=%d: %w", resp.StatusCode, err)
+		}
+		defer utils.DeferredClose(ctx, resp.Body, "closing response body")
+
+		return fmt.Errorf("unexpected statusCode=%d, body=%v", resp.StatusCode, string(respBody))
 	}
 
-	var buildTxResponse types.BuildTransactionsResponse
-	err = json.Unmarshal(respBody, &buildTxResponse)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshalling response body: %w", err)
-	}
-
-	return &buildTxResponse, nil
+	return nil
 }

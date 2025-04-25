@@ -17,4 +17,5 @@ EOF
 # Usage
 exclude_terms "mock" "c.out"
 exclude_terms "mocks" "c.out"
+exclude_terms "internal/integrationtests" "c.out"
 exclude_terms "fixtures.go" "c.out"

@@ -136,6 +136,23 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
 	})
 
+	t.Run("operation_source_account_cannot_be_channel_account_public_key", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		channelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(channelAccount.Address(), nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&txnbuild.AccountMerge{
+			Destination:   keypair.MustRandom().Address(),
+			SourceAccount: channelAccount.Address(),
+		}}, 30)
+
+		channelAccountSignatureClient.AssertExpectations(t)
+		assert.Empty(t, tx)
+		assert.ErrorContains(t, err, "operation source account cannot be the channel account public key")
+	})
+
 	t.Run("rpc_client_get_account_seq_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		channelAccountSignatureClient.
