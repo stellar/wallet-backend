@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -318,6 +319,102 @@ func Test_ConvertingObjectTypes_BetweenXDRAndTxnbuild(t *testing.T) {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)
 			}
+		})
+	}
+}
+
+func Test_IsSorobanXDROp(t *testing.T) {
+	nonSorobanTypes := []xdr.OperationType{
+		xdr.OperationTypeCreateAccount,
+		xdr.OperationTypePayment,
+		xdr.OperationTypePathPaymentStrictReceive,
+		xdr.OperationTypeManageSellOffer,
+		xdr.OperationTypeCreatePassiveSellOffer,
+		xdr.OperationTypeSetOptions,
+		xdr.OperationTypeChangeTrust,
+		xdr.OperationTypeAllowTrust,
+		xdr.OperationTypeAccountMerge,
+		xdr.OperationTypeInflation,
+		xdr.OperationTypeManageData,
+		xdr.OperationTypeBumpSequence,
+		xdr.OperationTypeManageBuyOffer,
+		xdr.OperationTypePathPaymentStrictSend,
+		xdr.OperationTypeCreateClaimableBalance,
+		xdr.OperationTypeClaimClaimableBalance,
+		xdr.OperationTypeBeginSponsoringFutureReserves,
+		xdr.OperationTypeEndSponsoringFutureReserves,
+		xdr.OperationTypeRevokeSponsorship,
+		xdr.OperationTypeClawback,
+		xdr.OperationTypeClawbackClaimableBalance,
+		xdr.OperationTypeSetTrustLineFlags,
+		xdr.OperationTypeLiquidityPoolDeposit,
+		xdr.OperationTypeLiquidityPoolWithdraw,
+	}
+	for _, opType := range nonSorobanTypes {
+		t.Run("🔴"+opType.String(), func(t *testing.T) {
+			op := xdr.Operation{
+				Body: xdr.OperationBody{Type: opType},
+			}
+			assert.False(t, IsSorobanXDROp(op))
+		})
+	}
+
+	sorobanTypes := []xdr.OperationType{
+		xdr.OperationTypeInvokeHostFunction,
+		xdr.OperationTypeExtendFootprintTtl,
+		xdr.OperationTypeRestoreFootprint,
+	}
+	for _, opType := range sorobanTypes {
+		t.Run("🟢"+opType.String(), func(t *testing.T) {
+			op := xdr.Operation{
+				Body: xdr.OperationBody{Type: opType},
+			}
+			assert.True(t, IsSorobanXDROp(op))
+		})
+	}
+}
+
+func Test_IsSorobanTxnbuildOp(t *testing.T) {
+	nonSorobanOps := []txnbuild.Operation{
+		&txnbuild.CreateAccount{},
+		&txnbuild.Payment{},
+		&txnbuild.PathPaymentStrictReceive{},
+		&txnbuild.ManageSellOffer{},
+		&txnbuild.CreatePassiveSellOffer{},
+		&txnbuild.SetOptions{},
+		&txnbuild.ChangeTrust{},
+		&txnbuild.AllowTrust{},
+		&txnbuild.AccountMerge{},
+		&txnbuild.Inflation{},
+		&txnbuild.ManageData{},
+		&txnbuild.BumpSequence{},
+		&txnbuild.ManageBuyOffer{},
+		&txnbuild.PathPaymentStrictSend{},
+		&txnbuild.CreateClaimableBalance{},
+		&txnbuild.ClaimClaimableBalance{},
+		&txnbuild.BeginSponsoringFutureReserves{},
+		&txnbuild.EndSponsoringFutureReserves{},
+		&txnbuild.RevokeSponsorship{},
+		&txnbuild.Clawback{},
+		&txnbuild.ClawbackClaimableBalance{},
+		&txnbuild.SetTrustLineFlags{},
+		&txnbuild.LiquidityPoolDeposit{},
+		&txnbuild.LiquidityPoolWithdraw{},
+	}
+	for _, op := range nonSorobanOps {
+		t.Run(fmt.Sprintf("🔴%T", op), func(t *testing.T) {
+			assert.False(t, IsSorobanTxnbuildOp(op))
+		})
+	}
+
+	sorobanOps := []txnbuild.Operation{
+		&txnbuild.InvokeHostFunction{},
+		&txnbuild.ExtendFootprintTtl{},
+		&txnbuild.RestoreFootprint{},
+	}
+	for _, op := range sorobanOps {
+		t.Run(fmt.Sprintf("🟢%T", op), func(t *testing.T) {
+			assert.True(t, IsSorobanTxnbuildOp(op))
 		})
 	}
 }
