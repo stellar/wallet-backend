@@ -62,7 +62,7 @@ func BaseFeeOption(configKey *int) *config.ConfigOption {
 		Usage:       "The base fee (in stroops) for submitting a Stellar transaction",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 100 * txnbuild.MinBaseFee,
+		FlagDefault: 10000 * txnbuild.MinBaseFee,
 		Required:    true,
 	}
 }
