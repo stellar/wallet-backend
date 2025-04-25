@@ -2,14 +2,18 @@ package integrationtests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -17,6 +21,8 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
+
+const txTimeout = 60 * time.Second
 
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
@@ -29,32 +35,23 @@ type IntegrationTestsOptions struct {
 }
 
 func (o *IntegrationTestsOptions) Validate() error {
-	if o.BaseFee < int64(txnbuild.MinBaseFee) {
-		return fmt.Errorf("base fee is lower than the minimum network fee")
+	rules := []struct {
+		condition bool
+		err       error
+	}{
+		{o.BaseFee < int64(txnbuild.MinBaseFee), errors.New("base fee is lower than the minimum network fee")},
+		{o.NetworkPassphrase == "", errors.New("network passphrase cannot be empty")},
+		{o.RPCService == nil, errors.New("rpc client cannot be nil")},
+		{o.SourceAccountKP == nil, errors.New("source account keypair cannot be nil")},
+		{o.WBClient == nil, errors.New("wallet backend client cannot be nil")},
+		{o.DBConnectionPool == nil, errors.New("db connection pool cannot be nil")},
+		{o.DistributionAccountSignatureClient == nil, errors.New("distribution account signature client cannot be nil")},
 	}
 
-	if o.NetworkPassphrase == "" {
-		return fmt.Errorf("network passphrase cannot be empty")
-	}
-
-	if o.RPCService == nil {
-		return fmt.Errorf("rpc client cannot be nil")
-	}
-
-	if o.SourceAccountKP == nil {
-		return fmt.Errorf("source account keypair cannot be nil")
-	}
-
-	if o.WBClient == nil {
-		return fmt.Errorf("wallet backend client cannot be nil")
-	}
-
-	if o.DBConnectionPool == nil {
-		return fmt.Errorf("db connection pool cannot be nil")
-	}
-
-	if o.DistributionAccountSignatureClient == nil {
-		return fmt.Errorf("distribution account signature client cannot be nil")
+	for _, rule := range rules {
+		if rule.condition {
+			return rule.err
+		}
 	}
 
 	return nil
@@ -69,75 +66,123 @@ type IntegrationTests struct {
 	ChannelAccountStore                store.ChannelAccountStore
 	DBConnectionPool                   db.ConnectionPool
 	DistributionAccountSignatureClient signing.SignatureClient
+	Fixtures                           Fixtures
 }
 
 func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("🆕 Starting integration tests...")
 
-	// Step 1: call /tss/transactions/build
+	// Step 1: Prepare transactions locally
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 1️⃣ Building transactions locally...")
-	buildTxRequest, err := it.prepareBuildTxRequest()
+	log.Ctx(ctx).Info("===> 1️⃣ [Local] Building transactions...")
+	classicOps, err := it.Fixtures.prepareClassicOps()
 	if err != nil {
-		return fmt.Errorf("preparing build tx request: %w", err)
+		return fmt.Errorf("preparing classic ops: %w", err)
 	}
-	log.Ctx(ctx).Info("⏳ Calling {WalletBackend}.BuildTransactions...")
+	buildTxRequest := types.BuildTransactionsRequest{
+		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
+	}
+
+	// Step 2: call /tss/transactions/build
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
 	if err != nil {
 		return fmt.Errorf("calling buildTransactions: %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		txString, err := txString(txXDR)
-		if err != nil {
-			return fmt.Errorf("building transaction string: %w", err)
+		txString, innerErr := txString(txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
-	// Step 1.5: sign transactions with the SourceAccountKP
+	// Step 3: sign transactions with the SourceAccountKP
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
 	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		tx, err := parseTxXDR(txXDR)
-		if err != nil {
-			return fmt.Errorf("parsing transaction from XDR: %w", err)
+		tx, innerErr := parseTxXDR(txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("parsing transaction from XDR: %w", innerErr)
 		}
-		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
-		if err != nil {
-			return fmt.Errorf("signing transaction: %w", err)
+		innerTxHash, innerErr := tx.HashHex(it.NetworkPassphrase)
+		if innerErr != nil {
+			return fmt.Errorf("hashing transaction: %w", innerErr)
 		}
-		signedTxXDR, err := signedTx.Base64()
-		if err != nil {
-			return fmt.Errorf("encoding transaction to base64: %w", err)
+		log.Ctx(ctx).Infof("=====> innerHash: %s", innerTxHash)
+		signedTx, innerErr := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
+		if innerErr != nil {
+			return fmt.Errorf("signing transaction: %w", innerErr)
+		}
+		signedTxXDR, innerErr := signedTx.Base64()
+		if innerErr != nil {
+			return fmt.Errorf("encoding transaction to base64: %w", innerErr)
 		}
 		signedTxXDRs[i] = signedTxXDR
 	}
 
-	// Step 2: call /tx/create-fee-bump for each transaction
+	// Step 4: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
-	log.Ctx(ctx).Info("===> 2️⃣ Creating fee bump transaction...")
+	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
 	feeBumpedTxs := make([]string, len(signedTxXDRs))
 	for i, txXDR := range signedTxXDRs {
-		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, txXDR)
-		if err != nil {
-			return fmt.Errorf("calling feeBumpTransaction: %w", err)
+		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, txXDR)
+		if innerErr != nil {
+			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
 
-		txString, err := txString(feeBumpedTxs[i])
-		if err != nil {
-			return fmt.Errorf("building transaction string: %w", err)
+		txString, innerErr := txString(feeBumpedTxs[i])
+		if innerErr != nil {
+			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
 		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
 
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
 
-	// TODO: submitTx")
-	// TODO: waitForTxToBeInLedger")
-	// TODO: verifyTxResult in wallet-backend")
+	// Step 5: wait for RPC to be healthy
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Waiting for RPC service to become healthy...")
+	err = WaitForRPCHealthAndRun(ctx, it.RPCService, 40*time.Second, nil)
+	if err != nil {
+		return fmt.Errorf("waiting for RPC service to become healthy: %w", err)
+	}
+
+	// Step 6: submit transactions to RPC
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
+	hashes := make([]string, len(feeBumpedTxs))
+	for i, txXDR := range feeBumpedTxs {
+		var res entities.RPCSendTransactionResult
+		res, err = it.RPCService.SendTransaction(txXDR)
+		if err != nil {
+			return fmt.Errorf("sending transaction %d: %w", i, err)
+		}
+		log.Ctx(ctx).Infof("✅ submittedTx[%d]: %+v", i, res)
+		if res.Status != entities.PendingStatus {
+			return fmt.Errorf("transaction %d failed with status %s and errorResultXdr %s", i, res.Status, res.ErrorResultXDR)
+		}
+		hashes[i] = res.Hash
+	}
+
+	// Step 7: poll the network for the transaction
+	fmt.Println("")
+	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
+	const retryDelay = 6 * time.Second
+	for _, hash := range hashes {
+		if err = WaitForTransactionConfirmation(ctx, it.RPCService, hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay))); err != nil {
+			return fmt.Errorf("waiting for transaction confirmation: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
+	}
+
+	// TODO: verifyTxResult in wallet-backend
 
 	return nil
 }
@@ -199,56 +244,6 @@ func assertOrFail(condition bool, format string, args ...any) {
 	}
 }
 
-// prepareBuildTxRequest prepares a build transaction request with a payment operation.
-func (it *IntegrationTests) prepareBuildTxRequest() (types.BuildTransactionsRequest, error) {
-	var buildTxRequest types.BuildTransactionsRequest
-	paymentOp := &txnbuild.Payment{
-		SourceAccount: it.SourceAccountKP.Address(),
-		Destination:   it.SourceAccountKP.Address(),
-		Amount:        "10000000",
-		Asset:         txnbuild.NativeAsset{},
-	}
-
-	paymentOpXDR, err := paymentOp.BuildXDR()
-	if err != nil {
-		return buildTxRequest, fmt.Errorf("building payment operation XDR: %w", err)
-	}
-	b64OpXDR, err := utils.OperationXDRToBase64(paymentOpXDR)
-	if err != nil {
-		return buildTxRequest, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
-	}
-
-	buildTxRequest.Transactions = append(buildTxRequest.Transactions, types.Transaction{
-		Operations: []string{b64OpXDR},
-	})
-
-	return buildTxRequest, nil
-}
-
-// txString returns a string representation of a transaction given its XDR.
-func txString(txXDR string) (string, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
-	if err != nil {
-		return "", fmt.Errorf("building transaction from XDR: %w", err)
-	}
-
-	opsSliceStr := func(ops []txnbuild.Operation) []string {
-		var opsStr []string
-		for _, op := range ops {
-			opsStr = append(opsStr, fmt.Sprintf("\n\t\t%#v", op))
-		}
-		return opsStr
-	}
-
-	if tx, ok := genericTx.Transaction(); ok {
-		return fmt.Sprintf("\n\ttx=%#v, \n\tops=%+v", tx, opsSliceStr(tx.Operations())), nil
-	} else if feeBumpTx, ok := genericTx.FeeBump(); ok {
-		return fmt.Sprintf("\n\tfeeBump=%#v, \n\ttx=%#v, \n\tops=%+v", feeBumpTx, feeBumpTx.InnerTransaction(), opsSliceStr(feeBumpTx.InnerTransaction().Operations())), nil
-	}
-
-	return fmt.Sprintf("%+v", genericTx), nil
-}
-
 func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*IntegrationTests, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("validating integration tests options: %w", err)
@@ -265,5 +260,8 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
 		DBConnectionPool:                   opts.DBConnectionPool,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
+		Fixtures: Fixtures{
+			SourceAccountKP: opts.SourceAccountKP,
+		},
 	}, nil
 }
