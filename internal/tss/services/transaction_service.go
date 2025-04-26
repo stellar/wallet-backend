@@ -3,13 +3,19 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
+	"slices"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/pkg/utils"
 )
 
 const (
@@ -101,6 +107,7 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
 
+	// Prevent bad actors from using the channel account as a source account for any shady actions.
 	for _, op := range operations {
 		if op.GetSourceAccount() == channelAccountPublicKey {
 			return nil, fmt.Errorf("operation source account cannot be the channel account public key")
@@ -111,23 +118,30 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)
 	}
-	tx, err := txnbuild.NewTransaction(
-		txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: channelAccountPublicKey,
-				Sequence:  channelAccountSeq,
-			},
-			Operations: operations,
-			BaseFee:    int64(t.BaseFee),
-			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
-			},
-			IncrementSequenceNum: true,
+
+	buildTxParams := txnbuild.TransactionParams{
+		SourceAccount: &txnbuild.SimpleAccount{
+			AccountID: channelAccountPublicKey,
+			Sequence:  channelAccountSeq + 1,
 		},
-	)
+		Operations: operations,
+		BaseFee:    int64(t.BaseFee),
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
+		},
+		IncrementSequenceNum: false, // <--- using this in combination with seqNum + 1 above because otherwise `handleSorobanFlows` will increment the sequence number again, causing tx_bad_seq.
+	}
+	// Handle soroban flows.
+	buildTxParams, err = t.prepareForSorobanTransaction(ctx, channelAccountPublicKey, buildTxParams)
+	if err != nil {
+		return nil, fmt.Errorf("handling soroban flows: %w", err)
+	}
+
+	tx, err := txnbuild.NewTransaction(buildTxParams)
 	if err != nil {
 		return nil, fmt.Errorf("building transaction: %w", err)
 	}
+
 	txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
 	if err != nil {
 		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
@@ -142,7 +156,69 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
 	}
+
 	return tx, nil
+}
+
+// prepareForSorobanTransaction prepares the transaction params for a soroban transaction.
+// It simulates the transaction to get the transaction data, and then sets the transaction ext.
+func (t *transactionService) prepareForSorobanTransaction(ctx context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams) (txnbuild.TransactionParams, error) {
+	// Ensure this is a soroban transaction.
+	isSoroban := slices.ContainsFunc(buildTxParams.Operations, func(op txnbuild.Operation) bool {
+		return utils.IsSorobanTxnbuildOp(op)
+	})
+	if !isSoroban {
+		return buildTxParams, nil
+	}
+
+	// When soroban is used, only one operation is allowed.
+	if len(buildTxParams.Operations) > 1 {
+		return txnbuild.TransactionParams{}, fmt.Errorf("when soroban is used only one operation is allowed")
+	}
+
+	// Simulate the transaction:
+	tx, err := txnbuild.NewTransaction(buildTxParams)
+	if err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("building transaction: %w", err)
+	}
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("unable to base64 transaction: %w", err)
+	}
+	simulationResponse, err := t.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	if err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("simulating transaction: %w", err)
+	} else if simulationResponse.Error != "" {
+		return txnbuild.TransactionParams{}, fmt.Errorf("transaction simulation failed with error=%s", simulationResponse.Error)
+	}
+
+	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
+	for _, res := range simulationResponse.Results {
+		for _, auth := range res.Auth {
+			// TODO: manually generate this and check if it really makes sense.
+			if auth.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
+				if authEntrySigner, innerErr := auth.Credentials.Address.Address.String(); innerErr != nil {
+					return txnbuild.TransactionParams{}, fmt.Errorf("unable to get auth entry signer: %w", innerErr)
+				} else if authEntrySigner == channelAccountPublicKey {
+					return txnbuild.TransactionParams{}, fmt.Errorf("operation source account cannot be the channel account public key")
+				}
+			}
+		}
+	}
+
+	invokeContractOp, ok := buildTxParams.Operations[0].(*txnbuild.InvokeHostFunction)
+	if !ok {
+		// TODO: rethink this.
+		log.Ctx(ctx).Warnf("operation is not an invoke contract operation")
+		return buildTxParams, nil
+	}
+	invokeContractOp.Ext, err = xdr.NewTransactionExt(1, simulationResponse.TransactionData)
+	if err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("unable to create transaction ext: %w", err)
+	}
+	buildTxParams.BaseFee = int64(math.Max(float64(buildTxParams.BaseFee/2), float64(txnbuild.MinBaseFee)))
+
+	return buildTxParams, nil
 }
 
 func (t *transactionService) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
