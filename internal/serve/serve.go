@@ -36,7 +36,6 @@ import (
 
 // NOTE: perhaps move this to a environment variable.
 var blockedOperationTypes = []xdr.OperationType{
-	xdr.OperationTypeInvokeHostFunction,
 	xdr.OperationTypeExtendFootprintTtl,
 	xdr.OperationTypeRestoreFootprint,
 	xdr.OperationTypeLiquidityPoolWithdraw,
