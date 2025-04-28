@@ -75,7 +75,8 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	resp := tssutils.PayloadTOTSSResponse(payload)
 	jsonData, err := json.Marshal(resp)
 	if err != nil {
-		log.Errorf("%s: error marshaling payload: %e", WebhookChannelName, err)
+		err = fmt.Errorf("[%s] error marshaling payload: %w", WebhookChannelName, err)
+		log.Error(err)
 		return
 	}
 	var i int
@@ -83,12 +84,14 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	ctx := context.Background()
 	err = p.UnlockChannelAccount(ctx, payload.TransactionXDR)
 	if err != nil {
-		log.Errorf("%s: error unlocking channel account from transaction: %e", WebhookChannelName, err)
+		err = fmt.Errorf("[%s] error unlocking channel account from transaction: %w", WebhookChannelName, err)
+		log.Error(err)
 	}
 	for i = 0; i < p.MaxRetries; i++ {
 		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Errorf("%s: error making POST request to webhook: %e", WebhookChannelName, err)
+			err = fmt.Errorf("[%s] error making POST request to webhook: %w", WebhookChannelName, err)
+			log.Error(err)
 		} else {
 			defer utils.DeferredClose(ctx, httpResp.Body, "closing response body in the Receive function")
 			if httpResp.StatusCode == http.StatusOK {
@@ -96,7 +99,8 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 				err := p.Store.UpsertTransaction(
 					ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.SentStatus})
 				if err != nil {
-					log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+					err = fmt.Errorf("[%s] error updating transaction status: %w", WebhookChannelName, err)
+					log.Error(err)
 				}
 				break
 			}
@@ -108,7 +112,8 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		err := p.Store.UpsertTransaction(
 			ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NotSentStatus})
 		if err != nil {
-			log.Errorf("%s: error updating transaction status: %e", WebhookChannelName, err)
+			err = fmt.Errorf("[%s] error updating transaction status: %w", WebhookChannelName, err)
+			log.Error(err)
 		}
 	}
 }
