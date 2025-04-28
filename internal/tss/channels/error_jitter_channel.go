@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
@@ -76,7 +77,8 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		oldStatus := payload.RPCSubmitTxResponse.Status.Status()
 		rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, ErrorJitterChannelName, payload)
 		if err != nil {
-			log.Errorf("%s: unable to sign and submit transaction: %e", ErrorJitterChannelName, err)
+			err = fmt.Errorf("[%s] unable to sign and submit transaction: %w", ErrorJitterChannelName, err)
+			log.Error(err)
 			return
 		}
 
@@ -84,7 +86,8 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 		if !slices.Contains(tss.JitterErrorCodes, rpcSendResp.Code.TxResultCode) {
 			err := p.Router.Route(payload)
 			if err != nil {
-				log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
+				err = fmt.Errorf("[%s] unable to route payload: %w", ErrorJitterChannelName, err)
+				log.Error(err)
 				return
 			}
 			p.MetricsService.RecordTSSTransactionStatusTransition(oldStatus, rpcSendResp.Status.Status())
@@ -95,7 +98,8 @@ func (p *errorJitterPool) Receive(payload tss.Payload) {
 	log.Infof("%s: max retry limit reached", ErrorJitterChannelName)
 	err := p.Router.Route(payload)
 	if err != nil {
-		log.Errorf("%s: unable to route payload: %e", ErrorJitterChannelName, err)
+		err = fmt.Errorf("[%s] unable to route payload: %w", ErrorJitterChannelName, err)
+		log.Error(err)
 		return
 	}
 }

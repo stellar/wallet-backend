@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/alitto/pond"
 
@@ -61,20 +62,23 @@ func (p *rpcCallerPool) Receive(payload tss.Payload) {
 	// Create a new transaction record in the transactions table.
 	err := p.Store.UpsertTransaction(ctx, payload.WebhookURL, payload.TransactionHash, payload.TransactionXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
 	if err != nil {
-		log.Errorf("%s: unable to upsert transaction into transactions table: %e", RPCCallerChannelName, err)
+		err = fmt.Errorf("[%s] unable to upsert transaction into transactions table: %w", RPCCallerChannelName, err)
+		log.Error(err)
 		return
 	}
 
 	rpcSendResp, err := p.TxManager.BuildAndSubmitTransaction(ctx, RPCCallerChannelName, payload)
 	if err != nil {
-		log.Errorf("%s: unable to sign and submit transaction: %e", RPCCallerChannelName, err)
+		err = fmt.Errorf("[%s] unable to sign and submit transaction: %w", RPCCallerChannelName, err)
+		log.Error(err)
 		return
 	}
 
 	payload.RPCSubmitTxResponse = rpcSendResp
 	err = p.Router.Route(payload)
 	if err != nil {
-		log.Errorf("%s: unable to route payload: %e", RPCCallerChannelName, err)
+		err = fmt.Errorf("[%s] unable to route payload: %w", RPCCallerChannelName, err)
+		log.Error(err)
 	}
 	p.MetricsService.RecordTSSTransactionStatusTransition(string(tss.NewStatus), rpcSendResp.Status.Status())
 }
