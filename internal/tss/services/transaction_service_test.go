@@ -168,15 +168,15 @@ func TestValidateOptions(t *testing.T) {
 func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
 	mDistributionAccountSignatureClient := signing.SignatureClientMock{}
 	mChannelAccountSignatureClient := signing.SignatureClientMock{}
 	mChannelAccountStore := store.ChannelAccountStoreMock{}
 	mRPCService := services.RPCServiceMock{}
-	txService, err := NewTransactionService(TransactionServiceOptions{
+	txService, outerErr := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &mDistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      &mChannelAccountSignatureClient,
@@ -184,7 +184,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		RPCService:                         &mRPCService,
 		BaseFee:                            114,
 	})
-	require.NoError(t, err)
+	require.NoError(t, outerErr)
 
 	t.Run("🔴timeout_must_be_smaller_than_max_timeout", func(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1)
@@ -430,7 +430,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
 		var sorobanTxData xdr.SorobanTransactionData
-		err = xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
 		require.NoError(t, err)
 		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
@@ -563,8 +563,8 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 
 	sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
 	var sorobanTxData xdr.SorobanTransactionData
-	err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
-	require.NoError(t, err)
+	outerErr := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+	require.NoError(t, outerErr)
 	require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
 	testCases := []struct {
@@ -710,6 +710,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				require.Empty(t, buildInvokeContractOp(t).Ext)
 				newInvokeContractOp := buildInvokeContractOp(t)
+				var err error
 				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
 				require.NoError(t, err)
 
@@ -765,6 +766,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				require.Empty(t, buildInvokeContractOp(t).Ext)
 				newInvokeContractOp := buildInvokeContractOp(t)
+				var err error
 				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
 				require.NoError(t, err)
 

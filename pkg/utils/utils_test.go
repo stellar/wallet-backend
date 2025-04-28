@@ -383,6 +383,7 @@ func Test_IsSorobanTxnbuildOp(t *testing.T) {
 		&txnbuild.CreatePassiveSellOffer{},
 		&txnbuild.SetOptions{},
 		&txnbuild.ChangeTrust{},
+		//nolint:staticcheck // this is just a test, we know it's deprecated.
 		&txnbuild.AllowTrust{},
 		&txnbuild.AccountMerge{},
 		&txnbuild.Inflation{},
