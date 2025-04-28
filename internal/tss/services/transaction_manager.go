@@ -90,7 +90,7 @@ func (t *transactionManager) BuildAndSubmitTransaction(ctx context.Context, chan
 		return rpcSendResp, fmt.Errorf("%s: RPC fail: %w", channelName, parseErr)
 	}
 
-	if parseErr != nil && rpcSendResp.Code.OtherCodes == tss.RPCFailCode || rpcSendResp.Code.OtherCodes == tss.UnmarshalBinaryCode {
+	if rpcSendResp.Code.OtherCodes == tss.RPCFailCode || rpcSendResp.Code.OtherCodes == tss.UnmarshalBinaryCode {
 		return tss.RPCSendTxResponse{}, fmt.Errorf("%s: RPC fail: %w", channelName, rpcErr)
 	}
 
