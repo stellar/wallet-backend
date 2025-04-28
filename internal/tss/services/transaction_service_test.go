@@ -340,7 +340,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.EqualError(t, err, "signing transaction with channel account: unable to sign")
 	})
 
-	t.Run("🟢build_and_sign_tx_with_channel_account", func(t *testing.T) {
+	t.Run("🟢build_and_sign_classic_tx_with_channel_account", func(t *testing.T) {
 		signedTx := utils.BuildTestTransaction(t)
 		channelAccount := keypair.MustRandom()
 
@@ -401,6 +401,74 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 				assert.NoError(t, err)
 			})
 		}
+	})
+
+	t.Run("🟢build_and_sign_soroban_tx_with_channel_account", func(t *testing.T) {
+		signedTx := utils.BuildTestTransaction(t)
+		channelAccount := keypair.MustRandom()
+
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+			Return(signedTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once()
+		defer mRPCService.AssertExpectations(t)
+
+		sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
+		var sorobanTxData xdr.SorobanTransactionData
+		err = xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
+		require.NoError(t, err)
+		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
+
+		authEntryAccountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
+		require.NoError(t, err)
+
+		simulationResponse := entities.RPCSimulateTransactionResult{
+			TransactionData: sorobanTxData,
+			Results: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+								Address: &xdr.SorobanAddressCredentials{
+									Address: xdr.ScAddress{
+										Type:      xdr.ScAddressTypeScAddressTypeAccount,
+										AccountId: &authEntryAccountID,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		mRPCService.
+			On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
+			Return(simulationResponse, nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildInvokeContractOp(t)}, 30)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.Equal(t, signedTx, tx)
+		assert.NoError(t, err)
 	})
 }
 
