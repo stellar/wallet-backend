@@ -79,15 +79,14 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 		log.Error(err)
 		return
 	}
-	var i int
-	sent := false
+	var sent bool
 	ctx := context.Background()
 	err = p.UnlockChannelAccount(ctx, payload.TransactionXDR)
 	if err != nil {
 		err = fmt.Errorf("[%s] error unlocking channel account from transaction: %w", WebhookChannelName, err)
 		log.Error(err)
 	}
-	for i = 0; i < p.MaxRetries; i++ {
+	for i := range p.MaxRetries {
 		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
 			err = fmt.Errorf("[%s] error making POST request to webhook: %w", WebhookChannelName, err)
