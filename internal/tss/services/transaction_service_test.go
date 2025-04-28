@@ -136,7 +136,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 	t.Run("🔴handle_GetAccountPublicKey_err", func(t *testing.T) {
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
@@ -150,7 +150,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🚨operation_source_account_cannot_be_channel_account", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once()
 
@@ -167,7 +167,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🚨operation_source_account_cannot_be_empty", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once()
 
@@ -183,7 +183,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_GetAccountLedgerSequence_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once()
 
@@ -204,7 +204,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_NewTransaction_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once()
 
@@ -224,7 +224,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_AssignTxToChannelAccount_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once().
 			On("NetworkPassphrase").
@@ -259,7 +259,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴handle_SignStellarTransaction_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
+			On("GetAccountPublicKey", context.Background(), 30).
 			Return(channelAccount.Address(), nil).
 			Once().
 			On("NetworkPassphrase").
@@ -299,30 +299,35 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		channelAccount := keypair.MustRandom()
 
 		successTestCases := []struct {
-			name          string
-			timeoutInSecs int64
+			name              string
+			inputTimeout      int
+			consideredTimeout int
 		}{
 			{
-				name:          "timeout_is_negative",
-				timeoutInSecs: -1,
+				name:              "timeout_is_negative",
+				inputTimeout:      -1,
+				consideredTimeout: DefaultTimeoutInSeconds,
 			},
 			{
-				name:          "timeout_is_zero",
-				timeoutInSecs: 0,
+				name:              "timeout_is_zero",
+				inputTimeout:      0,
+				consideredTimeout: DefaultTimeoutInSeconds,
 			},
 			{
-				name:          "timeout_is_positive",
-				timeoutInSecs: 10,
+				name:              "timeout_is_positive",
+				inputTimeout:      10,
+				consideredTimeout: 10,
 			},
 			{
-				name:          "timeout_is_max",
-				timeoutInSecs: MaxTimeoutInSeconds,
+				name:              "timeout_is_max",
+				inputTimeout:      MaxTimeoutInSeconds,
+				consideredTimeout: MaxTimeoutInSeconds,
 			},
 		}
 		for _, tc := range successTestCases {
 			t.Run(tc.name, func(t *testing.T) {
 				mChannelAccountSignatureClient.
-					On("GetAccountPublicKey", context.Background()).
+					On("GetAccountPublicKey", context.Background(), tc.consideredTimeout).
 					Return(channelAccount.Address(), nil).
 					Once().
 					On("NetworkPassphrase").
@@ -348,7 +353,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 					Asset:         txnbuild.NativeAsset{},
 					SourceAccount: keypair.MustRandom().Address(),
 				}
-				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, int64(tc.inputTimeout))
 
 				mChannelAccountSignatureClient.AssertExpectations(t)
 				mChannelAccountStore.AssertExpectations(t)
