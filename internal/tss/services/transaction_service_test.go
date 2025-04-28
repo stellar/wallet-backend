@@ -113,36 +113,43 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	distributionAccountSignatureClient := signing.SignatureClientMock{}
-	channelAccountSignatureClient := signing.SignatureClientMock{}
-	channelAccountStore := store.ChannelAccountStoreMock{}
-	mockRPCService := &services.RPCServiceMock{}
+
+	mDistributionAccountSignatureClient := signing.SignatureClientMock{}
+	mChannelAccountSignatureClient := signing.SignatureClientMock{}
+	mChannelAccountStore := store.ChannelAccountStoreMock{}
+	mRPCService := services.RPCServiceMock{}
 	txService, err := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
-		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
-		ChannelAccountStore:                &channelAccountStore,
-		RPCService:                         mockRPCService,
+		DistributionAccountSignatureClient: &mDistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      &mChannelAccountSignatureClient,
+		ChannelAccountStore:                &mChannelAccountStore,
+		RPCService:                         &mRPCService,
 		BaseFee:                            114,
 	})
 	require.NoError(t, err)
 
-	t.Run("channel_account_signature_client_get_account_public_key_err", func(t *testing.T) {
-		channelAccountSignatureClient.
+	t.Run("🔴timeout_must_be_smaller_than_max_timeout", func(t *testing.T) {
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1)
+		assert.Empty(t, tx)
+		assert.EqualError(t, err, fmt.Sprintf("cannot be greater than %d seconds", MaxTimeoutInSeconds))
+	})
+
+	t.Run("🔴handle_GetAccountPublicKey_err", func(t *testing.T) {
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "getting channel account public key: channel accounts unavailable", err.Error())
+		assert.EqualError(t, err, "getting channel account public key: channel accounts unavailable")
 	})
 
-	t.Run("operation_source_account_cannot_be_channel_account_public_key", func(t *testing.T) {
+	t.Run("🚨operation_source_account_cannot_be_channel_account", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once()
@@ -152,55 +159,71 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			SourceAccount: channelAccount.Address(),
 		}}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
 		assert.ErrorContains(t, err, "operation source account cannot be the channel account public key")
 	})
 
-	t.Run("rpc_client_get_account_seq_err", func(t *testing.T) {
+	t.Run("🚨operation_source_account_cannot_be_empty", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once()
 
-		mockRPCService.
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&txnbuild.AccountMerge{
+			Destination: keypair.MustRandom().Address(),
+		}}, 30)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		assert.Empty(t, tx)
+		assert.ErrorContains(t, err, "operation source account cannot be empty")
+	})
+
+	t.Run("🔴handle_GetAccountLedgerSequence_err", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background()).
+			Return(channelAccount.Address(), nil).
+			Once()
+
+		mRPCService.
 			On("GetAccountLedgerSequence", channelAccount.Address()).
 			Return(int64(0), errors.New("rpc service down")).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
+		defer mRPCService.AssertExpectations(t)
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
 		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key %q: rpc service down", channelAccount.Address())
-		assert.Equal(t, expectedErr.Error(), err.Error())
+		assert.EqualError(t, err, expectedErr.Error())
 	})
 
-	t.Run("build_tx_fails", func(t *testing.T) {
+	t.Run("🔴handle_NewTransaction_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once()
 
-		mockRPCService.
+		mRPCService.
 			On("GetAccountLedgerSequence", channelAccount.Address()).
 			Return(int64(1), nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
+		defer mRPCService.AssertExpectations(t)
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "building transaction: transaction has no operations", err.Error())
+		assert.EqualError(t, err, "building transaction: transaction has no operations")
 	})
 
-	t.Run("lock_channel_account_to_tx_err", func(t *testing.T) {
+	t.Run("🔴handle_AssignTxToChannelAccount_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once().
@@ -208,16 +231,16 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return("networkpassphrase").
 			Once()
 
-		channelAccountStore.
+		mChannelAccountStore.
 			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(errors.New("unable to assign channel account to tx")).
 			Once()
 
-		mockRPCService.
+		mRPCService.
 			On("GetAccountLedgerSequence", channelAccount.Address()).
 			Return(int64(1), nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
+		defer mRPCService.AssertExpectations(t)
 
 		payment := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -227,15 +250,15 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		}
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
-		channelAccountStore.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "assigning channel account to tx: unable to assign channel account to tx", err.Error())
+		assert.EqualError(t, err, "assigning channel account to tx: unable to assign channel account to tx")
 	})
 
-	t.Run("sign_stellar_transaction_w_channel_account_err", func(t *testing.T) {
+	t.Run("🔴handle_SignStellarTransaction_err", func(t *testing.T) {
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
+		mChannelAccountSignatureClient.
 			On("GetAccountPublicKey", context.Background()).
 			Return(channelAccount.Address(), nil).
 			Once().
@@ -246,16 +269,16 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(nil, errors.New("unable to sign")).
 			Once()
 
-		channelAccountStore.
+		mChannelAccountStore.
 			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
 			Return(nil).
 			Once()
 
-		mockRPCService.
+		mRPCService.
 			On("GetAccountLedgerSequence", channelAccount.Address()).
 			Return(int64(1), nil).
 			Once()
-		defer mockRPCService.AssertExpectations(t)
+		defer mRPCService.AssertExpectations(t)
 
 		payment := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -265,48 +288,74 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		}
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
 
-		channelAccountSignatureClient.AssertExpectations(t)
-		channelAccountStore.AssertExpectations(t)
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.Equal(t, "signing transaction with channel account: unable to sign", err.Error())
+		assert.EqualError(t, err, "signing transaction with channel account: unable to sign")
 	})
 
-	t.Run("returns_signed_tx", func(t *testing.T) {
+	t.Run("🟢build_and_sign_tx_with_channel_account", func(t *testing.T) {
 		signedTx := utils.BuildTestTransaction(t)
 		channelAccount := keypair.MustRandom()
-		channelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return(channelAccount.Address(), nil).
-			Once().
-			On("NetworkPassphrase").
-			Return("networkpassphrase").
-			On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
-			Return(signedTx, nil).
-			Once()
 
-		channelAccountStore.
-			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
-			Return(nil).
-			Once()
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", channelAccount.Address()).
-			Return(int64(1), nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		payment := txnbuild.Payment{
-			Destination:   keypair.MustRandom().Address(),
-			Amount:        "10",
-			Asset:         txnbuild.NativeAsset{},
-			SourceAccount: keypair.MustRandom().Address(),
+		successTestCases := []struct {
+			name          string
+			timeoutInSecs int64
+		}{
+			{
+				name:          "timeout_is_negative",
+				timeoutInSecs: -1,
+			},
+			{
+				name:          "timeout_is_zero",
+				timeoutInSecs: 0,
+			},
+			{
+				name:          "timeout_is_positive",
+				timeoutInSecs: 10,
+			},
+			{
+				name:          "timeout_is_max",
+				timeoutInSecs: MaxTimeoutInSeconds,
+			},
 		}
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+		for _, tc := range successTestCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mChannelAccountSignatureClient.
+					On("GetAccountPublicKey", context.Background()).
+					Return(channelAccount.Address(), nil).
+					Once().
+					On("NetworkPassphrase").
+					Return("networkpassphrase").
+					On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
+					Return(signedTx, nil).
+					Once()
 
-		channelAccountSignatureClient.AssertExpectations(t)
-		channelAccountStore.AssertExpectations(t)
-		assert.Equal(t, signedTx, tx)
-		assert.NoError(t, err)
+				mChannelAccountStore.
+					On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+					Return(nil).
+					Once()
+
+				mRPCService.
+					On("GetAccountLedgerSequence", channelAccount.Address()).
+					Return(int64(1), nil).
+					Once()
+				defer mRPCService.AssertExpectations(t)
+
+				payment := txnbuild.Payment{
+					Destination:   keypair.MustRandom().Address(),
+					Amount:        "10",
+					Asset:         txnbuild.NativeAsset{},
+					SourceAccount: keypair.MustRandom().Address(),
+				}
+				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+
+				mChannelAccountSignatureClient.AssertExpectations(t)
+				mChannelAccountStore.AssertExpectations(t)
+				assert.Equal(t, signedTx, tx)
+				assert.NoError(t, err)
+			})
+		}
 	})
 }
 

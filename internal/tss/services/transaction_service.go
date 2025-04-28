@@ -96,7 +96,7 @@ func (t *transactionService) NetworkPassphrase() string {
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
 	if timeoutInSecs > MaxTimeoutInSeconds {
-		return nil, fmt.Errorf("cannot be greater than 300 seconds")
+		return nil, fmt.Errorf("cannot be greater than %d seconds", MaxTimeoutInSeconds)
 	}
 	if timeoutInSecs <= 0 {
 		timeoutInSecs = DefaultTimeoutInSeconds
@@ -107,10 +107,14 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
 
-	// Prevent bad actors from using the channel account as a source account for any shady actions.
 	for _, op := range operations {
+		// Prevent bad actors from using the channel account as a source account directly.
 		if op.GetSourceAccount() == channelAccountPublicKey {
 			return nil, fmt.Errorf("operation source account cannot be the channel account public key")
+		}
+		// Prevent bad actors from using the channel account as a source account (inherited from the parent transaction).
+		if !utils.IsSorobanTxnbuildOp(op) && op.GetSourceAccount() == "" {
+			return nil, fmt.Errorf("operation source account cannot be empty")
 		}
 	}
 
@@ -131,7 +135,6 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		},
 		IncrementSequenceNum: false, // <--- using this in combination with seqNum + 1 above because otherwise `handleSorobanFlows` will increment the sequence number again, causing tx_bad_seq.
 	}
-	// Handle soroban flows.
 	buildTxParams, err = t.prepareForSorobanTransaction(ctx, channelAccountPublicKey, buildTxParams)
 	if err != nil {
 		return nil, fmt.Errorf("handling soroban flows: %w", err)
@@ -141,7 +144,6 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	if err != nil {
 		return nil, fmt.Errorf("building transaction: %w", err)
 	}
-
 	txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
 	if err != nil {
 		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
