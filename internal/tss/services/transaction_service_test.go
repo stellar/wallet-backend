@@ -24,6 +24,64 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/utils"
 )
 
+func buildInvokeContractOp(t *testing.T) *txnbuild.InvokeHostFunction {
+	t.Helper()
+
+	var nativeAssetContractID xdr.Hash
+	var err error
+	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	accountID, err := xdr.AddressToAccountId("GDPQASWWPBLHZBAJVTOXYQKM57LRIMXVA6OHMVUVRLYQB7PRE4FYVFEG")
+	require.NoError(t, err)
+	scAddress := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID,
+	}
+
+	return &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &nativeAssetContractID,
+				},
+				FunctionName: "transfer",
+				Args: xdr.ScVec{
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &scAddress,
+					},
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &scAddress,
+					},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: xdr.Int64(0),
+							Lo: xdr.Uint64(uint64(amount.MustParse("10"))),
+						},
+					},
+				},
+			},
+		},
+		SourceAccount: "",
+	}
+}
+
+func buildPaymentOp(t *testing.T) *txnbuild.Payment {
+	t.Helper()
+
+	return &txnbuild.Payment{
+		Destination:   "GBJLFRJO2V7QYHJGJ4WAOCKWNH3WKG5XRQMTPXIZQSC3QW6MA5JRHMJ7",
+		Amount:        "10.0000000",
+		Asset:         txnbuild.NativeAsset{},
+		SourceAccount: "GCZUXU4NRAY62KKGQAQ7DSRZTNWGOWYLTCWU4QICNRTHLIQIDQHPTFBH",
+	}
+}
+
 func TestValidateOptions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -242,13 +300,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 		defer mRPCService.AssertExpectations(t)
 
-		payment := txnbuild.Payment{
-			Destination:   keypair.MustRandom().Address(),
-			Amount:        "10",
-			Asset:         txnbuild.NativeAsset{},
-			SourceAccount: keypair.MustRandom().Address(),
-		}
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -280,13 +332,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 		defer mRPCService.AssertExpectations(t)
 
-		payment := txnbuild.Payment{
-			Destination:   keypair.MustRandom().Address(),
-			Amount:        "10",
-			Asset:         txnbuild.NativeAsset{},
-			SourceAccount: keypair.MustRandom().Address(),
-		}
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, 30)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -347,13 +393,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 					Once()
 				defer mRPCService.AssertExpectations(t)
 
-				payment := txnbuild.Payment{
-					Destination:   keypair.MustRandom().Address(),
-					Amount:        "10",
-					Asset:         txnbuild.NativeAsset{},
-					SourceAccount: keypair.MustRandom().Address(),
-				}
-				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&payment}, int64(tc.inputTimeout))
+				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, int64(tc.inputTimeout))
 
 				mChannelAccountSignatureClient.AssertExpectations(t)
 				mChannelAccountStore.AssertExpectations(t)
@@ -453,60 +493,6 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 	const chAccPublicKey = "GAB3B3MFQHSEN4YOTZBKKEL7VTWJQ6SWOWAE36I7CWZP3I3A3VT464KG"
 	txSourceAccount := keypair.MustRandom().Address()
 
-	paymentOp := func() *txnbuild.Payment {
-		return &txnbuild.Payment{
-			Destination:   "GBJLFRJO2V7QYHJGJ4WAOCKWNH3WKG5XRQMTPXIZQSC3QW6MA5JRHMJ7",
-			Amount:        "10.0000000",
-			Asset:         txnbuild.NativeAsset{},
-			SourceAccount: "GCZUXU4NRAY62KKGQAQ7DSRZTNWGOWYLTCWU4QICNRTHLIQIDQHPTFBH",
-		}
-	}
-
-	invokeContractOp := func() *txnbuild.InvokeHostFunction {
-		var nativeAssetContractID xdr.Hash
-		var err error
-		nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
-		require.NoError(t, err)
-
-		accountID, err := xdr.AddressToAccountId("GDPQASWWPBLHZBAJVTOXYQKM57LRIMXVA6OHMVUVRLYQB7PRE4FYVFEG")
-		require.NoError(t, err)
-		scAddress := xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &accountID,
-		}
-
-		return &txnbuild.InvokeHostFunction{
-			HostFunction: xdr.HostFunction{
-				Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
-				InvokeContract: &xdr.InvokeContractArgs{
-					ContractAddress: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: &nativeAssetContractID,
-					},
-					FunctionName: "transfer",
-					Args: xdr.ScVec{
-						{
-							Type:    xdr.ScValTypeScvAddress,
-							Address: &scAddress,
-						},
-						{
-							Type:    xdr.ScValTypeScvAddress,
-							Address: &scAddress,
-						},
-						{
-							Type: xdr.ScValTypeScvI128,
-							I128: &xdr.Int128Parts{
-								Hi: xdr.Int64(0),
-								Lo: xdr.Uint64(uint64(amount.MustParse("10"))),
-							},
-						},
-					},
-				},
-			},
-			SourceAccount: "",
-		}
-	}
-
 	sorobanTxDataXDR := "AAAAAAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAACAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAYAAAAAAAAAABBua0YUOtfPBN8bgJF1VXvNrYCFtsmcg8h+N5Pf2BylAAAAFWhSXFSqNynLAAAAAAAKehUAAAGIAAAA3AAAAAAAAgi1"
 	var sorobanTxData xdr.SorobanTransactionData
 	err := xdr.SafeUnmarshalBase64(sorobanTxDataXDR, &sorobanTxData)
@@ -525,7 +511,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🟢no_op_if_ops_are_not_soroban",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				paymentOp(),
+				buildPaymentOp(t),
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
 				return initialBuildTxParams
@@ -535,8 +521,8 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🔴multiple_ops_where_one_is_soroban",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				paymentOp(),
-				invokeContractOp(),
+				buildPaymentOp(t),
+				buildInvokeContractOp(t),
 			},
 			wantErrContains: "when soroban is used only one operation is allowed",
 		},
@@ -544,8 +530,8 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🔴multiple_ops_where_all_are_soroban",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
-				invokeContractOp(),
+				buildInvokeContractOp(t),
+				buildInvokeContractOp(t),
 			},
 			wantErrContains: "when soroban is used only one operation is allowed",
 		},
@@ -553,7 +539,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🔴handle_simulateTransaction_err",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
+				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
 				mRPCService.
@@ -567,7 +553,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🔴handle_simulateTransaction_error_in_payload",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
+				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
 				simulationResponse := entities.RPCSimulateTransactionResult{
@@ -584,7 +570,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🚨catch_txSource=channelAccount",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
+				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
 				channelAccountID, err := xdr.AddressToAccountId(chAccPublicKey)
@@ -621,7 +607,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🟢successful_with_larger_base_fee",
 			baseFee: 100 * txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
+				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
 				authEntryAccountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
@@ -654,8 +640,8 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 					Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				require.Empty(t, invokeContractOp().Ext)
-				newInvokeContractOp := invokeContractOp()
+				require.Empty(t, buildInvokeContractOp(t).Ext)
+				newInvokeContractOp := buildInvokeContractOp(t)
 				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
 				require.NoError(t, err)
 
@@ -676,7 +662,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			name:    "🟢successful_with_min_base_fee",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
-				invokeContractOp(),
+				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
 				authEntryAccountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
@@ -709,8 +695,8 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 					Once()
 			},
 			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
-				require.Empty(t, invokeContractOp().Ext)
-				newInvokeContractOp := invokeContractOp()
+				require.Empty(t, buildInvokeContractOp(t).Ext)
+				newInvokeContractOp := buildInvokeContractOp(t)
 				newInvokeContractOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
 				require.NoError(t, err)
 
