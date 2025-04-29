@@ -21,7 +21,6 @@ func BuildOperations(txOpXDRs []string) ([]txnbuild.Operation, error) {
 			return nil, fmt.Errorf("decoding Operation FromXDR")
 		}
 
-		// TODO: rethink this
 		if !utils.IsSorobanXDROp(opXDR) && op.GetSourceAccount() == "" {
 			return nil, fmt.Errorf("all Stellar Classic operations must have a source account explicitly set")
 		}

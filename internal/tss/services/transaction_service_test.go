@@ -83,6 +83,61 @@ func buildPaymentOp(t *testing.T) *txnbuild.Payment {
 	}
 }
 
+// buildSimulationResponse is a helper function that returns a simulation response with one auth entry with the specified credential type.
+func buildSimulationResponse(
+	t *testing.T,
+	sorobanTxData xdr.SorobanTransactionData,
+	credentialsType xdr.SorobanCredentialsType,
+	signerType xdr.ScAddressType,
+	signerID string,
+) entities.RPCSimulateTransactionResult {
+	t.Helper()
+
+	var sorobanCredentials xdr.SorobanCredentials
+
+	switch {
+	case credentialsType == xdr.SorobanCredentialsTypeSorobanCredentialsAddress && signerType == xdr.ScAddressTypeScAddressTypeAccount:
+		authEntryAccountID, err := xdr.AddressToAccountId(signerID)
+		require.NoError(t, err)
+		sorobanCredentials = xdr.SorobanCredentials{
+			Type: credentialsType,
+			Address: &xdr.SorobanAddressCredentials{
+				Address: xdr.ScAddress{
+					Type:      signerType,
+					AccountId: &authEntryAccountID,
+				},
+			},
+		}
+
+	case credentialsType == xdr.SorobanCredentialsTypeSorobanCredentialsAddress && signerType == xdr.ScAddressTypeScAddressTypeContract:
+		decodedContractID, err := strkey.Decode(strkey.VersionByteContract, signerID)
+		require.NoError(t, err)
+		authEntryContractID := xdr.Hash(decodedContractID)
+		sorobanCredentials = xdr.SorobanCredentials{
+			Type: credentialsType,
+			Address: &xdr.SorobanAddressCredentials{
+				Address: xdr.ScAddress{
+					Type:       signerType,
+					ContractId: &authEntryContractID,
+				},
+			},
+		}
+
+	case credentialsType == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
+		sorobanCredentials = xdr.SorobanCredentials{Type: credentialsType}
+
+	default:
+		require.Failf(t, "unsupported credentials or signer type", "credentialsType: %s, signerType: %s", credentialsType, signerType)
+	}
+
+	return entities.RPCSimulateTransactionResult{
+		TransactionData: sorobanTxData,
+		Results: []entities.RPCSimulateHostFunctionResult{
+			{Auth: []xdr.SorobanAuthorizationEntry{{Credentials: sorobanCredentials}}},
+		},
+	}
+}
+
 func TestValidateOptions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -435,29 +490,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
-		authEntryAccountID, err := xdr.AddressToAccountId(keypair.MustRandom().Address())
-		require.NoError(t, err)
-
-		simulationResponse := entities.RPCSimulateTransactionResult{
-			TransactionData: sorobanTxData,
-			Results: []entities.RPCSimulateHostFunctionResult{
-				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-								Address: &xdr.SorobanAddressCredentials{
-									Address: xdr.ScAddress{
-										Type:      xdr.ScAddressTypeScAddressTypeAccount,
-										AccountId: &authEntryAccountID,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
+		simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
 		mRPCService.
 			On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 			Return(simulationResponse, nil).
@@ -568,46 +601,6 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 	require.NoError(t, outerErr)
 	require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
-	// simulationResponse is a helper function that returns a simulation response with one auth entry that has the type and signerID specified
-	simulationResponse := func(t *testing.T, signerType xdr.ScAddressType, signerID string) entities.RPCSimulateTransactionResult {
-		t.Helper()
-
-		var err error
-		var authEntryAccountID xdr.AccountId
-		var authEntryContractID xdr.Hash
-		if signerType == xdr.ScAddressTypeScAddressTypeAccount {
-			authEntryAccountID, err = xdr.AddressToAccountId(signerID)
-			require.NoError(t, err)
-		} else {
-			// Decode the contract address using StrKey
-			decodedContractID, err := strkey.Decode(strkey.VersionByteContract, signerID)
-			require.NoError(t, err)
-			authEntryContractID = xdr.Hash(decodedContractID)
-		}
-
-		return entities.RPCSimulateTransactionResult{
-			TransactionData: sorobanTxData,
-			Results: []entities.RPCSimulateHostFunctionResult{
-				{
-					Auth: []xdr.SorobanAuthorizationEntry{
-						{
-							Credentials: xdr.SorobanCredentials{
-								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-								Address: &xdr.SorobanAddressCredentials{
-									Address: xdr.ScAddress{
-										Type:       xdr.ScAddressTypeScAddressTypeAccount,
-										AccountId:  &authEntryAccountID,
-										ContractId: &authEntryContractID,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
 	testCases := []struct {
 		name                string
 		baseFee             int64
@@ -633,7 +626,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				buildPaymentOp(t),
 				buildInvokeContractOp(t),
 			},
-			wantErrContains: "when soroban is used only one operation is allowed",
+			wantErrContains: "Soroban transactions require exactly one operation but 2 were provided",
 		},
 		{
 			name:    "🔴multiple_ops_where_all_are_soroban",
@@ -642,7 +635,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				buildInvokeContractOp(t),
 				buildInvokeContractOp(t),
 			},
-			wantErrContains: "when soroban is used only one operation is allowed",
+			wantErrContains: "Soroban transactions require exactly one operation but 2 were provided",
 		},
 		{
 			name:    "🔴handle_simulateTransaction_err",
@@ -676,19 +669,34 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 			wantErrContains: "transaction simulation failed with error=simulate transaction failed because fooBar",
 		},
 		{
-			name:    "🚨catch_txSource=channelAccount",
+			name:    "🚨catch_txSource=channelAccount(AuthEntry)",
 			baseFee: txnbuild.MinBaseFee,
 			incomingOps: []txnbuild.Operation{
 				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
-				simulationResponse := simulationResponse(t, xdr.ScAddressTypeScAddressTypeAccount, chAccPublicKey)
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, chAccPublicKey)
 				mRPCService.
 					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 					Return(simulationResponse, nil).
 					Once()
 			},
-			wantErrContains: "operation source account cannot be the channel account public key",
+			wantErrContains: ErrForbiddenSigner.Error(),
+		},
+		{
+			name:    "🚨catch_txSource=channelAccount(SourceAccount)",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				buildInvokeContractOp(t),
+			},
+			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount, 0, "")
+				mRPCService.
+					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
+					Return(simulationResponse, nil).
+					Once()
+			},
+			wantErrContains: ErrForbiddenSigner.Error(),
 		},
 		{
 			name:    "🟢successful_InvokeHostFunction_largeBaseFee",
@@ -697,7 +705,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
-				simulationResponse := simulationResponse(t, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
 				mRPCService.
 					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 					Return(simulationResponse, nil).
@@ -730,7 +738,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				buildInvokeContractOp(t),
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
-				simulationResponse := simulationResponse(t, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
 				mRPCService.
 					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 					Return(simulationResponse, nil).
@@ -763,7 +771,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				&txnbuild.ExtendFootprintTtl{ExtendTo: 1840580937},
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
-				simulationResponse := simulationResponse(t, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
 				mRPCService.
 					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 					Return(simulationResponse, nil).
@@ -795,7 +803,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				&txnbuild.RestoreFootprint{},
 			},
 			prepareMocksFn: func(t *testing.T, mRPCService *services.RPCServiceMock) {
-				simulationResponse := simulationResponse(t, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
+				simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
 				mRPCService.
 					On("SimulateTransaction", mock.AnythingOfType("string"), mock.AnythingOfType("entities.RPCResourceConfig")).
 					Return(simulationResponse, nil).

@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/utils"
 )
 
@@ -23,7 +24,10 @@ const (
 	DefaultTimeoutInSeconds = 10
 )
 
-var ErrInvalidArguments = errors.New("invalid arguments")
+var (
+	ErrInvalidArguments = errors.New("invalid arguments")
+	ErrForbiddenSigner  = errors.New("the provided operation relies on the channel account public key as a signer, which is not allowed")
+)
 
 type TransactionService interface {
 	NetworkPassphrase() string
@@ -168,7 +172,8 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 // It simulates the transaction to get the transaction data, and then sets the transaction ext.
 func (t *transactionService) prepareForSorobanTransaction(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams) (txnbuild.TransactionParams, error) {
 	// Ensure this is a soroban transaction.
-	isSoroban := slices.ContainsFunc(buildTxParams.Operations, func(op txnbuild.Operation) bool {
+	operations := buildTxParams.Operations
+	isSoroban := slices.ContainsFunc(operations, func(op txnbuild.Operation) bool {
 		return utils.IsSorobanTxnbuildOp(op)
 	})
 	if !isSoroban {
@@ -176,8 +181,8 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	}
 
 	// When soroban is used, only one operation is allowed.
-	if len(buildTxParams.Operations) > 1 {
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: when soroban is used only one operation is allowed", ErrInvalidArguments)
+	if len(operations) != 1 {
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: Soroban transactions require exactly one operation but %d were provided", ErrInvalidArguments, len(operations))
 	}
 
 	// Simulate the transaction:
@@ -197,17 +202,9 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	}
 
 	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
-	for _, res := range simulationResponse.Results {
-		for _, auth := range res.Auth {
-			// TODO: manually generate this and check if it really makes sense.
-			if auth.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
-				if authEntrySigner, innerErr := auth.Credentials.Address.Address.String(); innerErr != nil {
-					return txnbuild.TransactionParams{}, fmt.Errorf("%w: unable to get auth entry signer: %w", ErrInvalidArguments, innerErr)
-				} else if authEntrySigner == channelAccountPublicKey {
-					return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
-				}
-			}
-		}
+	err = sorobanauth.CheckForForbiddenSigners(simulationResponse.Results, operations[0].GetSourceAccount(), channelAccountPublicKey)
+	if err != nil {
+		return txnbuild.TransactionParams{}, fmt.Errorf("checking for forbidden signers: %w", err)
 	}
 
 	transactionExt, err := xdr.NewTransactionExt(1, simulationResponse.TransactionData)
@@ -215,7 +212,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 		return txnbuild.TransactionParams{}, fmt.Errorf("unable to create transaction ext: %w", err)
 	}
 
-	switch sorobanOp := buildTxParams.Operations[0].(type) {
+	switch sorobanOp := operations[0].(type) {
 	case *txnbuild.InvokeHostFunction:
 		sorobanOp.Ext = transactionExt
 	case *txnbuild.ExtendFootprintTtl:
@@ -223,7 +220,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	case *txnbuild.RestoreFootprint:
 		sorobanOp.Ext = transactionExt
 	default:
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation type %T is not a supported soroban operation", ErrInvalidArguments, buildTxParams.Operations[0])
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation type %T is not a supported soroban operation", ErrInvalidArguments, operations[0])
 	}
 
 	// reduce the base fee to 50% since it will be bumped with the resources present in sorobanOp.Ext. If not reduced here, one of the fee bump assertions will fail.

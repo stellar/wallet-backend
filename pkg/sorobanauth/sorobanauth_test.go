@@ -8,6 +8,8 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func Test_AuthSigner_AuthorizeEntry(t *testing.T) {
@@ -88,6 +90,149 @@ func Test_AuthSigner_AuthorizeEntry(t *testing.T) {
 			signedEntryXDR, err := xdr.MarshalBase64(authorizedEntry)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantSignedXDR, signedEntryXDR)
+		})
+	}
+}
+
+func Test_CheckForForbiddenSigners(t *testing.T) {
+	forbiddenSigner1 := "GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO"
+	forbiddenSigner1AccountID, err := xdr.AddressToAccountId(forbiddenSigner1)
+	require.NoError(t, err)
+	forbiddenSigner2 := "GBE5PW3RH2INLECD57ZRLZD7PF6C3JPY5DS4LRVMRUHYDI6Y4S6DB32D"
+	forbiddenSigners := []string{forbiddenSigner1, forbiddenSigner2}
+	allowedSigner1 := "GCYNTH5HDQRNIQ3BSSYPWFO5AHH5ERVZ32C37QRXT6TXK3OJFFOIVXDE"
+	allowedSigner2 := "GDSL6NQIMQ76EOJZ7Y7MUQJYKL4UTFR4TSCSOQEKUB2F7M4KRAW3NGFH"
+	allowedSigner2AccountID, err := xdr.AddressToAccountId(allowedSigner2)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name                      string
+		simulationResponseResults []entities.RPCSimulateHostFunctionResult
+		opSourceAccount           string
+		forbiddenSigners          []string
+		wantErrContains           string
+	}{
+		{
+			name: "🔴CredentialsSourceAccount/opSourceAccount_cannot_be_empty",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  "",
+			forbiddenSigners: forbiddenSigners,
+			wantErrContains:  "handling SorobanCredentialsTypeSorobanCredentialsSourceAccount: " + ErrForbiddenSigner.Error(),
+		},
+		{
+			name: "🟢CredentialsSourceAccount/opSourceAccount_allowedSigner1",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  allowedSigner1,
+			forbiddenSigners: forbiddenSigners,
+		},
+		{
+			name: "🔴CredentialsAddress/empty_address",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  allowedSigner1,
+			forbiddenSigners: forbiddenSigners,
+			wantErrContains:  "unable to get auth entry signer because credential address is nil",
+		},
+		{
+			name: "🔴CredentialsAddress/opSourceAccount_forbiddenSigner1",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+								Address: &xdr.SorobanAddressCredentials{
+									Address: xdr.ScAddress{
+										Type:      xdr.ScAddressTypeScAddressTypeAccount,
+										AccountId: &forbiddenSigner1AccountID,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  forbiddenSigner1,
+			forbiddenSigners: forbiddenSigners,
+			wantErrContains:  "handling SorobanCredentialsTypeSorobanCredentialsAddress: " + ErrForbiddenSigner.Error(),
+		},
+		{
+			name: "🟢CredentialsAddress/opSourceAccount_allowedSigner2",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+								Address: &xdr.SorobanAddressCredentials{
+									Address: xdr.ScAddress{
+										Type:      xdr.ScAddressTypeScAddressTypeAccount,
+										AccountId: &allowedSigner2AccountID,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  forbiddenSigner1,
+			forbiddenSigners: forbiddenSigners,
+		},
+		{
+			name: "🔴CredentialsUnsupported",
+			simulationResponseResults: []entities.RPCSimulateHostFunctionResult{
+				{
+					Auth: []xdr.SorobanAuthorizationEntry{
+						{
+							Credentials: xdr.SorobanCredentials{
+								Type: 3,
+							},
+						},
+					},
+				},
+			},
+			wantErrContains: "unsupported auth entry type 3",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckForForbiddenSigners(tc.simulationResponseResults, tc.opSourceAccount, tc.forbiddenSigners...)
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
