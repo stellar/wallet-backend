@@ -6,7 +6,6 @@ import (
 	"math"
 	"slices"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -164,7 +163,7 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 
 // prepareForSorobanTransaction prepares the transaction params for a soroban transaction.
 // It simulates the transaction to get the transaction data, and then sets the transaction ext.
-func (t *transactionService) prepareForSorobanTransaction(ctx context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams) (txnbuild.TransactionParams, error) {
+func (t *transactionService) prepareForSorobanTransaction(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams) (txnbuild.TransactionParams, error) {
 	// Ensure this is a soroban transaction.
 	isSoroban := slices.ContainsFunc(buildTxParams.Operations, func(op txnbuild.Operation) bool {
 		return utils.IsSorobanTxnbuildOp(op)
@@ -208,16 +207,23 @@ func (t *transactionService) prepareForSorobanTransaction(ctx context.Context, c
 		}
 	}
 
-	invokeContractOp, ok := buildTxParams.Operations[0].(*txnbuild.InvokeHostFunction)
-	if !ok {
-		// TODO: rethink this.
-		log.Ctx(ctx).Warnf("operation is not an invoke contract operation")
-		return buildTxParams, nil
-	}
-	invokeContractOp.Ext, err = xdr.NewTransactionExt(1, simulationResponse.TransactionData)
+	transactionExt, err := xdr.NewTransactionExt(1, simulationResponse.TransactionData)
 	if err != nil {
 		return txnbuild.TransactionParams{}, fmt.Errorf("unable to create transaction ext: %w", err)
 	}
+
+	switch sorobanOp := buildTxParams.Operations[0].(type) {
+	case *txnbuild.InvokeHostFunction:
+		sorobanOp.Ext = transactionExt
+	case *txnbuild.ExtendFootprintTtl:
+		sorobanOp.Ext = transactionExt
+	case *txnbuild.RestoreFootprint:
+		sorobanOp.Ext = transactionExt
+	default:
+		return txnbuild.TransactionParams{}, fmt.Errorf("operation type %T is not a supported soroban operation", buildTxParams.Operations[0])
+	}
+
+	// reduce the base fee to 50% since it will be bumped with the resources present in sorobanOp.Ext. If not reduced here, one of the fee bump assertions will fail.
 	buildTxParams.BaseFee = int64(math.Max(float64(buildTxParams.BaseFee/2), float64(txnbuild.MinBaseFee)))
 
 	return buildTxParams, nil
