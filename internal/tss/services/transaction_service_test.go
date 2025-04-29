@@ -190,7 +190,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴timeout_must_be_smaller_than_max_timeout", func(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1)
 		assert.Empty(t, tx)
-		assert.EqualError(t, err, fmt.Sprintf("cannot be greater than %d seconds", MaxTimeoutInSeconds))
+		assert.ErrorContains(t, err, fmt.Sprintf("cannot be greater than %d seconds", MaxTimeoutInSeconds))
 	})
 
 	t.Run("🔴handle_GetAccountPublicKey_err", func(t *testing.T) {

@@ -1,6 +1,7 @@
 package httphandler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
@@ -58,6 +60,12 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds)
 		if err != nil {
+			if errors.Is(err, tssservices.ErrInvalidArguments) ||
+				errors.Is(err, signing.ErrUnavailableChannelAccounts) ||
+				errors.Is(err, tssservices.ErrForbiddenSigner) {
+				httperror.BadRequest(err.Error(), nil).Render(w)
+				return
+			}
 			httperror.InternalServerError(ctx, "unable to build transaction", err, nil, t.AppTracker).Render(w)
 			return
 		}

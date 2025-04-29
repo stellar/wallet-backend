@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -21,6 +22,8 @@ const (
 	MaxTimeoutInSeconds     = 300
 	DefaultTimeoutInSeconds = 10
 )
+
+var ErrInvalidArguments = errors.New("invalid arguments")
 
 type TransactionService interface {
 	NetworkPassphrase() string
@@ -95,7 +98,7 @@ func (t *transactionService) NetworkPassphrase() string {
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
 	if timeoutInSecs > MaxTimeoutInSeconds {
-		return nil, fmt.Errorf("cannot be greater than %d seconds", MaxTimeoutInSeconds)
+		return nil, fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
 	}
 	if timeoutInSecs <= 0 {
 		timeoutInSecs = DefaultTimeoutInSeconds
@@ -109,11 +112,11 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
 		if op.GetSourceAccount() == channelAccountPublicKey {
-			return nil, fmt.Errorf("operation source account cannot be the channel account public key")
+			return nil, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
 		}
 		// Prevent bad actors from using the channel account as a source account (inherited from the parent transaction).
 		if !utils.IsSorobanTxnbuildOp(op) && op.GetSourceAccount() == "" {
-			return nil, fmt.Errorf("operation source account cannot be empty")
+			return nil, fmt.Errorf("%w: operation source account cannot be empty", ErrInvalidArguments)
 		}
 	}
 
@@ -174,7 +177,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 
 	// When soroban is used, only one operation is allowed.
 	if len(buildTxParams.Operations) > 1 {
-		return txnbuild.TransactionParams{}, fmt.Errorf("when soroban is used only one operation is allowed")
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: when soroban is used only one operation is allowed", ErrInvalidArguments)
 	}
 
 	// Simulate the transaction:
@@ -190,7 +193,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	if err != nil {
 		return txnbuild.TransactionParams{}, fmt.Errorf("simulating transaction: %w", err)
 	} else if simulationResponse.Error != "" {
-		return txnbuild.TransactionParams{}, fmt.Errorf("transaction simulation failed with error=%s", simulationResponse.Error)
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: transaction simulation failed with error=%s", ErrInvalidArguments, simulationResponse.Error)
 	}
 
 	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
@@ -199,9 +202,9 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 			// TODO: manually generate this and check if it really makes sense.
 			if auth.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount {
 				if authEntrySigner, innerErr := auth.Credentials.Address.Address.String(); innerErr != nil {
-					return txnbuild.TransactionParams{}, fmt.Errorf("unable to get auth entry signer: %w", innerErr)
+					return txnbuild.TransactionParams{}, fmt.Errorf("%w: unable to get auth entry signer: %w", ErrInvalidArguments, innerErr)
 				} else if authEntrySigner == channelAccountPublicKey {
-					return txnbuild.TransactionParams{}, fmt.Errorf("operation source account cannot be the channel account public key")
+					return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
 				}
 			}
 		}
@@ -220,7 +223,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	case *txnbuild.RestoreFootprint:
 		sorobanOp.Ext = transactionExt
 	default:
-		return txnbuild.TransactionParams{}, fmt.Errorf("operation type %T is not a supported soroban operation", buildTxParams.Operations[0])
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation type %T is not a supported soroban operation", ErrInvalidArguments, buildTxParams.Operations[0])
 	}
 
 	// reduce the base fee to 50% since it will be bumped with the resources present in sorobanOp.Ext. If not reduced here, one of the fee bump assertions will fail.
