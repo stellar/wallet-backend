@@ -14,7 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 )
 
-var ErrForbiddenSigner = errors.New("the provided operation relies on the channel account public key as a signer, which is not allowed")
+var ErrForbiddenSigner = errors.New("the provided operation relies on a forbidden signer")
 
 type UnsupportedCredentialsTypeError struct {
 	CredentialsType xdr.SorobanCredentialsType

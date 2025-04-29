@@ -23,6 +23,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
 func buildInvokeContractOp(t *testing.T) *txnbuild.InvokeHostFunction {
@@ -681,7 +682,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 					Return(simulationResponse, nil).
 					Once()
 			},
-			wantErrContains: ErrForbiddenSigner.Error(),
+			wantErrContains: sorobanauth.ErrForbiddenSigner.Error(),
 		},
 		{
 			name:    "🚨catch_txSource=channelAccount(SourceAccount)",
@@ -696,7 +697,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 					Return(simulationResponse, nil).
 					Once()
 			},
-			wantErrContains: ErrForbiddenSigner.Error(),
+			wantErrContains: sorobanauth.ErrForbiddenSigner.Error(),
 		},
 		{
 			name:    "🟢successful_InvokeHostFunction_largeBaseFee",

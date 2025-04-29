@@ -24,10 +24,7 @@ const (
 	DefaultTimeoutInSeconds = 10
 )
 
-var (
-	ErrInvalidArguments = errors.New("invalid arguments")
-	ErrForbiddenSigner  = errors.New("the provided operation relies on the channel account public key as a signer, which is not allowed")
-)
+var ErrInvalidArguments = errors.New("invalid arguments")
 
 type TransactionService interface {
 	NetworkPassphrase() string
@@ -204,7 +201,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
 	err = sorobanauth.CheckForForbiddenSigners(simulationResponse.Results, operations[0].GetSourceAccount(), channelAccountPublicKey)
 	if err != nil {
-		return txnbuild.TransactionParams{}, fmt.Errorf("checking for forbidden signers: %w", err)
+		return txnbuild.TransactionParams{}, fmt.Errorf("ensuring the channel account is not being misused: %w", err)
 	}
 
 	transactionExt, err := xdr.NewTransactionExt(1, simulationResponse.TransactionData)

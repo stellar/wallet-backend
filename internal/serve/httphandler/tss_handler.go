@@ -19,6 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss/store"
 	tssUtils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -62,7 +63,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if errors.Is(err, tssservices.ErrInvalidArguments) ||
 				errors.Is(err, signing.ErrUnavailableChannelAccounts) ||
-				errors.Is(err, tssservices.ErrForbiddenSigner) {
+				errors.Is(err, sorobanauth.ErrForbiddenSigner) {
 				httperror.BadRequest(err.Error(), nil).Render(w)
 				return
 			}

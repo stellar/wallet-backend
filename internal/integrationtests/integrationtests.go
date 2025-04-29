@@ -22,7 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-const txTimeout = 30 * time.Second
+const txTimeout = 60 * time.Second
 
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
@@ -91,7 +91,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{
 			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}},
-			// {TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
 		},
 	}
 
