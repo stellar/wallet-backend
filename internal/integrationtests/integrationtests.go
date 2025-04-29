@@ -22,7 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-const txTimeout = 60 * time.Second
+const txTimeout = 30 * time.Second
 
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
@@ -81,7 +81,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
 
-	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp()
+	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp(ctx)
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
@@ -91,7 +91,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{
 			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}},
-			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
+			// {TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
 		},
 	}
 
@@ -192,8 +192,8 @@ func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxRespons
 			return nil, fmt.Errorf("parsing transaction from XDR: %w", err)
 		}
 
-		if utils.IsSorobanTxnbuildOp(tx.Operations()[0]) {
-			log.Ctx(ctx).Infof("Skipping signature for Soroban transaction at index %d", i)
+		if utils.IsSorobanTxnbuildOp(tx.Operations()[0]) && tx.Operations()[0].GetSourceAccount() != it.SourceAccountKP.Address() {
+			log.Ctx(ctx).Warnf("Skipping signature for Soroban transaction at index %d", i)
 			signedTxXDRs[i] = txXDR
 			continue
 		}

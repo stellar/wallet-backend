@@ -1,14 +1,17 @@
 package integrationtests
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -46,13 +49,13 @@ func (f *Fixtures) prepareClassicOps() ([]string, error) {
 }
 
 // prepareInvokeContractOp prepares an invokeContractOp, signs its auth entries, and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareInvokeContractOp() (opXDR, simResultJSON string, err error) {
+func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR, simResultJSON string, err error) {
 	invokeXLMTransferSAC, err := f.createInvokeContractOp()
 	if err != nil {
 		return "", "", fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
-	return f.prepareSimulateAndSignTransaction(invokeXLMTransferSAC)
+	return f.prepareSimulateAndSignTransaction(ctx, invokeXLMTransferSAC)
 }
 
 // createInvokeContractOp creates an invokeContractOp.
@@ -71,6 +74,7 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 	toSCAddress := fromSCAddress
 
 	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
+		SourceAccount: f.SourceAccountKP.Address(),
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			InvokeContract: &xdr.InvokeContractArgs{
@@ -105,7 +109,7 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 
 // prepareSimulateAndSignTransaction simulates a transaction containing a contractInvokeOp, signs its auth entries,
 // and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (opXDR, simResultJSON string, err error) {
+func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR, simResultJSON string, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := f.RPCService.GetHealth()
 	if err != nil {
@@ -143,25 +147,10 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunct
 
 	// 3. If there are auth entries, sign them
 	if len(simulationResult.Results) > 0 {
-		authSigner := sorobanauth.AuthSigner{NetworkPassphrase: f.NetworkPassphrase}
-		simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResult.Results))
-		for i, result := range simulationResult.Results {
-			updatedResult := result
-			for j, auth := range result.Auth {
-				var nonce *big.Int
-				nonce, err = rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
-				if err != nil {
-					return "", "", fmt.Errorf("generating random nonce: %w", err)
-				}
-				if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), latestLedger+100, f.SourceAccountKP); err != nil {
-					return "", "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
-				}
-			}
-
-			simulateResults[i] = updatedResult
+		op, err = f.signInvokeContractOp(ctx, op, latestLedger+100, simulationResult.Results)
+		if err != nil {
+			return "", "", fmt.Errorf("signing auth entries: %w", err)
 		}
-
-		op.Auth = simulateResults[0].Auth
 
 		// 4. Simulate the transaction again to get the final simulation result with the signed auth entries.
 		tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -204,4 +193,34 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunct
 	}
 
 	return opXDR, string(simResBytes), nil
+}
+
+// signInvokeContractOp signs the auth entries of an invokeContractOp.
+func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeHostFunction, validUntilLedgerSeq uint32, simulationResponseResults []entities.RPCSimulateHostFunctionResult) (txnbuild.InvokeHostFunction, error) {
+	authSigner := sorobanauth.AuthSigner{NetworkPassphrase: f.NetworkPassphrase}
+
+	simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResponseResults))
+	for i, result := range simulationResponseResults {
+		updatedResult := result
+		for j, auth := range result.Auth {
+			nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+			if err != nil {
+				return txnbuild.InvokeHostFunction{}, fmt.Errorf("generating random nonce: %w", err)
+			}
+			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.SourceAccountKP); err != nil {
+				var unsupportedCredentialsTypeError *sorobanauth.UnsupportedCredentialsTypeError
+				if errors.As(err, &unsupportedCredentialsTypeError) {
+					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]: %v", i, j, err)
+					updatedResult.Auth[j] = auth
+					continue
+				}
+				return txnbuild.InvokeHostFunction{}, fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
+			}
+		}
+
+		simulateResults[i] = updatedResult
+	}
+
+	op.Auth = simulateResults[0].Auth
+	return op, nil
 }
