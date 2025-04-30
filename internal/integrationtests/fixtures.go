@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 type Fixtures struct {
@@ -26,8 +27,8 @@ type Fixtures struct {
 	RPCService        services.RPCService
 }
 
-// prepareClassicOps prepares a slice of strings, each representing a payment operation XDR. Currently only returns one operation (payment).
-func (f *Fixtures) prepareClassicOps() ([]string, error) {
+// preparePaymentOp prepares a payment operation XDR and encodes it to base64.
+func (f *Fixtures) preparePaymentOp() (string, error) {
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: f.SourceAccountKP.Address(),
 		Destination:   f.SourceAccountKP.Address(),
@@ -37,19 +38,19 @@ func (f *Fixtures) prepareClassicOps() ([]string, error) {
 
 	paymentOpXDR, err := paymentOp.BuildXDR()
 	if err != nil {
-		return nil, fmt.Errorf("building payment operation XDR: %w", err)
+		return "", fmt.Errorf("building payment operation XDR: %w", err)
 	}
 	b64OpXDR, err := utils.OperationXDRToBase64(paymentOpXDR)
 	if err != nil {
-		return nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
+		return "", fmt.Errorf("encoding payment operation XDR to base64: %w", err)
 	}
 
-	return []string{b64OpXDR}, nil
+	return b64OpXDR, nil
 }
 
-// prepareInvokeContractOp prepares an invokeContractOp, signs its auth entries, and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
-	invokeXLMTransferSAC, err := f.createInvokeContractOp()
+// prepareInvokeContractOp prepares an invokeContractOp, wither with a signed auth entry or not.
+func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountAddress string) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	invokeXLMTransferSAC, err := f.createInvokeContractOp(sourceAccountAddress)
 	if err != nil {
 		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
@@ -58,7 +59,7 @@ func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR string, s
 }
 
 // createInvokeContractOp creates an invokeContractOp.
-func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error) {
+func (f *Fixtures) createInvokeContractOp(sourceAccountAddress string) (txnbuild.InvokeHostFunction, error) {
 	var nativeAssetContractID xdr.Hash
 	var err error
 	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(f.NetworkPassphrase)
@@ -73,7 +74,7 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 	toSCAddress := fromSCAddress
 
 	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
-		SourceAccount: f.SourceAccountKP.Address(),
+		SourceAccount: sourceAccountAddress,
 		// The HostFunction must be constructed using `xdr` objects, unlike other operations that utilize `txnbuild` objects or native Go types.
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
@@ -222,4 +223,52 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 	// The slice structure is just a leftover from that earlier design that never fully landed.
 	op.Auth = simulateResults[0].Auth
 	return op, nil
+}
+
+type UseCase struct {
+	name                     string
+	requestedTransaction     types.Transaction
+	builtTransactionXDR      string
+	signedTransactionXDR     string
+	feeBumpedTransactionXDR  string
+	feeBumpedTransactionHash string
+}
+
+func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
+	useCases := []UseCase{}
+	timeoutSeconds := int64(txTimeout.Seconds())
+
+	// PaymentOp
+	if paymentOpXDR, err := f.preparePaymentOp(); err != nil {
+		return nil, fmt.Errorf("preparing payment operation: %w", err)
+	} else {
+		useCases = append(useCases, UseCase{
+			name:                 "Classic/paymentOp",
+			requestedTransaction: types.Transaction{Operations: []string{paymentOpXDR}, Timeout: timeoutSeconds},
+		})
+	}
+
+	// InvokeContractOp w/ SorobanAuth
+	invokeContractOp, simulationResponse, err := f.prepareInvokeContractOp(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	} else {
+		useCases = append(useCases, UseCase{
+			name:                 "Soroban/invokeContractOp/SorobanAuth",
+			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
+		})
+	}
+
+	// InvokeContractOp w/ SourceAccountAuth
+	invokeContractOp, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SourceAccountKP.Address())
+	if err != nil {
+		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	} else {
+		useCases = append(useCases, UseCase{
+			name:                 "Soroban/invokeContractOp/SourceAccountAuth",
+			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
+		})
+	}
+
+	return useCases, nil
 }

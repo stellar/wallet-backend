@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -75,24 +76,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 1: Prepare transactions locally
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 1️⃣ [Local] Building transactions...")
-	classicOps, err := it.Fixtures.prepareClassicOps()
+	useCases, err := it.Fixtures.PrepareUseCases(ctx)
 	if err != nil {
-		return fmt.Errorf("preparing classic ops: %w", err)
+		return fmt.Errorf("preparing use cases: %w", err)
 	}
-	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
 
-	invokeContractOp, simulationResponse, err := it.Fixtures.prepareInvokeContractOp(ctx)
-	if err != nil {
-		return fmt.Errorf("preparing invoke contract ops: %w", err)
-	}
-	log.Ctx(ctx).Debugf("👀 invokeContractOp: %+v", invokeContractOp)
-	log.Ctx(ctx).Debugf("👀 simulationResponse: %+v", simulationResponse)
-
-	buildTxRequest := types.BuildTransactionsRequest{
-		Transactions: []types.Transaction{
-			{Timeout: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}, SimulationResult: simulationResponse},
-			{Timeout: int64(txTimeout.Seconds()), Operations: classicOps},
-		},
+	buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{}}
+	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
+	for i, useCase := range useCases {
+		log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.name)
+		buildTxRequest.Transactions = append(buildTxRequest.Transactions, useCase.requestedTransaction)
 	}
 
 	// Step 2: call /tss/transactions/build
@@ -104,6 +97,8 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Debugf("✅ builtTxResponse: %+v", builtTxResponse)
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
+		useCases[i].builtTransactionXDR = txXDR
+
 		txString, innerErr := txString(txXDR)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
@@ -119,20 +114,22 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("signing transactions: %w", err)
 	}
+	for i := range useCases {
+		useCases[i].signedTransactionXDR = signedTxXDRs[i]
+	}
 
 	// Step 4: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
-	feeBumpedTxs := make([]string, len(signedTxXDRs))
 	for i, txXDR := range signedTxXDRs {
 		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, txXDR)
 		if innerErr != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
 		log.Ctx(ctx).Debugf("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
-		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
+		useCases[i].feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
 
-		txString, innerErr := txString(feeBumpedTxs[i])
+		txString, innerErr := txString(feeBumpTxResponse.Transaction)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
@@ -152,30 +149,44 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 6: submit transactions to RPC
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
-	hashes := make([]string, len(feeBumpedTxs))
-	for i, txXDR := range feeBumpedTxs {
-		log.Ctx(ctx).Debugf("Submitting transaction %d: %s", i, txXDR)
-		var res entities.RPCSendTransactionResult
-		res, err = it.RPCService.SendTransaction(txXDR)
-		if err != nil {
+	for i, useCase := range useCases {
+		log.Ctx(ctx).Debugf("Submitting transaction %d: %s", i, useCase.feeBumpedTransactionXDR)
+
+		if res, err := it.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR); err != nil {
 			return fmt.Errorf("sending transaction %d: %w", i, err)
+		} else {
+			log.Ctx(ctx).Debugf("✅ submittedTx[%d]: %+v", i, res)
+			if res.Status != entities.PendingStatus {
+				errResult, err := tss.UnmarshallTransactionResultXDR(res.ErrorResultXDR)
+				if err != nil {
+					return fmt.Errorf("unmarshalling transaction result XDR: %w", err)
+				}
+
+				return fmt.Errorf("transaction %d with hash %s failed with status %s, errorResultXdr=%s, errorResult=%+v, innerResultPair=%+v", i, res.Hash, res.Status, res.ErrorResultXDR, errResult, errResult.Result.InnerResultPair)
+			}
+			useCases[i].feeBumpedTransactionHash = res.Hash
 		}
-		log.Ctx(ctx).Debugf("✅ submittedTx[%d]: %+v", i, res)
-		if res.Status != entities.PendingStatus {
-			return fmt.Errorf("transaction %d failed with status %s and errorResultXdr %s", i, res.Status, res.ErrorResultXDR)
-		}
-		hashes[i] = res.Hash
 	}
 
 	// Step 7: poll the network for the transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
 	const retryDelay = 6 * time.Second
-	for _, hash := range hashes {
-		if err = WaitForTransactionConfirmation(ctx, it.RPCService, hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay))); err != nil {
-			log.Ctx(ctx).Errorf("waiting for transaction confirmation: %v", err)
+	for i, useCase := range useCases {
+		prefix := fmt.Sprintf("[%d - name=%s,hash=%s]", i, useCase.name, useCase.feeBumpedTransactionHash)
+		txResult, err := WaitForTransactionConfirmation(ctx, it.RPCService, useCase.feeBumpedTransactionHash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
+		if err != nil {
+			log.Ctx(ctx).Errorf("%s waiting for transaction confirmation: %v", prefix, err)
 		}
-		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
+		if txResult.Status == entities.SuccessStatus {
+			log.Ctx(ctx).Infof("✅ %s confirmed on Stellar network", prefix)
+		} else {
+			errResult, err := tss.UnmarshallTransactionResultXDR(txResult.ErrorResultXDR)
+			if err != nil {
+				return fmt.Errorf("unmarshalling transaction result XDR: %w", err)
+			}
+			log.Ctx(ctx).Errorf("🔴 %s failed with status=%s and errorResultXdr=%+v", prefix, txResult.Status, errResult)
+		}
 	}
 
 	// TODO: verifyTxResult in wallet-backend

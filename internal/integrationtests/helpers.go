@@ -46,13 +46,13 @@ func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService,
 	}
 }
 
-func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPCService, hash string, retryOptions ...retry.Option) error {
+func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPCService, hash string, retryOptions ...retry.Option) (txResult entities.RPCGetTransactionResult, err error) {
 	attemptsCount := 0
 	outerErr := retry.Do(
 		func() error {
 			attemptsCount++
-			log.Ctx(ctx).Infof("🔁 attemptsCount: %d", attemptsCount)
-			txResult, err := rpcService.GetTransaction(hash)
+			log.Ctx(ctx).Infof("\t🔁 attemptsCount: %d", attemptsCount)
+			txResult, err = rpcService.GetTransaction(hash)
 			if err != nil {
 				return fmt.Errorf("getting transaction with hash %q: %w", hash, err)
 			}
@@ -60,11 +60,8 @@ func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPC
 			switch txResult.Status {
 			case entities.NotFoundStatus:
 				return fmt.Errorf("transaction not found")
-			case entities.SuccessStatus:
+			case entities.SuccessStatus, entities.FailedStatus:
 				return nil
-			case entities.FailedStatus:
-				err = fmt.Errorf("transaction with hash %q failed with status %s and errorResultXdr %s", hash, txResult.Status, txResult.ErrorResultXDR)
-				return retry.Unrecoverable(err)
 			default:
 				return fmt.Errorf("unexpected transaction status: %s", txResult.Status)
 			}
@@ -77,9 +74,9 @@ func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPC
 	)
 
 	if outerErr != nil {
-		return fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
+		return entities.RPCGetTransactionResult{}, fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
 	}
-	return nil
+	return txResult, nil
 }
 
 func SCAccountID(address string) (xdr.ScAddress, error) {
