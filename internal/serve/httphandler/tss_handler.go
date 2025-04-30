@@ -13,10 +13,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
-	"github.com/stellar/wallet-backend/internal/tss/store"
+	tssStore "github.com/stellar/wallet-backend/internal/tss/store"
 	tssUtils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
@@ -25,7 +26,7 @@ import (
 
 type TSSHandler struct {
 	Router             router.Router
-	Store              store.Store
+	Store              tssStore.Store
 	AppTracker         apptracker.AppTracker
 	NetworkPassphrase  string
 	TransactionService tssservices.TransactionService
@@ -65,6 +66,10 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 				errors.Is(err, signing.ErrUnavailableChannelAccounts) ||
 				errors.Is(err, sorobanauth.ErrForbiddenSigner) {
 				httperror.BadRequest(err.Error(), nil).Render(w)
+				return
+			}
+			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
+				httperror.InternalServerError(ctx, err.Error(), err, nil, t.AppTracker).Render(w)
 				return
 			}
 			httperror.InternalServerError(ctx, "unable to build transaction", err, nil, t.AppTracker).Render(w)

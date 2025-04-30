@@ -63,6 +63,9 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 }
 
 func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
+	if message == "" {
+		message = "An error occurred while processing this request."
+	}
 	log.Ctx(ctx).Error(err)
 	if appTracker != nil {
 		appTracker.CaptureException(err)
@@ -72,7 +75,7 @@ func InternalServerError(ctx context.Context, message string, err error, extras 
 
 	return &ErrorResponse{
 		Status: http.StatusInternalServerError,
-		Error:  "An error occurred while processing this request.",
+		Error:  message,
 		Extras: extras,
 	}
 }

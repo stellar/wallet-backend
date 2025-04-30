@@ -102,7 +102,7 @@ func TestBuildTransactions(t *testing.T) {
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		expectedRespBody := `{"error": "An error occurred while processing this request."}`
+		expectedRespBody := `{"error": "unable to build transaction"}`
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})

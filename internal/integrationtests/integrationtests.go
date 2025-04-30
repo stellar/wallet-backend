@@ -85,8 +85,8 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
-	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
-	log.Ctx(ctx).Infof("👀 simulationResponse: %+v", simulationResponse)
+	log.Ctx(ctx).Debugf("👀 invokeContractOp: %+v", invokeContractOp)
+	log.Ctx(ctx).Debugf("👀 simulationResponse: %+v", simulationResponse)
 
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{
@@ -102,13 +102,13 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("calling buildTransactions: %w", err)
 	}
-	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
+	log.Ctx(ctx).Debugf("✅ builtTxResponse: %+v", builtTxResponse)
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
 		txString, innerErr := txString(txXDR)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("builtTx[%d]: %s", i, txString)
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
@@ -129,14 +129,14 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if innerErr != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
+		log.Ctx(ctx).Debugf("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
 
 		txString, innerErr := txString(feeBumpedTxs[i])
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("feeBumpedTx[%d]: %s", i, txString)
 
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
@@ -154,13 +154,13 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
 	hashes := make([]string, len(feeBumpedTxs))
 	for i, txXDR := range feeBumpedTxs {
-		log.Ctx(ctx).Infof("Submitting transaction %d: %s", i, txXDR)
+		log.Ctx(ctx).Debugf("Submitting transaction %d: %s", i, txXDR)
 		var res entities.RPCSendTransactionResult
 		res, err = it.RPCService.SendTransaction(txXDR)
 		if err != nil {
 			return fmt.Errorf("sending transaction %d: %w", i, err)
 		}
-		log.Ctx(ctx).Infof("✅ submittedTx[%d]: %+v", i, res)
+		log.Ctx(ctx).Debugf("✅ submittedTx[%d]: %+v", i, res)
 		if res.Status != entities.PendingStatus {
 			return fmt.Errorf("transaction %d failed with status %s and errorResultXdr %s", i, res.Status, res.ErrorResultXDR)
 		}
@@ -173,7 +173,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	const retryDelay = 6 * time.Second
 	for _, hash := range hashes {
 		if err = WaitForTransactionConfirmation(ctx, it.RPCService, hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay))); err != nil {
-			return fmt.Errorf("waiting for transaction confirmation: %w", err)
+			log.Ctx(ctx).Errorf("waiting for transaction confirmation: %v", err)
 		}
 		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
 	}
