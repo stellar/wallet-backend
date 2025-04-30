@@ -22,7 +22,7 @@ import (
 
 const (
 	MaxTimeoutInSeconds     = 300
-	DefaultTimeoutInSeconds = 10
+	DefaultTimeoutInSeconds = 30
 )
 
 var ErrInvalidArguments = errors.New("invalid arguments")
