@@ -81,16 +81,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
 
-	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp(ctx)
+	invokeContractOp, simulationResponse, err := it.Fixtures.prepareInvokeContractOp(ctx)
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
 	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
-	log.Ctx(ctx).Infof("👀 simResultJSON: %+v", simResultJSON)
+	log.Ctx(ctx).Infof("👀 simulationResponse: %+v", simulationResponse)
 
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{
-			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}},
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}, SimulationResult: simulationResponse},
 			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
 		},
 	}

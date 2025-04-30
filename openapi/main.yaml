@@ -480,6 +480,9 @@ paths:
                       timeout:
                         type: integer
                         description: number of seconds after the current time that the transaction expires
+                      simulationResult:
+                        type: string
+                        description: base64 simulation result XDR string. This field is required when the transaction contains a soroban operation.
                     required:
                       - operations
                       - timeout

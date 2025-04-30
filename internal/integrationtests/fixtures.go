@@ -3,7 +3,6 @@ package integrationtests
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -49,10 +48,10 @@ func (f *Fixtures) prepareClassicOps() ([]string, error) {
 }
 
 // prepareInvokeContractOp prepares an invokeContractOp, signs its auth entries, and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR, simResultJSON string, err error) {
+func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	invokeXLMTransferSAC, err := f.createInvokeContractOp()
 	if err != nil {
-		return "", "", fmt.Errorf("creating invoke contract operation: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
 	return f.prepareSimulateAndSignTransaction(ctx, invokeXLMTransferSAC)
@@ -109,11 +108,11 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 
 // prepareSimulateAndSignTransaction simulates a transaction containing a contractInvokeOp, signs its auth entries,
 // and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR, simResultJSON string, err error) {
+func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := f.RPCService.GetHealth()
 	if err != nil {
-		return "", "", fmt.Errorf("getting health: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("getting health: %w", err)
 	}
 	latestLedger := healthResult.LatestLedger
 
@@ -130,26 +129,26 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txn
 		IncrementSequenceNum: true,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("building transaction (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building transaction (1): %w", err)
 	}
 	txXDR, err := tx.Base64()
 	if err != nil {
-		return "", "", fmt.Errorf("encoding transaction to base64 (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding transaction to base64 (1): %w", err)
 	}
 
-	simulationResult, err := f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	simulationResponse, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
 	if err != nil {
-		return "", "", fmt.Errorf("simulating transaction (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("simulating transaction (1): %w", err)
 	}
-	if simulationResult.Error != "" {
-		return "", "", fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResult.Error)
+	if simulationResponse.Error != "" {
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResponse.Error)
 	}
 
 	// 3. If there are auth entries, sign them
-	if len(simulationResult.Results) > 0 {
-		op, err = f.signInvokeContractOp(ctx, op, latestLedger+100, simulationResult.Results)
+	if len(simulationResponse.Results) > 0 {
+		op, err = f.signInvokeContractOp(ctx, op, latestLedger+100, simulationResponse.Results)
 		if err != nil {
-			return "", "", fmt.Errorf("signing auth entries: %w", err)
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("signing auth entries: %w", err)
 		}
 
 		// 4. Simulate the transaction again to get the final simulation result with the signed auth entries.
@@ -163,36 +162,30 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txn
 			IncrementSequenceNum: true,
 		})
 		if err != nil {
-			return "", "", fmt.Errorf("building transaction (2): %w", err)
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building transaction (2): %w", err)
 		}
 		if txXDR, err = tx.Base64(); err != nil {
-			return "", "", fmt.Errorf("encoding transaction to base64 (2): %w", err)
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding transaction to base64 (2): %w", err)
 		}
-		if simulationResult, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{}); err != nil {
-			return "", "", fmt.Errorf("simulating transaction (2): %w", err)
+		if simulationResponse, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{}); err != nil {
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("simulating transaction (2): %w", err)
 		}
-		if simulationResult.Error != "" {
-			return "", "", fmt.Errorf("transaction simulation (2) failed with error=%s", simulationResult.Error)
+		if simulationResponse.Error != "" {
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("transaction simulation (2) failed with error=%s", simulationResponse.Error)
 		}
 	}
 
 	// 5. Build the operation XDR and encode it to base64.
 	opXDRObj, err := op.BuildXDR()
 	if err != nil {
-		return "", "", fmt.Errorf("building operation XDR: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building operation XDR: %w", err)
 	}
 	opXDR, err = utils.OperationXDRToBase64(opXDRObj)
 	if err != nil {
-		return "", "", fmt.Errorf("encoding operation XDR to base64: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding operation XDR to base64: %w", err)
 	}
 
-	// 6. Encode the simulation result to JSON.
-	simResBytes, err := json.Marshal(simulationResult)
-	if err != nil {
-		return "", "", fmt.Errorf("encoding simulation result to JSON: %w", err)
-	}
-
-	return opXDR, string(simResBytes), nil
+	return opXDR, simulationResponse, nil
 }
 
 // signInvokeContractOp signs the auth entries of an invokeContractOp.

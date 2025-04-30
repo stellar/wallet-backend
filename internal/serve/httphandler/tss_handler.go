@@ -59,7 +59,7 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 			}).Render(w)
 			return
 		}
-		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds)
+		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds, transaction.SimulationResult)
 		if err != nil {
 			if errors.Is(err, tssservices.ErrInvalidArguments) ||
 				errors.Is(err, signing.ErrUnavailableChannelAccounts) ||
