@@ -23,7 +23,7 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-const txTimeout = 60 * time.Second
+const txTimeout = 30 * time.Second
 
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
@@ -171,27 +171,56 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 7: poll the network for the transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
-	const retryDelay = 6 * time.Second
+	const retryDelay = 3 * time.Second
 	for i, useCase := range useCases {
 		prefix := fmt.Sprintf("[%d - name=%s,hash=%s]", i, useCase.name, useCase.feeBumpedTransactionHash)
 		txResult, err := WaitForTransactionConfirmation(ctx, it.RPCService, useCase.feeBumpedTransactionHash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
 		if err != nil {
 			log.Ctx(ctx).Errorf("%s waiting for transaction confirmation: %v", prefix, err)
 		}
+
 		if txResult.Status == entities.SuccessStatus {
-			log.Ctx(ctx).Infof("✅ %s confirmed on Stellar network", prefix)
+			log.Ctx(ctx).Info(RenderResult(useCase, txResult.Status, ""))
 		} else {
 			errResult, err := tss.UnmarshallTransactionResultXDR(txResult.ErrorResultXDR)
 			if err != nil {
 				return fmt.Errorf("unmarshalling transaction result XDR: %w", err)
 			}
-			log.Ctx(ctx).Errorf("🔴 %s failed with status=%s and errorResultXdr=%+v", prefix, txResult.Status, errResult)
+			log.Ctx(ctx).Error(RenderResult(useCase, txResult.Status, fmt.Sprintf("%+v", errResult)))
 		}
 	}
 
 	// TODO: verifyTxResult in wallet-backend
 
 	return nil
+}
+
+func RenderResult(useCase UseCase, status entities.RPCStatus, additionalInfo string) string {
+	statusEmoji := "✅"
+	if status == entities.FailedStatus {
+		statusEmoji = "🔴"
+	}
+	statusText := fmt.Sprintf("%s %s", statusEmoji, status)
+
+	fillSpaces := func(str string, length int) string {
+		return fmt.Sprintf("%-*s", length, str)
+	}
+
+	format := `
+	╔═══════════════════════════════════════════════════════════════════════════════╗
+	║ Use Case: %s║
+	╠═══════════════════════════════════════════════════════════════════════════════╣
+	║ Status:   %s║
+	║ Network:                                                                      ║
+	║ Hash:     %s║
+	╚═══════════════════════════════════════════════════════════════════════════════╝`
+	args := []any{fillSpaces(useCase.name, 68), fillSpaces(statusText, 67), fillSpaces(useCase.feeBumpedTransactionHash, 68)}
+	if additionalInfo != "" {
+		format += "\n\t%+v\n\n"
+		args = append(args, additionalInfo)
+	}
+
+	return fmt.Sprintf(format, args...)
 }
 
 func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse) ([]string, error) {

@@ -207,7 +207,7 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.SourceAccountKP); err != nil {
 				var unsupportedCredentialsTypeError *sorobanauth.UnsupportedCredentialsTypeError
 				if errors.As(err, &unsupportedCredentialsTypeError) {
-					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]: %v", i, j, err)
+					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]", i, j)
 					updatedResult.Auth[j] = auth
 					continue
 				}
