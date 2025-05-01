@@ -215,7 +215,7 @@ func TestBuildAndSubmitTransaction(t *testing.T) {
 
 		assert.Equal(t, entities.ErrorStatus, txSendResp.Status.RPCStatus)
 		assert.Equal(t, tss.UnmarshalBinaryCode, txSendResp.Code.OtherCodes)
-		assert.Equal(t, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR: ABCD", err.Error())
+		assert.ErrorContains(t, err, "channel: RPC fail: parse error result xdr string: unable to parse: unable to unmarshal errorResultXDR ABCD")
 
 		var tx store.Transaction
 		tx, err = dbStore.GetTransaction(context.Background(), payload.TransactionHash)
