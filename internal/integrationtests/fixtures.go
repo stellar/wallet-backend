@@ -22,44 +22,55 @@ import (
 )
 
 type Fixtures struct {
-	NetworkPassphrase string
-	SourceAccountKP   *keypair.Full
-	RPCService        services.RPCService
+	NetworkPassphrase  string
+	PrimaryAccountKP   *keypair.Full
+	SecondaryAccountKP *keypair.Full
+	RPCService         services.RPCService
 }
 
 // preparePaymentOp prepares a payment operation XDR and encodes it to base64.
-func (f *Fixtures) preparePaymentOp() (string, error) {
+func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	paymentOp := &txnbuild.Payment{
-		SourceAccount: f.SourceAccountKP.Address(),
-		Destination:   f.SourceAccountKP.Address(),
+		SourceAccount: f.PrimaryAccountKP.Address(),
+		Destination:   f.PrimaryAccountKP.Address(),
 		Amount:        "10",
 		Asset:         txnbuild.NativeAsset{},
 	}
 
 	paymentOpXDR, err := paymentOp.BuildXDR()
 	if err != nil {
-		return "", fmt.Errorf("building payment operation XDR: %w", err)
+		return "", nil, fmt.Errorf("building payment operation XDR: %w", err)
 	}
 	b64OpXDR, err := utils.OperationXDRToBase64(paymentOpXDR)
 	if err != nil {
-		return "", fmt.Errorf("encoding payment operation XDR to base64: %w", err)
+		return "", nil, fmt.Errorf("encoding payment operation XDR to base64: %w", err)
 	}
 
-	return b64OpXDR, nil
+	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
 }
 
 // prepareInvokeContractOp prepares an invokeContractOp, wither with a signed auth entry or not.
-func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountAddress string) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
-	invokeXLMTransferSAC, err := f.createInvokeContractOp(sourceAccountAddress)
+func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP *keypair.Full) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	invokeXLMTransferSAC, err := f.createInvokeContractOp(sourceAccountKP)
 	if err != nil {
-		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
-	return f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC)
+	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("preparing simulate and sign contract operation: %w", err)
+	}
+
+	return opXDR, NewSet(sourceAccountKP), simulationResponse, nil
 }
 
 // createInvokeContractOp creates an invokeContractOp.
-func (f *Fixtures) createInvokeContractOp(sourceAccountAddress string) (txnbuild.InvokeHostFunction, error) {
+func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbuild.InvokeHostFunction, error) {
+	opSourceAccount := ""
+	if sourceAccountKP != nil {
+		opSourceAccount = sourceAccountKP.Address()
+	}
+
 	var nativeAssetContractID xdr.Hash
 	var err error
 	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(f.NetworkPassphrase)
@@ -67,14 +78,14 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountAddress string) (txnbuild
 		return txnbuild.InvokeHostFunction{}, fmt.Errorf("getting native asset contract ID: %w", err)
 	}
 
-	fromSCAddress, err := SCAccountID(f.SourceAccountKP.Address())
+	fromSCAddress, err := SCAccountID(f.PrimaryAccountKP.Address())
 	if err != nil {
 		return txnbuild.InvokeHostFunction{}, fmt.Errorf("marshalling from address: %w", err)
 	}
 	toSCAddress := fromSCAddress
 
 	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
-		SourceAccount: sourceAccountAddress,
+		SourceAccount: opSourceAccount,
 		// The HostFunction must be constructed using `xdr` objects, unlike other operations that utilize `txnbuild` objects or native Go types.
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
@@ -204,7 +215,7 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 			if err != nil {
 				return txnbuild.InvokeHostFunction{}, fmt.Errorf("generating random nonce: %w", err)
 			}
-			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.SourceAccountKP); err != nil {
+			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.PrimaryAccountKP); err != nil {
 				var unsupportedCredentialsTypeError *sorobanauth.UnsupportedCredentialsTypeError
 				if errors.As(err, &unsupportedCredentialsTypeError) {
 					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]", i, j)
@@ -227,6 +238,7 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 
 type UseCase struct {
 	name                     string
+	txSigners                *Set[*keypair.Full]
 	requestedTransaction     types.Transaction
 	builtTransactionXDR      string
 	signedTransactionXDR     string
@@ -239,33 +251,36 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 	timeoutSeconds := int64(txTimeout.Seconds())
 
 	// PaymentOp
-	if paymentOpXDR, err := f.preparePaymentOp(); err != nil {
+	if paymentOpXDR, txSigners, err := f.preparePaymentOp(); err != nil {
 		return nil, fmt.Errorf("preparing payment operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
 			name:                 "Classic/paymentOp",
+			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{paymentOpXDR}, Timeout: timeoutSeconds},
 		})
 	}
 
 	// InvokeContractOp w/ SorobanAuth
-	invokeContractOp, simulationResponse, err := f.prepareInvokeContractOp(ctx, "")
+	invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
 			name:                 "Soroban/invokeContractOp/SorobanAuth",
+			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
 		})
 	}
 
 	// InvokeContractOp w/ SourceAccountAuth
-	invokeContractOp, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SourceAccountKP.Address())
+	invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
 			name:                 "Soroban/invokeContractOp/SourceAccountAuth",
+			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
 		})
 	}

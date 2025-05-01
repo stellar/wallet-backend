@@ -29,7 +29,8 @@ type IntegrationTestsOptions struct {
 	BaseFee                            int64
 	NetworkPassphrase                  string
 	RPCService                         services.RPCService
-	SourceAccountKP                    *keypair.Full
+	PrimaryAccountKP                   *keypair.Full
+	SecondaryAccountKP                 *keypair.Full
 	WBClient                           *wbclient.Client
 	DBConnectionPool                   db.ConnectionPool
 	DistributionAccountSignatureClient signing.SignatureClient
@@ -43,7 +44,7 @@ func (o *IntegrationTestsOptions) Validate() error {
 		{o.BaseFee < int64(txnbuild.MinBaseFee), errors.New("base fee is lower than the minimum network fee")},
 		{o.NetworkPassphrase == "", errors.New("network passphrase cannot be empty")},
 		{o.RPCService == nil, errors.New("rpc client cannot be nil")},
-		{o.SourceAccountKP == nil, errors.New("source account keypair cannot be nil")},
+		{o.PrimaryAccountKP == nil, errors.New("source account keypair cannot be nil")},
 		{o.WBClient == nil, errors.New("wallet backend client cannot be nil")},
 		{o.DBConnectionPool == nil, errors.New("db connection pool cannot be nil")},
 		{o.DistributionAccountSignatureClient == nil, errors.New("distribution account signature client cannot be nil")},
@@ -62,7 +63,8 @@ type IntegrationTests struct {
 	BaseFee                            int64
 	NetworkPassphrase                  string
 	RPCService                         services.RPCService
-	SourceAccountKP                    *keypair.Full
+	PrimaryAccountKP                   *keypair.Full
+	SecondaryAccountKP                 *keypair.Full
 	WBClient                           *wbclient.Client
 	ChannelAccountStore                store.ChannelAccountStore
 	DBConnectionPool                   db.ConnectionPool
@@ -110,7 +112,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 3: sign transactions with the SourceAccountKP
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
-	signedTxXDRs, err := it.signTransactions(ctx, builtTxResponse)
+	signedTxXDRs, err := it.signTransactions(ctx, builtTxResponse, useCases)
 	if err != nil {
 		return fmt.Errorf("signing transactions: %w", err)
 	}
@@ -223,7 +225,7 @@ func RenderResult(useCase UseCase, status entities.RPCStatus, additionalInfo str
 	return fmt.Sprintf(format, args...)
 }
 
-func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse) ([]string, error) {
+func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse, useCases []UseCase) ([]string, error) {
 	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
 
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
@@ -232,13 +234,14 @@ func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxRespons
 			return nil, fmt.Errorf("parsing transaction from XDR: %w", err)
 		}
 
-		if utils.IsSorobanTxnbuildOp(tx.Operations()[0]) && tx.Operations()[0].GetSourceAccount() != it.SourceAccountKP.Address() {
-			log.Ctx(ctx).Warnf("Skipping signature for Soroban transaction at index %d", i)
+		txSigners := useCases[i].txSigners.Slice()
+		if len(txSigners) == 0 {
+			log.Ctx(ctx).Warnf("Skipping signature for transaction at index %d", i)
 			signedTxXDRs[i] = txXDR
 			continue
 		}
 
-		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
+		signedTx, err := tx.Sign(it.NetworkPassphrase, txSigners...)
 		if err != nil {
 			return nil, fmt.Errorf("signing transaction: %w", err)
 		}
@@ -328,16 +331,18 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
 	fixtures := Fixtures{
-		NetworkPassphrase: opts.NetworkPassphrase,
-		SourceAccountKP:   opts.SourceAccountKP,
-		RPCService:        opts.RPCService,
+		NetworkPassphrase:  opts.NetworkPassphrase,
+		PrimaryAccountKP:   opts.PrimaryAccountKP,
+		SecondaryAccountKP: opts.SecondaryAccountKP,
+		RPCService:         opts.RPCService,
 	}
 
 	return &IntegrationTests{
 		BaseFee:                            opts.BaseFee,
 		NetworkPassphrase:                  opts.NetworkPassphrase,
 		RPCService:                         opts.RPCService,
-		SourceAccountKP:                    opts.SourceAccountKP,
+		PrimaryAccountKP:                   opts.PrimaryAccountKP,
+		SecondaryAccountKP:                 opts.SecondaryAccountKP,
 		WBClient:                           opts.WBClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
 		DBConnectionPool:                   opts.DBConnectionPool,

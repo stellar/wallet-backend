@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -89,4 +90,30 @@ func SCAccountID(address string) (xdr.ScAddress, error) {
 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
 		AccountId: &accountID,
 	}, nil
+}
+
+type Set[T comparable] struct {
+	set map[T]struct{}
+}
+
+func NewSet[T comparable](values ...T) *Set[T] {
+	set := &Set[T]{set: make(map[T]struct{})}
+	for _, value := range values {
+		set.Add(value)
+	}
+	return set
+}
+
+func (s *Set[T]) Add(value T) {
+	if !reflect.ValueOf(&value).Elem().IsZero() {
+		s.set[value] = struct{}{}
+	}
+}
+
+func (s *Set[T]) Slice() []T {
+	slice := make([]T, 0, len(s.set))
+	for value := range s.set {
+		slice = append(slice, value)
+	}
+	return slice
 }
