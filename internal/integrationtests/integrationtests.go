@@ -155,6 +155,11 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	for i, useCase := range useCases {
 		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.feeBumpedTransactionXDR)
 
+		if useCase.delayTime > 0 {
+			log.Ctx(ctx).Infof("⏳ %s delaying for %s", useCase.Name(), useCase.delayTime)
+			time.Sleep(useCase.delayTime)
+		}
+
 		if res, err := it.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR); err != nil {
 			return fmt.Errorf("sending transaction for %s: %w", useCase.Name(), err)
 		} else {
@@ -184,11 +189,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if txResult.Status == entities.SuccessStatus {
 			log.Ctx(ctx).Info(RenderResult(useCase, txResult.Status, ""))
 		} else {
-			errResult, err := tss.UnmarshallTransactionResultXDR(txResult.ErrorResultXDR)
-			if err != nil {
-				return fmt.Errorf("unmarshalling transaction result XDR get %+v: %w", txResult, err)
-			}
-			log.Ctx(ctx).Error(RenderResult(useCase, txResult.Status, fmt.Sprintf("%+v", errResult)))
+			log.Ctx(ctx).Error(RenderResult(useCase, txResult.Status, fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR)))
 		}
 	}
 

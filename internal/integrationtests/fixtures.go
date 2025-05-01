@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
@@ -50,6 +51,67 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	}
 
 	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
+}
+
+// prepareSponsoredAccountCreationOps creates an account using sponsored reserves and adds a (bonus) manageData
+// operation. The operations used here are:
+// - BeginSponsoringFutureReserves
+// - CreateAccount
+// - ManageData
+// - EndSponsoringFutureReserves
+func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full) ([]string, *Set[*keypair.Full], error) {
+	operations := []txnbuild.Operation{
+		&txnbuild.BeginSponsoringFutureReserves{
+			SponsoredID:   newAccountKP.Address(),
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.CreateAccount{
+			Amount:        "0",
+			Destination:   newAccountKP.Address(),
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.ManageData{
+			Name:          "foo",
+			Value:         []byte("bar"),
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.EndSponsoringFutureReserves{
+			SourceAccount: newAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, newAccountKP), nil
+}
+
+// prepareAccountMergeOp prepares an account merge operation XDR and encodes it to base64.
+func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *Set[*keypair.Full], error) {
+	op := &txnbuild.AccountMerge{
+		SourceAccount: newAccountKP.Address(),
+		Destination:   f.PrimaryAccountKP.Address(),
+	}
+
+	opXDR, err := op.BuildXDR()
+	if err != nil {
+		return "", nil, fmt.Errorf("building account merge operation XDR: %w", err)
+	}
+	b64OpXDR, err := utils.OperationXDRToBase64(opXDR)
+	if err != nil {
+		return "", nil, fmt.Errorf("encoding account merge operation XDR to base64: %w", err)
+	}
+
+	return b64OpXDR, NewSet(newAccountKP), nil
 }
 
 // prepareInvokeContractOp prepares an invokeContractOp, wither with a signed auth entry or not.
@@ -249,6 +311,7 @@ const (
 type UseCase struct {
 	name                     string
 	category                 category
+	delayTime                time.Duration
 	txSigners                *Set[*keypair.Full]
 	requestedTransaction     types.Transaction
 	builtTransactionXDR      string
@@ -288,7 +351,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, Timeout: timeoutSeconds, SimulationResult: simulationResponse},
 		})
 	}
 
@@ -301,7 +364,33 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, Timeout: timeoutSeconds, SimulationResult: simulationResponse},
+		})
+	}
+
+	newAccountKP := keypair.MustRandom()
+	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps(newAccountKP)
+	if err != nil {
+		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
+	} else {
+		useCases = append(useCases, UseCase{
+			name:                 "sponsoredAccountCreationOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: sponsoredAccountCreationOps, Timeout: timeoutSeconds},
+		})
+	}
+
+	accountMergeOp, txSigners, err := f.prepareAccountMergeOp(newAccountKP)
+	if err != nil {
+		return nil, fmt.Errorf("preparing account merge operation: %w", err)
+	} else {
+		useCases = append(useCases, UseCase{
+			name:                 "accountMergeOp",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			delayTime:            10 * time.Second,
+			requestedTransaction: types.Transaction{Operations: []string{accountMergeOp}, Timeout: timeoutSeconds},
 		})
 	}
 
