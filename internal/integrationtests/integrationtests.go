@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -86,7 +87,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{}}
 	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
 	for i, useCase := range useCases {
-		log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.name)
+		log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.Name())
 		buildTxRequest.Transactions = append(buildTxRequest.Transactions, useCase.requestedTransaction)
 	}
 
@@ -105,7 +106,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Debugf("builtTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("%s's builtTransactionXDR: %s", useCases[i].Name(), txString)
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
@@ -128,14 +129,14 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if innerErr != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
-		log.Ctx(ctx).Debugf("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		useCases[i].feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
+		log.Ctx(ctx).Debugf("✅ %s's feeBumpTxResponse: %+v", useCases[i].Name(), feeBumpTxResponse)
 
 		txString, innerErr := txString(feeBumpTxResponse.Transaction)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Debugf("feeBumpedTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("%s feeBumpedTransactionXDR: %s", useCases[i].Name(), txString)
 
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
@@ -152,19 +153,19 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
 	for i, useCase := range useCases {
-		log.Ctx(ctx).Debugf("Submitting transaction %d: %s", i, useCase.feeBumpedTransactionXDR)
+		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.feeBumpedTransactionXDR)
 
 		if res, err := it.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR); err != nil {
-			return fmt.Errorf("sending transaction %d: %w", i, err)
+			return fmt.Errorf("sending transaction for %s: %w", useCase.Name(), err)
 		} else {
-			log.Ctx(ctx).Debugf("✅ submittedTx[%d]: %+v", i, res)
+			log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
 			if res.Status != entities.PendingStatus {
 				errResult, err := tss.UnmarshallTransactionResultXDR(res.ErrorResultXDR)
 				if err != nil {
-					return fmt.Errorf("unmarshalling transaction result XDR: %w", err)
+					return fmt.Errorf("unmarshalling transaction result XDR after submission: %w", err)
 				}
 
-				return fmt.Errorf("transaction %d with hash %s failed with status %s, errorResultXdr=%s, errorResult=%+v, innerResultPair=%+v", i, res.Hash, res.Status, res.ErrorResultXDR, errResult, errResult.Result.InnerResultPair)
+				return fmt.Errorf("%s's transaction with hash %s failed with status %s, errorResultXdr=%s, errorResult=%+v, innerResultPair=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR, errResult, errResult.Result.InnerResultPair)
 			}
 			useCases[i].feeBumpedTransactionHash = res.Hash
 		}
@@ -174,11 +175,10 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
 	const retryDelay = 3 * time.Second
-	for i, useCase := range useCases {
-		prefix := fmt.Sprintf("[%d - name=%s,hash=%s]", i, useCase.name, useCase.feeBumpedTransactionHash)
+	for _, useCase := range useCases {
 		txResult, err := WaitForTransactionConfirmation(ctx, it.RPCService, useCase.feeBumpedTransactionHash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
 		if err != nil {
-			log.Ctx(ctx).Errorf("%s waiting for transaction confirmation: %v", prefix, err)
+			log.Ctx(ctx).Errorf("[useCase=%s,hash=%s] waiting for transaction confirmation: %v", useCase.Name(), useCase.feeBumpedTransactionHash, err)
 		}
 
 		if txResult.Status == entities.SuccessStatus {
@@ -186,7 +186,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		} else {
 			errResult, err := tss.UnmarshallTransactionResultXDR(txResult.ErrorResultXDR)
 			if err != nil {
-				return fmt.Errorf("unmarshalling transaction result XDR: %w", err)
+				return fmt.Errorf("unmarshalling transaction result XDR get %+v: %w", txResult, err)
 			}
 			log.Ctx(ctx).Error(RenderResult(useCase, txResult.Status, fmt.Sprintf("%+v", errResult)))
 		}
@@ -204,25 +204,18 @@ func RenderResult(useCase UseCase, status entities.RPCStatus, additionalInfo str
 	}
 	statusText := fmt.Sprintf("%s %s", statusEmoji, status)
 
-	fillSpaces := func(str string, length int) string {
-		return fmt.Sprintf("%-*s", length, str)
-	}
+	var builder strings.Builder
 
-	format := `
-	╔═══════════════════════════════════════════════════════════════════════════════╗
-	║ Use Case: %s║
-	╠═══════════════════════════════════════════════════════════════════════════════╣
-	║ Status:   %s║
-	║ Network:                                                                      ║
-	║ Hash:     %s║
-	╚═══════════════════════════════════════════════════════════════════════════════╝`
-	args := []any{fillSpaces(useCase.name, 68), fillSpaces(statusText, 67), fillSpaces(useCase.feeBumpedTransactionHash, 68)}
+	builder.WriteString(statusText)
+	builder.WriteString(fmt.Sprintf(" {Use Case: %s", useCase.name))
+	builder.WriteString(fmt.Sprintf(", Category: %s", useCase.category))
+	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.feeBumpedTransactionHash))
 	if additionalInfo != "" {
-		format += "\n\t%+v\n\n"
-		args = append(args, additionalInfo)
+		builder.WriteString(fmt.Sprintf(", Additional Info: %+v", additionalInfo))
 	}
+	builder.WriteString("}")
 
-	return fmt.Sprintf(format, args...)
+	return builder.String()
 }
 
 func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse, useCases []UseCase) ([]string, error) {
@@ -236,7 +229,7 @@ func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxRespons
 
 		txSigners := useCases[i].txSigners.Slice()
 		if len(txSigners) == 0 {
-			log.Ctx(ctx).Warnf("Skipping signature for transaction at index %d", i)
+			log.Ctx(ctx).Warnf("Skipping transaction signature for use case %s", useCases[i].Name())
 			signedTxXDRs[i] = txXDR
 			continue
 		}

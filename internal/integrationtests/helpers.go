@@ -52,7 +52,7 @@ func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPC
 	outerErr := retry.Do(
 		func() error {
 			attemptsCount++
-			log.Ctx(ctx).Infof("\t🔁 attemptsCount: %d", attemptsCount)
+			log.Ctx(ctx).Infof("🔁 attemptsCount: %d", attemptsCount)
 			txResult, err = rpcService.GetTransaction(hash)
 			if err != nil {
 				return fmt.Errorf("getting transaction with hash %q: %w", hash, err)

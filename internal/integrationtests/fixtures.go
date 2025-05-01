@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -236,14 +239,28 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 	return op, nil
 }
 
+type category string
+
+const (
+	categoryStellarClassic category = "STELLAR_CLASSIC"
+	categorySoroban        category = "SOROBAN"
+)
+
 type UseCase struct {
 	name                     string
+	category                 category
 	txSigners                *Set[*keypair.Full]
 	requestedTransaction     types.Transaction
 	builtTransactionXDR      string
 	signedTransactionXDR     string
 	feeBumpedTransactionXDR  string
 	feeBumpedTransactionHash string
+}
+
+func (u *UseCase) Name() string {
+	category := strings.ReplaceAll(string(u.category), "_", "")
+	category = cases.Title(language.English).String(category)
+	return fmt.Sprintf("%s/%s", category, u.name)
 }
 
 func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
@@ -255,7 +272,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 		return nil, fmt.Errorf("preparing payment operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
-			name:                 "Classic/paymentOp",
+			name:                 "paymentOp",
+			category:             categoryStellarClassic,
 			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{paymentOpXDR}, Timeout: timeoutSeconds},
 		})
@@ -267,7 +285,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
-			name:                 "Soroban/invokeContractOp/SorobanAuth",
+			name:                 "invokeContractOp/SorobanAuth",
+			category:             categorySoroban,
 			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
 		})
@@ -279,7 +298,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
 		useCases = append(useCases, UseCase{
-			name:                 "Soroban/invokeContractOp/SourceAccountAuth",
+			name:                 "invokeContractOp/SourceAccountAuth",
+			category:             categoryStellarClassic,
 			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, SimulationResult: simulationResponse, Timeout: timeoutSeconds},
 		})
