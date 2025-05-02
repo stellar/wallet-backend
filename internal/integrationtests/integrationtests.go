@@ -79,9 +79,17 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
+	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
 	}
+
+	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp()
+	if err != nil {
+		return fmt.Errorf("preparing invoke contract ops: %w", err)
+	}
+	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
+	log.Ctx(ctx).Infof("👀 simResultJSON: %+v", simResultJSON)
 
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
@@ -251,6 +259,12 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 
 	go opts.RPCService.TrackRPCServiceHealth(ctx)
 
+	fixtures := Fixtures{
+		NetworkPassphrase: opts.NetworkPassphrase,
+		SourceAccountKP:   opts.SourceAccountKP,
+		RPCService:        opts.RPCService,
+	}
+
 	return &IntegrationTests{
 		BaseFee:                            opts.BaseFee,
 		NetworkPassphrase:                  opts.NetworkPassphrase,
@@ -260,8 +274,6 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		ChannelAccountStore:                store.NewChannelAccountModel(opts.DBConnectionPool),
 		DBConnectionPool:                   opts.DBConnectionPool,
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
-		Fixtures: Fixtures{
-			SourceAccountKP: opts.SourceAccountKP,
-		},
+		Fixtures:                           fixtures,
 	}, nil
 }

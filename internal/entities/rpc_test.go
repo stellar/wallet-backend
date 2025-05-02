@@ -1,0 +1,128 @@
+package entities
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/require"
+)
+
+func Test_RPCSimulateTransactionResult_JSON_success(t *testing.T) {
+	const resultJSON = `{
+		"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=",
+		"events": [
+			"AAAAAQAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAKAAAAAAAAAAAAAAAAAJiWgA==",
+			"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAMAAAAPAAAAB2ZuX2NhbGwAAAAADQAAACAvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAA8AAAAMX19jaGVja19hdXRoAAAAEAAAAAEAAAADAAAADQAAACAxIzp5Z9rHxuL2zPLeC4cem6Phs9cZLXvifVfl4OHopAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAEAAAAAEAAAABAAAAEAAAAAEAAAACAAAADwAAAAhDb250cmFjdAAAABEAAAABAAAAAwAAAA8AAAAEYXJncwAAABAAAAABAAAAAwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAACgAAAAAAAAAAAAAAAACYloAAAAAPAAAACGNvbnRyYWN0AAAAEgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAA8AAAAHZm5fbmFtZQAAAAAPAAAACHRyYW5zZmVy",
+			"AAAAAQAAAAAAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAMX19jaGVja19hdXRoAAAAAQ==",
+			"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAABAAAAAAAAAAQAAAAPAAAACHRyYW5zZmVyAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAAOAAAABm5hdGl2ZQAAAAAACgAAAAAAAAAAAAAAAACYloA=",
+			"AAAAAQAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAACWZuX3JldHVybgAAAAAAAA8AAAAIdHJhbnNmZXIAAAAB"
+		],
+		"minResourceFee": "478428",
+		"results": [
+			{
+				"auth": [
+					"AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA=="
+				],
+				"xdr": "AAAAAQ=="
+			}
+		],
+		"stateChanges": [
+			{
+				"type": "created",
+				"key": "AAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAA=",
+				"before": null,
+				"after": "AAAAAAAAAAYAAAAAAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFWrsHHbSHJG0AAAAAAAAAAEAAAAA"
+			},
+			{
+				"type": "updated",
+				"key": "AAAABgAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAABAAAAABAAAAAgAAAA8AAAAHQmFsYW5jZQAAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAAQ==",
+				"before": "AAlT0wAAAAYAAAAAAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABAAAAEQAAAAEAAAADAAAADwAAAAZhbW91bnQAAAAAAAoAAAAAAAAAAAAAAAAGjneAAAAADwAAAAphdXRob3JpemVkAAAAAAAAAAAAAQAAAA8AAAAIY2xhd2JhY2sAAAAAAAAAAAAAAAA=",
+				"after": "AAlT0wAAAAYAAAAAAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABAAAAEQAAAAEAAAADAAAADwAAAAZhbW91bnQAAAAAAAoAAAAAAAAAAAAAAAAGjneAAAAADwAAAAphdXRob3JpemVkAAAAAAAAAAAAAQAAAA8AAAAIY2xhd2JhY2sAAAAAAAAAAAAAAAA="
+			}
+		],
+		"latestLedger": 621041,
+		"restorePreamble": {
+			"minResourceFee": "478428",
+			"transactionData": "AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw="
+		}
+	}`
+
+	t.Run("UnmarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		// Assert flat (non-nested) fields
+		require.Equal(t, int64(621041), result.LatestLedger)
+		require.Equal(t, "478428", result.MinResourceFee)
+		wantTxData := xdr.SorobanTransactionData{}
+		err = xdr.SafeUnmarshalBase64("AAAAAAAAAAMAAAAGAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAFAAAAAEAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAFAAAAAEAAAAH19EQnu7DQcCAFCPhrYa4QCddH5+GrI4TDOceUD3GshcAAAACAAAABgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAABVq7Bx20hyRtAAAAAAAAAAGAAAAAdeSi3LCcDzP6vfrn/TvTVBKVai5efybRQ6iyEK00c5hAAAAEAAAAAEAAAACAAAADwAAAAdCYWxhbmNlAAAAABIAAAABLx4UTGcjMonHzsjikdA4zsCuWYBuWd9OsccLO6goil8AAAABACwRSwAAKsQAAAEoAAAAAAAHTNw=", &wantTxData)
+		require.NoError(t, err)
+		require.Equal(t, wantTxData, result.TransactionData)
+
+		// Assert results
+		require.Len(t, result.Results, 1)
+		require.Equal(t, xdr.ScVal{Type: xdr.ScValTypeScvVoid}, result.Results[0].XDR)
+		require.Len(t, result.Results[0].Auth, 1)
+		wantAuthEntry := xdr.SorobanAuthorizationEntry{}
+		err = xdr.SafeUnmarshalBase64("AAAAAQAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKX2rsHHbSHJG0AB++cAAAABAAAAABAAAAAQAAABEAAAABAAAAAgAAAA8AAAAKcHVibGljX2tleQAAAAAADQAAACAv8qggHT54FDsmFiw8qkXOT8kyCK/xCNetbJ66m6zs4gAAAA8AAAAJc2lnbmF0dXJlAAAAAAAADQAAAEDvh1BPg2Hsjrxax2R3O776ouwU/OvW6ac3+id9lYxDNIL575GAzoWcOvvOHuFCI0tXxiKkK1BSa62QaLRDh5gOAAAAAAAAAAHXkotywnA8z+r365/0701QSlWouXn8m0UOoshCtNHOYQAAAAh0cmFuc2ZlcgAAAAMAAAASAAAAAS8eFExnIzKJx87I4pHQOM7ArlmAblnfTrHHCzuoKIpfAAAAEgAAAAEvHhRMZyMyicfOyOKR0DjOwK5ZgG5Z306xxws7qCiKXwAAAAoAAAAAAAAAAAAAAAAAmJaAAAAAAA==", &wantAuthEntry)
+		require.NoError(t, err)
+		require.Equal(t, wantAuthEntry, result.Results[0].Auth[0])
+
+		// Assert restorePreamble
+		require.Equal(t, wantTxData, result.RestorePreamble.TransactionData)
+		require.Equal(t, "478428", result.RestorePreamble.MinResourceFee)
+	})
+
+	t.Run("MarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		marshaled, err := json.Marshal(&result)
+		require.NoError(t, err)
+		require.JSONEq(t, resultJSON, string(marshaled))
+	})
+}
+
+func Test_RPCSimulateTransactionResult_JSON_error(t *testing.T) {
+	const resultJSON = `{
+		"error": "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n",
+		"events": [
+			"AAAAAAAAAAAAAAAAAAAAAgAAAAAAAAADAAAADwAAAAdmbl9jYWxsAAAAAA0AAAAg15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAPAAAACHRyYW5zZmVyAAAAEAAAAAEAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEA",
+			"AAAAAAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAACAAAAAAAAAAIAAAAPAAAABWVycm9yAAAAAAAAAgAAAAAAAAAGAAAAEAAAAAEAAAACAAAADgAAABhhY2NvdW50IGVudHJ5IGlzIG1pc3NpbmcAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQ=="
+		],
+		"latestLedger": 622844
+	}`
+
+	t.Run("UnmarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		// Assert flat (non-nested) fields
+		require.Equal(t, int64(622844), result.LatestLedger)
+		require.Empty(t, result.MinResourceFee)
+		require.Empty(t, result.TransactionData)
+
+		// Assert results
+		require.Empty(t, result.Results)
+
+		// Assert error
+		require.Equal(t, "HostError: Error(Contract, #6)\n\nEvent log (newest first):\n   0: [Diagnostic Event] contract:CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, topics:[error, Error(Contract, #6)], data:[\"account entry is missing\", GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO]\n   1: [Diagnostic Event] topics:[fn_call, CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, transfer], data:[GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO, 100000000]\n", result.Error)
+
+		// Assert restorePreamble
+		require.Empty(t, result.RestorePreamble)
+	})
+
+	t.Run("MarshalJSON", func(t *testing.T) {
+		var result RPCSimulateTransactionResult
+		err := json.Unmarshal([]byte(resultJSON), &result)
+		require.NoError(t, err)
+
+		marshaled, err := json.Marshal(&result)
+		require.NoError(t, err)
+		require.JSONEq(t, resultJSON, string(marshaled))
+	})
+}

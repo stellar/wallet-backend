@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -31,6 +32,7 @@ type RPCService interface {
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
 	TrackRPCServiceHealth(ctx context.Context)
+	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 }
 
 type rpcService struct {
@@ -157,6 +159,21 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 	return result, nil
 }
 
+func (r *rpcService) SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error) {
+	resultBytes, err := r.sendRPCRequest("simulateTransaction", entities.RPCParams{Transaction: transactionXDR, ResourceConfig: resourceConfig})
+	if err != nil {
+		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("sending simulateTransaction request: %w", err)
+	}
+
+	var result entities.RPCSimulateTransactionResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("parsing simulateTransaction result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
 func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	keyXdr, err := utils.GetAccountLedgerKey(address)
 	if err != nil {
@@ -169,10 +186,13 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	if len(result.Entries) == 0 {
 		return 0, fmt.Errorf("%w: entry not found for account public key", ErrAccountNotFound)
 	}
-	accountEntry, err := utils.GetAccountFromLedgerEntry(result.Entries[0])
+
+	var ledgerEntryData xdr.LedgerEntryData
+	err = xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &ledgerEntryData)
 	if err != nil {
 		return 0, fmt.Errorf("decoding account entry for account public key: %w", err)
 	}
+	accountEntry := ledgerEntryData.MustAccount()
 	return int64(accountEntry.SeqNum), nil
 }
 
