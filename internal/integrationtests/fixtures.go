@@ -25,6 +25,213 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
+// Tested
+// --- Classic:
+// &txnbuild.Payment{},
+// &txnbuild.CreateAccount{},
+// &txnbuild.AccountMerge{},
+// &txnbuild.BeginSponsoringFutureReserves{},
+// &txnbuild.EndSponsoringFutureReserves{},
+// &txnbuild.ManageData{},
+// &txnbuild.ChangeTrust{},
+// &txnbuild.CreatePassiveSellOffer{},
+// &txnbuild.ManageSellOffer{},
+// &txnbuild.PathPaymentStrictReceive{},
+// &txnbuild.PathPaymentStrictSend{},
+// &txnbuild.ManageBuyOffer{},
+// &txnbuild.SetOptions{},
+// &txnbuild.Clawback{},
+// &txnbuild.SetTrustLineFlags{},
+// --- Soroban:
+// &txnbuild.InvokeHostFunction{},
+
+// Missing
+// --- Classic:
+// &txnbuild.ClawbackClaimableBalance{},
+// &txnbuild.LiquidityPoolDeposit{},
+// &txnbuild.LiquidityPoolWithdraw{},
+// &txnbuild.CreateClaimableBalance{},
+// &txnbuild.ClaimClaimableBalance{},
+// &txnbuild.RevokeSponsorship{},
+// --- Soroban:
+// &txnbuild.ExtendFootprintTtl{},
+// &txnbuild.RestoreFootprint{},
+
+func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "CUSTOM3",
+	}
+
+	operations := []txnbuild.Operation{
+		// Prepare issuer to be a SEP-8 auth required issuer
+		&txnbuild.SetOptions{
+			SetFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Add Trustline
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Sandwitch authorization to send funds to the secondary account
+		&txnbuild.SetTrustLineFlags{
+			Trustor: f.SecondaryAccountKP.Address(),
+			Asset:   customAsset,
+			SetFlags: []txnbuild.TrustLineFlag{
+				txnbuild.TrustLineAuthorized,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.Payment{
+			Destination:   f.SecondaryAccountKP.Address(),
+			Amount:        "1000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.SetTrustLineFlags{
+			Trustor: f.SecondaryAccountKP.Address(),
+			Asset:   customAsset,
+			ClearFlags: []txnbuild.TrustLineFlag{
+				txnbuild.TrustLineAuthorized,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Clawback the funds
+		&txnbuild.Clawback{
+			From:          f.SecondaryAccountKP.Address(),
+			Amount:        "1000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Remove Trustline
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Stop being a SEP-8 auth required issuer
+		&txnbuild.SetOptions{
+			ClearFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
+func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "CUSTOM4",
+	}
+
+	operations := []txnbuild.Operation{
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		&txnbuild.Payment{
+			Destination:   f.SecondaryAccountKP.Address(),
+			Amount:        "3000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		&txnbuild.CreatePassiveSellOffer{
+			Selling: xlmAsset,
+			Buying:  customAsset,
+			Amount:  "3",
+			Price: xdr.Price{
+				N: xdr.Int32(1000),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.PathPaymentStrictSend{
+			SendAsset:     customAsset,
+			SendAmount:    "1000",
+			DestAsset:     xlmAsset,
+			DestMin:       "1",
+			Destination:   f.PrimaryAccountKP.Address(),
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.ManageSellOffer{
+			Selling: customAsset,
+			Buying:  xlmAsset,
+			Amount:  "500",
+			Price: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1000),
+			},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.ManageBuyOffer{
+			Selling: customAsset,
+			Buying:  xlmAsset,
+			Amount:  "0.5",
+			Price: xdr.Price{
+				N: xdr.Int32(1000),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.PathPaymentStrictReceive{
+			SendAsset:     customAsset,
+			SendMax:       "1000",
+			DestAsset:     xlmAsset,
+			DestAmount:    "1",
+			Destination:   f.PrimaryAccountKP.Address(),
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			Limit:         "0",
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
 type Fixtures struct {
 	NetworkPassphrase  string
 	PrimaryAccountKP   *keypair.Full
@@ -326,15 +533,15 @@ func (u *UseCase) Name() string {
 	return fmt.Sprintf("%s/%s", category, u.name)
 }
 
-func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
-	useCases := []UseCase{}
+func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
+	useCases := []*UseCase{}
 	timeoutSeconds := int64(txTimeout.Seconds())
 
 	// PaymentOp
 	if paymentOpXDR, txSigners, err := f.preparePaymentOp(); err != nil {
 		return nil, fmt.Errorf("preparing payment operation: %w", err)
 	} else {
-		useCases = append(useCases, UseCase{
+		useCases = append(useCases, &UseCase{
 			name:                 "paymentOp",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
@@ -347,7 +554,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
-		useCases = append(useCases, UseCase{
+		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
 			txSigners:            txSigners,
@@ -360,7 +567,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
-		useCases = append(useCases, UseCase{
+		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
@@ -373,7 +580,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
 	} else {
-		useCases = append(useCases, UseCase{
+		useCases = append(useCases, &UseCase{
 			name:                 "sponsoredAccountCreationOps",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
@@ -381,15 +588,38 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]UseCase, error) {
 		})
 	}
 
+	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "customAssetsOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: customAssetsOps, Timeout: timeoutSeconds},
+		})
+	}
+
+	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing auth required operations: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "authRequiredOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: authRequiredOps, Timeout: timeoutSeconds},
+		})
+	}
 	accountMergeOp, txSigners, err := f.prepareAccountMergeOp(newAccountKP)
 	if err != nil {
 		return nil, fmt.Errorf("preparing account merge operation: %w", err)
 	} else {
-		useCases = append(useCases, UseCase{
+		useCases = append(useCases, &UseCase{
 			name:                 "accountMergeOp",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			delayTime:            10 * time.Second,
+			delayTime:            6 * time.Second,
 			requestedTransaction: types.Transaction{Operations: []string{accountMergeOp}, Timeout: timeoutSeconds},
 		})
 	}

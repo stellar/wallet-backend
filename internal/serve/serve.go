@@ -41,7 +41,6 @@ var blockedOperationTypes = []xdr.OperationType{
 	xdr.OperationTypeLiquidityPoolWithdraw,
 	xdr.OperationTypeLiquidityPoolDeposit,
 	xdr.OperationTypeClawbackClaimableBalance,
-	xdr.OperationTypeClawback,
 	xdr.OperationTypeClaimClaimableBalance,
 	xdr.OperationTypeCreateClaimableBalance,
 	xdr.OperationTypeInflation,

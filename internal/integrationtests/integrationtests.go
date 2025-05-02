@@ -18,13 +18,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-const txTimeout = 30 * time.Second
+const txTimeout = 45 * time.Second
 
 type IntegrationTestsOptions struct {
 	BaseFee                            int64
@@ -84,61 +83,57 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		return fmt.Errorf("preparing use cases: %w", err)
 	}
 
-	buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{}}
 	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
-	for i, useCase := range useCases {
-		log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.Name())
-		buildTxRequest.Transactions = append(buildTxRequest.Transactions, useCase.requestedTransaction)
-	}
 
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
-	builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
-	if err != nil {
-		return fmt.Errorf("calling buildTransactions: %w", err)
-	}
-	log.Ctx(ctx).Debugf("✅ builtTxResponse: %+v", builtTxResponse)
-	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		useCases[i].builtTransactionXDR = txXDR
+	for _, useCase := range useCases {
+		buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{useCase.requestedTransaction}}
+		// for i, useCase := range useCases {
+		// 	log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.Name())
+		// 	buildTxRequest.Transactions = append(buildTxRequest.Transactions, useCase.requestedTransaction)
+		// }
+		builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
+		if err != nil {
+			return fmt.Errorf("calling buildTransactions: %w", err)
+		}
+		log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", useCase.Name(), builtTxResponse)
+		useCase.builtTransactionXDR = builtTxResponse.TransactionXDRs[0]
 
-		txString, innerErr := txString(txXDR)
+		txString, innerErr := txString(useCase.builtTransactionXDR)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Debugf("%s's builtTransactionXDR: %s", useCases[i].Name(), txString)
+		log.Ctx(ctx).Debugf("[%s] builtTransactionXDR: %s", useCase.Name(), txString)
 	}
-	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
+	it.assertBuildTransactionResult(ctx, useCases)
 
 	// Step 3: sign transactions with the SourceAccountKP
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
-	signedTxXDRs, err := it.signTransactions(ctx, builtTxResponse, useCases)
-	if err != nil {
+	if err = it.signTransactions(ctx, useCases); err != nil {
 		return fmt.Errorf("signing transactions: %w", err)
-	}
-	for i := range useCases {
-		useCases[i].signedTransactionXDR = signedTxXDRs[i]
 	}
 
 	// Step 4: call /tx/create-fee-bump for each transaction
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
-	for i, txXDR := range signedTxXDRs {
-		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, txXDR)
+	for _, useCase := range useCases {
+		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, useCase.signedTransactionXDR)
 		if innerErr != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
-		useCases[i].feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
-		log.Ctx(ctx).Debugf("✅ %s's feeBumpTxResponse: %+v", useCases[i].Name(), feeBumpTxResponse)
+		useCase.feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
+		log.Ctx(ctx).Debugf("✅ [%s] feeBumpTxResponse: %+v", useCase.Name(), feeBumpTxResponse)
 
 		txString, innerErr := txString(feeBumpTxResponse.Transaction)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Debugf("%s feeBumpedTransactionXDR: %s", useCases[i].Name(), txString)
+		log.Ctx(ctx).Debugf("✅ [%s] feeBumpedTransactionXDR: %s", useCase.Name(), txString)
 
-		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
+		it.assertFeeBumpTransactionResult(ctx, useCase)
 	}
 
 	// Step 5: wait for RPC to be healthy
@@ -165,12 +160,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		} else {
 			log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
 			if res.Status != entities.PendingStatus {
-				errResult, err := tss.UnmarshallTransactionResultXDR(res.ErrorResultXDR)
-				if err != nil {
-					return fmt.Errorf("unmarshalling transaction result XDR after submission: %w", err)
-				}
-
-				return fmt.Errorf("%s's transaction with hash %s failed with status %s, errorResultXdr=%s, errorResult=%+v, innerResultPair=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR, errResult, errResult.Result.InnerResultPair)
+				return fmt.Errorf("%s's transaction with hash %s failed with status %s, errorResultXdr=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR)
 			}
 			useCases[i].feeBumpedTransactionHash = res.Hash
 		}
@@ -198,10 +188,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	return nil
 }
 
-func RenderResult(useCase UseCase, status entities.RPCStatus, additionalInfo string) string {
+func RenderResult(useCase *UseCase, status entities.RPCStatus, additionalInfo string) string {
 	statusEmoji := "✅"
 	if status == entities.FailedStatus {
 		statusEmoji = "🔴"
+	} else if status == entities.PendingStatus {
+		statusEmoji = "⏳"
 	}
 	statusText := fmt.Sprintf("%s %s", statusEmoji, status)
 
@@ -219,54 +211,51 @@ func RenderResult(useCase UseCase, status entities.RPCStatus, additionalInfo str
 	return builder.String()
 }
 
-func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse, useCases []UseCase) ([]string, error) {
-	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
-
-	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		tx, err := parseTxXDR(txXDR)
+func (it *IntegrationTests) signTransactions(ctx context.Context, useCases []*UseCase) error {
+	for i, useCase := range useCases {
+		tx, err := parseTxXDR(useCase.builtTransactionXDR)
 		if err != nil {
-			return nil, fmt.Errorf("parsing transaction from XDR: %w", err)
+			return fmt.Errorf("parsing transaction from XDR: %w", err)
 		}
 
-		txSigners := useCases[i].txSigners.Slice()
+		txSigners := useCase.txSigners.Slice()
 		if len(txSigners) == 0 {
 			log.Ctx(ctx).Warnf("Skipping transaction signature for use case %s", useCases[i].Name())
-			signedTxXDRs[i] = txXDR
+			useCase.signedTransactionXDR = useCase.builtTransactionXDR
 			continue
 		}
 
 		signedTx, err := tx.Sign(it.NetworkPassphrase, txSigners...)
 		if err != nil {
-			return nil, fmt.Errorf("signing transaction: %w", err)
+			return fmt.Errorf("signing transaction: %w", err)
 		}
-		if signedTxXDRs[i], err = signedTx.Base64(); err != nil {
-			return nil, fmt.Errorf("encoding transaction to base64: %w", err)
+		if useCase.signedTransactionXDR, err = signedTx.Base64(); err != nil {
+			return fmt.Errorf("encoding transaction to base64: %w", err)
 		}
 	}
 
-	return signedTxXDRs, nil
+	return nil
 }
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
-func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, req types.BuildTransactionsRequest, resp types.BuildTransactionsResponse) {
-	assertOrFail(len(req.Transactions) == len(resp.TransactionXDRs), "number of transactions in request and response must be the same")
-
-	for i, respTxXDR := range resp.TransactionXDRs {
+func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, useCases []*UseCase) {
+	for _, useCase := range useCases {
 		// Parse the transaction from the XDR
-		tx, err := parseTxXDR(respTxXDR)
-		assertOrFail(err == nil, "parsing transaction from XDR: %v", err)
+		builtTx, err := parseTxXDR(useCase.builtTransactionXDR)
+		assertOrFail(err == nil, "[%s] parsing transaction from XDR %s: %v", useCase.Name(), useCase.builtTransactionXDR, err)
 
 		// Assert that the tx source account is a channel account
-		txSourceAccount := tx.SourceAccount()
+		txSourceAccount := builtTx.SourceAccount()
 		channelAccount, err := it.ChannelAccountStore.Get(ctx, it.DBConnectionPool, txSourceAccount.GetAccountID())
 		assertOrFail(err == nil, "error getting channel account: %v", err)
 		assertOrFail(channelAccount != nil, "channel account not found in the database")
 		// Assert that the tx is signed by the channel account
-		assertOrFail(len(tx.Signatures()) > 0, "transaction should be signed")
-		assertOrFail(tx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
+		assertOrFail(len(builtTx.Signatures()) > 0, "transaction should be signed")
+		assertOrFail(builtTx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
 
 		// Assert the operations are the same
-		assertOpsMatch(req.Transactions[i].Operations, tx.Operations())
+		rawOps := useCase.requestedTransaction.Operations
+		assertOpsMatch(rawOps, builtTx.Operations())
 	}
 }
 
@@ -293,14 +282,14 @@ func assertOpsMatch(requestOpsXDRs []string, responseOps []txnbuild.Operation) {
 }
 
 // assertFeeBumpTransactionResult asserts that the fee bump transaction result is correct.
-func (it *IntegrationTests) assertFeeBumpTransactionResult(ctx context.Context, req types.CreateFeeBumpTransactionRequest, resp types.TransactionEnvelopeResponse) {
-	feeBumpTx, err := parseFeeBumpTxXDR(resp.Transaction)
+func (it *IntegrationTests) assertFeeBumpTransactionResult(ctx context.Context, useCase *UseCase) {
+	feeBumpTx, err := parseFeeBumpTxXDR(useCase.feeBumpedTransactionXDR)
 	assertOrFail(err == nil, "parsing fee bump transaction from XDR: %v", err)
 
 	// Assert that the inner transaction is the same as the request
 	innerTxXDR, err := feeBumpTx.InnerTransaction().Base64()
 	assertOrFail(err == nil, "error converting inner transaction to base64: %v", err)
-	assertOrFail(innerTxXDR == req.Transaction, "inner transaction in request and response must be the same")
+	assertOrFail(innerTxXDR == useCase.signedTransactionXDR, "inner transaction in request and response must be the same")
 
 	// Assert that the fee bump transaction is signed by the distribution account
 	assertOrFail(len(feeBumpTx.Signatures()) > 0, "fee bump transaction should be signed")
