@@ -34,17 +34,8 @@ import (
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 )
 
-// NOTE: perhaps move this to a environment variable.
-var blockedOperationTypes = []xdr.OperationType{
-	xdr.OperationTypeExtendFootprintTtl,
-	xdr.OperationTypeRestoreFootprint,
-	xdr.OperationTypeLiquidityPoolWithdraw,
-	xdr.OperationTypeLiquidityPoolDeposit,
-	xdr.OperationTypeClawbackClaimableBalance,
-	xdr.OperationTypeClaimClaimableBalance,
-	xdr.OperationTypeCreateClaimableBalance,
-	xdr.OperationTypeInflation,
-}
+// blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
+var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
 	Port                    int
