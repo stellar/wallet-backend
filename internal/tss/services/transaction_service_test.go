@@ -586,7 +586,7 @@ func TestBuildFeeBumpTransaction(t *testing.T) {
 	})
 }
 
-func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
+func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 	const chAccPublicKey = "GAB3B3MFQHSEN4YOTZBKKEL7VTWJQ6SWOWAE36I7CWZP3I3A3VT464KG"
 	txSourceAccount := keypair.MustRandom().Address()
 
@@ -672,7 +672,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 		},
 		{
 			name:    "🟢successful_InvokeHostFunction_largeBaseFee",
-			baseFee: 100 * txnbuild.MinBaseFee,
+			baseFee: 1000000,
 			incomingOps: []txnbuild.Operation{
 				buildInvokeContractOp(t),
 			},
@@ -686,7 +686,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 
 				return txnbuild.TransactionParams{
 					Operations: []txnbuild.Operation{newInvokeContractOp},
-					BaseFee:    initialBuildTxParams.BaseFee / 2,
+					BaseFee:    1000000 - 133301, // original base fee - soroban fee
 					SourceAccount: &txnbuild.SimpleAccount{
 						AccountID: txSourceAccount,
 						Sequence:  1,
@@ -796,7 +796,7 @@ func Test_transactionService_prepareForSorobanTransaction(t *testing.T) {
 				},
 			}
 
-			buildTxParams, err := txService.prepareForSorobanTransaction(context.Background(), chAccPublicKey, incomingBuildTxParams, tc.simulationResponse)
+			buildTxParams, err := txService.adjustParamsForSoroban(context.Background(), chAccPublicKey, incomingBuildTxParams, tc.simulationResponse)
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)

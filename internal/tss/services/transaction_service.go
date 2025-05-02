@@ -130,16 +130,17 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	buildTxParams := txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: channelAccountPublicKey,
-			Sequence:  channelAccountSeq + 1,
+			Sequence:  channelAccountSeq,
 		},
 		Operations: operations,
 		BaseFee:    int64(t.BaseFee),
 		Preconditions: txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
 		},
-		IncrementSequenceNum: false, // <--- using this in combination with seqNum + 1 above because otherwise `handleSorobanFlows` will increment the sequence number again, causing tx_bad_seq.
+		IncrementSequenceNum: true,
 	}
-	buildTxParams, err = t.prepareForSorobanTransaction(ctx, channelAccountPublicKey, buildTxParams, simulationResponse)
+	// Adjust the transaction params with the soroban-related information (the `Ext` field):
+	buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams, simulationResponse)
 	if err != nil {
 		return nil, fmt.Errorf("handling soroban flows: %w", err)
 	}
@@ -166,9 +167,11 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 	return tx, nil
 }
 
-// prepareForSorobanTransaction prepares the transaction params for a soroban transaction.
-// It simulates the transaction to get the transaction data, and then sets the transaction ext.
-func (t *transactionService) prepareForSorobanTransaction(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams, simulationResponse entities.RPCSimulateTransactionResult) (txnbuild.TransactionParams, error) {
+// adjustParamsForSoroban will use the `simulationResponse` to set the `Ext` field in the sorobanOp, in case the transaction
+// is a soroban transaction. The resulting `buildTxParams` will be later used by `txnbuild.NewTransaction` to:
+// - Calculate the total fee.
+// - Include the `Ext` information to the transaction envelope.
+func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAccountPublicKey string, buildTxParams txnbuild.TransactionParams, simulationResponse entities.RPCSimulateTransactionResult) (txnbuild.TransactionParams, error) {
 	// Ensure this is a soroban transaction.
 	operations := buildTxParams.Operations
 	isSoroban := slices.ContainsFunc(operations, func(op txnbuild.Operation) bool {
@@ -195,6 +198,7 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 		return txnbuild.TransactionParams{}, fmt.Errorf("ensuring the channel account is not being misused: %w", err)
 	}
 
+	// 👋 This is the main goal of this method: setting the `Ext` field in the sorobanOp.
 	transactionExt, err := xdr.NewTransactionExt(1, simulationResponse.TransactionData)
 	if err != nil {
 		return txnbuild.TransactionParams{}, fmt.Errorf("unable to create transaction ext: %w", err)
@@ -211,8 +215,11 @@ func (t *transactionService) prepareForSorobanTransaction(_ context.Context, cha
 		return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation type %T is not a supported soroban operation", ErrInvalidArguments, operations[0])
 	}
 
-	// reduce the base fee to 50% since it will be bumped with the resources present in sorobanOp.Ext. If not reduced here, one of the fee bump assertions will fail.
-	buildTxParams.BaseFee = int64(math.Max(float64(buildTxParams.BaseFee/2), float64(txnbuild.MinBaseFee)))
+	// Adjust the base fee to ensure the total fee computed by `txnbuild.NewTransaction` (baseFee+sorobanFee) will stay
+	// within the limits configured by the host.
+	sorobanFee := int64(transactionExt.SorobanData.ResourceFee)
+	adjustedBaseFee := int64(buildTxParams.BaseFee) - sorobanFee
+	buildTxParams.BaseFee = int64(math.Max(float64(adjustedBaseFee), float64(txnbuild.MinBaseFee)))
 
 	return buildTxParams, nil
 }
