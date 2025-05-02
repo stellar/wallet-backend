@@ -78,9 +78,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 1: Prepare transactions locally
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 1️⃣ [Local] Building transactions...")
-	useCases, err := it.Fixtures.PrepareUseCases(ctx)
-	if err != nil {
-		return fmt.Errorf("preparing use cases: %w", err)
+	useCases, outerErr := it.Fixtures.PrepareUseCases(ctx)
+	if outerErr != nil {
+		return fmt.Errorf("preparing use cases: %w", outerErr)
 	}
 
 	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
@@ -90,10 +90,6 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	for _, useCase := range useCases {
 		buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{useCase.requestedTransaction}}
-		// for i, useCase := range useCases {
-		// 	log.Ctx(ctx).Infof("👀 useCase[%d]: %+v", i, useCase.Name())
-		// 	buildTxRequest.Transactions = append(buildTxRequest.Transactions, useCase.requestedTransaction)
-		// }
 		builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
 		if err != nil {
 			return fmt.Errorf("calling buildTransactions: %w", err)
@@ -101,9 +97,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", useCase.Name(), builtTxResponse)
 		useCase.builtTransactionXDR = builtTxResponse.TransactionXDRs[0]
 
-		txString, innerErr := txString(useCase.builtTransactionXDR)
-		if innerErr != nil {
-			return fmt.Errorf("building transaction string: %w", innerErr)
+		txString, err := txString(useCase.builtTransactionXDR)
+		if err != nil {
+			return fmt.Errorf("building transaction string: %w", err)
 		}
 		log.Ctx(ctx).Debugf("[%s] builtTransactionXDR: %s", useCase.Name(), txString)
 	}
@@ -112,7 +108,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 3: sign transactions with the SourceAccountKP
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
-	if err = it.signTransactions(ctx, useCases); err != nil {
+	if err := it.signTransactions(ctx, useCases); err != nil {
 		return fmt.Errorf("signing transactions: %w", err)
 	}
 
@@ -120,16 +116,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
 	for _, useCase := range useCases {
-		feeBumpTxResponse, innerErr := it.WBClient.FeeBumpTransaction(ctx, useCase.signedTransactionXDR)
-		if innerErr != nil {
-			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
+		feeBumpTxResponse, err := it.WBClient.FeeBumpTransaction(ctx, useCase.signedTransactionXDR)
+		if err != nil {
+			return fmt.Errorf("calling feeBumpTransaction: %w", err)
 		}
 		useCase.feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
 		log.Ctx(ctx).Debugf("✅ [%s] feeBumpTxResponse: %+v", useCase.Name(), feeBumpTxResponse)
 
-		txString, innerErr := txString(feeBumpTxResponse.Transaction)
-		if innerErr != nil {
-			return fmt.Errorf("building transaction string: %w", innerErr)
+		txString, err := txString(feeBumpTxResponse.Transaction)
+		if err != nil {
+			return fmt.Errorf("building transaction string: %w", err)
 		}
 		log.Ctx(ctx).Debugf("✅ [%s] feeBumpedTransactionXDR: %s", useCase.Name(), txString)
 
@@ -139,8 +135,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 5: wait for RPC to be healthy
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Waiting for RPC service to become healthy...")
-	err = WaitForRPCHealthAndRun(ctx, it.RPCService, 40*time.Second, nil)
-	if err != nil {
+	if err := WaitForRPCHealthAndRun(ctx, it.RPCService, 40*time.Second, nil); err != nil {
 		return fmt.Errorf("waiting for RPC service to become healthy: %w", err)
 	}
 
@@ -189,11 +184,16 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 }
 
 func RenderResult(useCase *UseCase, status entities.RPCStatus, additionalInfo string) string {
-	statusEmoji := "✅"
-	if status == entities.FailedStatus {
-		statusEmoji = "🔴"
-	} else if status == entities.PendingStatus {
+	var statusEmoji string
+	switch status {
+	case entities.SuccessStatus:
+		statusEmoji = "✅"
+	case entities.FailedStatus:
+		statusEmoji = "❌"
+	case entities.NotFoundStatus:
 		statusEmoji = "⏳"
+	default:
+		statusEmoji = "⁉️"
 	}
 	statusText := fmt.Sprintf("%s %s", statusEmoji, status)
 
