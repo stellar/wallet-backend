@@ -54,7 +54,7 @@ func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR string, s
 		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
-	return f.prepareSimulateAndSignTransaction(ctx, invokeXLMTransferSAC)
+	return f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC)
 }
 
 // createInvokeContractOp creates an invokeContractOp.
@@ -74,6 +74,7 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 
 	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
 		SourceAccount: f.SourceAccountKP.Address(),
+		// The HostFunction must be constructed using `xdr` objects, unlike other operations that utilize `txnbuild` objects or native Go types.
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			InvokeContract: &xdr.InvokeContractArgs{
@@ -106,9 +107,11 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 	return invokeXLMTransferSAC, nil
 }
 
-// prepareSimulateAndSignTransaction simulates a transaction containing a contractInvokeOp, signs its auth entries,
-// and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
+// prepareSimulateAndSignContractOp processes a raw contractInvokeOp and returns a signed version along with its simulation result.
+// The function performs two simulations:
+// 1. The first simulation retrieves the authorization entries and the initial simulation result.
+// 2. The second simulation verifies that the authorization entries are correctly signed and obtains the updated simulation result with the signed entries.
+func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := f.RPCService.GetHealth()
 	if err != nil {
@@ -117,7 +120,7 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txn
 	latestLedger := healthResult.LatestLedger
 
 	// Step 2: Simulate a transaction with a disposable txSourceAccount, to get the auth entries and simulation results.
-	simulationSourceAccKP := keypair.MustRandom()
+	simulationSourceAccKP := keypair.MustRandom() // NOTE: for simulation, the transaction source account doesn't need to be an existing account.
 	simulationSourceAcc := txnbuild.SimpleAccount{AccountID: simulationSourceAccKP.Address(), Sequence: 0}
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &simulationSourceAcc,
@@ -151,7 +154,7 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(ctx context.Context, op txn
 			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("signing auth entries: %w", err)
 		}
 
-		// 4. Simulate the transaction again to get the final simulation result with the signed auth entries.
+		// 4. Re-simulate the transaction to confirm the auth entries are correctly signed and obtain the final simulation result with these signed entries.
 		tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &simulationSourceAcc,
 			Operations:    []txnbuild.Operation{&op},
@@ -214,6 +217,9 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 		simulateResults[i] = updatedResult
 	}
 
+	// SimulateResults is a slice because the original design aimed to support multiple contract invocations within a
+	// single transaction. That plan was later dropped, and now only one contract invocation is allowed per transaction.
+	// The slice structure is just a leftover from that earlier design that never fully landed.
 	op.Auth = simulateResults[0].Auth
 	return op, nil
 }

@@ -231,11 +231,12 @@ func (r RPCRestorePreamble) MarshalJSON() ([]byte, error) {
 }
 
 type RPCSimulateTransactionResult struct {
-	TransactionData xdr.SorobanTransactionData      `json:"transactionData,omitempty"`
-	Events          []string                        `json:"events,omitempty"`
-	MinResourceFee  string                          `json:"minResourceFee,omitempty"`
-	Results         []RPCSimulateHostFunctionResult `json:"results,omitempty"`
-	LatestLedger    int64                           `json:"latestLedger,omitempty"`
+	TransactionData xdr.SorobanTransactionData `json:"transactionData,omitempty"`
+	Events          []string                   `json:"events,omitempty"`
+	MinResourceFee  string                     `json:"minResourceFee,omitempty"`
+	// Results contains the outcome of the simulated invoke contract operation. It will have at most one element if the simulation is successful, or be omitted if the simulation fails.
+	Results      []RPCSimulateHostFunctionResult `json:"results,omitempty"`
+	LatestLedger int64                           `json:"latestLedger,omitempty"`
 	// Error is only present if the transaction failed.
 	Error string `json:"error,omitempty"`
 	// RestorePreamble is only present if the transaction result indicates the account needs to be restored.
