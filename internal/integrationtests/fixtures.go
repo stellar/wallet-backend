@@ -57,181 +57,6 @@ import (
 // &txnbuild.ExtendFootprintTtl{},
 // &txnbuild.RestoreFootprint{},
 
-func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
-	customAsset := txnbuild.CreditAsset{
-		Issuer: f.PrimaryAccountKP.Address(),
-		Code:   "CUSTOM3",
-	}
-
-	operations := []txnbuild.Operation{
-		// Prepare issuer to be a SEP-8 auth required issuer
-		&txnbuild.SetOptions{
-			SetFlags: []txnbuild.AccountFlag{
-				txnbuild.AuthRequired,
-				txnbuild.AuthRevocable,
-				txnbuild.AuthClawbackEnabled,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
-		// Add Trustline
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-
-		// Sandwitch authorization to send funds to the secondary account
-		&txnbuild.SetTrustLineFlags{
-			Trustor: f.SecondaryAccountKP.Address(),
-			Asset:   customAsset,
-			SetFlags: []txnbuild.TrustLineFlag{
-				txnbuild.TrustLineAuthorized,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-		&txnbuild.Payment{
-			Destination:   f.SecondaryAccountKP.Address(),
-			Amount:        "1000",
-			Asset:         customAsset,
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-		&txnbuild.SetTrustLineFlags{
-			Trustor: f.SecondaryAccountKP.Address(),
-			Asset:   customAsset,
-			ClearFlags: []txnbuild.TrustLineFlag{
-				txnbuild.TrustLineAuthorized,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
-		// Clawback the funds
-		&txnbuild.Clawback{
-			From:          f.SecondaryAccountKP.Address(),
-			Amount:        "1000",
-			Asset:         customAsset,
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
-		// Remove Trustline
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-
-		// Stop being a SEP-8 auth required issuer
-		&txnbuild.SetOptions{
-			ClearFlags: []txnbuild.AccountFlag{
-				txnbuild.AuthRequired,
-				txnbuild.AuthRevocable,
-				txnbuild.AuthClawbackEnabled,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-	}
-
-	b64OpsXDRs := make([]string, len(operations))
-	for i, op := range operations {
-		opXDR, err := op.BuildXDR()
-		if err != nil {
-			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
-		}
-		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
-		}
-	}
-
-	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
-}
-
-func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
-	xlmAsset := txnbuild.NativeAsset{}
-	customAsset := txnbuild.CreditAsset{
-		Issuer: f.PrimaryAccountKP.Address(),
-		Code:   "CUSTOM4",
-	}
-
-	operations := []txnbuild.Operation{
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-
-		&txnbuild.Payment{
-			Destination:   f.SecondaryAccountKP.Address(),
-			Amount:        "3000",
-			Asset:         customAsset,
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
-		&txnbuild.CreatePassiveSellOffer{
-			Selling: xlmAsset,
-			Buying:  customAsset,
-			Amount:  "3",
-			Price: xdr.Price{
-				N: xdr.Int32(1000),
-				D: xdr.Int32(1),
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-		&txnbuild.PathPaymentStrictSend{
-			SendAsset:     customAsset,
-			SendAmount:    "1000",
-			DestAsset:     xlmAsset,
-			DestMin:       "1",
-			Destination:   f.PrimaryAccountKP.Address(),
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-		&txnbuild.ManageSellOffer{
-			Selling: customAsset,
-			Buying:  xlmAsset,
-			Amount:  "500",
-			Price: xdr.Price{
-				N: xdr.Int32(1),
-				D: xdr.Int32(1000),
-			},
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-		&txnbuild.ManageBuyOffer{
-			Selling: customAsset,
-			Buying:  xlmAsset,
-			Amount:  "0.5",
-			Price: xdr.Price{
-				N: xdr.Int32(1000),
-				D: xdr.Int32(1),
-			},
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-		&txnbuild.PathPaymentStrictReceive{
-			SendAsset:     customAsset,
-			SendMax:       "1000",
-			DestAsset:     xlmAsset,
-			DestAmount:    "1",
-			Destination:   f.PrimaryAccountKP.Address(),
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			Limit:         "0",
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-	}
-
-	b64OpsXDRs := make([]string, len(operations))
-	for i, op := range operations {
-		opXDR, err := op.BuildXDR()
-		if err != nil {
-			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
-		}
-		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
-		}
-	}
-
-	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
-}
-
 type Fixtures struct {
 	NetworkPassphrase  string
 	PrimaryAccountKP   *keypair.Full
@@ -239,7 +64,7 @@ type Fixtures struct {
 	RPCService         services.RPCService
 }
 
-// preparePaymentOp prepares a payment operation XDR and encodes it to base64.
+// preparePaymentOp creates a payment operation.
 func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: f.PrimaryAccountKP.Address(),
@@ -260,12 +85,9 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
 }
 
-// prepareSponsoredAccountCreationOps creates an account using sponsored reserves and adds a (bonus) manageData
-// operation. The operations used here are:
-// - BeginSponsoringFutureReserves
-// - CreateAccount
-// - ManageData
-// - EndSponsoringFutureReserves
+// prepareSponsoredAccountCreationOps creates an account using sponsored reserves.
+// NOTE: the account created here is meant to be deleted at a later time through an account merge operation.
+// NOTE 2: one manageData operation is included here as a bonus.
 func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full) ([]string, *Set[*keypair.Full], error) {
 	operations := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
@@ -302,7 +124,192 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, newAccountKP), nil
 }
 
-// prepareAccountMergeOp prepares an account merge operation XDR and encodes it to base64.
+// prepareCustomAssetsOps creates a customAsset, creates liquidity for it through a passive sell offer, and then
+// consumes that liquidity through path payments and manage offers.
+func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST2",
+	}
+
+	operations := []txnbuild.Operation{
+		// The Secondary account creates a trustline and gets customAsset minted by the Primary account.
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.Payment{
+			Destination:   f.SecondaryAccountKP.Address(),
+			Amount:        "3000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// The Primary account creates a passive sell offer to create customAsset liquidity.
+		&txnbuild.CreatePassiveSellOffer{
+			Selling: xlmAsset,
+			Buying:  customAsset,
+			Amount:  "3",
+			Price: xdr.Price{
+				N: xdr.Int32(1000),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// The secondary account uses the customAsset liquidity through offers and path payments.
+		&txnbuild.PathPaymentStrictSend{
+			SendAsset:     customAsset,
+			SendAmount:    "1000",
+			DestAsset:     xlmAsset,
+			DestMin:       "1",
+			Destination:   f.PrimaryAccountKP.Address(),
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.ManageSellOffer{
+			Selling: customAsset,
+			Buying:  xlmAsset,
+			Amount:  "500",
+			Price: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1000),
+			},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.ManageBuyOffer{
+			Selling: customAsset,
+			Buying:  xlmAsset,
+			Amount:  "0.5",
+			Price: xdr.Price{
+				N: xdr.Int32(1000),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+		&txnbuild.PathPaymentStrictReceive{
+			SendAsset:     customAsset,
+			SendMax:       "1000",
+			DestAsset:     xlmAsset,
+			DestAmount:    "1",
+			Destination:   f.PrimaryAccountKP.Address(),
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// With the liquidity worn out, and all the customAsset being burned back to the Primary account,
+		// the Secondary account removes the trustline.
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			Limit:         "0",
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
+// prepareAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
+func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST1",
+	}
+
+	operations := []txnbuild.Operation{
+		// Prepare Primary account to be a SEP-8 auth required issuer
+		&txnbuild.SetOptions{
+			SetFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// The Secondary account creates a trustline for customAsset.
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Sandwitch authorization to mint customAsset funds from the Primary account to the Secondary account.
+		&txnbuild.SetTrustLineFlags{
+			Trustor: f.SecondaryAccountKP.Address(),
+			Asset:   customAsset,
+			SetFlags: []txnbuild.TrustLineFlag{
+				txnbuild.TrustLineAuthorized,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.Payment{
+			Destination:   f.SecondaryAccountKP.Address(),
+			Amount:        "1000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+		&txnbuild.SetTrustLineFlags{
+			Trustor: f.SecondaryAccountKP.Address(),
+			Asset:   customAsset,
+			ClearFlags: []txnbuild.TrustLineFlag{
+				txnbuild.TrustLineAuthorized,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Clawback the funds from the Secondary account back to the Primary account.
+		&txnbuild.Clawback{
+			From:          f.SecondaryAccountKP.Address(),
+			Amount:        "1000",
+			Asset:         customAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Remove the trustline from the Secondary account.
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+			Limit:         "0",
+		},
+
+		// The Primary account stops being a SEP-8 auth required issuer.
+		&txnbuild.SetOptions{
+			ClearFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
+// prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *Set[*keypair.Full], error) {
 	op := &txnbuild.AccountMerge{
 		SourceAccount: newAccountKP.Address(),
@@ -321,7 +328,9 @@ func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *S
 	return b64OpXDR, NewSet(newAccountKP), nil
 }
 
-// prepareInvokeContractOp prepares an invokeContractOp, wither with a signed auth entry or not.
+// prepareInvokeContractOp creates an invokeContractOp. The signature type will be one of the following:
+// - If sourceAccountKP == nil: SorobanAuthEntry will be used, and the transaction won't require another signature later.
+// - If sourceAccountKP != nil: this contract invocation will rely on the sourceAccount being a transaction signer at a later point.
 func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP *keypair.Full) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	invokeXLMTransferSAC, err := f.createInvokeContractOp(sourceAccountKP)
 	if err != nil {
@@ -336,7 +345,7 @@ func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP 
 	return opXDR, NewSet(sourceAccountKP), simulationResponse, nil
 }
 
-// createInvokeContractOp creates an invokeContractOp.
+// createInvokeContractOp creates an invokeContractOp, optionally setting a source account.
 func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbuild.InvokeHostFunction, error) {
 	opSourceAccount := ""
 	if sourceAccountKP != nil {
@@ -549,6 +558,60 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
+	// SponsoredAccountCreationOps
+	newAccountKP := keypair.MustRandom()
+	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps(newAccountKP)
+	if err != nil {
+		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "sponsoredAccountCreationOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: sponsoredAccountCreationOps, Timeout: timeoutSeconds},
+		})
+	}
+
+	// CustomAssetsOps
+	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "customAssetsOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: customAssetsOps, Timeout: timeoutSeconds},
+		})
+	}
+
+	// AuthRequiredOps
+	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing auth required operations: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "authRequiredOps",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			requestedTransaction: types.Transaction{Operations: authRequiredOps, Timeout: timeoutSeconds},
+		})
+	}
+
+	// AccountMergeOp
+	accountMergeOp, txSigners, err := f.prepareAccountMergeOp(newAccountKP)
+	if err != nil {
+		return nil, fmt.Errorf("preparing account merge operation: %w", err)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "accountMergeOp",
+			category:             categoryStellarClassic,
+			txSigners:            txSigners,
+			delayTime:            6 * time.Second,
+			requestedTransaction: types.Transaction{Operations: []string{accountMergeOp}, Timeout: timeoutSeconds},
+		})
+	}
+
 	// InvokeContractOp w/ SorobanAuth
 	invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
 	if err != nil {
@@ -569,58 +632,9 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	} else {
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SourceAccountAuth",
-			category:             categoryStellarClassic,
+			category:             categorySoroban,
 			txSigners:            txSigners,
 			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, Timeout: timeoutSeconds, SimulationResult: simulationResponse},
-		})
-	}
-
-	newAccountKP := keypair.MustRandom()
-	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps(newAccountKP)
-	if err != nil {
-		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "sponsoredAccountCreationOps",
-			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: sponsoredAccountCreationOps, Timeout: timeoutSeconds},
-		})
-	}
-
-	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
-	if err != nil {
-		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "customAssetsOps",
-			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: customAssetsOps, Timeout: timeoutSeconds},
-		})
-	}
-
-	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
-	if err != nil {
-		return nil, fmt.Errorf("preparing auth required operations: %w", err)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "authRequiredOps",
-			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: authRequiredOps, Timeout: timeoutSeconds},
-		})
-	}
-	accountMergeOp, txSigners, err := f.prepareAccountMergeOp(newAccountKP)
-	if err != nil {
-		return nil, fmt.Errorf("preparing account merge operation: %w", err)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "accountMergeOp",
-			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			delayTime:            6 * time.Second,
-			requestedTransaction: types.Transaction{Operations: []string{accountMergeOp}, Timeout: timeoutSeconds},
 		})
 	}
 
