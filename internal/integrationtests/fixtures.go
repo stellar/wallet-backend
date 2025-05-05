@@ -525,15 +525,16 @@ const (
 )
 
 type UseCase struct {
-	name                     string
-	category                 category
-	delayTime                time.Duration
-	txSigners                *Set[*keypair.Full]
-	requestedTransaction     types.Transaction
-	builtTransactionXDR      string
-	signedTransactionXDR     string
-	feeBumpedTransactionXDR  string
-	feeBumpedTransactionHash string
+	name                    string
+	category                category
+	delayTime               time.Duration
+	txSigners               *Set[*keypair.Full]
+	requestedTransaction    types.Transaction
+	builtTransactionXDR     string
+	signedTransactionXDR    string
+	feeBumpedTransactionXDR string
+	sendTransactionResult   entities.RPCSendTransactionResult
+	getTransactionResult    entities.RPCGetTransactionResult
 }
 
 func (u *UseCase) Name() string {

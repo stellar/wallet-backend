@@ -44,7 +44,8 @@ func (o *IntegrationTestsOptions) Validate() error {
 		{o.BaseFee < int64(txnbuild.MinBaseFee), errors.New("base fee is lower than the minimum network fee")},
 		{o.NetworkPassphrase == "", errors.New("network passphrase cannot be empty")},
 		{o.RPCService == nil, errors.New("rpc client cannot be nil")},
-		{o.PrimaryAccountKP == nil, errors.New("source account keypair cannot be nil")},
+		{o.PrimaryAccountKP == nil, errors.New("primary source account keypair cannot be nil")},
+		{o.SecondaryAccountKP == nil, errors.New("secondary source account keypair cannot be nil")},
 		{o.WBClient == nil, errors.New("wallet backend client cannot be nil")},
 		{o.DBConnectionPool == nil, errors.New("db connection pool cannot be nil")},
 		{o.DistributionAccountSignatureClient == nil, errors.New("distribution account signature client cannot be nil")},
@@ -142,7 +143,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// Step 6: submit transactions to RPC
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
-	for i, useCase := range useCases {
+	for _, useCase := range useCases {
 		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.feeBumpedTransactionXDR)
 
 		if useCase.delayTime > 0 {
@@ -153,11 +154,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if res, err := it.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR); err != nil {
 			return fmt.Errorf("sending transaction for %s: %w", useCase.Name(), err)
 		} else {
+			useCase.sendTransactionResult = res
 			log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
 			if res.Status != entities.PendingStatus {
 				return fmt.Errorf("%s's transaction with hash %s failed with status %s, errorResultXdr=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR)
 			}
-			useCases[i].feeBumpedTransactionHash = res.Hash
+			useCase.sendTransactionResult = res
 		}
 	}
 
@@ -166,16 +168,13 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
 	const retryDelay = 3 * time.Second
 	for _, useCase := range useCases {
-		txResult, err := WaitForTransactionConfirmation(ctx, it.RPCService, useCase.feeBumpedTransactionHash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
+		txResult, err := WaitForTransactionConfirmation(ctx, it.RPCService, useCase.sendTransactionResult.Hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay)))
 		if err != nil {
-			log.Ctx(ctx).Errorf("[useCase=%s,hash=%s] waiting for transaction confirmation: %v", useCase.Name(), useCase.feeBumpedTransactionHash, err)
+			log.Ctx(ctx).Errorf("[useCase=%s,hash=%s] waiting for transaction confirmation: %v", useCase.Name(), useCase.sendTransactionResult.Hash, err)
 		}
+		useCase.getTransactionResult = txResult
 
-		if txResult.Status == entities.SuccessStatus {
-			log.Ctx(ctx).Info(RenderResult(useCase, txResult.Status, ""))
-		} else {
-			log.Ctx(ctx).Error(RenderResult(useCase, txResult.Status, fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR)))
-		}
+		log.Ctx(ctx).Info(RenderResult(useCase))
 	}
 
 	// TODO: verifyTxResult in wallet-backend
@@ -183,7 +182,9 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	return nil
 }
 
-func RenderResult(useCase *UseCase, status entities.RPCStatus, additionalInfo string) string {
+// RenderResult renders a result string for a use case.
+func RenderResult(useCase *UseCase) string {
+	status := useCase.getTransactionResult.Status
 	var statusEmoji string
 	switch status {
 	case entities.SuccessStatus:
@@ -202,9 +203,10 @@ func RenderResult(useCase *UseCase, status entities.RPCStatus, additionalInfo st
 	builder.WriteString(statusText)
 	builder.WriteString(fmt.Sprintf(" {Use Case: %s", useCase.name))
 	builder.WriteString(fmt.Sprintf(", Category: %s", useCase.category))
-	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.feeBumpedTransactionHash))
-	if additionalInfo != "" {
-		builder.WriteString(fmt.Sprintf(", Additional Info: %+v", additionalInfo))
+	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.sendTransactionResult.Hash))
+	if status != entities.SuccessStatus {
+		txResult := useCase.getTransactionResult
+		builder.WriteString(fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR))
 	}
 	builder.WriteString("}")
 
