@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"reflect"
 	"syscall"
 	"time"
 
@@ -105,7 +104,7 @@ func NewSet[T comparable](values ...T) *Set[T] {
 }
 
 func (s *Set[T]) Add(value T) {
-	if !reflect.ValueOf(&value).Elem().IsZero() {
+	if value != *new(T) {
 		s.set[value] = struct{}{}
 	}
 }
