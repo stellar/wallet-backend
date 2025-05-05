@@ -1,6 +1,7 @@
 # Wallet-Backend
 
 [![Swagger Documentation](https://img.shields.io/badge/docs-swagger-blue?logo=swagger)](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/stellar/wallet-backend/refs/heads/main/openapi/main.yaml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/stellar/wallet-backend?logo=docker)](https://hub.docker.com/r/stellar/wallet-backend/tags)
 
 The wallet-backend serves as a backend service for Stellar wallet applications, providing transaction submission,
 account management, and payment tracking capabilities.
@@ -18,6 +19,9 @@ account management, and payment tracking capabilities.
     - [Testing](#testing)
       - [Unit Tests](#unit-tests)
       - [Integration Tests](#integration-tests)
+  - [Docker Hub Publishing](#docker-hub-publishing)
+    - [Push to `develop`](#push-to-develop)
+    - [GitHub Release](#github-release)
 
 ## Overview
 
@@ -164,3 +168,21 @@ go run main.go integration-tests
 - Both `db` and `stellar-rpc` services should be running, either in Docker containers or locally.
 
 This setup allows you to verify both the isolated functionality of components (unit tests) and their interactions (integration tests) within the wallet-backend.
+
+## Docker Hub Publishing
+
+The CI/CD workflow, defined in [`publish_to_docker_hub.yaml`](./.github/workflows/publish_to_docker_hub.yaml) automates the process of building and publishing Docker images to Docker Hub. This workflow is triggered under two conditions:
+
+### Push to `develop`
+
+Whenever updates are made to the `develop` branch, the workflow creates and uploads a Docker image with two specific tags:
+
+- `edge`
+- `edge-{DATE}-{SHA}`
+
+### GitHub Release
+
+When a new release is published on GitHub, the workflow generates and uploads a Docker image with the following tags:
+
+- The release tag, e.g. `x.y.z`
+- `latest` (applied only if the release is not marked as a pre-release)
