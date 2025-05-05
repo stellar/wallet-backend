@@ -1,10 +1,11 @@
 name: Go
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: ["**"]
+  push:
+    branches:
+      - main
+  workflow_call: # allows this workflow to be called from another workflow
 
 jobs:
   check:
