@@ -1,6 +1,7 @@
 package httphandler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -11,18 +12,21 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
-	"github.com/stellar/wallet-backend/internal/tss/store"
+	tssStore "github.com/stellar/wallet-backend/internal/tss/store"
 	tssUtils "github.com/stellar/wallet-backend/internal/tss/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 type TSSHandler struct {
 	Router             router.Router
-	Store              store.Store
+	Store              tssStore.Store
 	AppTracker         apptracker.AppTracker
 	NetworkPassphrase  string
 	TransactionService tssservices.TransactionService
@@ -48,14 +52,26 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var transactionXDRs []string
-	for _, transaction := range reqParams.Transactions {
+	for i, transaction := range reqParams.Transactions {
 		ops, err := tssUtils.BuildOperations(transaction.Operations)
 		if err != nil {
-			httperror.BadRequest("bad operation xdr", nil).Render(w)
+			httperror.BadRequest("", map[string]any{
+				fmt.Sprintf("transactions[%d].operations", i): err.Error(),
+			}).Render(w)
 			return
 		}
-		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds)
+		tx, err := t.TransactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, transaction.TimeBounds, transaction.SimulationResult)
 		if err != nil {
+			if errors.Is(err, tssservices.ErrInvalidArguments) ||
+				errors.Is(err, signing.ErrUnavailableChannelAccounts) ||
+				errors.Is(err, sorobanauth.ErrForbiddenSigner) {
+				httperror.BadRequest(err.Error(), nil).Render(w)
+				return
+			}
+			if errors.Is(err, store.ErrNoIdleChannelAccountAvailable) {
+				httperror.InternalServerError(ctx, err.Error(), err, nil, t.AppTracker).Render(w)
+				return
+			}
 			httperror.InternalServerError(ctx, "unable to build transaction", err, nil, t.AppTracker).Render(w)
 			return
 		}

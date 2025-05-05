@@ -122,7 +122,7 @@ func Test_BuildOperations(t *testing.T) {
 	assert.Equal(t, operations, ops)
 }
 
-func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
+func Test_BuildOperations_EnforceSourceAccountForClassicOps(t *testing.T) {
 	testCases := []struct {
 		name            string
 		op              txnbuild.Operation
@@ -135,7 +135,7 @@ func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
 				Amount:      "10.0000000",
 				Asset:       txnbuild.NativeAsset{},
 			},
-			wantErrContains: "all operations must have a source account explicitly set",
+			wantErrContains: "all Stellar Classic operations must have a source account explicitly set",
 		},
 		{
 			name: "🟢succeeds_with_op_source_account",
@@ -145,6 +145,10 @@ func Test_BuildOperations_EnforceSourceAccount(t *testing.T) {
 				Asset:         txnbuild.NativeAsset{},
 				SourceAccount: keypair.MustRandom().Address(),
 			},
+		},
+		{
+			name: "🟡ignore_empty_source_account_in_Soroban_ops",
+			op:   &txnbuild.ExtendFootprintTtl{},
 		},
 	}
 

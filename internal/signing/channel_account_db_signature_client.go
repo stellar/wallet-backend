@@ -17,6 +17,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+var ErrUnavailableChannelAccounts = errors.New("no available channel account could be found after retrying")
+
 type channelAccountDBSignatureClient struct {
 	networkPassphrase    string
 	dbConnectionPool     db.ConnectionPool
@@ -85,7 +87,7 @@ func (sc *channelAccountDBSignatureClient) GetAccountPublicKey(ctx context.Conte
 				continue
 			}
 
-			return "", fmt.Errorf("could not get an idle channel account after %v: %w", time.Duration(sc.RetryCount())*sc.RetryInterval(), err)
+			return "", fmt.Errorf("%w: total time spent waiting for an idle channel account: %v", ErrUnavailableChannelAccounts, time.Duration(sc.RetryCount())*sc.RetryInterval())
 		}
 
 		return channelAccount.PublicKey, nil

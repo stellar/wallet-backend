@@ -5,6 +5,7 @@ import (
 
 	"github.com/stellar/go/txnbuild"
 
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/tss"
 
 	"github.com/stretchr/testify/mock"
@@ -21,8 +22,8 @@ func (t *TransactionServiceMock) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (t *TransactionServiceMock) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64) (*txnbuild.Transaction, error) {
-	args := t.Called(ctx, operations, timeoutInSecs)
+func (t *TransactionServiceMock) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+	args := t.Called(ctx, operations, timeoutInSecs, simulationResult)
 	if result := args.Get(0); result != nil {
 		return result.(*txnbuild.Transaction), args.Error(1)
 	}

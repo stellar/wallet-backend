@@ -1,14 +1,16 @@
 package integrationtests
 
 import (
+	"context"
 	"crypto/rand"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -46,13 +48,13 @@ func (f *Fixtures) prepareClassicOps() ([]string, error) {
 }
 
 // prepareInvokeContractOp prepares an invokeContractOp, signs its auth entries, and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareInvokeContractOp() (opXDR, simResultJSON string, err error) {
+func (f *Fixtures) prepareInvokeContractOp(ctx context.Context) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	invokeXLMTransferSAC, err := f.createInvokeContractOp()
 	if err != nil {
-		return "", "", fmt.Errorf("creating invoke contract operation: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
-	return f.prepareSimulateAndSignTransaction(invokeXLMTransferSAC)
+	return f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC)
 }
 
 // createInvokeContractOp creates an invokeContractOp.
@@ -71,6 +73,8 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 	toSCAddress := fromSCAddress
 
 	invokeXLMTransferSAC := txnbuild.InvokeHostFunction{
+		SourceAccount: f.SourceAccountKP.Address(),
+		// The HostFunction must be constructed using `xdr` objects, unlike other operations that utilize `txnbuild` objects or native Go types.
 		HostFunction: xdr.HostFunction{
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			InvokeContract: &xdr.InvokeContractArgs{
@@ -103,18 +107,20 @@ func (f *Fixtures) createInvokeContractOp() (txnbuild.InvokeHostFunction, error)
 	return invokeXLMTransferSAC, nil
 }
 
-// prepareSimulateAndSignTransaction simulates a transaction containing a contractInvokeOp, signs its auth entries,
-// and returns the operation XDR and simulation result JSON.
-func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunction) (opXDR, simResultJSON string, err error) {
+// prepareSimulateAndSignContractOp processes a raw contractInvokeOp and returns a signed version along with its simulation result.
+// The function performs two simulations:
+// 1. The first simulation retrieves the authorization entries and the initial simulation result.
+// 2. The second simulation verifies that the authorization entries are correctly signed and obtains the updated simulation result with the signed entries.
+func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := f.RPCService.GetHealth()
 	if err != nil {
-		return "", "", fmt.Errorf("getting health: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("getting health: %w", err)
 	}
 	latestLedger := healthResult.LatestLedger
 
 	// Step 2: Simulate a transaction with a disposable txSourceAccount, to get the auth entries and simulation results.
-	simulationSourceAccKP := keypair.MustRandom()
+	simulationSourceAccKP := keypair.MustRandom() // NOTE: for simulation, the transaction source account doesn't need to be an existing account.
 	simulationSourceAcc := txnbuild.SimpleAccount{AccountID: simulationSourceAccKP.Address(), Sequence: 0}
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &simulationSourceAcc,
@@ -126,44 +132,29 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunct
 		IncrementSequenceNum: true,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("building transaction (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building transaction (1): %w", err)
 	}
 	txXDR, err := tx.Base64()
 	if err != nil {
-		return "", "", fmt.Errorf("encoding transaction to base64 (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding transaction to base64 (1): %w", err)
 	}
 
-	simulationResult, err := f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
+	simulationResponse, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
 	if err != nil {
-		return "", "", fmt.Errorf("simulating transaction (1): %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("simulating transaction (1): %w", err)
 	}
-	if simulationResult.Error != "" {
-		return "", "", fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResult.Error)
+	if simulationResponse.Error != "" {
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("transaction simulation (1) failed with error=%s", simulationResponse.Error)
 	}
 
 	// 3. If there are auth entries, sign them
-	if len(simulationResult.Results) > 0 {
-		authSigner := sorobanauth.AuthSigner{NetworkPassphrase: f.NetworkPassphrase}
-		simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResult.Results))
-		for i, result := range simulationResult.Results {
-			updatedResult := result
-			for j, auth := range result.Auth {
-				var nonce *big.Int
-				nonce, err = rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
-				if err != nil {
-					return "", "", fmt.Errorf("generating random nonce: %w", err)
-				}
-				if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), latestLedger+100, f.SourceAccountKP); err != nil {
-					return "", "", fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
-				}
-			}
-
-			simulateResults[i] = updatedResult
+	if len(simulationResponse.Results) > 0 {
+		op, err = f.signInvokeContractOp(ctx, op, latestLedger+100, simulationResponse.Results)
+		if err != nil {
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("signing auth entries: %w", err)
 		}
 
-		op.Auth = simulateResults[0].Auth
-
-		// 4. Simulate the transaction again to get the final simulation result with the signed auth entries.
+		// 4. Re-simulate the transaction to confirm the auth entries are correctly signed and obtain the final simulation result with these signed entries.
 		tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &simulationSourceAcc,
 			Operations:    []txnbuild.Operation{&op},
@@ -174,34 +165,61 @@ func (f *Fixtures) prepareSimulateAndSignTransaction(op txnbuild.InvokeHostFunct
 			IncrementSequenceNum: true,
 		})
 		if err != nil {
-			return "", "", fmt.Errorf("building transaction (2): %w", err)
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building transaction (2): %w", err)
 		}
 		if txXDR, err = tx.Base64(); err != nil {
-			return "", "", fmt.Errorf("encoding transaction to base64 (2): %w", err)
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding transaction to base64 (2): %w", err)
 		}
-		if simulationResult, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{}); err != nil {
-			return "", "", fmt.Errorf("simulating transaction (2): %w", err)
+		if simulationResponse, err = f.RPCService.SimulateTransaction(txXDR, entities.RPCResourceConfig{}); err != nil {
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("simulating transaction (2): %w", err)
 		}
-		if simulationResult.Error != "" {
-			return "", "", fmt.Errorf("transaction simulation (2) failed with error=%s", simulationResult.Error)
+		if simulationResponse.Error != "" {
+			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("transaction simulation (2) failed with error=%s", simulationResponse.Error)
 		}
 	}
 
 	// 5. Build the operation XDR and encode it to base64.
 	opXDRObj, err := op.BuildXDR()
 	if err != nil {
-		return "", "", fmt.Errorf("building operation XDR: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("building operation XDR: %w", err)
 	}
 	opXDR, err = utils.OperationXDRToBase64(opXDRObj)
 	if err != nil {
-		return "", "", fmt.Errorf("encoding operation XDR to base64: %w", err)
+		return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("encoding operation XDR to base64: %w", err)
 	}
 
-	// 6. Encode the simulation result to JSON.
-	simResBytes, err := json.Marshal(simulationResult)
-	if err != nil {
-		return "", "", fmt.Errorf("encoding simulation result to JSON: %w", err)
+	return opXDR, simulationResponse, nil
+}
+
+// signInvokeContractOp signs the auth entries of an invokeContractOp.
+func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeHostFunction, validUntilLedgerSeq uint32, simulationResponseResults []entities.RPCSimulateHostFunctionResult) (txnbuild.InvokeHostFunction, error) {
+	authSigner := sorobanauth.AuthSigner{NetworkPassphrase: f.NetworkPassphrase}
+
+	simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResponseResults))
+	for i, result := range simulationResponseResults {
+		updatedResult := result
+		for j, auth := range result.Auth {
+			nonce, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+			if err != nil {
+				return txnbuild.InvokeHostFunction{}, fmt.Errorf("generating random nonce: %w", err)
+			}
+			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.SourceAccountKP); err != nil {
+				var unsupportedCredentialsTypeError *sorobanauth.UnsupportedCredentialsTypeError
+				if errors.As(err, &unsupportedCredentialsTypeError) {
+					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]: %v", i, j, err)
+					updatedResult.Auth[j] = auth
+					continue
+				}
+				return txnbuild.InvokeHostFunction{}, fmt.Errorf("signing auth at [i=%d,j=%d]: %w", i, j, err)
+			}
+		}
+
+		simulateResults[i] = updatedResult
 	}
 
-	return opXDR, string(simResBytes), nil
+	// SimulateResults is a slice because the original design aimed to support multiple contract invocations within a
+	// single transaction. That plan was later dropped, and now only one contract invocation is allowed per transaction.
+	// The slice structure is just a leftover from that earlier design that never fully landed.
+	op.Auth = simulateResults[0].Auth
+	return op, nil
 }

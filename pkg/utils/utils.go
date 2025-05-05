@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strings"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
@@ -105,4 +106,25 @@ func OperationXDRToTxnBuildOp(opXDR xdr.Operation) (txnbuild.Operation, error) {
 	}
 
 	return operation, nil
+}
+
+var SorobanOpTypes = []xdr.OperationType{
+	xdr.OperationTypeInvokeHostFunction,
+	xdr.OperationTypeExtendFootprintTtl,
+	xdr.OperationTypeRestoreFootprint,
+}
+
+func IsSorobanXDROp(opXDR xdr.Operation) bool {
+	return slices.Contains(SorobanOpTypes, opXDR.Body.Type)
+}
+
+func IsSorobanTxnbuildOp(op txnbuild.Operation) bool {
+	switch op.(type) {
+	case *txnbuild.InvokeHostFunction,
+		*txnbuild.ExtendFootprintTtl,
+		*txnbuild.RestoreFootprint:
+		return true
+	default:
+		return false
+	}
 }

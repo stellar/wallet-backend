@@ -24,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
@@ -87,7 +88,7 @@ func TestBuildTransactions(t *testing.T) {
 
 		err = errors.New("unable to find channel account")
 		mockTxService.
-			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
+			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100), entities.RPCSimulateTransactionResult{}).
 			Return(nil, err).
 			Once()
 
@@ -101,7 +102,7 @@ func TestBuildTransactions(t *testing.T) {
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		expectedRespBody := `{"error": "An error occurred while processing this request."}`
+		expectedRespBody := `{"error": "unable to build transaction"}`
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})
@@ -118,7 +119,7 @@ func TestBuildTransactions(t *testing.T) {
 		tx := utils.BuildTestTransaction(t)
 
 		mockTxService.
-			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100)).
+			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100), entities.RPCSimulateTransactionResult{}).
 			Return(tx, nil).
 			Once()
 

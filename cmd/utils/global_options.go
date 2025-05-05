@@ -6,7 +6,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/config"
-	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/signing"
 )
@@ -59,10 +58,10 @@ func NetworkPassphraseOption(configKey *string) *config.ConfigOption {
 func BaseFeeOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "base-fee",
-		Usage:       "The base fee (in stroops) for submitting a Stellar transaction",
+		Usage:       "The maximum base fee (in stroops) the host is willing to pay for submitting a Stellar transaction",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 100 * txnbuild.MinBaseFee,
+		FlagDefault: 1_000_000, // 0.1 XLM. Contract invocations require a higher base fees than Stellar classic transactions.
 		Required:    true,
 	}
 }

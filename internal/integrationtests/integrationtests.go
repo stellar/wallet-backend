@@ -80,16 +80,20 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		return fmt.Errorf("preparing classic ops: %w", err)
 	}
 	log.Ctx(ctx).Infof("👀 classicOps: %+v", classicOps)
-	buildTxRequest := types.BuildTransactionsRequest{
-		Transactions: []types.Transaction{{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps}},
-	}
 
-	invokeContractOp, simResultJSON, err := it.Fixtures.prepareInvokeContractOp()
+	invokeContractOp, simulationResponse, err := it.Fixtures.prepareInvokeContractOp(ctx)
 	if err != nil {
 		return fmt.Errorf("preparing invoke contract ops: %w", err)
 	}
-	log.Ctx(ctx).Infof("👀 invokeContractOp: %+v", invokeContractOp)
-	log.Ctx(ctx).Infof("👀 simResultJSON: %+v", simResultJSON)
+	log.Ctx(ctx).Debugf("👀 invokeContractOp: %+v", invokeContractOp)
+	log.Ctx(ctx).Debugf("👀 simulationResponse: %+v", simulationResponse)
+
+	buildTxRequest := types.BuildTransactionsRequest{
+		Transactions: []types.Transaction{
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}, SimulationResult: simulationResponse},
+			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
+		},
+	}
 
 	// Step 2: call /tss/transactions/build
 	fmt.Println("")
@@ -98,39 +102,22 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("calling buildTransactions: %w", err)
 	}
-	log.Ctx(ctx).Infof("✅ builtTxResponse: %+v", builtTxResponse)
+	log.Ctx(ctx).Debugf("✅ builtTxResponse: %+v", builtTxResponse)
 	for i, txXDR := range builtTxResponse.TransactionXDRs {
 		txString, innerErr := txString(txXDR)
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("builtTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("builtTx[%d]: %s", i, txString)
 	}
 	it.assertBuildTransactionResult(ctx, buildTxRequest, *builtTxResponse)
 
 	// Step 3: sign transactions with the SourceAccountKP
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 3️⃣ [Local] Signing transactions...")
-	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
-	for i, txXDR := range builtTxResponse.TransactionXDRs {
-		tx, innerErr := parseTxXDR(txXDR)
-		if innerErr != nil {
-			return fmt.Errorf("parsing transaction from XDR: %w", innerErr)
-		}
-		innerTxHash, innerErr := tx.HashHex(it.NetworkPassphrase)
-		if innerErr != nil {
-			return fmt.Errorf("hashing transaction: %w", innerErr)
-		}
-		log.Ctx(ctx).Infof("=====> innerHash: %s", innerTxHash)
-		signedTx, innerErr := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
-		if innerErr != nil {
-			return fmt.Errorf("signing transaction: %w", innerErr)
-		}
-		signedTxXDR, innerErr := signedTx.Base64()
-		if innerErr != nil {
-			return fmt.Errorf("encoding transaction to base64: %w", innerErr)
-		}
-		signedTxXDRs[i] = signedTxXDR
+	signedTxXDRs, err := it.signTransactions(ctx, builtTxResponse)
+	if err != nil {
+		return fmt.Errorf("signing transactions: %w", err)
 	}
 
 	// Step 4: call /tx/create-fee-bump for each transaction
@@ -142,14 +129,14 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 		if innerErr != nil {
 			return fmt.Errorf("calling feeBumpTransaction: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
+		log.Ctx(ctx).Debugf("✅ feeBumpTxResponse[%d]: %+v", i, feeBumpTxResponse)
 		feeBumpedTxs[i] = feeBumpTxResponse.Transaction
 
 		txString, innerErr := txString(feeBumpedTxs[i])
 		if innerErr != nil {
 			return fmt.Errorf("building transaction string: %w", innerErr)
 		}
-		log.Ctx(ctx).Infof("feeBumpedTx[%d]: %s", i, txString)
+		log.Ctx(ctx).Debugf("feeBumpedTx[%d]: %s", i, txString)
 
 		it.assertFeeBumpTransactionResult(ctx, types.CreateFeeBumpTransactionRequest{Transaction: txXDR}, *feeBumpTxResponse)
 	}
@@ -167,12 +154,13 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Submitting transactions...")
 	hashes := make([]string, len(feeBumpedTxs))
 	for i, txXDR := range feeBumpedTxs {
+		log.Ctx(ctx).Debugf("Submitting transaction %d: %s", i, txXDR)
 		var res entities.RPCSendTransactionResult
 		res, err = it.RPCService.SendTransaction(txXDR)
 		if err != nil {
 			return fmt.Errorf("sending transaction %d: %w", i, err)
 		}
-		log.Ctx(ctx).Infof("✅ submittedTx[%d]: %+v", i, res)
+		log.Ctx(ctx).Debugf("✅ submittedTx[%d]: %+v", i, res)
 		if res.Status != entities.PendingStatus {
 			return fmt.Errorf("transaction %d failed with status %s and errorResultXdr %s", i, res.Status, res.ErrorResultXDR)
 		}
@@ -185,7 +173,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	const retryDelay = 6 * time.Second
 	for _, hash := range hashes {
 		if err = WaitForTransactionConfirmation(ctx, it.RPCService, hash, retry.Delay(retryDelay), retry.Attempts(uint(txTimeout/retryDelay))); err != nil {
-			return fmt.Errorf("waiting for transaction confirmation: %w", err)
+			log.Ctx(ctx).Errorf("waiting for transaction confirmation: %v", err)
 		}
 		log.Ctx(ctx).Infof("✅ transaction %s confirmed on Stellar network", hash)
 	}
@@ -193,6 +181,33 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	// TODO: verifyTxResult in wallet-backend
 
 	return nil
+}
+
+func (it *IntegrationTests) signTransactions(ctx context.Context, builtTxResponse *types.BuildTransactionsResponse) ([]string, error) {
+	signedTxXDRs := make([]string, len(builtTxResponse.TransactionXDRs))
+
+	for i, txXDR := range builtTxResponse.TransactionXDRs {
+		tx, err := parseTxXDR(txXDR)
+		if err != nil {
+			return nil, fmt.Errorf("parsing transaction from XDR: %w", err)
+		}
+
+		if utils.IsSorobanTxnbuildOp(tx.Operations()[0]) && tx.Operations()[0].GetSourceAccount() != it.SourceAccountKP.Address() {
+			log.Ctx(ctx).Warnf("Skipping signature for Soroban transaction at index %d", i)
+			signedTxXDRs[i] = txXDR
+			continue
+		}
+
+		signedTx, err := tx.Sign(it.NetworkPassphrase, it.SourceAccountKP)
+		if err != nil {
+			return nil, fmt.Errorf("signing transaction: %w", err)
+		}
+		if signedTxXDRs[i], err = signedTx.Base64(); err != nil {
+			return nil, fmt.Errorf("encoding transaction to base64: %w", err)
+		}
+	}
+
+	return signedTxXDRs, nil
 }
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
@@ -214,16 +229,29 @@ func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, re
 		assertOrFail(tx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
 
 		// Assert the operations are the same
-		responseOps := tx.Operations()
-		requestOpsXDRs := req.Transactions[i].Operations
-		assertOrFail(len(responseOps) == len(requestOpsXDRs), "number of operations in request and response must be the same")
-		for j, requestOpXDRStr := range requestOpsXDRs {
-			requestOpXDR, err := utils.OperationXDRFromBase64(requestOpXDRStr)
-			assertOrFail(err == nil, "error converting operation string to XDR: %v", err)
-			requestOp, err := utils.OperationXDRToTxnBuildOp(requestOpXDR)
-			assertOrFail(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
-			assertOrFail(reflect.DeepEqual(requestOp, responseOps[j]), "operation %d in request and response must be the same", j)
+		assertOpsMatch(req.Transactions[i].Operations, tx.Operations())
+	}
+}
+
+func assertOpsMatch(requestOpsXDRs []string, responseOps []txnbuild.Operation) {
+	for j, requestOpXDRStr := range requestOpsXDRs {
+		requestOpXDR, err := utils.OperationXDRFromBase64(requestOpXDRStr)
+		assertOrFail(err == nil, "error converting operation string to XDR: %v", err)
+		requestOp, err := utils.OperationXDRToTxnBuildOp(requestOpXDR)
+		assertOrFail(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
+
+		responseOp := responseOps[j]
+		// In case of invokeContractOp, we set the Ext of the request to the same as in the response.
+		// This is because the response includes the transaction data, which is not present in the request.
+		// It cannot be added to the request yet, until we add a new field for that.
+		if invokeContractOpRequest, ok := requestOp.(*txnbuild.InvokeHostFunction); ok {
+			invokeContractOpResponse, ok := responseOp.(*txnbuild.InvokeHostFunction)
+			assertOrFail(ok, "operation %d in request is an invokeContractOp but response is not", j)
+			invokeContractOpRequest.Ext = invokeContractOpResponse.Ext
+			requestOp = invokeContractOpRequest
+			responseOp = invokeContractOpResponse
 		}
+		assertOrFail(reflect.DeepEqual(requestOp, responseOp), "operation %d in request and response must be the same", j)
 	}
 }
 
