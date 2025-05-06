@@ -179,7 +179,7 @@ func (t *TSSHandler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		TransactionResultCode: fmt.Sprint(tssTry.Code),
 		Status:                tx.Status,
 		CreatedAt:             tssTry.CreatedAt.Unix(),
-		EnvelopeXDR:           tssTry.XDR,
+		TransactionXDR:        tssTry.XDR,
 		ResultXDR:             tssTry.ResultXDR,
 	}, httpjson.JSON)
 }

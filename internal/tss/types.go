@@ -184,11 +184,11 @@ func TransactionResultXDRToCode(errorResultXDR string) (RPCTXCode, error) {
 }
 
 type TSSResponse struct {
-	TransactionHash       string `json:"tx_hash"`
-	TransactionResultCode string `json:"tx_result_code"`
+	TransactionHash       string `json:"transactionHash"`
+	TransactionResultCode string `json:"transactionResultCode"`
 	Status                string `json:"status"`
-	CreatedAt             int64  `json:"created_at"`
-	EnvelopeXDR           string `json:"envelopeXdr"`
+	CreatedAt             int64  `json:"createdAt"`
+	TransactionXDR        string `json:"transactionXdr"`
 	ResultXDR             string `json:"resultXdr"`
 }
 

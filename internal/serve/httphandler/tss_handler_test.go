@@ -308,7 +308,7 @@ func TestGetTransaction(t *testing.T) {
 		assert.Equal(t, fmt.Sprint(tss.NoCode), tssResp.TransactionResultCode)
 		assert.Equal(t, fmt.Sprint(tss.NewStatus), tssResp.Status)
 		assert.Empty(t, tssResp.ResultXDR)
-		assert.Empty(t, tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.TransactionXDR)
 
 		clearTransactions(ctx)
 	})
@@ -360,7 +360,7 @@ func TestGetTransaction(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Empty(t, tssResp.TransactionHash)
-		assert.Empty(t, tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.TransactionXDR)
 		assert.Empty(t, tssResp.Status)
 	})
 }
