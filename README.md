@@ -1,5 +1,7 @@
 # Wallet-Backend
 
+[![Swagger Documentation](https://img.shields.io/badge/docs-swagger-blue?logo=swagger)](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/stellar/wallet-backend/refs/heads/main/openapi/main.yaml)
+
 A backend for Stellar wallet applications that provides transaction submission, account management, and 
 payment tracking capabilities. 
 
