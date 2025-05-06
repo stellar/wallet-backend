@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - "main"
+      - main
   workflow_call: # allows this workflow to be called from another workflow
 
 env:
