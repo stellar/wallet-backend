@@ -78,7 +78,7 @@ func TestBuildTransactions(t *testing.T) {
 
 	t.Run("tx_signing_fails", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
-			"transactions": [{"operations": [%q], "timebounds": 100}]
+			"transactions": [{"operations": [%q], "timeout": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
@@ -109,7 +109,7 @@ func TestBuildTransactions(t *testing.T) {
 
 	t.Run("happy_path", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
-			"transactions": [{"operations": [%q], "timebounds": 100}]
+			"transactions": [{"operations": [%q], "timeout": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
@@ -190,7 +190,7 @@ func TestSubmitTransactions(t *testing.T) {
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 
 		reqBody = fmt.Sprintf(`{
-					"webhook": "localhost:8080",
+					"webhookUrl": "localhost:8080",
 					"transactions": [%q]
 				}`, "ABCD")
 		rw = httptest.NewRecorder()
@@ -212,7 +212,7 @@ func TestSubmitTransactions(t *testing.T) {
 		txXDR, err := tx.Base64()
 		require.NoError(t, err)
 		reqBody := fmt.Sprintf(`{
-			"webhook": "localhost:8080",
+			"webhookUrl": "localhost:8080",
 			"transactions": [%q]
 		}`, txXDR)
 
@@ -234,7 +234,7 @@ func TestSubmitTransactions(t *testing.T) {
 		respBody, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equalf(t, http.StatusOK, resp.StatusCode, "should be %d but was %d. ResponseBody=%s", http.StatusOK, resp.StatusCode, string(respBody))
 
 		var txSubmissionResp TransactionSubmissionResponse
 		err = json.Unmarshal(respBody, &txSubmissionResp)
@@ -308,7 +308,7 @@ func TestGetTransaction(t *testing.T) {
 		assert.Equal(t, fmt.Sprint(tss.NoCode), tssResp.TransactionResultCode)
 		assert.Equal(t, fmt.Sprint(tss.NewStatus), tssResp.Status)
 		assert.Empty(t, tssResp.ResultXDR)
-		assert.Empty(t, tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.TransactionXDR)
 
 		clearTransactions(ctx)
 	})
@@ -360,7 +360,7 @@ func TestGetTransaction(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		assert.Empty(t, tssResp.TransactionHash)
-		assert.Empty(t, tssResp.EnvelopeXDR)
+		assert.Empty(t, tssResp.TransactionXDR)
 		assert.Empty(t, tssResp.Status)
 	})
 }

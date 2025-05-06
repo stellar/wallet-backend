@@ -145,7 +145,7 @@ paths:
             type: string
         - name: sort
           in: query
-          description: sort oder.
+          description: sort order.
           required: false
           schema:
             type: string
@@ -479,7 +479,7 @@ paths:
                           description: base64 operation xdr string
                       timeout:
                         type: integer
-                        description: number of seconds after the current time that the transaction expires
+                        description: number of seconds after the current time that the transaction expires. It caps at 300 seconds and will be automatically added to the transaction if not provided.
                       simulationResult:
                         type: string
                         description: base64 simulation result XDR string. This field is required when the transaction contains a soroban operation.
@@ -490,10 +490,10 @@ paths:
                 - transactions
             example:
               transactions:
-                - opearations:
+                - operations:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
-                  timeout: 300
+                  timeout: 45
       responses:
         '200':
           description: "Successful response containing a list of base64 transaction xdr strings"
@@ -502,13 +502,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionxdrs: 
+                  transactionXdrs:
                     type: array
                     items:
                       type: string
                       description: base64 encoded transaction xdr string
               example:
-                transactionxdrs:
+                transactionXdrs:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
         '400':
@@ -557,7 +557,7 @@ paths:
             schema:
               type: object
               properties:
-                webhookurl:
+                webhookUrl:
                   type: string
                   description: The url to which the final transaction results are to be sent
                 transactions:
@@ -565,18 +565,18 @@ paths:
                   items:
                     type: string
                     description: base64 encoded transaction xdr to submit to the stellar network
-                feebump:
+                feeBump:
                   type: boolean
                   description: boolean indicating if this transaction should be wrapped in a fee bump transaction
               required:
-                - webhookurl
+                - webhookUrl
                 - transactions
             example:
-              webhookurl: "www.sdp.stellar.com/webhook"
+              webhookUrl: "www.sdp.stellar.com/webhook"
               transactions:
                 - "Y6MF7SMT2a2d6pt3i37Xx9"
                 - "M8GA7SMT2a2d6pt3i37Xx8"
-              feebump: true
+              feeBump: true
       responses:
         '200':
           description: "Successful response with the transaction hashes of the transactions to be submitted to the network. Clients can use these hashes to query TSS for the status of their transaction"
@@ -585,13 +585,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionhashes: 
+                  transactionHashes:
                     type: array
                     items:
                       type: string
                       description: transaction hash of the transaction
               example:
-                transactionhashes:
+                transactionHashes:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
         '400':
@@ -632,7 +632,7 @@ paths:
         - TSS
       summary: Get the status of a previously submitted transaction
       parameters:
-        - name: transactionhash
+        - name: transactionHash
           in: query
           description: The transaction hash of a previously submitted transaction
           required: true
@@ -646,28 +646,75 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionhash:
+                  transactionHash:
                     type: string
                     description: "The hash of the transaction."
-                  transactionxdr:
+                  transactionXdr:
                     type: string
                     description: "The base64-encoded xdr string of the transaction"
+                  resultXdr:
+                    type: string
+                    description: "The base64-encoded xdr string of the transaction result"
+                  createdAt:
+                    type: integer
+                    description: "The unix timestamp of when the transaction was included in the ledger"
                   status:
                     type: string
-                    description: "The current status of the transaction"
                     enum:
-                      - NEW (not processed yet)
-                      - SENT (final tx result sent to client via webhook)
-                      - NOT_SENT (failed to send final tx to client via webhook)
-                      - FAILED (tx failed)
-                      - SUCCESS (tx success)
-                      - PENDING (tx pending)
-                      - ERROR (tx errored out when submitting, retries still in progress unless error is terminal)
-                      - TRY_AGAIN_LATER (an rpc response indicating a gongested network, retries in progress)
+                      - NEW
+                      - PENDING
+                      - DUPLICATE
+                      - TRY_AGAIN_LATER
+                      - ERROR
+                      - FAILED
+                      - SUCCESS
+                      - SENT
+                      - NOT_SENT
+                    description: |
+                      The current status of the transaction in the database:
+                      - `NEW`: Transaction was created in the wallet-backend but not yet submitted to the RPC
+                      - `PENDING`: Transaction was submitted to the RPC and is pending a final result
+                      - `DUPLICATE`: Transaction was submitted to the RPC but was rejected for being a duplicate of a previously submitted transaction
+                      - `TRY_AGAIN_LATER`: An RPC response indicating a congested network, retries in progress
+                      - `ERROR`: Transaction errored out when submitting. Usually indicates a malformed transaction
+                      - `FAILED`: Transaction was submitted to the RPC but and resulted in an error after being processsed by the Network.
+                      - `SUCCESS`: Transaction was submitted to the RPC and succeeded
+                      - `SENT`: the final transaction result was sent to the client via webhook
+                      - `NOT_SENT`: the final transaction result was not sent to the client via webhook
+                  transactionResultCode:
+                    type: integer
+                    enum: [0, 100, 101, 102, 103, 1, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, -13, -14, -15, -16, -17]
+                    description: |
+                      The result code of the transaction as returned by the RPC. Possible values are:
+                      - `100`: (wallet-backend) Empty, no-code
+                      - `101`: (wallet-backend) RPC failed
+                      - `102`: (wallet-backend) Unmarshal binary code
+                      - `103`: (wallet-backend) Empty code
+                      - `1`: Success, fee bump inner transaction succeeded
+                      - `0`: Success, all operations succeeded
+                      - `-1`: Error, one of the operations failed (none were applied)
+                      - `-2`: Error, ledger closeTime before minTime
+                      - `-3`: Error, ledger closeTime after maxTime
+                      - `-4`: Error, no operation was specified
+                      - `-5`: Error, sequence number does not match source account
+                      - `-6`: Error, too few valid signatures / wrong network
+                      - `-7`: Error, insufficient balance. Fee would bring account below reserve
+                      - `-8`: Error, source account not found
+                      - `-9`: Error, insufficient fee. Fee is too small
+                      - `-10`: Error, unused signatures attached to transaction
+                      - `-11`: Error, unknown error occurred
+                      - `-12`: Error, transaction type not supported
+                      - `-13`: Error, fee bump inner transaction failed
+                      - `-14`: Error, sponsorship not confirmed
+                      - `-15`: Error, minSeqAge or minSeqLedgerGap conditions not met
+                      - `-16`: Error, precondition is invalid
+                      - `-17`: Error, soroban-specific preconditions were not met
               example:
-                transactionhash: "Y6MF7SMT2a2d6pt3i37Xx9"
-                transactionxdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
-                STATUS: "SUCCESS"
+                transactionHash: "Y6MF7SMT2a2d6pt3i37Xx9"
+                transactionXdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
+                resultXdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
+                createdAt: 1620000000
+                status: "SUCCESS"
         '400':
           description: Bad Request
           content:

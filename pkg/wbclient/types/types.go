@@ -4,7 +4,7 @@ import "github.com/stellar/wallet-backend/internal/entities"
 
 type Transaction struct {
 	Operations       []string                              `json:"operations" validate:"required"`
-	TimeBounds       int64                                 `json:"timebounds" validate:"required"`
+	Timeout          int64                                 `json:"timeout" validate:"required"`
 	SimulationResult entities.RPCSimulateTransactionResult `json:"simulationResult,omitempty"`
 }
 
