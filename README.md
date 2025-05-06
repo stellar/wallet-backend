@@ -54,16 +54,20 @@ Follow these steps to start the wallet-backend server for local development and 
 3. Set environment variables (refer to `.env.example` for details):
 
    ```bash
-   CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=<your_passphrase>
    DATABASE_URL=postgres://postgres@localhost:5432/wallet-backend?sslmode=disable
-   DISTRIBUTION_ACCOUNT_PRIVATE_KEY=<your_private_key>
-   DISTRIBUTION_ACCOUNT_PUBLIC_KEY=<your_public_key>
    NETWORK=testnet
    STELLAR_ENVIRONMENT=development
+
+   # The CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE is used to encrypt/decrypt the channel accounts private keys. A strong passphrase is recommended.
+   CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE=<your_passphrase>
+
+   # The DISTRIBUTION_ACCOUNT is used to sponsor fees and reserves for the client transactions. It must be an existing account with XLM balance.
+   DISTRIBUTION_ACCOUNT_PRIVATE_KEY=<your_private_key>
+   DISTRIBUTION_ACCOUNT_PUBLIC_KEY=<your_public_key>
+
+   # CLIENT_AUTH_PUBLIC_KEYS is a comma-separated list of Stellar public keys whose private key(s) are authorized to sign the authentication header. They must be Stellar addresses.
    CLIENT_AUTH_PUBLIC_KEYS=<your_public_keys>
    ```
-
-   Note that `CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE` is required to be set to a non-empty value. For development purposes, you can set it to any value. For production, you should set it to a secure passphrase. For `CLIENT_AUTH_PUBLIC_KEYS`, and `DISTRIBUTION_ACCOUNT_PRIVATE_KEY` and `DISTRIBUTION_ACCOUNT_PUBLIC_KEY`, you can generate them using the Stellar CLI or by using tools like lab.stellar.org. Note that the `DISTRIBUTION_ACCOUNT_PUBLIC_KEY` is the public key of the account that will be used to sponsor accounts for channel accounts, and therefore must be a valid Stellar account.
 
 4. Start the server and its dependencies using one of the following methods:
 

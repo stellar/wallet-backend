@@ -80,7 +80,7 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 func ChannelAccountEncryptionPassphraseOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:      "channel-account-encryption-passphrase",
-		Usage:     "The Encryption Passphrase used to encrypt the channel accounts private key.",
+		Usage:     "The encryption passphrase used to encrypt/decrypt the channel accounts private keys. A strong passphrase is recommended.",
 		OptType:   types.String,
 		ConfigKey: configKey,
 		Required:  true,
