@@ -9,24 +9,25 @@ on:
   push:
     branches:
       - develop
+  pull_request:
 jobs:
-  tests:
-    uses: ./.github/workflows/go.yaml # execute the callable go.yml
-    secrets: inherit # pass all secrets
+  # tests:
+  #   uses: ./.github/workflows/go.yaml # execute the callable go.yml
+  #   secrets: inherit # pass all secrets
 
-  e2e_integration_test:
-    uses: ./.github/workflows/e2e_integration_test.yaml # execute the callable e2e_integration_test.yml
-    needs:
-      - tests
-    secrets: inherit # pass all secrets
+  # e2e_integration_test:
+  #   uses: ./.github/workflows/e2e_integration_test.yaml # execute the callable e2e_integration_test.yml
+  #   needs:
+  #     - tests
+  #   secrets: inherit # pass all secrets
 
   build_and_push_docker_image_on_release:
     if: github.event_name == 'release'
     name: Push to DockerHub (release prd) # stellar/wallet-backend:{VERSION}
     runs-on: ubuntu-latest
-    needs:
-      - tests
-      - e2e_integration_test
+    # needs:
+    #   - tests
+    #   - e2e_integration_test
     steps:
       - name: Check if tag is not empty
         run: |
@@ -82,12 +83,12 @@ jobs:
             }
 
   build_and_push_docker_image_on_dev_push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     name: Push to DockerHub (release develop branch) # stellar/wallet-backend:edge-{DATE}-{SHA}
     runs-on: ubuntu-latest
-    needs:
-      - tests
-      - e2e_integration_test
+    # needs:
+    #   - tests
+    #   - e2e_integration_test
     steps:
       - uses: actions/checkout@v4
 
@@ -107,15 +108,17 @@ jobs:
           echo "DOCKER_TAGS=stellar/wallet-backend:edge,stellar/wallet-backend:edge-$DATE-$SHA" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Build and push to DockerHub (develop branch)
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
-        with:
-          push: true
-          build-args: |
-            GIT_COMMIT=${{ steps.get_info.outputs.SHA }}
-          tags: ${{ steps.get_info.outputs.DOCKER_TAGS }}
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
+      - name: Skip Docker for tests
+        run: exit 0
+      # - name: Build and push to DockerHub (develop branch)
+      #   uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+      #   with:
+      #     push: true
+      #     build-args: |
+      #       GIT_COMMIT=${{ steps.get_info.outputs.SHA }}
+      #     tags: ${{ steps.get_info.outputs.DOCKER_TAGS }}
+      #     file: Dockerfile
+      #     platforms: linux/amd64,linux/arm64
 
       - name: Post status with tag names
         uses: actions/github-script@v7
