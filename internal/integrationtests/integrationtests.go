@@ -90,8 +90,8 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 	buildTxRequest := types.BuildTransactionsRequest{
 		Transactions: []types.Transaction{
-			{TimeBounds: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}, SimulationResult: simulationResponse},
-			{TimeBounds: int64(txTimeout.Seconds()), Operations: classicOps},
+			{Timeout: int64(txTimeout.Seconds()), Operations: []string{invokeContractOp}, SimulationResult: simulationResponse},
+			{Timeout: int64(txTimeout.Seconds()), Operations: classicOps},
 		},
 	}
 

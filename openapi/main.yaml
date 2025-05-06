@@ -479,7 +479,7 @@ paths:
                           description: base64 operation xdr string
                       timeout:
                         type: integer
-                        description: number of seconds after the current time that the transaction expires
+                        description: number of seconds after the current time that the transaction expires. It caps at 300 seconds and will be automatically added to the transaction if not provided.
                       simulationResult:
                         type: string
                         description: base64 simulation result XDR string. This field is required when the transaction contains a soroban operation.
@@ -493,7 +493,7 @@ paths:
                 - operations:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
-                  timeout: 300
+                  timeout: 45
       responses:
         '200':
           description: "Successful response containing a list of base64 transaction xdr strings"
