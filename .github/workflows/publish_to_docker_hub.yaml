@@ -60,6 +60,7 @@ jobs:
             GIT_COMMIT=${{ github.event.release.tag_name }}
           tags: ${{ steps.docker_tags.outputs.TAGS }}
           file: Dockerfile
+          platforms: linux/amd64,linux/arm64
 
   build_and_push_docker_image_on_dev_push:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -94,6 +95,7 @@ jobs:
             GIT_COMMIT=${{ steps.get_sha.outputs.SHA }}
           tags: stellar/wallet-backend:edge,stellar/wallet-backend:edge-${{ steps.get_date.outputs.DATE }}-${{ steps.get_sha.outputs.SHA }}
           file: Dockerfile
+          platforms: linux/amd64,linux/arm64
 
   complete:
     if: always()
