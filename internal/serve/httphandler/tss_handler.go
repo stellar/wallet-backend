@@ -34,13 +34,13 @@ type TSSHandler struct {
 }
 
 type TransactionSubmissionRequest struct {
-	WebhookURL   string   `json:"webhook" validate:"required"`
+	WebhookURL   string   `json:"webhookUrl" validate:"required"`
 	Transactions []string `json:"transactions" validate:"required,gt=0"`
-	FeeBump      bool     `json:"feebump"`
+	FeeBump      bool     `json:"feeBump"`
 }
 
 type TransactionSubmissionResponse struct {
-	TransactionHashes []string `json:"transactionhashes"`
+	TransactionHashes []string `json:"transactionHashes"`
 }
 
 func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
@@ -139,12 +139,12 @@ func (t *TSSHandler) SubmitTransactions(w http.ResponseWriter, r *http.Request) 
 }
 
 type GetTransactionRequest struct {
-	TransactionHash string `json:"transactionhash" validate:"required"`
+	TransactionHash string `json:"transactionHash" validate:"required"`
 }
 
 type GetTransactionResponse struct {
-	Hash   string `json:"transactionhash"`
-	XDR    string `json:"transactionxdr"`
+	Hash   string `json:"transactionHash"`
+	XDR    string `json:"transactionXdr"`
 	Status string `json:"status"`
 }
 

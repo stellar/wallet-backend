@@ -145,7 +145,7 @@ paths:
             type: string
         - name: sort
           in: query
-          description: sort oder.
+          description: sort order.
           required: false
           schema:
             type: string
@@ -490,7 +490,7 @@ paths:
                 - transactions
             example:
               transactions:
-                - opearations:
+                - operations:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
                   timeout: 300
@@ -502,13 +502,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionxdrs: 
+                  transactionXdrs:
                     type: array
                     items:
                       type: string
                       description: base64 encoded transaction xdr string
               example:
-                transactionxdrs:
+                transactionXdrs:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
         '400':
@@ -557,7 +557,7 @@ paths:
             schema:
               type: object
               properties:
-                webhookurl:
+                webhookUrl:
                   type: string
                   description: The url to which the final transaction results are to be sent
                 transactions:
@@ -565,18 +565,18 @@ paths:
                   items:
                     type: string
                     description: base64 encoded transaction xdr to submit to the stellar network
-                feebump:
+                feeBump:
                   type: boolean
                   description: boolean indicating if this transaction should be wrapped in a fee bump transaction
               required:
-                - webhookurl
+                - webhookUrl
                 - transactions
             example:
-              webhookurl: "www.sdp.stellar.com/webhook"
+              webhookUrl: "www.sdp.stellar.com/webhook"
               transactions:
                 - "Y6MF7SMT2a2d6pt3i37Xx9"
                 - "M8GA7SMT2a2d6pt3i37Xx8"
-              feebump: true
+              feeBump: true
       responses:
         '200':
           description: "Successful response with the transaction hashes of the transactions to be submitted to the network. Clients can use these hashes to query TSS for the status of their transaction"
@@ -585,13 +585,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionhashes: 
+                  transactionHashes:
                     type: array
                     items:
                       type: string
                       description: transaction hash of the transaction
               example:
-                transactionhashes:
+                transactionHashes:
                   - "Y6MF7SMT2a2d6pt3i37Xx9"
                   - "M8GA7SMT2a2d6pt3i37Xx8"
         '400':
@@ -632,7 +632,7 @@ paths:
         - TSS
       summary: Get the status of a previously submitted transaction
       parameters:
-        - name: transactionhash
+        - name: transactionHash
           in: query
           description: The transaction hash of a previously submitted transaction
           required: true
@@ -646,10 +646,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  transactionhash:
+                  transactionHash:
                     type: string
                     description: "The hash of the transaction."
-                  transactionxdr:
+                  transactionXdr:
                     type: string
                     description: "The base64-encoded xdr string of the transaction"
                   status:
@@ -665,9 +665,9 @@ paths:
                       - ERROR (tx errored out when submitting, retries still in progress unless error is terminal)
                       - TRY_AGAIN_LATER (an rpc response indicating a gongested network, retries in progress)
               example:
-                transactionhash: "Y6MF7SMT2a2d6pt3i37Xx9"
-                transactionxdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
-                STATUS: "SUCCESS"
+                transactionHash: "Y6MF7SMT2a2d6pt3i37Xx9"
+                transactionXdr: "AAAAAgAAAADnY6MF7SMT2a2d6pt3i37Xx9IhaHqJ2lCcibNOISzhOwABX5AAFs2YAAAADAAAAAEAAAAAAAAAAAAAAABmYGswAAAAAAAAAAkAAAABAAAAAOdjowXtIxPZrZ3qm3eLftfH0iFoeonaUJyJs04hLOE7AAAAEAAAAACOC8v8STBDIULGM3FlZ6O7N3vHpNns7bcwRDFlIxTMiwAAAAEAAAAA52OjBe0jE9mtneqbd4t+18fSIWh6idpQnImzTiEs4TsAAAAAAAAAAI4L"
+                status: "SUCCESS"
         '400':
           description: Bad Request
           content:
