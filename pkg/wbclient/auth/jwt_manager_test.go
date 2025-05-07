@@ -10,89 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type ecdsaKeypair struct {
-	privateKeyStr string
-	publicKeyStr  string
-}
-
 // GATTZ2V2VLTJ7VLYK5XI6FQTUYYB5W6H7HUQ5JJ7HCKJVX32RYXALO3S
 var testKP1 = keypair.MustParseFull("SAAT4JQDSVHVLTFHXNYOMQ6FAXBDUK4W4KQA6CC5GMHXU2ZQYJAZ5R4E")
 
 // GBQFTE2O5A7RIXVFQFRVWSSMQRPF5PKSYRZCQV6DX5XH4KGUG6HEWN2M
 var testKP2 = keypair.MustParseFull("SBE6BQJ2UFS2PEJRXXEEAZ7EOPQF2GHBGQBKK2JZNXL34OCZJLY35PXG")
-
-func Test_NewJWTManager(t *testing.T) {
-	testCases := []struct {
-		name              string
-		stellarPrivateKey string
-		stellarPublicKey  string
-		maxTimeout        time.Duration
-		wantErrContains   string
-		wantJWTManager    *JWTManager
-	}{
-		{
-			name:              "🔴invalid_Public_Key",
-			stellarPrivateKey: testKP1.Seed(),
-			stellarPublicKey:  "invalid-public-key",
-			wantErrContains:   "invalid Stellar public key",
-			wantJWTManager:    nil,
-		},
-		{
-			name:              "🔴invalid_Private_Key",
-			stellarPrivateKey: "invalid-private-key",
-			stellarPublicKey:  testKP1.Address(),
-			wantErrContains:   "invalid Stellar private key",
-			wantJWTManager:    nil,
-		},
-		{
-			name:              "🟢valid_KP_1",
-			stellarPrivateKey: testKP1.Seed(),
-			stellarPublicKey:  testKP1.Address(),
-			wantErrContains:   "",
-			wantJWTManager: &JWTManager{
-				PrivateKey: testKP1.Seed(),
-				PublicKey:  testKP1.Address(),
-				MaxTimeout: DefaultMaxTimeout,
-			},
-		},
-		{
-			name:              "🟢valid_KP_2",
-			stellarPrivateKey: testKP2.Seed(),
-			stellarPublicKey:  testKP2.Address(),
-			wantErrContains:   "",
-			wantJWTManager: &JWTManager{
-				PrivateKey: testKP2.Seed(),
-				PublicKey:  testKP2.Address(),
-				MaxTimeout: DefaultMaxTimeout,
-			},
-		},
-		{
-			name:              "🟢valid_with_custom_max_timeout",
-			stellarPrivateKey: testKP1.Seed(),
-			stellarPublicKey:  testKP1.Address(),
-			maxTimeout:        10 * time.Second,
-			wantErrContains:   "",
-			wantJWTManager: &JWTManager{
-				PrivateKey: testKP1.Seed(),
-				PublicKey:  testKP1.Address(),
-				MaxTimeout: 10 * time.Second,
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			jwtManager, err := NewJWTManager(tc.stellarPrivateKey, tc.stellarPublicKey, tc.maxTimeout)
-			if tc.wantErrContains != "" {
-				assert.ErrorContains(t, err, tc.wantErrContains)
-				assert.Nil(t, jwtManager, "jwt manager should be nil")
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.wantJWTManager, jwtManager)
-			}
-		})
-	}
-}
 
 func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	expiredTimestamp := time.Now().Add(-time.Nanosecond)
@@ -210,12 +132,11 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, parsedToken, "parsed token should be nil")
 				assert.Nil(t, parsedClaims, "parsed claims should be nil")
-				return
 			} else {
 				assert.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
-				require.Equal(t, hashBody(tc.jwtBody), parsedClaims.HashedBody)
-				require.Equal(t, hashBody(tc.requestBody), parsedClaims.HashedBody)
+				require.Equal(t, HashBody(tc.jwtBody), parsedClaims.HashedBody)
+				require.Equal(t, HashBody(tc.requestBody), parsedClaims.HashedBody)
 				require.Equal(t, jwtgo.NewNumericDate(tc.expiresAt), parsedClaims.ExpiresAt)
 			}
 		})
@@ -235,4 +156,169 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		assert.ErrorContains(t, err, "decoding Stellar private key")
 		assert.Empty(t, token, "token should be empty")
 	})
+}
+
+func Test_NewJWTManager(t *testing.T) {
+	testCases := []struct {
+		name              string
+		stellarPrivateKey string
+		stellarPublicKey  string
+		maxTimeout        time.Duration
+		wantErrContains   string
+		wantJWTManager    *JWTManager
+	}{
+		{
+			name:              "🔴invalid_Public_Key",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  "invalid-public-key",
+			wantErrContains:   "invalid Stellar public key",
+			wantJWTManager:    nil,
+		},
+		{
+			name:              "🔴invalid_Private_Key",
+			stellarPrivateKey: "invalid-private-key",
+			stellarPublicKey:  testKP1.Address(),
+			wantErrContains:   "invalid Stellar private key",
+			wantJWTManager:    nil,
+		},
+		{
+			name:              "🟢valid_KP_1",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  testKP1.Address(),
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP1.Seed(),
+				PublicKey:  testKP1.Address(),
+				MaxTimeout: DefaultMaxTimeout,
+			},
+		},
+		{
+			name:              "🟢valid_KP_2",
+			stellarPrivateKey: testKP2.Seed(),
+			stellarPublicKey:  testKP2.Address(),
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP2.Seed(),
+				PublicKey:  testKP2.Address(),
+				MaxTimeout: DefaultMaxTimeout,
+			},
+		},
+		{
+			name:              "🟢valid_with_custom_max_timeout",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  testKP1.Address(),
+			maxTimeout:        10 * time.Second,
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP1.Seed(),
+				PublicKey:  testKP1.Address(),
+				MaxTimeout: 10 * time.Second,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtManager, err := NewJWTManager(tc.stellarPrivateKey, tc.stellarPublicKey, tc.maxTimeout)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, jwtManager, "jwt manager should be nil")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantJWTManager, jwtManager)
+			}
+		})
+	}
+}
+
+func Test_NewJWTTokenParser(t *testing.T) {
+	testCases := []struct {
+		name            string
+		publicKey       string
+		reqBody         []byte
+		wantErrContains string
+	}{
+		{
+			name:            "🔴invalid_Public_Key",
+			publicKey:       "invalid-public-key",
+			wantErrContains: "invalid Stellar public key",
+		},
+		{
+			name:      "🟢valid_publicKey_with_body",
+			publicKey: testKP1.Address(),
+			reqBody:   []byte(`{"foo": "bar"}`),
+		},
+		{
+			name:      "🟢valid_publicKey_no_body",
+			publicKey: testKP1.Address(),
+			reqBody:   nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtTokenParser, err := NewJWTTokenParser(tc.publicKey, 0)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, jwtTokenParser, "jwt token parser should be nil")
+			} else {
+				require.NoError(t, err)
+
+				// Generate a JWT token
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				token, err := jwtManager.GenerateJWT(tc.reqBody, time.Now().Add(time.Second*2))
+				require.NoError(t, err)
+
+				// Parse the JWT token
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, tc.reqBody)
+				require.NoError(t, err)
+				assert.True(t, parsedToken.Valid, "parsed token should be valid")
+				require.Equal(t, HashBody(tc.reqBody), parsedClaims.HashedBody)
+			}
+		})
+	}
+}
+
+func Test_NewJWTTokenGenerator(t *testing.T) {
+	testCases := []struct {
+		name            string
+		privateKey      string
+		reqBody         []byte
+		wantErrContains string
+	}{
+		{
+			name:            "🔴invalid_Private_Key",
+			privateKey:      "invalid-private-key",
+			wantErrContains: "invalid Stellar private key",
+		},
+		{
+			name:       "🟢valid_Private_Key_with_body",
+			privateKey: testKP1.Seed(),
+			reqBody:    []byte(`{"foo": "bar"}`),
+		},
+		{
+			name:       "🟢valid_Private_Key_no_body",
+			privateKey: testKP1.Seed(),
+			reqBody:    nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtTokenGenerator, err := NewJWTTokenGenerator(tc.privateKey)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, jwtTokenGenerator, "jwt token generator should be nil")
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, jwtTokenGenerator, "jwt token generator should not be nil")
+
+				// Generate a JWT token
+				token, err := jwtTokenGenerator.GenerateJWT(tc.reqBody, time.Now().Add(time.Second*2))
+				require.NoError(t, err)
+				assert.NotEmpty(t, token, "token should not be empty")
+			}
+		})
+	}
 }

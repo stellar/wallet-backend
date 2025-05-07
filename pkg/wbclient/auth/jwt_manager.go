@@ -3,8 +3,6 @@ package auth
 import (
 	"bytes"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -51,7 +49,7 @@ func (m *JWTManager) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *c
 		return nil, nil, fmt.Errorf("parsing JWT token with claims: %w", err)
 	}
 
-	if claims.HashedBody != hashBody(body) {
+	if claims.HashedBody != HashBody(body) {
 		return nil, nil, fmt.Errorf("the claims' hashed body does not match the request body's hash")
 	}
 
@@ -79,7 +77,7 @@ func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, erro
 	}
 
 	claims := &customClaims{
-		HashedBody: hashBody(body),
+		HashedBody: HashBody(body),
 		RegisteredClaims: jwtgo.RegisteredClaims{
 			ExpiresAt: jwtgo.NewNumericDate(expiresAt),
 		},
@@ -92,12 +90,6 @@ func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, erro
 	}
 
 	return tokenString, nil
-}
-
-// hashBody returns the SHA-256 hash of the body.
-func hashBody(body []byte) string {
-	hashedBodyBytes := sha256.Sum256(body)
-	return hex.EncodeToString(hashedBodyBytes[:])
 }
 
 func NewJWTManager(stellarPrivateKey string, stellarPublicKey string, maxTimeout time.Duration) (*JWTManager, error) {
@@ -120,5 +112,27 @@ func NewJWTManager(stellarPrivateKey string, stellarPublicKey string, maxTimeout
 	}, nil
 }
 
-var _ JWTTokenParser = (*JWTManager)(nil)
-var _ JWTTokenGenerator = (*JWTManager)(nil)
+func NewJWTTokenParser(stellarPublicKey string, maxTimeout time.Duration) (JWTTokenParser, error) {
+	if !strkey.IsValidEd25519PublicKey(stellarPublicKey) {
+		return nil, fmt.Errorf("invalid Stellar public key")
+	}
+
+	if maxTimeout <= 0 {
+		maxTimeout = DefaultMaxTimeout
+	}
+
+	return &JWTManager{PublicKey: stellarPublicKey, MaxTimeout: maxTimeout}, nil
+}
+
+func NewJWTTokenGenerator(stellarPrivateKey string) (JWTTokenGenerator, error) {
+	if !strkey.IsValidEd25519SecretSeed(stellarPrivateKey) {
+		return nil, fmt.Errorf("invalid Stellar private key")
+	}
+
+	return &JWTManager{PrivateKey: stellarPrivateKey}, nil
+}
+
+var (
+	_ JWTTokenParser    = (*JWTManager)(nil)
+	_ JWTTokenGenerator = (*JWTManager)(nil)
+)
