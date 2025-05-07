@@ -1,6 +1,6 @@
 # This workflow publishes a new docker image to 'https://hub.docker.com/r/stellar/wallet-backend'
 # when a new release is created or when we merge something to the develop branch.
-name: Docker Image Public Release
+name: DockerHub Publish
 
 on:
   release:
@@ -22,20 +22,23 @@ jobs:
 
   build_and_push_docker_image_on_release:
     if: github.event_name == 'release'
-    name: Push to DockerHub (release prd) # stellar/wallet-backend:{VERSION}
+    name: Push to DockerHub (prd) # stellar/wallet-backend:{VERSION}
     runs-on: ubuntu-latest
     needs:
       - tests
       - e2e_integration_test
     steps:
-      - name: Check if tag is not empty
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release tag cannot be empty
         run: |
           if [[ -z "${{ github.event.release.tag_name }}" ]]; then
             echo "Release tag name cannot be empty."
             exit 1
           fi
 
-      - name: Determine Docker Tags
+      - name: Docker Tags
         id: docker_tags
         run: |
           if [ "${{ github.event.release.prerelease }}" = "false" ]; then
@@ -44,60 +47,27 @@ jobs:
             echo "DOCKER_TAGS=stellar/wallet-backend:${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
           fi
 
-      - uses: actions/checkout@v4
-
-      - name: Login to DockerHub
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      - name: Publish Docker Image
+        uses: ./.github/actions/docker-publish
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push to DockerHub (release prd)
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
-        with:
-          push: true
-          build-args: |
-            GIT_COMMIT=${{ github.event.release.tag_name }}
-          tags: ${{ steps.docker_tags.outputs.DOCKER_TAGS }}
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-
-      - name: Post status with tag names
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const dockerTags = '${{ steps.docker_tags.outputs.DOCKER_TAGS }}'.split(',').map(tag => tag.split(':')[1]);
-
-            for (const dockerTag of dockerTags) {
-              const response = await github.rest.repos.createCommitStatus({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: '${{ github.sha }}',
-                context: `docker.io/stellar/wallet-backend:${dockerTag}`,
-                state: 'success',
-                target_url: `https://hub.docker.com/r/stellar/wallet-backend/tags?name=${dockerTag}`,
-                description: 'Available',
-              })
-              console.log(`status=${response.status}, body=${response.data}`);
-            }
+          docker-tags: ${{ steps.docker_tags.outputs.DOCKER_TAGS }}
+          git-commit: ${{ github.event.release.tag_name }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   build_and_push_docker_image_on_dev_push:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-    name: Push to DockerHub (release develop branch) # stellar/wallet-backend:edge-{DATE}-{SHA}
+    name: Push to DockerHub (develop) # stellar/wallet-backend:edge-{DATE}-{SHA}
     runs-on: ubuntu-latest
     needs:
       - tests
       - e2e_integration_test
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Login to DockerHub
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Get Date, SHA, and Tags
+      - name: Docker Tags & SHA
         id: get_info
         run: |
           DATE=$(date +'%Y-%m-%d')
@@ -107,34 +77,15 @@ jobs:
           echo "DOCKER_TAGS=stellar/wallet-backend:edge,stellar/wallet-backend:edge-$DATE-$SHA" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Build and push to DockerHub (develop branch)
-        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+      - name: Publish Docker Image
+        uses: ./.github/actions/docker-publish
         with:
-          push: true
-          build-args: |
-            GIT_COMMIT=${{ steps.get_info.outputs.SHA }}
-          tags: ${{ steps.get_info.outputs.DOCKER_TAGS }}
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
+          docker-tags: ${{ steps.get_info.outputs.DOCKER_TAGS }}
+          git-commit: ${{ steps.get_info.outputs.SHA }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Post status with tag names
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const dockerTags = '${{ steps.get_info.outputs.DOCKER_TAGS }}'.split(',').map(tag => tag.split(':')[1]);
-
-            for (const dockerTag of dockerTags) {
-              const response = await github.rest.repos.createCommitStatus({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: '${{ github.sha }}',
-                context: `docker.io/stellar/wallet-backend:${dockerTag}`,
-                state: 'success',
-                target_url: `https://hub.docker.com/r/stellar/wallet-backend/tags?name=${dockerTag}`,
-                description: 'Available',
-              })
-              console.log(`status=${response.status}, body=${response.data}`);
-            }
   complete:
     if: always()
     needs:
