@@ -1,12 +1,15 @@
 package auth
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"time"
 
 	jwtgo "github.com/golang-jwt/jwt/v4"
+	"github.com/stellar/go/strkey"
 )
 
 const DefaultMaxTimeout = 15 * time.Second
@@ -81,4 +84,30 @@ func (m *JWTManager) GenerateToken(body []byte, expiresAt time.Time) (string, er
 func hashBody(body []byte) string {
 	hashedBodyBytes := sha256.Sum256(body)
 	return hex.EncodeToString(hashedBodyBytes[:])
+}
+
+// ConvertStellarPublicKeyToED25519 converts a Stellar public key to an Ed25519 public key.
+func ConvertStellarPublicKeyToED25519(publicKey string) (ed25519.PublicKey, error) {
+	pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, publicKey)
+	if err != nil {
+		return nil, fmt.Errorf("decoding public key: %w", err)
+	}
+
+	return ed25519.PublicKey(pubKeyBytes), nil
+}
+
+// ConvertStellarPrivateKeyToED25519 converts a Stellar private key to an Ed25519 private key.
+func ConvertStellarPrivateKeyToED25519(privateKey string) (ed25519.PrivateKey, error) {
+	pubKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("decoding private key: %w", err)
+	}
+
+	reader := bytes.NewReader(pubKeyBytes)
+	_, ed25519PrivateKey, err := ed25519.GenerateKey(reader)
+	if err != nil {
+		return nil, fmt.Errorf("generating ed25519 key pair: %w", err)
+	}
+
+	return ed25519PrivateKey, nil
 }

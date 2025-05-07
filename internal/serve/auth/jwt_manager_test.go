@@ -5,6 +5,8 @@ import (
 	"time"
 
 	jwtgo "github.com/golang-jwt/jwt/v4"
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/strkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,5 +172,32 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		token, err := jwtManager.GenerateToken([]byte("some-body"), time.Now().Add(time.Hour))
 		assert.ErrorContains(t, err, "parsing EC Private Key")
 		assert.Empty(t, token, "token should be empty")
+	})
+}
+
+func Test_ConvertConversions(t *testing.T) {
+	const stellarPublicKey = "GC26LKWILTDSDK6NTBWDOYKYDCIKGK6NTCLHQVWLVNSM7XT35LTRCAQ4"
+	const stellarPrivateKey = "SBJZSINWGCA53QXCKXB65ZVL73F2NBUIS76QJUJXYDR4QOQK5GWLHK6F"
+
+	t.Run("🟢stellar_public_key_to_ed25519", func(t *testing.T) {
+		ed25519PublicKey, err := ConvertStellarPublicKeyToED25519(stellarPublicKey)
+		require.NoError(t, err)
+		require.NotNil(t, ed25519PublicKey)
+
+		encodedPublicKey, err := strkey.Encode(strkey.VersionByteAccountID, ed25519PublicKey)
+		require.NoError(t, err)
+		require.Equal(t, encodedPublicKey, stellarPublicKey)
+	})
+
+	t.Run("🟢stellar_private_key_to_ed25519", func(t *testing.T) {
+		ed25519PrivateKey, err := ConvertStellarPrivateKeyToED25519(stellarPrivateKey)
+		require.NoError(t, err)
+		require.NotNil(t, ed25519PrivateKey)
+
+		keyPair, err := keypair.FromRawSeed([32]byte(ed25519PrivateKey[:32]))
+		require.NoError(t, err)
+		require.NotNil(t, keyPair)
+		require.Equal(t, keyPair.Seed(), stellarPrivateKey)
+		require.Equal(t, keyPair.Address(), stellarPublicKey)
 	})
 }
