@@ -6,7 +6,6 @@ import (
 
 	jwtgo "github.com/golang-jwt/jwt/v4"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/strkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,28 +15,83 @@ type ecdsaKeypair struct {
 	publicKeyStr  string
 }
 
-var testECDSAKeypair1 = ecdsaKeypair{
-	publicKeyStr: `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAER88h7AiQyVDysRTxKvBB6CaiO/kS
-cvGyimApUE/12gFhNTRf37SE19CSCllKxstnVFOpLLWB7Qu5OJ0Wvcz3hg==
------END PUBLIC KEY-----`,
-	privateKeyStr: `-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgIqI1MzMZIw2pQDLx
-Jn0+FcNT/hNjwtn2TW43710JKZqhRANCAARHzyHsCJDJUPKxFPEq8EHoJqI7+RJy
-8bKKYClQT/XaAWE1NF/ftITX0JIKWUrGy2dUU6kstYHtC7k4nRa9zPeG
------END PRIVATE KEY-----`,
-}
+// GATTZ2V2VLTJ7VLYK5XI6FQTUYYB5W6H7HUQ5JJ7HCKJVX32RYXALO3S
+var testKP1 = keypair.MustParseFull("SAAT4JQDSVHVLTFHXNYOMQ6FAXBDUK4W4KQA6CC5GMHXU2ZQYJAZ5R4E")
 
-var testECDSAKeypair2 = ecdsaKeypair{
-	publicKeyStr: `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERJtGEWVxHTOghAFU9XyANbF10aXK
-zT3U72jUfBk38fceemINJERxdLbBs2O1foeFd8HyJ6Zn7tLvZWGNvVN+cA==
------END PUBLIC KEY-----`,
-	privateKeyStr: `-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgw8lMqTKWEdxusLOW
-J16L7THmguSKZq1PPS1SRravKpOhRANCAAREm0YRZXEdM6CEAVT1fIA1sXXRpcrN
-PdTvaNR8GTfx9x56Yg0kRHF0tsGzY7V+h4V3wfInpmfu0u9lYY29U35w
------END PRIVATE KEY-----`,
+// GBQFTE2O5A7RIXVFQFRVWSSMQRPF5PKSYRZCQV6DX5XH4KGUG6HEWN2M
+var testKP2 = keypair.MustParseFull("SBE6BQJ2UFS2PEJRXXEEAZ7EOPQF2GHBGQBKK2JZNXL34OCZJLY35PXG")
+
+func Test_NewJWTManager(t *testing.T) {
+	testCases := []struct {
+		name              string
+		stellarPrivateKey string
+		stellarPublicKey  string
+		maxTimeout        time.Duration
+		wantErrContains   string
+		wantJWTManager    *JWTManager
+	}{
+		{
+			name:              "🔴invalid_Public_Key",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  "invalid-public-key",
+			wantErrContains:   "invalid Stellar public key",
+			wantJWTManager:    nil,
+		},
+		{
+			name:              "🔴invalid_Private_Key",
+			stellarPrivateKey: "invalid-private-key",
+			stellarPublicKey:  testKP1.Address(),
+			wantErrContains:   "invalid Stellar private key",
+			wantJWTManager:    nil,
+		},
+		{
+			name:              "🟢valid_KP_1",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  testKP1.Address(),
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP1.Seed(),
+				PublicKey:  testKP1.Address(),
+				MaxTimeout: DefaultMaxTimeout,
+			},
+		},
+		{
+			name:              "🟢valid_KP_2",
+			stellarPrivateKey: testKP2.Seed(),
+			stellarPublicKey:  testKP2.Address(),
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP2.Seed(),
+				PublicKey:  testKP2.Address(),
+				MaxTimeout: DefaultMaxTimeout,
+			},
+		},
+		{
+			name:              "🟢valid_with_custom_max_timeout",
+			stellarPrivateKey: testKP1.Seed(),
+			stellarPublicKey:  testKP1.Address(),
+			maxTimeout:        10 * time.Second,
+			wantErrContains:   "",
+			wantJWTManager: &JWTManager{
+				PrivateKey: testKP1.Seed(),
+				PublicKey:  testKP1.Address(),
+				MaxTimeout: 10 * time.Second,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtManager, err := NewJWTManager(tc.stellarPrivateKey, tc.stellarPublicKey, tc.maxTimeout)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, jwtManager, "jwt manager should be nil")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantJWTManager, jwtManager)
+			}
+		})
+	}
 }
 
 func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
@@ -47,7 +101,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	testCases := []struct {
 		name            string
-		JWTManager      JWTManager
+		JWTManager      func(t *testing.T) *JWTManager
 		jwtBody         []byte
 		requestBody     []byte
 		expiresAt       time.Time
@@ -55,9 +109,10 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	}{
 		{
 			name: "🟢valid_KP_1_no_body",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair1.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			jwtBody:         nil,
 			requestBody:     nil,
@@ -66,9 +121,10 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		},
 		{
 			name: "🟢valid_KP_1_with_body",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair1.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
@@ -77,9 +133,10 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		},
 		{
 			name: "🟢valid_KP_2_no_body",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair2.privateKeyStr,
-				PublicKey:  testECDSAKeypair2.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP2.Seed(), testKP2.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			jwtBody:         nil,
 			requestBody:     nil,
@@ -88,9 +145,10 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		},
 		{
 			name: "🟢valid_KP_2_with_body",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair2.privateKeyStr,
-				PublicKey:  testECDSAKeypair2.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP2.Seed(), testKP2.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
@@ -99,37 +157,40 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		},
 		{
 			name: "🔴expired",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair1.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			expiresAt:       expiredTimestamp,
 			wantErrContains: "parsing JWT token with claims: token is expired by",
 		},
 		{
 			name: "🔴expiration_is_too_long",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair1.publicKeyStr,
-				MaxTimeout: DefaultMaxTimeout,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), DefaultMaxTimeout)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			expiresAt:       tooLongTimestamp,
 			wantErrContains: "the token expiration is too long, max timeout is 15s",
 		},
 		{
 			name: "🔴mismatch_KP",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair2.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP2.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			expiresAt:       validTimestamp,
-			wantErrContains: "parsing JWT token with claims: crypto/ecdsa: verification error",
+			wantErrContains: "parsing JWT token with claims: ed25519: verification error",
 		},
 		{
 			name: "🔴mismatch_body",
-			JWTManager: JWTManager{
-				PrivateKey: testECDSAKeypair1.privateKeyStr,
-				PublicKey:  testECDSAKeypair1.publicKeyStr,
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"x": "y"}`),
@@ -140,10 +201,11 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			token, err := tc.JWTManager.GenerateToken(tc.jwtBody, tc.expiresAt)
+			jwtManager := tc.JWTManager(t)
+			token, err := jwtManager.GenerateJWT(tc.jwtBody, tc.expiresAt)
 			require.NoError(t, err)
 
-			parsedToken, parsedClaims, err := tc.JWTManager.ParseToken(token, tc.requestBody)
+			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, tc.requestBody)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, parsedToken, "parsed token should be nil")
@@ -161,43 +223,16 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	t.Run("🔴invalid_Public_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PublicKey: "invalid-public-key"}
-		parsedToken, parsedClaims, err := jwtManager.ParseToken("eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJoYXNoZWRfYm9keSI6IjQyNmZjMDRmMDRiZjhmZGI1ODMxZGMzN2JiYjZkY2Y3MGY2M2EzN2UwNWE2OGM2ZWE1ZjYzZTg1YWU1NzkzNzYiLCJleHAiOjE3NDY2NDU5MjB9.5IyKtf8NWljLlD8TFyseDXi7ufxI92xXwvBJ56BNuqM1Z1ofg5umhpILtlXnMZb-7NpykQmTSKHOhOjA1XMjuQ", []byte("some-body"))
-		assert.ErrorContains(t, err, "parsing EC Public Key")
+		parsedToken, parsedClaims, err := jwtManager.ParseJWT("eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJoYXNoZWRfYm9keSI6IjQyNmZjMDRmMDRiZjhmZGI1ODMxZGMzN2JiYjZkY2Y3MGY2M2EzN2UwNWE2OGM2ZWE1ZjYzZTg1YWU1NzkzNzYiLCJleHAiOjE3NDY2NDU5MjB9.5IyKtf8NWljLlD8TFyseDXi7ufxI92xXwvBJ56BNuqM1Z1ofg5umhpILtlXnMZb-7NpykQmTSKHOhOjA1XMjuQ", []byte("some-body"))
+		assert.ErrorContains(t, err, "parsing JWT token with claims: decoding Stellar public key")
 		assert.Nil(t, parsedToken, "parsed token should be nil")
 		assert.Nil(t, parsedClaims, "parsed claims should be nil")
 	})
 
 	t.Run("🔴invalid_Private_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PrivateKey: "invalid-private-key"}
-		token, err := jwtManager.GenerateToken([]byte("some-body"), time.Now().Add(time.Hour))
-		assert.ErrorContains(t, err, "parsing EC Private Key")
+		token, err := jwtManager.GenerateJWT([]byte("some-body"), time.Now().Add(time.Hour))
+		assert.ErrorContains(t, err, "decoding Stellar private key")
 		assert.Empty(t, token, "token should be empty")
-	})
-}
-
-func Test_ConvertConversions(t *testing.T) {
-	const stellarPublicKey = "GC26LKWILTDSDK6NTBWDOYKYDCIKGK6NTCLHQVWLVNSM7XT35LTRCAQ4"
-	const stellarPrivateKey = "SBJZSINWGCA53QXCKXB65ZVL73F2NBUIS76QJUJXYDR4QOQK5GWLHK6F"
-
-	t.Run("🟢stellar_public_key_to_ed25519", func(t *testing.T) {
-		ed25519PublicKey, err := ConvertStellarPublicKeyToED25519(stellarPublicKey)
-		require.NoError(t, err)
-		require.NotNil(t, ed25519PublicKey)
-
-		encodedPublicKey, err := strkey.Encode(strkey.VersionByteAccountID, ed25519PublicKey)
-		require.NoError(t, err)
-		require.Equal(t, encodedPublicKey, stellarPublicKey)
-	})
-
-	t.Run("🟢stellar_private_key_to_ed25519", func(t *testing.T) {
-		ed25519PrivateKey, err := ConvertStellarPrivateKeyToED25519(stellarPrivateKey)
-		require.NoError(t, err)
-		require.NotNil(t, ed25519PrivateKey)
-
-		keyPair, err := keypair.FromRawSeed([32]byte(ed25519PrivateKey[:32]))
-		require.NoError(t, err)
-		require.NotNil(t, keyPair)
-		require.Equal(t, keyPair.Seed(), stellarPrivateKey)
-		require.Equal(t, keyPair.Address(), stellarPublicKey)
 	})
 }

@@ -19,24 +19,33 @@ type customClaims struct {
 	jwtgo.RegisteredClaims
 }
 
-// JWTManager
 type JWTManager struct {
 	PrivateKey string
 	PublicKey  string
 	MaxTimeout time.Duration
 }
 
-// ParseToken parses a JWT token and returns the claims. It also checks if the token expiration is within [now,
+type JWTTokenParser interface {
+	// ParseJWT parses a JWT token and returns it with the claims.
+	ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error)
+}
+
+type JWTTokenGenerator interface {
+	// GenerateJWT generates a JWT token with the given body and expiration time.
+	GenerateJWT(body []byte, expiresAt time.Time) (string, error)
+}
+
+// ParseJWT parses a JWT token and returns it with the claims. It also checks if the token expiration is within [now,
 // now+MaxTimeout], and if the claims' hashed_body matches the requestBody's hash.
-func (m *JWTManager) ParseToken(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error) {
+func (m *JWTManager) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error) {
 	claims := &customClaims{}
 	token, err := jwtgo.ParseWithClaims(tokenString, claims, func(t *jwtgo.Token) (interface{}, error) {
-		esPublicKey, err := jwtgo.ParseECPublicKeyFromPEM([]byte(m.PublicKey))
+		pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, m.PublicKey)
 		if err != nil {
-			return nil, fmt.Errorf("parsing EC Public Key: %w", err)
+			return nil, fmt.Errorf("decoding Stellar public key: %w", err)
 		}
 
-		return esPublicKey, nil
+		return ed25519.PublicKey(pubKeyBytes), nil
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("parsing JWT token with claims: %w", err)
@@ -57,11 +66,16 @@ func (m *JWTManager) ParseToken(tokenString string, body []byte) (*jwtgo.Token, 
 	return token, claims, nil
 }
 
-// GenerateToken generates a JWT token with the given body and expiration time.
-func (m *JWTManager) GenerateToken(body []byte, expiresAt time.Time) (string, error) {
-	esPrivateKey, err := jwtgo.ParseECPrivateKeyFromPEM([]byte(m.PrivateKey))
+// GenerateJWT generates a JWT token with the given body and expiration time.
+func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, error) {
+	privateKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, m.PrivateKey)
 	if err != nil {
-		return "", fmt.Errorf("parsing EC Private Key: %w", err)
+		return "", fmt.Errorf("decoding Stellar private key: %w", err)
+	}
+
+	_, ed25519PrivateKey, err := ed25519.GenerateKey(bytes.NewReader(privateKeyBytes))
+	if err != nil {
+		return "", fmt.Errorf("generating ed25519 key pair: %w", err)
 	}
 
 	claims := &customClaims{
@@ -71,8 +85,8 @@ func (m *JWTManager) GenerateToken(body []byte, expiresAt time.Time) (string, er
 		},
 	}
 
-	token := jwtgo.NewWithClaims(jwtgo.SigningMethodES256, claims)
-	tokenString, err := token.SignedString(esPrivateKey)
+	token := jwtgo.NewWithClaims(jwtgo.SigningMethodEdDSA, claims)
+	tokenString, err := token.SignedString(ed25519PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("signing JWT token with claims: %w", err)
 	}
@@ -86,28 +100,25 @@ func hashBody(body []byte) string {
 	return hex.EncodeToString(hashedBodyBytes[:])
 }
 
-// ConvertStellarPublicKeyToED25519 converts a Stellar public key to an Ed25519 public key.
-func ConvertStellarPublicKeyToED25519(publicKey string) (ed25519.PublicKey, error) {
-	pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("decoding public key: %w", err)
+func NewJWTManager(stellarPrivateKey string, stellarPublicKey string, maxTimeout time.Duration) (*JWTManager, error) {
+	if !strkey.IsValidEd25519PublicKey(stellarPublicKey) {
+		return nil, fmt.Errorf("invalid Stellar public key")
 	}
 
-	return ed25519.PublicKey(pubKeyBytes), nil
+	if !strkey.IsValidEd25519SecretSeed(stellarPrivateKey) {
+		return nil, fmt.Errorf("invalid Stellar private key")
+	}
+
+	if maxTimeout <= 0 {
+		maxTimeout = DefaultMaxTimeout
+	}
+
+	return &JWTManager{
+		PrivateKey: stellarPrivateKey,
+		PublicKey:  stellarPublicKey,
+		MaxTimeout: maxTimeout,
+	}, nil
 }
 
-// ConvertStellarPrivateKeyToED25519 converts a Stellar private key to an Ed25519 private key.
-func ConvertStellarPrivateKeyToED25519(privateKey string) (ed25519.PrivateKey, error) {
-	pubKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("decoding private key: %w", err)
-	}
-
-	reader := bytes.NewReader(pubKeyBytes)
-	_, ed25519PrivateKey, err := ed25519.GenerateKey(reader)
-	if err != nil {
-		return nil, fmt.Errorf("generating ed25519 key pair: %w", err)
-	}
-
-	return ed25519PrivateKey, nil
-}
+var _ JWTTokenParser = (*JWTManager)(nil)
+var _ JWTTokenGenerator = (*JWTManager)(nil)
