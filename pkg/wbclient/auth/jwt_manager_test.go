@@ -257,7 +257,66 @@ func Test_NewJWTTokenParser(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			jwtTokenParser, err := NewJWTTokenParser(tc.publicKey, 0)
+			jwtTokenParser, err := NewJWTTokenParser(0, tc.publicKey)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, jwtTokenParser, "jwt token parser should be nil")
+			} else {
+				require.NoError(t, err)
+
+				// Generate a JWT token
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				token, err := jwtManager.GenerateJWT(tc.reqBody, time.Now().Add(time.Second*2))
+				require.NoError(t, err)
+
+				// Parse the JWT token
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, tc.reqBody)
+				require.NoError(t, err)
+				assert.True(t, parsedToken.Valid, "parsed token should be valid")
+				require.Equal(t, HashBody(tc.reqBody), parsedClaims.HashedBody)
+			}
+		})
+	}
+}
+
+func Test_NewMultiJWTTokenParser(t *testing.T) {
+	testCases := []struct {
+		name            string
+		publicKeys      []string
+		reqBody         []byte
+		wantErrContains string
+	}{
+		{
+			name:            "🔴invalid_Public_Key",
+			publicKeys:      []string{"invalid-public-key"},
+			wantErrContains: "invalid Stellar public key",
+		},
+		{
+			name:       "🟢valid_publicKey1_with_body",
+			publicKeys: []string{testKP1.Address()},
+			reqBody:    []byte(`{"foo": "bar"}`),
+		},
+		{
+			name:       "🟢valid_publicKey1_no_body",
+			publicKeys: []string{testKP1.Address()},
+			reqBody:    nil,
+		},
+		{
+			name:       "🟢valid_publicKey2_with_body",
+			publicKeys: []string{testKP2.Address(), testKP1.Address()},
+			reqBody:    []byte(`{"foo": "bar"}`),
+		},
+		{
+			name:       "🟢valid_publicKey2_no_body",
+			publicKeys: []string{testKP1.Address(), testKP2.Address()},
+			reqBody:    nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtTokenParser, err := NewMultiJWTTokenParser(0, tc.publicKeys...)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, jwtTokenParser, "jwt token parser should be nil")

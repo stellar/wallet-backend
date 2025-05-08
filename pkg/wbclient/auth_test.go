@@ -89,7 +89,7 @@ func Test_RequestSigner(t *testing.T) {
 				require.NotEmpty(t, authHeader)
 				tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
-				jwtTokenParser, err := auth.NewJWTTokenParser(signingKey.Address(), auth.DefaultMaxTimeout)
+				jwtTokenParser, err := auth.NewJWTTokenParser(auth.DefaultMaxTimeout, signingKey.Address())
 				require.NoError(t, err)
 				jwtToken, claims, err := jwtTokenParser.ParseJWT(tokenStr, tc.requestBody)
 				if len(tc.wantErrContains) == 0 {

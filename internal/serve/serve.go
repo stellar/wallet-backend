@@ -142,7 +142,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewJWTTokenParser(cfg.ClientAuthPublicKeys[0], time.Second*5)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}

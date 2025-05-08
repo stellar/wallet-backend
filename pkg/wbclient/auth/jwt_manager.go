@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"time"
 
@@ -92,6 +93,7 @@ func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, erro
 	return tokenString, nil
 }
 
+// NewJWTManager creates a new JWT token manager that can generate and parse JWT tokens.
 func NewJWTManager(stellarPrivateKey string, stellarPublicKey string, maxTimeout time.Duration) (*JWTManager, error) {
 	if !strkey.IsValidEd25519PublicKey(stellarPublicKey) {
 		return nil, fmt.Errorf("invalid Stellar public key")
@@ -112,7 +114,8 @@ func NewJWTManager(stellarPrivateKey string, stellarPublicKey string, maxTimeout
 	}, nil
 }
 
-func NewJWTTokenParser(stellarPublicKey string, maxTimeout time.Duration) (JWTTokenParser, error) {
+// NewJWTTokenParser creates a new JWT token parser that can parse a JWT token as long as it has been signed by the provided Stellar public key.
+func NewJWTTokenParser(maxTimeout time.Duration, stellarPublicKey string) (JWTTokenParser, error) {
 	if !strkey.IsValidEd25519PublicKey(stellarPublicKey) {
 		return nil, fmt.Errorf("invalid Stellar public key")
 	}
@@ -122,6 +125,47 @@ func NewJWTTokenParser(stellarPublicKey string, maxTimeout time.Duration) (JWTTo
 	}
 
 	return &JWTManager{PublicKey: stellarPublicKey, MaxTimeout: maxTimeout}, nil
+}
+
+// NewMultiJWTTokenParser creates a new JWT token parser that can parse a JWT token as long as it has been signed by an least one of the provided Stellar public keys.
+func NewMultiJWTTokenParser(maxTimeout time.Duration, stellarPublicKeys ...string) (JWTTokenParser, error) {
+	if len(stellarPublicKeys) == 0 {
+		return nil, fmt.Errorf("no Stellar public keys provided")
+	}
+
+	pubKeysSet := make(map[string]struct{})
+	for _, pubKey := range stellarPublicKeys {
+		if !strkey.IsValidEd25519PublicKey(pubKey) {
+			return nil, fmt.Errorf("invalid Stellar public key: %s", pubKey)
+		}
+		pubKeysSet[pubKey] = struct{}{}
+	}
+
+	jwtParsers := make([]JWTTokenParser, 0, len(stellarPublicKeys))
+	for _, pubKey := range stellarPublicKeys {
+		jwtParser, err := NewJWTTokenParser(maxTimeout, pubKey)
+		if err != nil {
+			return nil, fmt.Errorf("creating JWT parser: %w", err)
+		}
+		jwtParsers = append(jwtParsers, jwtParser)
+	}
+
+	return MultiJWTTokenParser(jwtParsers), nil
+}
+
+type MultiJWTTokenParser []JWTTokenParser
+
+func (m MultiJWTTokenParser) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error) {
+	var jwtParsingErrors []error
+	for _, jwtParser := range m {
+		token, claims, err := jwtParser.ParseJWT(tokenString, body)
+		if err == nil {
+			return token, claims, nil
+		}
+		jwtParsingErrors = append(jwtParsingErrors, err)
+	}
+
+	return nil, nil, errors.Join(jwtParsingErrors...)
 }
 
 func NewJWTTokenGenerator(stellarPrivateKey string) (JWTTokenGenerator, error) {
@@ -134,5 +178,6 @@ func NewJWTTokenGenerator(stellarPrivateKey string) (JWTTokenGenerator, error) {
 
 var (
 	_ JWTTokenParser    = (*JWTManager)(nil)
+	_ JWTTokenParser    = (*MultiJWTTokenParser)(nil)
 	_ JWTTokenGenerator = (*JWTManager)(nil)
 )
