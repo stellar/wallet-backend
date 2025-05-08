@@ -91,7 +91,7 @@ func Test_RequestSigner(t *testing.T) {
 
 				jwtTokenParser, err := auth.NewJWTTokenParser(auth.DefaultMaxTimeout, signingKey.Address())
 				require.NoError(t, err)
-				jwtToken, claims, err := jwtTokenParser.ParseJWT(tokenStr, tc.requestBody)
+				jwtToken, claims, err := jwtTokenParser.ParseJWT(tokenStr, "test.com", tc.requestBody)
 				if len(tc.wantErrContains) == 0 {
 					assert.NoError(t, err)
 					assert.True(t, jwtToken.Valid)

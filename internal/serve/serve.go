@@ -78,6 +78,7 @@ type handlerDeps struct {
 	Models            *data.Models
 	Port              int
 	DatabaseURL       string
+	ServerBaseURL     string
 	JWTTokenParser    auth.JWTTokenParser
 	SupportedAssets   []entities.Asset
 	NetworkPassphrase string
@@ -273,6 +274,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	return handlerDeps{
 		Models:                    models,
+		ServerBaseURL:             cfg.ServerBaseURL,
 		JWTTokenParser:            jwtTokenParser,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
@@ -326,7 +328,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.ServerBaseURL, deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{

@@ -26,17 +26,17 @@ type JWTManager struct {
 
 type JWTTokenParser interface {
 	// ParseJWT parses a JWT token and returns it with the claims.
-	ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error)
+	ParseJWT(tokenString string, audience string, body []byte) (*jwtgo.Token, *customClaims, error)
 }
 
 type JWTTokenGenerator interface {
 	// GenerateJWT generates a JWT token with the given body and expiration time.
-	GenerateJWT(body []byte, expiresAt time.Time) (string, error)
+	GenerateJWT(audience string, body []byte, expiresAt time.Time) (string, error)
 }
 
 // ParseJWT parses a JWT token and returns it with the claims. It also checks if the token expiration is within [now,
 // now+MaxTimeout], and if the claims' hashed_body matches the requestBody's hash.
-func (m *JWTManager) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error) {
+func (m *JWTManager) ParseJWT(tokenString string, audience string, body []byte) (*jwtgo.Token, *customClaims, error) {
 	claims := &customClaims{}
 	token, err := jwtgo.ParseWithClaims(tokenString, claims, func(t *jwtgo.Token) (interface{}, error) {
 		pubKeyBytes, err := strkey.Decode(strkey.VersionByteAccountID, m.PublicKey)
@@ -62,11 +62,15 @@ func (m *JWTManager) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *c
 		return nil, nil, fmt.Errorf("the token expiration is too long, max timeout is %s", maxTimeout)
 	}
 
+	if audience != "" && !claims.VerifyAudience(audience, true) {
+		return nil, nil, fmt.Errorf("the token audience %s does not match the expected audience %v", claims.Audience, audience)
+	}
+
 	return token, claims, nil
 }
 
 // GenerateJWT generates a JWT token with the given body and expiration time.
-func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, error) {
+func (m *JWTManager) GenerateJWT(audience string, body []byte, expiresAt time.Time) (string, error) {
 	privateKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, m.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("decoding Stellar private key: %w", err)
@@ -81,6 +85,7 @@ func (m *JWTManager) GenerateJWT(body []byte, expiresAt time.Time) (string, erro
 		HashedBody: HashBody(body),
 		RegisteredClaims: jwtgo.RegisteredClaims{
 			ExpiresAt: jwtgo.NewNumericDate(expiresAt),
+			Audience:  jwtgo.ClaimStrings{audience},
 		},
 	}
 
@@ -155,10 +160,10 @@ func NewMultiJWTTokenParser(maxTimeout time.Duration, stellarPublicKeys ...strin
 
 type MultiJWTTokenParser []JWTTokenParser
 
-func (m MultiJWTTokenParser) ParseJWT(tokenString string, body []byte) (*jwtgo.Token, *customClaims, error) {
+func (m MultiJWTTokenParser) ParseJWT(tokenString string, audience string, body []byte) (*jwtgo.Token, *customClaims, error) {
 	var jwtParsingErrors []error
 	for _, jwtParser := range m {
-		token, claims, err := jwtParser.ParseJWT(tokenString, body)
+		token, claims, err := jwtParser.ParseJWT(tokenString, audience, body)
 		if err == nil {
 			return token, claims, nil
 		}

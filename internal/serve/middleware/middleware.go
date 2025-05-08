@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/stellar/go/support/log"
@@ -19,6 +20,7 @@ import (
 const MaxBodySize int64 = 10_240 // 10kb
 
 func AuthenticationMiddleware(
+	serverBaseURL string,
 	jwtTokenParser auth.JWTTokenParser,
 	appTracker apptracker.AppTracker,
 	metricsService metrics.MetricsService,
@@ -51,8 +53,20 @@ func AuthenticationMiddleware(
 				}
 			}
 
+			// Ensure the hostname is parsed correctly
+			hostname := req.Host
+			if !strings.Contains(hostname, "://") {
+				hostname = "https://" + hostname
+			}
+			host, err := url.ParseRequestURI(hostname)
+			if err != nil {
+				err = fmt.Errorf("parsing hostname: %w", err)
+				httperror.InternalServerError(ctx, err.Error(), err, nil, appTracker).Render(rw)
+				return
+			}
+
 			tokenStr := strings.Replace(authHeader, "Bearer ", "", 1)
-			_, _, err := jwtTokenParser.ParseJWT(tokenStr, reqBody)
+			_, _, err = jwtTokenParser.ParseJWT(tokenStr, host.Hostname(), reqBody)
 			if err != nil {
 				if expirationDuration, ok := auth.ParseExpirationDuration(err); ok {
 					metricsService.IncSignatureVerificationExpired(expirationDuration.Seconds())

@@ -32,7 +32,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🔴missing_authorization_header",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", nil)
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", nil)
 				require.NoError(t, err)
 				return req
 			},
@@ -42,7 +42,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🔴missing_Bearer_prefix",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", nil)
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "token")
 				return req
@@ -53,14 +53,14 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🔴invalid_token",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", nil)
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "Bearer invalid-token")
 				return req
 			},
 			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
 				mJWTokenParser.EXPECT().
-					ParseJWT("invalid-token", []byte(nil)).
+					ParseJWT("invalid-token", "test.com", []byte(nil)).
 					Return(nil, nil, errors.New("invalid token")).
 					Once()
 			},
@@ -70,14 +70,14 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🔴expired_token",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", nil)
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "Bearer invalid-token")
 				return req
 			},
 			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
 				mJWTokenParser.EXPECT().
-					ParseJWT("invalid-token", []byte(nil)).
+					ParseJWT("invalid-token", "test.com", []byte(nil)).
 					Return(nil, nil, &jwt.ValidationError{
 						Errors: jwt.ValidationErrorExpired,
 						Inner:  errors.New("token is expired by 1s"),
@@ -91,16 +91,33 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🟢valid_token_with_body",
+			name: "🔴invalid_hostname",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", io.NopCloser(bytes.NewReader([]byte(`{"foo": "bar"}`))))
+				req, err := http.NewRequest("GET", "https://invalid.test.com/authenticated", nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "Bearer valid-token")
 				return req
 			},
 			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
 				mJWTokenParser.EXPECT().
-					ParseJWT("valid-token", []byte(`{"foo": "bar"}`)).
+					ParseJWT("valid-token", "invalid.test.com", []byte(nil)).
+					Return(nil, nil, errors.New("the token audience [invalid.test.com] does not match the expected audience [test.com]")).
+					Once()
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			expectedMessage: `{"error":"Not authorized."}`,
+		},
+		{
+			name: "🟢valid_token_with_body",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", io.NopCloser(bytes.NewReader([]byte(`{"foo": "bar"}`))))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer valid-token")
+				return req
+			},
+			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
+				mJWTokenParser.EXPECT().
+					ParseJWT("valid-token", "test.com", []byte(`{"foo": "bar"}`)).
 					Return(nil, nil, nil).
 					Once()
 			},
@@ -110,14 +127,14 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🟢valid_token_without_body",
 			setupRequest: func() *http.Request {
-				req, err := http.NewRequest("GET", "/authenticated", nil)
+				req, err := http.NewRequest("GET", "https://test.com/authenticated", nil)
 				require.NoError(t, err)
 				req.Header.Set("Authorization", "Bearer valid-token")
 				return req
 			},
 			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
 				mJWTokenParser.EXPECT().
-					ParseJWT("valid-token", []byte(nil)).
+					ParseJWT("valid-token", "test.com", []byte(nil)).
 					Return(nil, nil, nil).
 					Once()
 			},
@@ -137,7 +154,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			if tc.setupMocks != nil {
 				tc.setupMocks(t, mJWTokenParser, mAppTracker, mMetricsService)
 			}
-			authMiddleware := AuthenticationMiddleware(mJWTokenParser, mAppTracker, mMetricsService)
+			authMiddleware := AuthenticationMiddleware("test.com", mJWTokenParser, mAppTracker, mMetricsService)
 
 			r := chi.NewRouter()
 			r.Get("/unauthenticated", func(w http.ResponseWriter, r *http.Request) {

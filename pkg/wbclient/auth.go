@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
@@ -21,6 +23,16 @@ type RequestSigner struct {
 
 // SignHTTPRequest adds the generated JWT token to the HTTP request's Authorization header.
 func (sc *RequestSigner) SignHTTPRequest(req *http.Request, timeout time.Duration) error {
+	// Ensure the hostname is parsed correctly
+	hostname := req.URL.Hostname()
+	if !strings.Contains(hostname, "://") {
+		hostname = "https://" + hostname
+	}
+	host, err := url.ParseRequestURI(hostname)
+	if err != nil {
+		return fmt.Errorf("parsing hostname: %w", err)
+	}
+
 	bodyBytes, err := io.ReadAll(req.Body)
 	if err != nil {
 		return fmt.Errorf("reading request body: %w", err)
@@ -29,7 +41,7 @@ func (sc *RequestSigner) SignHTTPRequest(req *http.Request, timeout time.Duratio
 		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}()
 
-	jwtToken, err := sc.GenerateJWT(bodyBytes, time.Now().Add(timeout))
+	jwtToken, err := sc.GenerateJWT(host.Hostname(), bodyBytes, time.Now().Add(timeout))
 	if err != nil {
 		return fmt.Errorf("generating JWT token: %w", err)
 	}

@@ -39,8 +39,8 @@ func (_m *MockJWTTokenParser) EXPECT() *MockJWTTokenParser_Expecter {
 }
 
 // ParseJWT provides a mock function for the type MockJWTTokenParser
-func (_mock *MockJWTTokenParser) ParseJWT(tokenString string, body []byte) (*jwt.Token, *customClaims, error) {
-	ret := _mock.Called(tokenString, body)
+func (_mock *MockJWTTokenParser) ParseJWT(tokenString string, audience string, body []byte) (*jwt.Token, *customClaims, error) {
+	ret := _mock.Called(tokenString, audience, body)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ParseJWT")
@@ -49,25 +49,25 @@ func (_mock *MockJWTTokenParser) ParseJWT(tokenString string, body []byte) (*jwt
 	var r0 *jwt.Token
 	var r1 *customClaims
 	var r2 error
-	if returnFunc, ok := ret.Get(0).(func(string, []byte) (*jwt.Token, *customClaims, error)); ok {
-		return returnFunc(tokenString, body)
+	if returnFunc, ok := ret.Get(0).(func(string, string, []byte) (*jwt.Token, *customClaims, error)); ok {
+		return returnFunc(tokenString, audience, body)
 	}
-	if returnFunc, ok := ret.Get(0).(func(string, []byte) *jwt.Token); ok {
-		r0 = returnFunc(tokenString, body)
+	if returnFunc, ok := ret.Get(0).(func(string, string, []byte) *jwt.Token); ok {
+		r0 = returnFunc(tokenString, audience, body)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*jwt.Token)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(string, []byte) *customClaims); ok {
-		r1 = returnFunc(tokenString, body)
+	if returnFunc, ok := ret.Get(1).(func(string, string, []byte) *customClaims); ok {
+		r1 = returnFunc(tokenString, audience, body)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(*customClaims)
 		}
 	}
-	if returnFunc, ok := ret.Get(2).(func(string, []byte) error); ok {
-		r2 = returnFunc(tokenString, body)
+	if returnFunc, ok := ret.Get(2).(func(string, string, []byte) error); ok {
+		r2 = returnFunc(tokenString, audience, body)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -81,14 +81,15 @@ type MockJWTTokenParser_ParseJWT_Call struct {
 
 // ParseJWT is a helper method to define mock.On call
 //   - tokenString
+//   - audience
 //   - body
-func (_e *MockJWTTokenParser_Expecter) ParseJWT(tokenString interface{}, body interface{}) *MockJWTTokenParser_ParseJWT_Call {
-	return &MockJWTTokenParser_ParseJWT_Call{Call: _e.mock.On("ParseJWT", tokenString, body)}
+func (_e *MockJWTTokenParser_Expecter) ParseJWT(tokenString interface{}, audience interface{}, body interface{}) *MockJWTTokenParser_ParseJWT_Call {
+	return &MockJWTTokenParser_ParseJWT_Call{Call: _e.mock.On("ParseJWT", tokenString, audience, body)}
 }
 
-func (_c *MockJWTTokenParser_ParseJWT_Call) Run(run func(tokenString string, body []byte)) *MockJWTTokenParser_ParseJWT_Call {
+func (_c *MockJWTTokenParser_ParseJWT_Call) Run(run func(tokenString string, audience string, body []byte)) *MockJWTTokenParser_ParseJWT_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].([]byte))
+		run(args[0].(string), args[1].(string), args[2].([]byte))
 	})
 	return _c
 }
@@ -98,7 +99,7 @@ func (_c *MockJWTTokenParser_ParseJWT_Call) Return(token *jwt.Token, customClaim
 	return _c
 }
 
-func (_c *MockJWTTokenParser_ParseJWT_Call) RunAndReturn(run func(tokenString string, body []byte) (*jwt.Token, *customClaims, error)) *MockJWTTokenParser_ParseJWT_Call {
+func (_c *MockJWTTokenParser_ParseJWT_Call) RunAndReturn(run func(tokenString string, audience string, body []byte) (*jwt.Token, *customClaims, error)) *MockJWTTokenParser_ParseJWT_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -131,8 +132,8 @@ func (_m *MockJWTTokenGenerator) EXPECT() *MockJWTTokenGenerator_Expecter {
 }
 
 // GenerateJWT provides a mock function for the type MockJWTTokenGenerator
-func (_mock *MockJWTTokenGenerator) GenerateJWT(body []byte, expiresAt time.Time) (string, error) {
-	ret := _mock.Called(body, expiresAt)
+func (_mock *MockJWTTokenGenerator) GenerateJWT(audience string, body []byte, expiresAt time.Time) (string, error) {
+	ret := _mock.Called(audience, body, expiresAt)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GenerateJWT")
@@ -140,16 +141,16 @@ func (_mock *MockJWTTokenGenerator) GenerateJWT(body []byte, expiresAt time.Time
 
 	var r0 string
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func([]byte, time.Time) (string, error)); ok {
-		return returnFunc(body, expiresAt)
+	if returnFunc, ok := ret.Get(0).(func(string, []byte, time.Time) (string, error)); ok {
+		return returnFunc(audience, body, expiresAt)
 	}
-	if returnFunc, ok := ret.Get(0).(func([]byte, time.Time) string); ok {
-		r0 = returnFunc(body, expiresAt)
+	if returnFunc, ok := ret.Get(0).(func(string, []byte, time.Time) string); ok {
+		r0 = returnFunc(audience, body, expiresAt)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if returnFunc, ok := ret.Get(1).(func([]byte, time.Time) error); ok {
-		r1 = returnFunc(body, expiresAt)
+	if returnFunc, ok := ret.Get(1).(func(string, []byte, time.Time) error); ok {
+		r1 = returnFunc(audience, body, expiresAt)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -162,15 +163,16 @@ type MockJWTTokenGenerator_GenerateJWT_Call struct {
 }
 
 // GenerateJWT is a helper method to define mock.On call
+//   - audience
 //   - body
 //   - expiresAt
-func (_e *MockJWTTokenGenerator_Expecter) GenerateJWT(body interface{}, expiresAt interface{}) *MockJWTTokenGenerator_GenerateJWT_Call {
-	return &MockJWTTokenGenerator_GenerateJWT_Call{Call: _e.mock.On("GenerateJWT", body, expiresAt)}
+func (_e *MockJWTTokenGenerator_Expecter) GenerateJWT(audience interface{}, body interface{}, expiresAt interface{}) *MockJWTTokenGenerator_GenerateJWT_Call {
+	return &MockJWTTokenGenerator_GenerateJWT_Call{Call: _e.mock.On("GenerateJWT", audience, body, expiresAt)}
 }
 
-func (_c *MockJWTTokenGenerator_GenerateJWT_Call) Run(run func(body []byte, expiresAt time.Time)) *MockJWTTokenGenerator_GenerateJWT_Call {
+func (_c *MockJWTTokenGenerator_GenerateJWT_Call) Run(run func(audience string, body []byte, expiresAt time.Time)) *MockJWTTokenGenerator_GenerateJWT_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte), args[1].(time.Time))
+		run(args[0].(string), args[1].([]byte), args[2].(time.Time))
 	})
 	return _c
 }
@@ -180,7 +182,7 @@ func (_c *MockJWTTokenGenerator_GenerateJWT_Call) Return(s string, err error) *M
 	return _c
 }
 
-func (_c *MockJWTTokenGenerator_GenerateJWT_Call) RunAndReturn(run func(body []byte, expiresAt time.Time) (string, error)) *MockJWTTokenGenerator_GenerateJWT_Call {
+func (_c *MockJWTTokenGenerator_GenerateJWT_Call) RunAndReturn(run func(audience string, body []byte, expiresAt time.Time) (string, error)) *MockJWTTokenGenerator_GenerateJWT_Call {
 	_c.Call.Return(run)
 	return _c
 }
