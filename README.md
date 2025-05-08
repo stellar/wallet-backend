@@ -18,6 +18,9 @@ account management, and payment tracking capabilities.
     - [Testing](#testing)
       - [Unit Tests](#unit-tests)
       - [Integration Tests](#integration-tests)
+  - [Authentication](#authentication)
+    - [JWT Signature](#jwt-signature)
+    - [JWT Claims](#jwt-claims)
 
 ## Overview
 
@@ -164,3 +167,29 @@ go run main.go integration-tests
 - Both `db` and `stellar-rpc` services should be running, either in Docker containers or locally.
 
 This setup allows you to verify both the isolated functionality of components (unit tests) and their interactions (integration tests) within the wallet-backend.
+
+## Authentication
+
+The wallet-backend uses JSON Web Tokens (JWT) with Ed25519 signatures for request authentication.
+
+### JWT Signature
+
+The JWT is signed using an Ed25519 private key derived from a Stellar secret seed. You can generate Stellar keypairs at the [Stellar Laboratory](https://lab.stellar.org/account/create?$=network$id=testnet&label=Testnet&horizonUrl=https:////horizon-testnet.stellar.org&rpcUrl=https:////soroban-testnet.stellar.org&passphrase=Test%20SDF%20Network%20/;%20September%202015;;).
+
+The server can be configured to accept multiple (comma-separated) public keys through the `CLIENT_AUTH_PUBLIC_KEYS` environment variable.
+
+### JWT Claims
+
+The JWT claims include basically two fields:
+
+- (default) `exp` for expiration time. It's recommended to set this value to be at most 5 seconds from now.
+- (custom) `hashed_body`, which is constructed by doing a SHA-256 hash of the request body (even when the body is empty):
+
+   ```go
+   func HashBody(body []byte) string {
+      hashedBodyBytes := sha256.Sum256(body)
+      return hex.EncodeToString(hashedBodyBytes[:])
+   }
+   ```
+
+For more details on the JWT implementation, please see [`jwt_manager.go`](./pkg/wbclient/auth/jwt_manager.go).
