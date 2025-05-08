@@ -11,10 +11,9 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/stellar/go/support/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -100,7 +99,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			},
 			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
 				mJWTokenParser.EXPECT().
-					ParseJWT("valid-token", "invalid.test.com", []byte(nil)).
+					ParseJWT("valid-token", "test.com", []byte(nil)).
 					Return(nil, nil, errors.New("the token audience [invalid.test.com] does not match the expected audience [test.com]")).
 					Once()
 			},

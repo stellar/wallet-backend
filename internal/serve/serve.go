@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -78,7 +79,7 @@ type handlerDeps struct {
 	Models            *data.Models
 	Port              int
 	DatabaseURL       string
-	ServerBaseURL     string
+	ServerHostname    string
 	JWTTokenParser    auth.JWTTokenParser
 	SupportedAssets   []entities.Asset
 	NetworkPassphrase string
@@ -272,9 +273,14 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
+	serverHostname, err := url.ParseRequestURI(cfg.ServerBaseURL)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
+	}
+
 	return handlerDeps{
 		Models:                    models,
-		ServerBaseURL:             cfg.ServerBaseURL,
+		ServerHostname:            serverHostname.Hostname(),
 		JWTTokenParser:            jwtTokenParser,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
@@ -328,7 +334,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerBaseURL, deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
