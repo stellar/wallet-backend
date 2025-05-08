@@ -14,10 +14,6 @@ packages:
   github.com/stellar/wallet-backend/cmd:
     interfaces:
       ChAccCmdServiceInterface:
-  github.com/stellar/wallet-backend/pkg/wbclient/auth:
-    interfaces:
-      JWTTokenGenerator:
-      JWTTokenParser:
   github.com/stellar/wallet-backend/internal/apptracker:
     interfaces:
       AppTracker:
