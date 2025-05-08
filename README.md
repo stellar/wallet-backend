@@ -180,7 +180,7 @@ The server can be configured to accept multiple (comma-separated) public keys th
 
 ### JWT Claims
 
-The JWT claims include basically two fields:
+The JWT payload field should contain the following fields:
 
 - (default) `exp` – The expiration time on and after which the JWT must not be accepted for processing, in seconds since Epoch. (Must be less than `iat`+15sec.)
 - (default) `iat` - The time at which the JWT was issued, in seconds since Epoch.
