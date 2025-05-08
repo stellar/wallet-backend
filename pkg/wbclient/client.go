@@ -105,7 +105,7 @@ func (c *Client) request(ctx context.Context, method, path string, bodyObj any) 
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	err = c.RequestSigner.SignHTTPRequest(request, time.Now().Unix())
+	err = c.RequestSigner.SignHTTPRequest(request, time.Duration(5*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("signing request: %w", err)
 	}

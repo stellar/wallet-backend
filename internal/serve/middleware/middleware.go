@@ -6,50 +6,58 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 const MaxBodySize int64 = 10_240 // 10kb
 
-func SignatureMiddleware(
-	signatureVerifier auth.SignatureVerifier,
+func AuthenticationMiddleware(
+	jwtTokenParser auth.JWTTokenParser,
 	appTracker apptracker.AppTracker,
 	metricsService metrics.MetricsService,
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			sig := req.Header.Get("Signature")
-			if sig == "" {
-				sig = req.Header.Get("X-Stellar-Signature")
-				if sig == "" {
-					httperror.Unauthorized("", nil).Render(rw)
+			ctx := req.Context()
+
+			authHeader := req.Header.Get("Authorization")
+			if authHeader == "" {
+				httperror.Unauthorized("", nil).Render(rw)
+				return
+			}
+
+			// check if the Authorization header has two parts ['Bearer', token]
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				log.Ctx(ctx).Error("Authorization header is invalid, expected 'Bearer <token>'")
+				httperror.Unauthorized("", nil).Render(rw)
+				return
+			}
+
+			var reqBody []byte
+			if req.Body != nil {
+				var err error
+				reqBody, err = io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
+				if err != nil {
+					err = fmt.Errorf("reading request body: %w", err)
+					httperror.InternalServerError(ctx, err.Error(), err, nil, appTracker).Render(rw)
 					return
 				}
 			}
 
-			ctx := req.Context()
-
-			reqBody, err := io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
+			tokenStr := strings.Replace(authHeader, "Bearer ", "", 1)
+			_, _, err := jwtTokenParser.ParseJWT(tokenStr, reqBody)
 			if err != nil {
-				err = fmt.Errorf("reading request body: %w", err)
-				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
-				return
-			}
-
-			err = signatureVerifier.VerifySignature(ctx, sig, reqBody)
-			if err != nil {
-				var expirationErr auth.ExpiredSignatureTimestampError
-				if errors.As(err, &expirationErr) {
-					metricsService.IncSignatureVerificationExpired(expirationErr.TimeSinceExpiration().Seconds())
+				if expirationDuration, ok := auth.ParseExpirationDuration(err); ok {
+					metricsService.IncSignatureVerificationExpired(expirationDuration.Seconds())
 				}
-				err = fmt.Errorf("checking request signature: %w", err)
-				log.Ctx(ctx).Error(err)
+				log.Ctx(ctx).Error(fmt.Errorf("parsing JWT token: %w", err))
 				httperror.Unauthorized("", nil).Render(rw)
 				return
 			}

@@ -1,179 +1,177 @@
 package middleware
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi"
-	"github.com/stellar/go/support/log"
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
-func TestSignatureMiddleware(t *testing.T) {
-	signatureVerifierMock := auth.MockSignatureVerifier{}
-	defer signatureVerifierMock.AssertExpectations(t)
-	appTrackerMock := apptracker.MockAppTracker{}
-	metricsServiceMock := metrics.NewMockMetricsService()
-	defer metricsServiceMock.AssertExpectations(t)
+func TestAuthenticationMiddleware(t *testing.T) {
+	testCases := []struct {
+		name            string
+		setupRequest    func() *http.Request
+		setupMocks      func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService)
+		expectedStatus  int
+		expectedMessage string
+	}{
+		{
+			name: "🔴missing_authorization_header",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", nil)
+				require.NoError(t, err)
+				return req
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			expectedMessage: `{"error":"Not authorized."}`,
+		},
+		{
+			name: "🔴missing_Bearer_prefix",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", nil)
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "token")
+				return req
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			expectedMessage: `{"error":"Not authorized."}`,
+		},
+		{
+			name: "🔴invalid_token",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", nil)
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer invalid-token")
+				return req
+			},
+			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
+				mJWTokenParser.EXPECT().
+					ParseJWT("invalid-token", []byte(nil)).
+					Return(nil, nil, errors.New("invalid token")).
+					Once()
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			expectedMessage: `{"error":"Not authorized."}`,
+		},
+		{
+			name: "🔴expired_token",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", nil)
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer invalid-token")
+				return req
+			},
+			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
+				mJWTokenParser.EXPECT().
+					ParseJWT("invalid-token", []byte(nil)).
+					Return(nil, nil, &jwt.ValidationError{
+						Errors: jwt.ValidationErrorExpired,
+						Inner:  errors.New("token is expired by 1s"),
+					}).
+					Once()
+				mMetricsService.
+					On("IncSignatureVerificationExpired", 1.0).
+					Once()
+			},
+			expectedStatus:  http.StatusUnauthorized,
+			expectedMessage: `{"error":"Not authorized."}`,
+		},
+		{
+			name: "🟢valid_token_with_body",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", io.NopCloser(bytes.NewReader([]byte(`{"foo": "bar"}`))))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer valid-token")
+				return req
+			},
+			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
+				mJWTokenParser.EXPECT().
+					ParseJWT("valid-token", []byte(`{"foo": "bar"}`)).
+					Return(nil, nil, nil).
+					Once()
+			},
+			expectedStatus:  http.StatusOK,
+			expectedMessage: `{"status":"ok"}`,
+		},
+		{
+			name: "🟢valid_token_without_body",
+			setupRequest: func() *http.Request {
+				req, err := http.NewRequest("GET", "/authenticated", nil)
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer valid-token")
+				return req
+			},
+			setupMocks: func(t *testing.T, mJWTokenParser *auth.MockJWTTokenParser, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService) {
+				mJWTokenParser.EXPECT().
+					ParseJWT("valid-token", []byte(nil)).
+					Return(nil, nil, nil).
+					Once()
+			},
+			expectedStatus:  http.StatusOK,
+			expectedMessage: `{"status":"ok"}`,
+		},
+	}
 
-	r := chi.NewRouter()
-	r.Group(func(r chi.Router) {
-		r.Use(SignatureMiddleware(&signatureVerifierMock, &appTrackerMock, metricsServiceMock))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mJWTokenParser := auth.NewMockJWTTokenParser(t)
+			mAppTracker := apptracker.NewMockAppTracker(t)
+			mMetricsService := metrics.NewMockMetricsService()
+			t.Cleanup(func() {
+				mMetricsService.AssertExpectations(t)
+			})
+			if tc.setupMocks != nil {
+				tc.setupMocks(t, mJWTokenParser, mAppTracker, mMetricsService)
+			}
+			authMiddleware := AuthenticationMiddleware(mJWTokenParser, mAppTracker, mMetricsService)
 
-		r.Get("/authenticated", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
-			require.NoError(t, err)
+			r := chi.NewRouter()
+			r.Get("/unauthenticated", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
+				require.NoError(t, err)
+			})
+
+			r.Group(func(r chi.Router) {
+				r.Use(authMiddleware)
+
+				r.Route("/authenticated", func(r chi.Router) {
+					r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusOK)
+						_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
+						require.NoError(t, err)
+					})
+
+					r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusOK)
+						_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
+						require.NoError(t, err)
+					})
+				})
+			})
+
+			req := tc.setupRequest()
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.expectedStatus, rr.Code)
+			assert.JSONEq(t, tc.expectedMessage, rr.Body.String())
 		})
-
-		r.Post("/authenticated", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
-			require.NoError(t, err)
-		})
-	})
-
-	r.Get("/unauthenticated", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, err := w.Write(json.RawMessage(`{"status":"ok"}`))
-		require.NoError(t, err)
-	})
-
-	t.Run("returns_Unauthorized_error_when_no_header_is_sent", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/authenticated", nil)
-		r.ServeHTTP(w, req)
-
-		resp := w.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-		assert.JSONEq(t, `{"error":"Not authorized."}`, string(respBody))
-	})
-
-	t.Run("returns_Unauthorized_when_a_unexpected_error_occurs_validating_the_token", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/authenticated", nil)
-		req.Header.Set("Signature", "signature")
-
-		getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
-		signatureVerifierMock.
-			On("VerifySignature", mock.Anything, "signature", []byte{}).
-			Return(errors.New("unexpected error")).
-			Once()
-
-		r.ServeHTTP(w, req)
-
-		resp := w.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-		assert.JSONEq(t, `{"error": "Not authorized."}`, string(respBody))
-
-		entries := getEntries()
-		require.Len(t, entries, 1)
-		assert.Equal(t, entries[0].Message, "checking request signature: unexpected error")
-	})
-
-	t.Run("returns_Unauthorized_when_the_signature_is_expired", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/authenticated", nil)
-		req.Header.Set("Signature", "signature")
-
-		now := time.Now()
-		getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
-		signatureVerifierMock.
-			On("VerifySignature", mock.Anything, "signature", []byte{}).
-			Return(auth.ExpiredSignatureTimestampError{
-				ExpiredSignatureTimestamp: now.Add(-1 * time.Second),
-				CheckTime:                 now,
-			}).
-			Once()
-		metricsServiceMock.
-			On("IncSignatureVerificationExpired", 1.0).
-			Once()
-
-		r.ServeHTTP(w, req)
-
-		resp := w.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-		assert.JSONEq(t, `{"error": "Not authorized."}`, string(respBody))
-
-		entries := getEntries()
-		require.Len(t, entries, 1)
-		assert.Equal(t, entries[0].Message, "checking request signature: timestamp expired by 1s")
-	})
-
-	t.Run("returns_the_response_successfully", func(t *testing.T) {
-		// Without body - GET requests
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/authenticated", nil)
-		req.Header.Set("X-Stellar-Signature", "signature")
-
-		signatureVerifierMock.
-			On("VerifySignature", mock.Anything, "signature", []byte{}).
-			Return(nil).
-			Once()
-
-		r.ServeHTTP(w, req)
-
-		resp := w.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.JSONEq(t, `{"status":"ok"}`, string(respBody))
-
-		// With body - POST, PUT, PATCH requests
-		reqBody := `{"status": "ok"}`
-		w = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodPost, "/authenticated", strings.NewReader(reqBody))
-		req.Header.Set("X-Stellar-Signature", "signature")
-
-		signatureVerifierMock.
-			On("VerifySignature", mock.Anything, "signature", []byte(reqBody)).
-			Return(nil).
-			Once()
-
-		r.ServeHTTP(w, req)
-
-		resp = w.Result()
-		respBody, err = io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.JSONEq(t, `{"status":"ok"}`, string(respBody))
-	})
-
-	t.Run("doesn't_return_Unauthorized_for_unauthenticated_routes", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/unauthenticated", nil)
-		r.ServeHTTP(w, req)
-
-		resp := w.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		assert.JSONEq(t, `{"status":"ok"}`, string(respBody))
-	})
+	}
 }
 
 func TestRecoverHandler(t *testing.T) {

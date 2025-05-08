@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
@@ -32,6 +31,7 @@ import (
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 // blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
@@ -78,7 +78,7 @@ type handlerDeps struct {
 	Models            *data.Models
 	Port              int
 	DatabaseURL       string
-	SignatureVerifier auth.SignatureVerifier
+	JWTTokenParser    auth.JWTTokenParser
 	SupportedAssets   []entities.Asset
 	NetworkPassphrase string
 
@@ -142,7 +142,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	signatureVerifier, err := auth.NewStellarSignatureVerifier(cfg.ServerBaseURL, cfg.ClientAuthPublicKeys...)
+	jwtTokenParser, err := auth.NewJWTTokenParser(cfg.ClientAuthPublicKeys[0], time.Second*5)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
@@ -273,7 +273,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	return handlerDeps{
 		Models:                    models,
-		SignatureVerifier:         signatureVerifier,
+		JWTTokenParser:            jwtTokenParser,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
@@ -326,7 +326,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{
