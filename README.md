@@ -182,11 +182,11 @@ The server can be configured to accept multiple (comma-separated) public keys th
 
 The JWT claims include basically two fields:
 
-- (default) `uri` – The URI part of the request (e.g., `/transactions/b9d0b2292c4e09e8eb22d036171491e87b8d2086bf8b265874c8d182cb9c9020`). # TODO generate🟢/parse🔴
-- (default) `exp` – The expiration time on and after which the JWT must not be accepted for processing, in seconds since Epoch. (Must be less than `iat`+15sec.) # TODO generate🟢/parse🔴
+- (default) `exp` – The expiration time on and after which the JWT must not be accepted for processing, in seconds since Epoch. (Must be less than `iat`+15sec.)
 - (default) `iat` - The time at which the JWT was issued, in seconds since Epoch.
-- (default) `aud` for audience. This is the server's hostname.
-- (default) `sub` - The subject of the JWT, which is the public key of the Stellar account that is being authenticated. # TODO generate🟢/parse🔴
+- (default) `aud` – The audience for the JWT. This is the server's hostname.
+- (default) `sub` – The subject of the JWT, which is the public key of the Stellar account that is being authenticated.
+- (custom) `uri` – The URI part of the request (e.g., `/transactions/b9d0b2292c4e09e8eb22d036171491e87b8d2086bf8b265874c8d182cb9c9020`).
 - (custom) `bodyHash`, a hex-encoded SHA-256 hash of the raw HTTP request body, present even when the body is empty:
 
    ```go
