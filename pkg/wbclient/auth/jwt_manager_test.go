@@ -24,8 +24,8 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	validHostname := "test.com"
 	invalidHostname := "invalid.test.com"
 
-	validURI := "/valid-route"
-	invalidURI := "/invalid-route"
+	validMethodAndPath := "GET /valid-route"
+	invalidMethodAndPath := "GET /invalid-route"
 
 	testCases := []struct {
 		name            string
@@ -47,7 +47,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         nil,
 			requestBody:     nil,
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -61,7 +61,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -75,7 +75,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         nil,
 			requestBody:     nil,
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -89,7 +89,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -101,7 +101,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       expiredTimestamp,
 			wantErrContains: "the JWT token has expired by",
 		},
@@ -113,7 +113,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       tooLongTimestamp,
 			wantErrContains: "pre-validating JWT token claims: the JWT expiration is too long, max timeout is 15s",
 		},
@@ -125,7 +125,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "parsing JWT token with claims: token signature is invalid: ed25519: verification error",
 		},
@@ -139,7 +139,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"x": "y"}`),
 			hostname:        validHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "pre-validating JWT token claims: the JWT hashed body does not match the expected value",
 		},
@@ -151,21 +151,21 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        invalidHostname,
-			uri:             validURI,
+			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "pre-validating JWT token claims: the JWT audience [invalid.test.com] does not match the expected audience [test.com]",
 		},
 		{
-			name: "🔴invalid_URI",
+			name: "🔴invalid_method_and_path",
 			JWTManager: func(t *testing.T) *JWTManager {
 				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 				require.NoError(t, err)
 				return jwtManager
 			},
 			hostname:        validHostname,
-			uri:             invalidURI,
+			uri:             invalidMethodAndPath,
 			expiresAt:       validTimestamp,
-			wantErrContains: `pre-validating JWT token claims: the JWT URI "/invalid-route" does not match the expected URI "/valid-route"`,
+			wantErrContains: `pre-validating JWT token claims: the JWT method-and-path "GET /invalid-route" does not match the expected method-and-path "GET /valid-route"`,
 		},
 	}
 
@@ -175,7 +175,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			token, err := jwtManager.GenerateJWT(tc.hostname, tc.uri, tc.jwtBody, tc.expiresAt)
 			require.NoError(t, err)
 
-			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validHostname, validURI, tc.requestBody)
+			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validHostname, validMethodAndPath, tc.requestBody)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, parsedToken, "parsed token should be nil")
@@ -192,12 +192,12 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 	require.NoError(t, err)
-	validToken, err := jwtManager.GenerateJWT(validHostname, validURI, nil, validTimestamp)
+	validToken, err := jwtManager.GenerateJWT(validHostname, validMethodAndPath, nil, validTimestamp)
 	require.NoError(t, err)
 
 	t.Run("🔴invalid_Public_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PublicKey: "invalid-public-key"}
-		parsedToken, parsedClaims, err := jwtManager.ParseJWT(validToken, validHostname, validURI, nil)
+		parsedToken, parsedClaims, err := jwtManager.ParseJWT(validToken, validHostname, validMethodAndPath, nil)
 		assert.ErrorContains(t, err, "the JWT token is not signed by the expected Stellar public key")
 		assert.Nil(t, parsedToken, "parsed token should be nil")
 		assert.Nil(t, parsedClaims, "parsed claims should be nil")
@@ -205,7 +205,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	t.Run("🔴invalid_Private_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PrivateKey: "invalid-private-key"}
-		token, err := jwtManager.GenerateJWT(validHostname, validURI, nil, validTimestamp)
+		token, err := jwtManager.GenerateJWT(validHostname, validMethodAndPath, nil, validTimestamp)
 		assert.ErrorContains(t, err, "decoding Stellar private key")
 		assert.Empty(t, token, "token should be empty")
 	})

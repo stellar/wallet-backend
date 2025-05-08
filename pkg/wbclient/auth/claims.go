@@ -12,12 +12,12 @@ import (
 )
 
 type customClaims struct {
-	BodyHash string `json:"bodyHash"`
-	URI      string `json:"uri"`
+	BodyHash      string `json:"bodyHash"`
+	MethodAndPath string `json:"methodAndPath"`
 	jwtgo.RegisteredClaims
 }
 
-func (c *customClaims) Validate(audience, uri string, body []byte, maxTimeout time.Duration) error {
+func (c *customClaims) Validate(audience, methodAndPath string, body []byte, maxTimeout time.Duration) error {
 	if maxTimeout == 0 {
 		maxTimeout = DefaultMaxTimeout
 	}
@@ -44,8 +44,8 @@ func (c *customClaims) Validate(audience, uri string, body []byte, maxTimeout ti
 		return fmt.Errorf("the JWT audience %s does not match the expected audience [%s]", c.Audience, audience)
 	}
 
-	if c.URI != strings.TrimSpace(uri) {
-		return fmt.Errorf("the JWT URI %q does not match the expected URI %q", c.URI, uri)
+	if c.MethodAndPath != strings.TrimSpace(methodAndPath) {
+		return fmt.Errorf("the JWT method-and-path %q does not match the expected method-and-path %q", c.MethodAndPath, methodAndPath)
 	}
 
 	if c.BodyHash != HashBody(body) {

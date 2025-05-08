@@ -186,7 +186,7 @@ The JWT payload field should contain the following fields:
 - (default) `iat` - The time at which the JWT was issued, in seconds since Epoch.
 - (default) `aud` – The audience for the JWT. This is the server's hostname.
 - (default) `sub` – The subject of the JWT, which is the public key of the Stellar account that is being authenticated.
-- (custom) `uri` – The URI part of the request (e.g., `/transactions/b9d0b2292c4e09e8eb22d036171491e87b8d2086bf8b265874c8d182cb9c9020`).
+- (custom) `methodAndPath` – The HTTP method and path of the request (e.g., `GET /transactions/b9d0b2292c4e09e8eb22d036171491e87b8d2086bf8b265874c8d182cb9c9020`).
 - (custom) `bodyHash`, a hex-encoded SHA-256 hash of the raw HTTP request body, present even when the body is empty:
 
    ```go
