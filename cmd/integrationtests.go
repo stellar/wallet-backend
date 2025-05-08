@@ -118,9 +118,7 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("instantiating jwt token generator: %w", err)
 			}
-			wbClient := wbclient.NewClient(cfg.ServerBaseURL, wbclient.RequestSigner{
-				JWTTokenGenerator: jwtTokenGenerator,
-			})
+			wbClient := wbclient.NewClient(cfg.ServerBaseURL, auth.NewHTTPRequestSigner(jwtTokenGenerator))
 
 			primaryKP, err := keypair.ParseFull(cfg.PrimarySourceAccountPrivateKey)
 			if err != nil {

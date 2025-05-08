@@ -76,13 +76,13 @@ type Configs struct {
 }
 
 type handlerDeps struct {
-	Models            *data.Models
-	Port              int
-	DatabaseURL       string
-	ServerHostname    string
-	JWTTokenParser    auth.JWTTokenParser
-	SupportedAssets   []entities.Asset
-	NetworkPassphrase string
+	Models              *data.Models
+	Port                int
+	DatabaseURL         string
+	ServerHostname      string
+	RequestAuthVerifier auth.HTTPRequestVerifier
+	SupportedAssets     []entities.Asset
+	NetworkPassphrase   string
 
 	// Services
 	AccountService            services.AccountService
@@ -148,6 +148,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
 	}
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 
 	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient, metricsService)
@@ -281,7 +282,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	return handlerDeps{
 		Models:                    models,
 		ServerHostname:            serverHostname.Hostname(),
-		JWTTokenParser:            jwtTokenParser,
+		RequestAuthVerifier:       requestAuthVerifier,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
@@ -334,7 +335,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.JWTTokenParser, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{

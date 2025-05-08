@@ -1,12 +1,9 @@
 package middleware
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/stellar/go/support/log"
 
@@ -20,7 +17,7 @@ const MaxBodySize int64 = 10_240 // 10kb
 
 func AuthenticationMiddleware(
 	serverHostname string,
-	jwtTokenParser auth.JWTTokenParser,
+	requestAuthVerifier auth.HTTPRequestVerifier,
 	appTracker apptracker.AppTracker,
 	metricsService metrics.MetricsService,
 ) func(next http.Handler) http.Handler {
@@ -28,42 +25,23 @@ func AuthenticationMiddleware(
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			ctx := req.Context()
 
-			authHeader := req.Header.Get("Authorization")
-			if authHeader == "" {
-				httperror.Unauthorized("", nil).Render(rw)
+			err := requestAuthVerifier.VerifyHTTPRequest(req, serverHostname)
+			if err == nil {
+				next.ServeHTTP(rw, req)
 				return
 			}
 
-			// check if the Authorization header has two parts ['Bearer', token]
-			if !strings.HasPrefix(authHeader, "Bearer ") {
-				log.Ctx(ctx).Error("Authorization header is invalid, expected 'Bearer <token>'")
-				httperror.Unauthorized("", nil).Render(rw)
+			log.Ctx(ctx).Errorf("verifying request authentication: %v", err)
+
+			if !errors.Is(err, auth.ErrUnauthorized) {
+				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
 				return
 			}
 
-			var reqBody []byte
-			if req.Body != nil {
-				var err error
-				reqBody, err = io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
-				if err != nil {
-					err = fmt.Errorf("reading request body: %w", err)
-					httperror.InternalServerError(ctx, err.Error(), err, nil, appTracker).Render(rw)
-					return
-				}
+			if expirationDuration, ok := auth.ParseExpirationDuration(err); ok {
+				metricsService.IncSignatureVerificationExpired(expirationDuration.Seconds())
 			}
-
-			tokenStr := strings.Replace(authHeader, "Bearer ", "", 1)
-			if _, _, err := jwtTokenParser.ParseJWT(tokenStr, serverHostname, reqBody); err != nil {
-				if expirationDuration, ok := auth.ParseExpirationDuration(err); ok {
-					metricsService.IncSignatureVerificationExpired(expirationDuration.Seconds())
-				}
-				log.Ctx(ctx).Error(fmt.Errorf("parsing JWT token: %w", err))
-				httperror.Unauthorized("", nil).Render(rw)
-				return
-			}
-
-			req.Body = io.NopCloser(bytes.NewReader(reqBody))
-			next.ServeHTTP(rw, req)
+			httperror.Unauthorized("", nil).Render(rw)
 		})
 	}
 }
