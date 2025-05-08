@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/ed25519"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -130,39 +129,37 @@ func NewMultiJWTTokenParser(maxTimeout time.Duration, stellarPublicKeys ...strin
 		return nil, fmt.Errorf("no Stellar public keys provided")
 	}
 
-	pubKeysSet := make(map[string]struct{})
-	for _, pubKey := range stellarPublicKeys {
-		if !strkey.IsValidEd25519PublicKey(pubKey) {
-			return nil, fmt.Errorf("invalid Stellar public key: %s", pubKey)
-		}
-		pubKeysSet[pubKey] = struct{}{}
-	}
-
-	jwtParsers := make([]JWTTokenParser, 0, len(stellarPublicKeys))
+	jwtParsers := map[string]JWTTokenParser{}
 	for _, pubKey := range stellarPublicKeys {
 		jwtParser, err := NewJWTTokenParser(maxTimeout, pubKey)
 		if err != nil {
 			return nil, fmt.Errorf("creating JWT parser: %w", err)
 		}
-		jwtParsers = append(jwtParsers, jwtParser)
+		jwtParsers[pubKey] = jwtParser
 	}
 
-	return MultiJWTTokenParser(jwtParsers), nil
+	return &MultiJWTTokenParser{jwtParsers}, nil
 }
 
-type MultiJWTTokenParser []JWTTokenParser
+type MultiJWTTokenParser struct {
+	// jwtParsers is a map of Stellar public keys to JWT token parsers.
+	jwtParsers map[string]JWTTokenParser
+}
 
 func (m MultiJWTTokenParser) ParseJWT(tokenString, audience, uri string, body []byte) (*jwtgo.Token, *customClaims, error) {
-	var jwtParsingErrors []error
-	for _, jwtParser := range m {
-		token, claims, err := jwtParser.ParseJWT(tokenString, audience, uri, body)
-		if err == nil {
-			return token, claims, nil
-		}
-		jwtParsingErrors = append(jwtParsingErrors, err)
+	claims := &customClaims{}
+	err := claims.DecodeTokenString(tokenString)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decoding JWT token: %w", err)
 	}
 
-	return nil, nil, errors.Join(jwtParsingErrors...)
+	jwtParser, ok := m.jwtParsers[claims.Subject]
+	if !ok {
+		return nil, nil, fmt.Errorf("the JWT token subject %s is not one of the expected Stellar public keys", claims.Subject)
+	}
+
+	//nolint:wrapcheck // we're ok not wrapping the error here because we're not adding any additional context
+	return jwtParser.ParseJWT(tokenString, audience, uri, body)
 }
 
 func NewJWTTokenGenerator(stellarPrivateKey string) (JWTTokenGenerator, error) {
