@@ -94,7 +94,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 			wantErrContains: `{"message": "ok"}`,
 		},
 		{
-			name: "🟢valid_authenticated_request_with_body",
+			name: "🟢valid_authenticated_request_with_body_1",
 			setupRequest: func(t *testing.T) *http.Request {
 				req := httptest.NewRequest("GET", "http://example.com/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
@@ -105,7 +105,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 			wantErrContains: `{"message": "ok"}`,
 		},
 		{
-			name: "🟢valid_authenticated_request_with_body",
+			name: "🟢valid_authenticated_request_with_body_2",
 			setupRequest: func(t *testing.T) *http.Request {
 				req := httptest.NewRequest("GET", "/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)

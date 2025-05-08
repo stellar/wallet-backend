@@ -146,7 +146,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
 	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 
