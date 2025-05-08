@@ -80,7 +80,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 				return req
 			},
 			expectedStatus:  http.StatusUnauthorized,
-			wantErrContains: "verifying JWT: the claims' hashed body does not match the request body's hash",
+			wantErrContains: "verifying JWT: pre-validating JWT token claims: the JWT hashed body does not match the expected value",
 		},
 		{
 			name: "🟢valid_authenticated_request_no_body",
@@ -97,6 +97,17 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 			name: "🟢valid_authenticated_request_with_body",
 			setupRequest: func(t *testing.T) *http.Request {
 				req := httptest.NewRequest("GET", "http://example.com/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
+				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				require.NoError(t, err)
+				return req
+			},
+			expectedStatus:  http.StatusOK,
+			wantErrContains: `{"message": "ok"}`,
+		},
+		{
+			name: "🟢valid_authenticated_request_with_body",
+			setupRequest: func(t *testing.T) *http.Request {
+				req := httptest.NewRequest("GET", "/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
 				require.NoError(t, err)
 				return req

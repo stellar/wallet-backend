@@ -24,12 +24,16 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	validHostname := "test.com"
 	invalidHostname := "invalid.test.com"
 
+	validURI := "/valid-route"
+	invalidURI := "/invalid-route"
+
 	testCases := []struct {
 		name            string
 		JWTManager      func(t *testing.T) *JWTManager
 		jwtBody         []byte
 		requestBody     []byte
 		hostname        string
+		uri             string
 		expiresAt       time.Time
 		wantErrContains string
 	}{
@@ -43,6 +47,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         nil,
 			requestBody:     nil,
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -56,6 +61,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -69,6 +75,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         nil,
 			requestBody:     nil,
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -82,6 +89,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
 		},
@@ -93,6 +101,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       expiredTimestamp,
 			wantErrContains: "parsing JWT token with claims: token is expired by",
 		},
@@ -104,8 +113,9 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       tooLongTimestamp,
-			wantErrContains: "the token expiration is too long, max timeout is 15s",
+			wantErrContains: "pre-validating JWT token claims: the JWT expiration is too long, max timeout is 15s",
 		},
 		{
 			name: "🔴mismatch_KP",
@@ -115,6 +125,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
 			wantErrContains: "parsing JWT token with claims: ed25519: verification error",
 		},
@@ -128,8 +139,9 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"x": "y"}`),
 			hostname:        validHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
-			wantErrContains: "the claims' hashed body does not match the request body's hash",
+			wantErrContains: "pre-validating JWT token claims: the JWT hashed body does not match the expected value",
 		},
 		{
 			name: "🔴invalid_hostname",
@@ -139,18 +151,31 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				return jwtManager
 			},
 			hostname:        invalidHostname,
+			uri:             validURI,
 			expiresAt:       validTimestamp,
-			wantErrContains: "the token audience [invalid.test.com] does not match the expected audience test.com",
+			wantErrContains: "pre-validating JWT token claims: the JWT audience [invalid.test.com] does not match the expected audience [test.com]",
+		},
+		{
+			name: "🔴invalid_URI",
+			JWTManager: func(t *testing.T) *JWTManager {
+				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+				require.NoError(t, err)
+				return jwtManager
+			},
+			hostname:        validHostname,
+			uri:             invalidURI,
+			expiresAt:       validTimestamp,
+			wantErrContains: `pre-validating JWT token claims: the JWT URI "/invalid-route" does not match the expected URI "/valid-route"`,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtManager := tc.JWTManager(t)
-			token, err := jwtManager.GenerateJWT(tc.hostname, tc.jwtBody, tc.expiresAt)
+			token, err := jwtManager.GenerateJWT(tc.hostname, tc.uri, tc.jwtBody, tc.expiresAt)
 			require.NoError(t, err)
 
-			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validHostname, tc.requestBody)
+			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validHostname, validURI, tc.requestBody)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, parsedToken, "parsed token should be nil")
@@ -158,24 +183,29 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
-				require.Equal(t, HashBody(tc.jwtBody), parsedClaims.HashedBody)
-				require.Equal(t, HashBody(tc.requestBody), parsedClaims.HashedBody)
+				require.Equal(t, HashBody(tc.jwtBody), parsedClaims.BodyHash)
+				require.Equal(t, HashBody(tc.requestBody), parsedClaims.BodyHash)
 				require.Equal(t, jwtgo.NewNumericDate(tc.expiresAt), parsedClaims.ExpiresAt)
 			}
 		})
 	}
 
+	jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
+	require.NoError(t, err)
+	validToken, err := jwtManager.GenerateJWT(validHostname, validURI, nil, validTimestamp)
+	require.NoError(t, err)
+
 	t.Run("🔴invalid_Public_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PublicKey: "invalid-public-key"}
-		parsedToken, parsedClaims, err := jwtManager.ParseJWT("eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJoYXNoZWRfYm9keSI6IjQyNmZjMDRmMDRiZjhmZGI1ODMxZGMzN2JiYjZkY2Y3MGY2M2EzN2UwNWE2OGM2ZWE1ZjYzZTg1YWU1NzkzNzYiLCJleHAiOjE3NDY2NDU5MjB9.5IyKtf8NWljLlD8TFyseDXi7ufxI92xXwvBJ56BNuqM1Z1ofg5umhpILtlXnMZb-7NpykQmTSKHOhOjA1XMjuQ", validHostname, []byte("some-body"))
-		assert.ErrorContains(t, err, "parsing JWT token with claims: decoding Stellar public key")
+		parsedToken, parsedClaims, err := jwtManager.ParseJWT(validToken, validHostname, validURI, nil)
+		assert.ErrorContains(t, err, "the JWT token is not signed by the expected Stellar public key")
 		assert.Nil(t, parsedToken, "parsed token should be nil")
 		assert.Nil(t, parsedClaims, "parsed claims should be nil")
 	})
 
 	t.Run("🔴invalid_Private_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PrivateKey: "invalid-private-key"}
-		token, err := jwtManager.GenerateJWT(validHostname, []byte("some-body"), time.Now().Add(time.Hour))
+		token, err := jwtManager.GenerateJWT(validHostname, validURI, nil, validTimestamp)
 		assert.ErrorContains(t, err, "decoding Stellar private key")
 		assert.Empty(t, token, "token should be empty")
 	})
@@ -290,14 +320,14 @@ func Test_NewJWTTokenParser(t *testing.T) {
 				// Generate a JWT token
 				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 				require.NoError(t, err)
-				token, err := jwtManager.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtManager.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 
 				// Parse the JWT token
-				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", tc.reqBody)
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", "", tc.reqBody)
 				require.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
-				require.Equal(t, HashBody(tc.reqBody), parsedClaims.HashedBody)
+				require.Equal(t, HashBody(tc.reqBody), parsedClaims.BodyHash)
 			}
 		})
 	}
@@ -349,14 +379,14 @@ func Test_NewMultiJWTTokenParser(t *testing.T) {
 				// Generate a JWT token
 				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 				require.NoError(t, err)
-				token, err := jwtManager.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtManager.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 
 				// Parse the JWT token
-				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", tc.reqBody)
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", "", tc.reqBody)
 				require.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
-				require.Equal(t, HashBody(tc.reqBody), parsedClaims.HashedBody)
+				require.Equal(t, HashBody(tc.reqBody), parsedClaims.BodyHash)
 			}
 		})
 	}
@@ -397,7 +427,7 @@ func Test_NewJWTTokenGenerator(t *testing.T) {
 				assert.NotNil(t, jwtTokenGenerator, "jwt token generator should not be nil")
 
 				// Generate a JWT token
-				token, err := jwtTokenGenerator.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtTokenGenerator.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 				assert.NotEmpty(t, token, "token should not be empty")
 			}

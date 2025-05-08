@@ -51,13 +51,17 @@ func (s *JWTHTTPSignerVerifier) SignHTTPRequest(req *http.Request, timeout time.
 	}()
 
 	// Parse the hostname
-	u, err := url.ParseRequestURI(req.URL.Scheme + "://" + req.Host)
+	scheme := req.URL.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	u, err := url.ParseRequestURI(scheme + "://" + req.Host)
 	if err != nil {
 		return fmt.Errorf("parsing hostname: %w", err)
 	}
 
 	// Generate the token and sign the request
-	jwtToken, err := s.generator.GenerateJWT(u.Hostname(), bodyBytes, time.Now().Add(timeout))
+	jwtToken, err := s.generator.GenerateJWT(u.Hostname(), req.URL.Path, bodyBytes, time.Now().Add(timeout))
 	if err != nil {
 		return fmt.Errorf("generating JWT token: %w", err)
 	}
@@ -93,7 +97,7 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience st
 
 	// Parse the JWT
 	tokenString := authHeader[len("Bearer "):] // Remove "Bearer " prefix
-	_, _, err := s.parser.ParseJWT(tokenString, audience, bodyBytes)
+	_, _, err := s.parser.ParseJWT(tokenString, audience, req.URL.Path, bodyBytes)
 	if err != nil {
 		return fmt.Errorf("verifying JWT: %w: %w", err, ErrUnauthorized)
 	}
