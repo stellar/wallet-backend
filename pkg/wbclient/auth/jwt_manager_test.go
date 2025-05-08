@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	jwtgo "github.com/golang-jwt/jwt/v4"
+	jwtgo "github.com/golang-jwt/jwt/v5"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,7 +103,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			hostname:        validHostname,
 			uri:             validURI,
 			expiresAt:       expiredTimestamp,
-			wantErrContains: "parsing JWT token with claims: token is expired by",
+			wantErrContains: "the JWT token has expired by",
 		},
 		{
 			name: "🔴expiration_is_too_long",
@@ -127,7 +127,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			hostname:        validHostname,
 			uri:             validURI,
 			expiresAt:       validTimestamp,
-			wantErrContains: "parsing JWT token with claims: ed25519: verification error",
+			wantErrContains: "parsing JWT token with claims: token signature is invalid: ed25519: verification error",
 		},
 		{
 			name: "🔴mismatch_body",

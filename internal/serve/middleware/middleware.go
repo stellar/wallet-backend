@@ -38,9 +38,11 @@ func AuthenticationMiddleware(
 				return
 			}
 
-			if expirationDuration, ok := auth.ParseExpirationDuration(err); ok {
-				metricsService.IncSignatureVerificationExpired(expirationDuration.Seconds())
+			var expiredTokenErr *auth.ExpiredTokenError
+			if errors.As(err, &expiredTokenErr) {
+				metricsService.IncSignatureVerificationExpired(expiredTokenErr.ExpiredBy.Seconds())
 			}
+
 			httperror.Unauthorized("", nil).Render(rw)
 		})
 	}

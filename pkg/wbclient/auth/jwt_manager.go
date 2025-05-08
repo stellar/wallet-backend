@@ -2,11 +2,12 @@ package auth
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	jwtgo "github.com/golang-jwt/jwt/v4"
+	jwtgo "github.com/golang-jwt/jwt/v5"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
 )
@@ -56,6 +57,9 @@ func (m *JWTManager) ParseJWT(tokenString, audience, uri string, body []byte) (*
 		return ed25519.PublicKey(pubKeyBytes), nil
 	})
 	if err != nil {
+		if errors.Is(err, jwtgo.ErrTokenExpired) {
+			return nil, nil, &ExpiredTokenError{ExpiredBy: time.Since(claims.ExpiresAt.Time), InnerErr: err}
+		}
 		return nil, nil, fmt.Errorf("parsing JWT token with claims: %w", err)
 	}
 

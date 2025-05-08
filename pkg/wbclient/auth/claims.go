@@ -3,10 +3,11 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
-	jwtgo "github.com/golang-jwt/jwt/v4"
+	jwtgo "github.com/golang-jwt/jwt/v5"
 	"github.com/stellar/go/strkey"
 )
 
@@ -39,7 +40,7 @@ func (c *customClaims) Validate(audience, uri string, body []byte, maxTimeout ti
 		return errors.New("the JWT subject is not a valid Stellar public key")
 	}
 
-	if audience != "" && !c.VerifyAudience(audience, true) {
+	if audience != "" && !slices.Contains(c.Audience, audience) {
 		return fmt.Errorf("the JWT audience %s does not match the expected audience [%s]", c.Audience, audience)
 	}
 
