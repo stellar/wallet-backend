@@ -183,7 +183,7 @@ The server can be configured to accept multiple (comma-separated) public keys th
 The JWT claims include basically two fields:
 
 - (default) `exp` for expiration time. It's recommended to set this value to be at most 5 seconds from now.
-- (default) `aud` for audience. It's recommended to set this value to the server's base URL.
+- (default) `aud` for audience. This is the server's hostname.
 - (custom) `hashed_body`, which is constructed by doing a SHA-256 hash of the request body (even when the body is empty):
 
    ```go
