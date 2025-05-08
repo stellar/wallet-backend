@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
@@ -71,16 +70,6 @@ func (m *JWTManager) ParseJWT(tokenString string, audience string, body []byte) 
 
 // GenerateJWT generates a JWT token with the given body and expiration time.
 func (m *JWTManager) GenerateJWT(audience string, body []byte, expiresAt time.Time) (string, error) {
-	privateKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, m.PrivateKey)
-	if err != nil {
-		return "", fmt.Errorf("decoding Stellar private key: %w", err)
-	}
-
-	_, ed25519PrivateKey, err := ed25519.GenerateKey(bytes.NewReader(privateKeyBytes))
-	if err != nil {
-		return "", fmt.Errorf("generating ed25519 key pair: %w", err)
-	}
-
 	claims := &customClaims{
 		HashedBody: HashBody(body),
 		RegisteredClaims: jwtgo.RegisteredClaims{
@@ -88,9 +77,14 @@ func (m *JWTManager) GenerateJWT(audience string, body []byte, expiresAt time.Ti
 			Audience:  jwtgo.ClaimStrings{audience},
 		},
 	}
-
 	token := jwtgo.NewWithClaims(jwtgo.SigningMethodEdDSA, claims)
-	tokenString, err := token.SignedString(ed25519PrivateKey)
+
+	privateKeyBytes, err := strkey.Decode(strkey.VersionByteSeed, m.PrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("decoding Stellar private key: %w", err)
+	}
+
+	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(privateKeyBytes))
 	if err != nil {
 		return "", fmt.Errorf("signing JWT token with claims: %w", err)
 	}
