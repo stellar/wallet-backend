@@ -1,6 +1,7 @@
 # Wallet-Backend
 
 [![Swagger Documentation](https://img.shields.io/badge/docs-swagger-blue?logo=swagger)](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/stellar/wallet-backend/refs/heads/main/openapi/main.yaml)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stellar/wallet-backend)
 
 The wallet-backend serves as a backend service for Stellar wallet applications, providing transaction submission,
 account management, and payment tracking capabilities.
