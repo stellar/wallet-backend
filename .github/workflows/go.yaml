@@ -1,10 +1,11 @@
 name: Go
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: ["**"]
+  push:
+    branches:
+      - main
+  workflow_call: # allows this workflow to be called from another workflow
 
 jobs:
   check:
@@ -140,3 +141,11 @@ jobs:
             echo "Failed 😭"
             exit 1
           fi
+
+  complete:
+    if: always()
+    needs: [check, build, test]
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
