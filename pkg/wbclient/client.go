@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -22,10 +23,10 @@ const (
 type Client struct {
 	HTTPClient    *http.Client
 	BaseURL       string
-	RequestSigner RequestSigner
+	RequestSigner auth.HTTPRequestSigner
 }
 
-func NewClient(baseURL string, requestSigner RequestSigner) *Client {
+func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	return &Client{
 		HTTPClient:    &http.Client{Timeout: time.Duration(30 * time.Second)},
 		BaseURL:       baseURL,
@@ -105,7 +106,7 @@ func (c *Client) request(ctx context.Context, method, path string, bodyObj any) 
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	err = c.RequestSigner.SignHTTPRequest(request, time.Now().Unix())
+	err = c.RequestSigner.SignHTTPRequest(request, time.Duration(5*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("signing request: %w", err)
 	}

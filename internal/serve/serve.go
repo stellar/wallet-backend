@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -19,7 +20,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
@@ -32,6 +32,7 @@ import (
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 // blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
@@ -75,12 +76,13 @@ type Configs struct {
 }
 
 type handlerDeps struct {
-	Models            *data.Models
-	Port              int
-	DatabaseURL       string
-	SignatureVerifier auth.SignatureVerifier
-	SupportedAssets   []entities.Asset
-	NetworkPassphrase string
+	Models              *data.Models
+	Port                int
+	DatabaseURL         string
+	ServerHostname      string
+	RequestAuthVerifier auth.HTTPRequestVerifier
+	SupportedAssets     []entities.Asset
+	NetworkPassphrase   string
 
 	// Services
 	AccountService            services.AccountService
@@ -142,10 +144,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	signatureVerifier, err := auth.NewStellarSignatureVerifier(cfg.ServerBaseURL, cfg.ClientAuthPublicKeys...)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating stellar signature verifier: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 
 	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, &httpClient, metricsService)
@@ -271,9 +274,15 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
+	serverHostname, err := url.ParseRequestURI(cfg.ServerBaseURL)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
+	}
+
 	return handlerDeps{
 		Models:                    models,
-		SignatureVerifier:         signatureVerifier,
+		ServerHostname:            serverHostname.Hostname(),
+		RequestAuthVerifier:       requestAuthVerifier,
 		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
@@ -326,7 +335,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.SignatureMiddleware(deps.SignatureVerifier, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{

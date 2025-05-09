@@ -1,61 +1,49 @@
 package middleware
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/auth"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 const MaxBodySize int64 = 10_240 // 10kb
 
-func SignatureMiddleware(
-	signatureVerifier auth.SignatureVerifier,
+func AuthenticationMiddleware(
+	serverHostname string,
+	requestAuthVerifier auth.HTTPRequestVerifier,
 	appTracker apptracker.AppTracker,
 	metricsService metrics.MetricsService,
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			sig := req.Header.Get("Signature")
-			if sig == "" {
-				sig = req.Header.Get("X-Stellar-Signature")
-				if sig == "" {
-					httperror.Unauthorized("", nil).Render(rw)
-					return
-				}
-			}
-
 			ctx := req.Context()
 
-			reqBody, err := io.ReadAll(io.LimitReader(req.Body, MaxBodySize))
-			if err != nil {
-				err = fmt.Errorf("reading request body: %w", err)
+			err := requestAuthVerifier.VerifyHTTPRequest(req, serverHostname)
+			if err == nil {
+				next.ServeHTTP(rw, req)
+				return
+			}
+
+			log.Ctx(ctx).Errorf("verifying request authentication: %v", err)
+
+			if !errors.Is(err, auth.ErrUnauthorized) {
 				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
 				return
 			}
 
-			err = signatureVerifier.VerifySignature(ctx, sig, reqBody)
-			if err != nil {
-				var expirationErr auth.ExpiredSignatureTimestampError
-				if errors.As(err, &expirationErr) {
-					metricsService.IncSignatureVerificationExpired(expirationErr.TimeSinceExpiration().Seconds())
-				}
-				err = fmt.Errorf("checking request signature: %w", err)
-				log.Ctx(ctx).Error(err)
-				httperror.Unauthorized("", nil).Render(rw)
-				return
+			var expiredTokenErr *auth.ExpiredTokenError
+			if errors.As(err, &expiredTokenErr) {
+				metricsService.IncSignatureVerificationExpired(expiredTokenErr.ExpiredBy.Seconds())
 			}
 
-			req.Body = io.NopCloser(bytes.NewReader(reqBody))
-			next.ServeHTTP(rw, req)
+			httperror.Unauthorized("", nil).Render(rw)
 		})
 	}
 }

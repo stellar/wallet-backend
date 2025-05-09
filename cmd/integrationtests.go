@@ -18,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 type integrationTestsCmd struct {
@@ -113,13 +114,11 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}
 
-			walletSigner, err := keypair.ParseFull(cfg.ClientAuthPrivateKey)
+			jwtTokenGenerator, err := auth.NewJWTTokenGenerator(cfg.ClientAuthPrivateKey)
 			if err != nil {
-				return fmt.Errorf("parsing wallet signing key: %w", err)
+				return fmt.Errorf("instantiating jwt token generator: %w", err)
 			}
-			wbClient := wbclient.NewClient(cfg.ServerBaseURL, wbclient.RequestSigner{
-				Signer: walletSigner,
-			})
+			wbClient := wbclient.NewClient(cfg.ServerBaseURL, auth.NewHTTPRequestSigner(jwtTokenGenerator))
 
 			primaryKP, err := keypair.ParseFull(cfg.PrimarySourceAccountPrivateKey)
 			if err != nil {
