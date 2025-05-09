@@ -155,15 +155,14 @@ func ParseToRPCSendTxResponse(transactionXDR string, result entities.RPCSendTran
 }
 
 func UnmarshallTransactionResultXDR(resultXDR string) (xdr.TransactionResult, error) {
-	unmarshalErr := "unable to unmarshal errorResultXDR: %s"
 	decodedBytes, err := base64.StdEncoding.DecodeString(resultXDR)
 	if err != nil {
-		return xdr.TransactionResult{}, fmt.Errorf(unmarshalErr, resultXDR)
+		return xdr.TransactionResult{}, fmt.Errorf("unable to decode errorResultXDR %s: %w", resultXDR, err)
 	}
 	var txResultXDR xdr.TransactionResult
 	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &txResultXDR)
 	if err != nil {
-		return xdr.TransactionResult{}, fmt.Errorf(unmarshalErr, resultXDR)
+		return xdr.TransactionResult{}, fmt.Errorf("unable to unmarshal errorResultXDR %s: %w", resultXDR, err)
 	}
 	return txResultXDR, nil
 }

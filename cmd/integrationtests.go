@@ -25,14 +25,15 @@ type integrationTestsCmd struct {
 }
 
 type integrationTestsCmdConfig struct {
-	BaseFee                       int
-	DatabaseURL                   string
-	LogLevel                      logrus.Level
-	NetworkPassphrase             string
-	RPCURL                        string
-	ClientAuthPrivateKey          string
-	ServerBaseURL                 string
-	WalletSourceAccountPrivateKey string
+	BaseFee                          int
+	DatabaseURL                      string
+	LogLevel                         logrus.Level
+	NetworkPassphrase                string
+	RPCURL                           string
+	ClientAuthPrivateKey             string
+	ServerBaseURL                    string
+	PrimarySourceAccountPrivateKey   string
+	SecondarySourceAccountPrivateKey string
 }
 
 func (c *integrationTestsCmd) Command() *cobra.Command {
@@ -54,10 +55,18 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
-			Name:           "wallet-source-account-private-key",
-			Usage:          "The private key of the source account that will be used to send the transactions for the integration tests",
+			Name:           "primary-source-account-private-key",
+			Usage:          "The primary source account private key that will be used to send the transactions for the integration tests",
 			OptType:        types.String,
-			ConfigKey:      &cfg.WalletSourceAccountPrivateKey,
+			ConfigKey:      &cfg.PrimarySourceAccountPrivateKey,
+			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
+			Required:       true,
+		},
+		{
+			Name:           "secondary-source-account-private-key",
+			Usage:          "The secondary source account private key that will be used to send the transactions for the integration tests",
+			OptType:        types.String,
+			ConfigKey:      &cfg.SecondarySourceAccountPrivateKey,
 			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
 			Required:       true,
 		},
@@ -112,9 +121,13 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				Signer: walletSigner,
 			})
 
-			sourceAccountKP, err := keypair.ParseFull(cfg.WalletSourceAccountPrivateKey)
+			primaryKP, err := keypair.ParseFull(cfg.PrimarySourceAccountPrivateKey)
 			if err != nil {
-				return fmt.Errorf("parsing wallet source account private key: %w", err)
+				return fmt.Errorf("parsing primary source account private key: %w", err)
+			}
+			secondaryKP, err := keypair.ParseFull(cfg.SecondarySourceAccountPrivateKey)
+			if err != nil {
+				return fmt.Errorf("parsing secondary source account private key: %w", err)
 			}
 
 			c.integrationTests, err = integrationtests.NewIntegrationTests(ctx, integrationtests.IntegrationTestsOptions{
@@ -122,7 +135,8 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				NetworkPassphrase:                  cfg.NetworkPassphrase,
 				RPCService:                         rpcService,
 				WBClient:                           wbClient,
-				SourceAccountKP:                    sourceAccountKP,
+				PrimaryAccountKP:                   primaryKP,
+				SecondaryAccountKP:                 secondaryKP,
 				DBConnectionPool:                   dbConnectionPool,
 				DistributionAccountSignatureClient: signatureClient,
 			})
