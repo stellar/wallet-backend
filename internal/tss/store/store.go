@@ -14,7 +14,7 @@ import (
 
 type Store interface {
 	GetTransaction(ctx context.Context, hash string) (Transaction, error)
-	UpsertTransaction(ctx context.Context, WebhookURL string, txHash string, txXDR string, status tss.RPCTXStatus) error
+	UpsertTransaction(ctx context.Context, webhookURL string, txHash string, txXDR string, status tss.RPCTXStatus) error
 	UpsertTry(ctx context.Context, transactionHash string, feeBumpTxHash string, feeBumpTxXDR string, status tss.RPCTXStatus, code tss.RPCTXCode, resultXDR string) error
 	GetTry(ctx context.Context, hash string) (Try, error)
 	GetTryByXDR(ctx context.Context, xdr string) (Try, error)
@@ -32,7 +32,7 @@ type store struct {
 type Transaction struct {
 	Hash         string       `db:"transaction_hash"`
 	XDR          string       `db:"transaction_xdr"`
-	WebhookURL   string       `db:"webhook_url"`
+	WebhookURL   *string      `db:"webhook_url"`
 	Status       string       `db:"current_status"`
 	CreatedAt    time.Time    `db:"created_at"`
 	UpdatedAt    time.Time    `db:"updated_at"`
@@ -62,7 +62,7 @@ func NewStore(db db.ConnectionPool, metricsService metrics.MetricsService) (Stor
 	}, nil
 }
 
-func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash string, txXDR string, status tss.RPCTXStatus) error {
+func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash, txXDR string, status tss.RPCTXStatus) error {
 	const q = `
 	INSERT INTO 
 		tss_transactions (transaction_hash, transaction_xdr, webhook_url, current_status)
@@ -76,7 +76,7 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
     	updated_at = NOW();
 	`
 	start := time.Now()
-	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, webhookURL, status.Status())
+	_, err := s.DB.ExecContext(ctx, q, txHash, txXDR, SQLNullString(webhookURL), status.Status())
 	duration := time.Since(start).Seconds()
 	s.MetricsService.ObserveDBQueryDuration("INSERT", "tss_transactions", duration)
 	s.MetricsService.IncDBQuery("INSERT", "tss_transactions")
@@ -84,6 +84,13 @@ func (s *store) UpsertTransaction(ctx context.Context, webhookURL string, txHash
 		return fmt.Errorf("inserting/updatig tss transaction: %w", err)
 	}
 	return nil
+}
+
+func SQLNullString(s string) sql.NullString {
+	return sql.NullString{
+		String: s,
+		Valid:  s != "",
+	}
 }
 
 func (s *store) UpsertTry(ctx context.Context, txHash string, feeBumpTxHash string, feeBumpTxXDR string, status tss.RPCTXStatus, code tss.RPCTXCode, resultXDR string) error {

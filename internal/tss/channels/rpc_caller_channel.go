@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/alitto/pond"
-
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/metrics"

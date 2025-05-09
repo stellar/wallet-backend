@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/tss"
 	"github.com/stellar/wallet-backend/internal/tss/router"
 	"github.com/stellar/wallet-backend/internal/tss/store"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type PoolPopulator interface {
@@ -78,7 +79,7 @@ func (p *poolPopulator) routeNewTransactions(ctx context.Context) error {
 		payload := tss.Payload{
 			TransactionHash: txn.Hash,
 			TransactionXDR:  txn.XDR,
-			WebhookURL:      txn.WebhookURL,
+			WebhookURL:      utils.ValueOf(txn.WebhookURL),
 		}
 		try, err := p.Store.GetLatestTry(ctx, txn.Hash)
 		if err != nil {
@@ -104,7 +105,7 @@ func (p *poolPopulator) routeErrorTransactions(ctx context.Context) error {
 		payload := tss.Payload{
 			TransactionHash: txn.Hash,
 			TransactionXDR:  txn.XDR,
-			WebhookURL:      txn.WebhookURL,
+			WebhookURL:      utils.ValueOf(txn.WebhookURL),
 		}
 		try, err := p.Store.GetLatestTry(ctx, txn.Hash)
 		if err != nil {
@@ -144,7 +145,7 @@ func (p *poolPopulator) routeFinalTransactions(ctx context.Context, status tss.R
 		payload := tss.Payload{
 			TransactionHash: txn.Hash,
 			TransactionXDR:  txn.XDR,
-			WebhookURL:      txn.WebhookURL,
+			WebhookURL:      utils.ValueOf(txn.WebhookURL),
 		}
 		try, err := p.Store.GetLatestTry(ctx, txn.Hash)
 		if err != nil {
@@ -173,7 +174,7 @@ func (p *poolPopulator) routeNotSentTransactions(ctx context.Context) error {
 		payload := tss.Payload{
 			TransactionHash: txn.Hash,
 			TransactionXDR:  txn.XDR,
-			WebhookURL:      txn.WebhookURL,
+			WebhookURL:      utils.ValueOf(txn.WebhookURL),
 		}
 		try, err := p.Store.GetLatestTry(ctx, txn.Hash)
 		if err != nil {

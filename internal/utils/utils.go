@@ -40,6 +40,15 @@ func PointOf[T any](value T) *T {
 	return &value
 }
 
+// ValueOf returns the value of a pointer.
+func ValueOf[T any](pointer *T) T {
+	if pointer == nil {
+		var zero T
+		return zero
+	}
+	return *pointer
+}
+
 func GetAccountLedgerKey(address string) (string, error) {
 	decoded, err := strkey.Decode(strkey.VersionByteAccountID, address)
 	if err != nil {

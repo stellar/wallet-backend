@@ -280,7 +280,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("error updating try: %w", err)
 		}
-		err = m.tssStore.UpsertTransaction(ctx, transaction.WebhookURL, tssTry.OrigTxHash, transaction.XDR, status)
+		err = m.tssStore.UpsertTransaction(ctx, utils.ValueOf(transaction.WebhookURL), tssTry.OrigTxHash, transaction.XDR, status)
 		if err != nil {
 			return fmt.Errorf("error updating transaction: %w", err)
 		}
