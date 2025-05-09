@@ -109,16 +109,9 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full
 		},
 	}
 
-	b64OpsXDRs := make([]string, len(operations))
-	for i, op := range operations {
-		opXDR, err := op.BuildXDR()
-		if err != nil {
-			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
-		}
-		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
-		}
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
 	}
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, newAccountKP), nil
@@ -205,16 +198,9 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 		},
 	}
 
-	b64OpsXDRs := make([]string, len(operations))
-	for i, op := range operations {
-		opXDR, err := op.BuildXDR()
-		if err != nil {
-			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
-		}
-		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
-		}
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
 	}
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
@@ -294,16 +280,9 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 		},
 	}
 
-	b64OpsXDRs := make([]string, len(operations))
-	for i, op := range operations {
-		opXDR, err := op.BuildXDR()
-		if err != nil {
-			return nil, nil, fmt.Errorf("building operation XDR: %w", err)
-		}
-		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
-		}
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
 	}
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil

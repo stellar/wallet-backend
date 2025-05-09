@@ -10,11 +10,29 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/utils"
 )
+
+// ConvertOperationsToBase64XDR converts a slice of operations to their base64 XDR representations.
+func ConvertOperationsToBase64XDR(operations []txnbuild.Operation) ([]string, error) {
+	b64OpsXDRs := make([]string, len(operations))
+	for i, op := range operations {
+		opXDR, err := op.BuildXDR()
+		if err != nil {
+			return nil, fmt.Errorf("building operation XDR: %w", err)
+		}
+		b64OpsXDRs[i], err = utils.OperationXDRToBase64(opXDR)
+		if err != nil {
+			return nil, fmt.Errorf("encoding operation XDR to base64: %w", err)
+		}
+	}
+	return b64OpsXDRs, nil
+}
 
 // WaitForRPCHealthAndRun waits for the RPC service to become healthy and then runs the given function.
 func WaitForRPCHealthAndRun(ctx context.Context, rpcService services.RPCService, timeout time.Duration, onReady func() error) error {
