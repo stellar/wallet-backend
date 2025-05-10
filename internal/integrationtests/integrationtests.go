@@ -313,7 +313,7 @@ func NewIntegrationTests(ctx context.Context, opts IntegrationTestsOptions) (*In
 		return nil, fmt.Errorf("validating integration tests options: %w", err)
 	}
 
-	go opts.RPCService.TrackRPCServiceHealth(ctx)
+	go opts.RPCService.TrackRPCServiceHealth(ctx, nil)
 
 	fixtures := Fixtures{
 		NetworkPassphrase:  opts.NetworkPassphrase,

@@ -250,7 +250,7 @@ func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOpt
 		return nil, fmt.Errorf("validating channel account service options: %w", err)
 	}
 
-	go opts.RPCService.TrackRPCServiceHealth(ctx)
+	go opts.RPCService.TrackRPCServiceHealth(ctx, nil)
 
 	return &channelAccountService{
 		DB:                                 opts.DB,

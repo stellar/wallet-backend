@@ -16,8 +16,8 @@ type RPCServiceMock struct {
 
 var _ RPCService = (*RPCServiceMock)(nil)
 
-func (r *RPCServiceMock) TrackRPCServiceHealth(ctx context.Context) {
-	r.Called(ctx)
+func (r *RPCServiceMock) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any) {
+	r.Called(ctx, triggerHeartbeat)
 }
 
 func (r *RPCServiceMock) GetHeartbeatChannel() chan entities.RPCGetHealthResult {
