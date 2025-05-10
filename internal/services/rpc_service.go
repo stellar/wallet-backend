@@ -31,6 +31,11 @@ type RPCService interface {
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
+	// TrackRPCServiceHealth monitors the health of the RPC service.
+	//
+	// The `triggerHeartbeat` parameter is a channel that can be used to force the
+	// health check to run. This is useful when the ingestor is behind the RPC and
+	// needs to catch up.
 	TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any)
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 }
@@ -242,6 +247,7 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat
 			warningTicker.Reset(r.HealthCheckWarningInterval())
 		case <-healthCheckTicker.C:
 			executeHealthCheck()
+		// If triggerHeartbeat is nil, this case will never trigger.
 		case <-triggerHeartbeat:
 			healthCheckTicker.Reset(r.HealthCheckTickInterval())
 			executeHealthCheck()
