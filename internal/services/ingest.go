@@ -122,7 +122,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				time.Sleep(5 * time.Second)
 				continue
 			}
-			log.Ctx(ctx).Infof("ingesting ledger: %d", ingestLedger)
+			log.Ctx(ctx).Infof("ingesting ledger: %d, oldest: %d, latest: %d", ingestLedger, resp.OldestLedger, resp.LatestLedger)
 
 			start := time.Now()
 			ledgerTransactions, err := m.GetLedgerTransactions(int64(ingestLedger))
@@ -151,7 +151,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
 			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
-			manualTriggerChannel <- true
+			if resp.LatestLedger-ingestLedger > 1 {
+				manualTriggerChannel <- true
+			}
 
 			ingestLedger++
 		}
