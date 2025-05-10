@@ -89,6 +89,8 @@ func NewIngestService(
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	manualTriggerChannel := make(chan any, 1)
+	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
 	ingestHeartbeatChannel := make(chan any, 1)
 	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
@@ -149,6 +151,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
 			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
+			manualTriggerChannel <- true
 
 			ingestLedger++
 		}

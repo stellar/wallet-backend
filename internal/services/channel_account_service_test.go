@@ -31,7 +31,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	ctx := context.Background()
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -303,7 +303,7 @@ func TestSubmitTransaction(t *testing.T) {
 
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -360,7 +360,7 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	defer mockRPCService.AssertExpectations(t)
-	mockRPCService.On("TrackRPCServiceHealth", ctx).Return()
+	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}

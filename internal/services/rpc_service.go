@@ -31,7 +31,7 @@ type RPCService interface {
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
-	TrackRPCServiceHealth(ctx context.Context)
+	TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any)
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 }
 
@@ -210,7 +210,7 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 	return r.healthCheckTickInterval
 }
 
-func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any) {
 	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
 	warningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
@@ -218,6 +218,19 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 		warningTicker.Stop()
 		close(r.heartbeatChannel)
 	}()
+
+	executeHealthCheck := func() {
+		result, err := r.GetHealth()
+		if err != nil {
+			log.Warnf("rpc health check failed: %v", err)
+			r.metricsService.SetRPCServiceHealth(false)
+			return
+		}
+		r.heartbeatChannel <- result
+		r.metricsService.SetRPCServiceHealth(true)
+		r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
+		warningTicker.Reset(r.HealthCheckWarningInterval())
+	}
 
 	for {
 		select {
@@ -228,16 +241,10 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context) {
 			r.metricsService.SetRPCServiceHealth(false)
 			warningTicker.Reset(r.HealthCheckWarningInterval())
 		case <-healthCheckTicker.C:
-			result, err := r.GetHealth()
-			if err != nil {
-				log.Warnf("rpc health check failed: %v", err)
-				r.metricsService.SetRPCServiceHealth(false)
-				continue
-			}
-			r.heartbeatChannel <- result
-			r.metricsService.SetRPCServiceHealth(true)
-			r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
-			warningTicker.Reset(r.HealthCheckWarningInterval())
+			executeHealthCheck()
+		case <-triggerHeartbeat:
+			healthCheckTicker.Reset(r.HealthCheckTickInterval())
+			executeHealthCheck()
 		}
 	}
 }
