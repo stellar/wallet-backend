@@ -258,10 +258,10 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 	statusCounts := make(map[string]float64)
 
 	for _, tx := range ledgerTransactions {
-		if !tx.FeeBump {
-			// because all transactions submitted by TSS are fee bump transactions
-			continue
-		}
+		// if !tx.FeeBump { // FIXME: they are NOT all fee bump transactions.
+		// 	// because all transactions submitted by TSS are fee bump transactions
+		// 	continue
+		// }
 		tssTry, err := m.tssStore.GetTry(ctx, tx.Hash)
 		if err != nil {
 			return fmt.Errorf("error when getting try: %w", err)
@@ -269,6 +269,7 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if tssTry == (tssstore.Try{}) {
 			continue
 		}
+		log.Ctx(ctx).Warnf("tssTry: %+v", tssTry)
 
 		transaction, err := m.tssStore.GetTransaction(ctx, tssTry.OrigTxHash)
 		if err != nil {

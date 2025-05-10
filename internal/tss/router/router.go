@@ -51,7 +51,7 @@ func (r *router) Route(payload tss.Payload) error {
 					channel = r.ErrorJitterChannel
 				} else if slices.Contains(tss.NonJitterErrorCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
 					channel = r.ErrorNonJitterChannel
-				} else if slices.Contains(tss.FinalCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
+				} else if payload.WebhookURL != "" && slices.Contains(tss.FinalCodes, payload.RPCSubmitTxResponse.Code.TxResultCode) {
 					channel = r.WebhookChannel
 				}
 			}
@@ -63,10 +63,10 @@ func (r *router) Route(payload tss.Payload) error {
 			// Do nothing for PENDING / DUPLICATE statuses
 			return nil
 		}
-	} else if payload.RPCGetIngestTxResponse.Status != "" {
-		channel = r.WebhookChannel
-	} else {
+	} else if payload.RPCGetIngestTxResponse.Status == "" {
 		channel = r.RPCCallerChannel
+	} else if payload.WebhookURL != "" {
+		channel = r.WebhookChannel
 	}
 	if channel == nil {
 		return fmt.Errorf("payload could not be routed - channel is nil")

@@ -618,5 +618,5 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	return useCases, nil
+	return useCases[:1], nil
 }

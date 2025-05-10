@@ -81,6 +81,23 @@ func (t *TSSHandler) BuildTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		transactionXDRs = append(transactionXDRs, txXdrStr)
+
+		txHash, err := tx.HashHex(t.NetworkPassphrase)
+		if err != nil {
+			httperror.InternalServerError(ctx, "unable to hashhex transaction", err, nil, t.AppTracker).Render(w)
+			return
+		}
+
+		err = t.Store.UpsertTry(ctx, txHash, txHash, "", tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
+		if err != nil {
+			httperror.InternalServerError(ctx, "unable to upsert try", err, nil, t.AppTracker).Render(w)
+			return
+		}
+		err = t.Store.UpsertTransaction(ctx, "", txHash, txXdrStr, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
+		if err != nil {
+			httperror.InternalServerError(ctx, "unable to upsert transaction", err, nil, t.AppTracker).Render(w)
+			return
+		}
 	}
 	httpjson.Render(w, types.BuildTransactionsResponse{
 		TransactionXDRs: transactionXDRs,
