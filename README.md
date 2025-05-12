@@ -26,6 +26,7 @@ account management, and payment tracking capabilities.
   - [Docker Hub Publishing](#docker-hub-publishing)
     - [Push to `develop`](#push-to-develop)
     - [GitHub Release](#github-release)
+    - [Pre-release](#pre-release)
 
 ## Overview
 
@@ -219,3 +220,7 @@ When a new release is published on GitHub, the workflow generates and uploads a 
 
 - The release tag, e.g. `x.y.z`
 - `latest` (applied only if the release is not marked as a pre-release)
+
+### Pre-release
+
+When a pre-release is published on GitHub, the workflow generates and uploads a Docker image with the pre-release tag preceded by `rc-`, e.g. `rc-x.y.z`

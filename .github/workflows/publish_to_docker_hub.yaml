@@ -44,7 +44,7 @@ jobs:
           if [ "${{ github.event.release.prerelease }}" = "false" ]; then
             echo "DOCKER_TAGS=stellar/wallet-backend:${{ github.event.release.tag_name }},stellar/wallet-backend:latest" >> $GITHUB_OUTPUT
           else
-            echo "DOCKER_TAGS=stellar/wallet-backend:${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+            echo "DOCKER_TAGS=stellar/wallet-backend:rc-${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Publish Docker Image
