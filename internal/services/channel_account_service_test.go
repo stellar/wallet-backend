@@ -79,6 +79,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				require.True(t, ok)
 
 				assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
+				// 3 ops for each channel account [beginSponsoring, createAccount, endSponsoring]
 				assert.Len(t, tx.Operations(), 3*3)
 
 				for i := 0; i < len(tx.Operations()); i += 3 {
@@ -124,14 +125,10 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.
 			On("GetAccountLedgerSequence", distributionAccount.Address()).
 			Return(int64(123), nil).
-			Once()
-
-		mockRPCService.
+			Once().
 			On("SendTransaction", mock.AnythingOfType("string")).
 			Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
-			Once()
-
-		mockRPCService.
+			Once().
 			On("GetTransaction", mock.AnythingOfType("string")).
 			Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
 			Once()
@@ -276,18 +273,18 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 	})
 
 	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		cancelCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 
 		channelAccountStore.
-			On("Count", ctx).
+			On("Count", cancelCtx).
 			Return(2, nil).
 			Once()
 		defer channelAccountStore.AssertExpectations(t)
 
 		distributionAccount := keypair.MustRandom()
 		signatureClient.
-			On("GetAccountPublicKey", ctx).
+			On("GetAccountPublicKey", cancelCtx).
 			Return(distributionAccount.Address(), nil).
 			Once()
 		defer signatureClient.AssertExpectations(t)
@@ -296,7 +293,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 		defer mockRPCService.AssertExpectations(t)
 
-		err := s.EnsureChannelAccounts(ctx, 5)
+		err := s.EnsureChannelAccounts(cancelCtx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
 	})
