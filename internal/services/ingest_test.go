@@ -460,6 +460,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Once()
 	mockRouter := tssrouter.MockRouter{}
 
 	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
@@ -548,6 +549,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Once()
 	mockRouter := tssrouter.MockRouter{}
 
 	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)

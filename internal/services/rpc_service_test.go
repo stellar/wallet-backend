@@ -716,7 +716,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil).Run(func(args mock.Arguments) {
 		cancel()
 	})
-	rpcService.TrackRPCServiceHealth(ctx)
+	rpcService.TrackRPCServiceHealth(ctx, nil)
 
 	// Get result from heartbeat channel
 	select {
@@ -781,14 +781,14 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 		Return(mockResponse, nil)
 
 	// The ctx will timeout after {contextTimeout}, which is enough for the warning to trigger
-	rpcService.TrackRPCServiceHealth(ctx)
+	rpcService.TrackRPCServiceHealth(ctx, nil)
 
 	entries := getLogs()
 	testSucceeded := false
 	logMessages := []string{}
 	for _, entry := range entries {
 		logMessages = append(logMessages, entry.Message)
-		if strings.Contains(entry.Message, "rpc service unhealthy for over "+healthCheckWarningInterval.String()) {
+		if strings.Contains(entry.Message, "RPC service unhealthy for over "+healthCheckWarningInterval.String()) {
 			testSucceeded = true
 			break
 		}
@@ -812,7 +812,7 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
-	rpcService.TrackRPCServiceHealth(ctx)
+	rpcService.TrackRPCServiceHealth(ctx, nil)
 
 	// Verify channel is closed after context cancellation
 	time.Sleep(100 * time.Millisecond)
