@@ -211,8 +211,8 @@ The CI/CD workflow, defined in [`publish_to_docker_hub.yaml`](./.github/workflow
 
 Whenever updates are made to the `develop` branch, the workflow creates and uploads a Docker image with two specific tags:
 
-- `edge`
-- `edge-{DATE}-{SHA}`
+- `testing`
+- `testing-{DATE}-{SHA}`
 
 ### GitHub Release
 
