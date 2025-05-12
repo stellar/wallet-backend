@@ -788,7 +788,7 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	logMessages := []string{}
 	for _, entry := range entries {
 		logMessages = append(logMessages, entry.Message)
-		if strings.Contains(entry.Message, "rpc service unhealthy for over "+healthCheckWarningInterval.String()) {
+		if strings.Contains(entry.Message, "RPC service unhealthy for over "+healthCheckWarningInterval.String()) {
 			testSucceeded = true
 			break
 		}

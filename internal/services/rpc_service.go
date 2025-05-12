@@ -31,12 +31,12 @@ type RPCService interface {
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
-	// TrackRPCServiceHealth monitors the health of the RPC service.
+	// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
+	// It runs health checks at regular intervals and can be triggered on-demand via healthCheckTrigger.
 	//
-	// The `triggerHeartbeat` parameter is a channel that can be used to force the
-	// health check to run. This is useful when the ingestor is behind the RPC and
-	// needs to catch up.
-	TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any)
+	// The healthCheckTrigger channel allows external components to request an immediate health check,
+	// which is particularly useful when the ingestor needs to catch up with the RPC service.
+	TrackRPCServiceHealth(ctx context.Context, healthCheckTrigger chan any)
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 }
 
@@ -215,7 +215,12 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 	return r.healthCheckTickInterval
 }
 
-func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat chan any) {
+// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
+// It runs health checks at regular intervals and can be triggered on-demand via healthCheckTrigger.
+//
+// The healthCheckTrigger channel allows external components to request an immediate health check,
+// which is particularly useful when the ingestor needs to catch up with the RPC service.
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, healthCheckTrigger chan any) {
 	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
 	warningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
@@ -224,13 +229,14 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat
 		close(r.heartbeatChannel)
 	}()
 
-	executeHealthCheck := func() {
+	performHealthCheck := func() {
 		result, err := r.GetHealth()
 		if err != nil {
-			log.Warnf("rpc health check failed: %v", err)
+			log.Warnf("RPC health check failed: %v", err)
 			r.metricsService.SetRPCServiceHealth(false)
 			return
 		}
+
 		r.heartbeatChannel <- result
 		r.metricsService.SetRPCServiceHealth(true)
 		r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
@@ -242,15 +248,14 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, triggerHeartbeat
 		case <-ctx.Done():
 			return
 		case <-warningTicker.C:
-			log.Warn(fmt.Sprintf("rpc service unhealthy for over %s", r.HealthCheckWarningInterval()))
+			log.Warnf("RPC service unhealthy for over %s", r.HealthCheckWarningInterval())
 			r.metricsService.SetRPCServiceHealth(false)
 			warningTicker.Reset(r.HealthCheckWarningInterval())
 		case <-healthCheckTicker.C:
-			executeHealthCheck()
-		// If triggerHeartbeat is nil, this case will never trigger.
-		case <-triggerHeartbeat:
+			performHealthCheck()
+		case <-healthCheckTrigger:
 			healthCheckTicker.Reset(r.HealthCheckTickInterval())
-			executeHealthCheck()
+			performHealthCheck()
 		}
 	}
 }
