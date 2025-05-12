@@ -18,9 +18,12 @@ import (
 )
 
 const (
-	maxRetriesForChannelAccountCreation = 50
-	sleepDelayForChannelAccountCreation = 10 * time.Second
-	rpcHealthCheckTimeout               = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
+	// MaximumCreateAccountOperationsPerStellarTx is the max number of sponsored accounts we can create in one
+	// transaction due to the signature limit.
+	MaximumCreateAccountOperationsPerStellarTx = 19
+	maxRetriesForChannelAccountCreation        = 50
+	sleepDelayForChannelAccountCreation        = 10 * time.Second
+	rpcHealthCheckTimeout                      = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
 type ChannelAccountService interface {
@@ -52,6 +55,10 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 		return nil
 	}
 
+	if numOfChannelAccountsToCreate > MaximumCreateAccountOperationsPerStellarTx {
+		return fmt.Errorf("number of channel accounts to create is greater than the maximum allowed per transaction (%d)", MaximumCreateAccountOperationsPerStellarTx)
+	}
+
 	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
 		return fmt.Errorf("getting distribution account public key: %w", err)
@@ -59,11 +66,13 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 
 	ops := make([]txnbuild.Operation, 0, numOfChannelAccountsToCreate)
 	channelAccountsToInsert := []*store.ChannelAccount{}
+	chAccKPs := make([]*keypair.Full, 0, numOfChannelAccountsToCreate)
 	for range numOfChannelAccountsToCreate {
 		kp, innerErr := keypair.Random()
 		if innerErr != nil {
 			return fmt.Errorf("generating random keypair for channel account: %w", innerErr)
 		}
+		chAccKPs = append(chAccKPs, kp)
 		log.Ctx(ctx).Infof("⏳ Creating Stellar channel account with address: %s", kp.Address())
 
 		encryptedPrivateKey, innerErr := s.PrivateKeyEncrypter.Encrypt(ctx, kp.Seed(), s.EncryptionPassphrase)
@@ -71,18 +80,26 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 			return fmt.Errorf("encrypting channel account private key: %w", innerErr)
 		}
 
-		ops = append(ops, &txnbuild.CreateAccount{
-			Destination:   kp.Address(),
-			Amount:        "1",
-			SourceAccount: distributionAccountPublicKey,
-		})
+		ops = append(ops, // add sponsor operations for this account
+			&txnbuild.BeginSponsoringFutureReserves{
+				SponsoredID: kp.Address(),
+			},
+			&txnbuild.CreateAccount{
+				Destination: kp.Address(),
+				Amount:      "0",
+			},
+			&txnbuild.EndSponsoringFutureReserves{
+				SourceAccount: kp.Address(),
+			},
+		)
 		channelAccountsToInsert = append(channelAccountsToInsert, &store.ChannelAccount{
 			PublicKey:           kp.Address(),
 			EncryptedPrivateKey: encryptedPrivateKey,
 		})
 	}
 
-	if err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops); err != nil {
+	err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops, chAccKPs...)
+	if err != nil {
 		return fmt.Errorf("submitting create channel account(s) on chain transaction: %w", err)
 	}
 	log.Ctx(ctx).Infof("🎉 Successfully created %d channel account(s) on chain", numOfChannelAccountsToCreate)
@@ -95,7 +112,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	return nil
 }
 
-func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation) error {
+func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation, chAccKPs ...*keypair.Full) error {
 	log.Ctx(ctx).Infof("⏳ Waiting for RPC service to become healthy")
 	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
 	select {
@@ -128,7 +145,14 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 
 		signedTx, err := s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
 		if err != nil {
-			return fmt.Errorf("signing transaction: %w", err)
+			return fmt.Errorf("signing transaction for distribution account: %w", err)
+		}
+
+		if len(chAccKPs) > 0 {
+			signedTx, err = signedTx.Sign(s.DistributionAccountSignatureClient.NetworkPassphrase(), chAccKPs...)
+			if err != nil {
+				return fmt.Errorf("signing transaction with channel account(s) keypairs: %w", err)
+			}
 		}
 
 		hash, err := signedTx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())

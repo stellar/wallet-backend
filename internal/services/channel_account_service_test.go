@@ -79,15 +79,24 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 				require.True(t, ok)
 
 				assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
-				assert.Len(t, tx.Operations(), 3)
+				assert.Len(t, tx.Operations(), 3*3)
 
-				for _, op := range tx.Operations() {
-					caOp, ok := op.(*txnbuild.CreateAccount)
+				for i := 0; i < len(tx.Operations()); i += 3 {
+					ops := tx.Operations()[i : i+3]
+					beginOp, ok := ops[0].(*txnbuild.BeginSponsoringFutureReserves)
 					require.True(t, ok)
+					assert.NotEqual(t, distributionAccount.Address(), beginOp.SponsoredID)
 
-					assert.Equal(t, "1", caOp.Amount)
-					assert.Equal(t, distributionAccount.Address(), caOp.SourceAccount)
-					channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, caOp.Destination)
+					createOp, ok := ops[1].(*txnbuild.CreateAccount)
+					require.True(t, ok)
+					assert.NotEqual(t, distributionAccount.Address(), createOp.Destination)
+					assert.Equal(t, "0", createOp.Amount)
+
+					endOp, ok := ops[2].(*txnbuild.EndSponsoringFutureReserves)
+					require.True(t, ok)
+					assert.NotEqual(t, distributionAccount.Address(), endOp.SourceAccount)
+
+					channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, createOp.Destination)
 				}
 
 				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
@@ -99,7 +108,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once().
 			On("NetworkPassphrase").
 			Return(network.TestNetworkPassphrase).
-			Once()
+			Twice()
 		defer signatureClient.AssertExpectations(t)
 
 		mockRPCService.
@@ -176,7 +185,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once().
 			On("NetworkPassphrase").
 			Return(network.TestNetworkPassphrase).
-			Once()
+			Twice()
 		defer signatureClient.AssertExpectations(t)
 
 		mockRPCService.
@@ -235,7 +244,7 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 			Once().
 			On("NetworkPassphrase").
 			Return(network.TestNetworkPassphrase).
-			Once()
+			Twice()
 		defer signatureClient.AssertExpectations(t)
 
 		// Create and set up the heartbeat channel
@@ -290,6 +299,16 @@ func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
 		err := s.EnsureChannelAccounts(ctx, 5)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
+	})
+
+	t.Run("fails_if_number_of_channel_accounts_to_create_is_greater_than_the_maximum_allowed_per_transaction", func(t *testing.T) {
+		channelAccountStore.
+			On("Count", ctx).
+			Return(0, nil).
+			Once()
+		err := s.EnsureChannelAccounts(ctx, MaximumCreateAccountOperationsPerStellarTx+1)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "number of channel accounts to create is greater than the maximum allowed per transaction (19)")
 	})
 }
 
