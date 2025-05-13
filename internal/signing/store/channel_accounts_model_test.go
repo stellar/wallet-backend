@@ -251,6 +251,8 @@ func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 				chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())
 				require.NoError(t, err)
 				require.True(t, chAccFromDB.LockedTxHash.Valid)
+				require.True(t, chAccFromDB.LockedAt.Valid)
+				require.True(t, chAccFromDB.LockedUntil.Valid)
 			}
 
 			rowsAffected, err := m.UnassignTxAndUnlockChannelAccounts(ctx, tc.txHashes(fixtures)...)

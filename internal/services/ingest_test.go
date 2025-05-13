@@ -662,7 +662,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockRPCService.AssertExpectations(t)
 }
 
-func Test_ingestSvc_extractInnerTxHash(t *testing.T) {
+func Test_ingestService_extractInnerTxHash(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	sourceAccountKP := keypair.MustRandom()
 	destAccountKP := keypair.MustRandom()

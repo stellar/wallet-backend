@@ -95,33 +95,6 @@ func NewIngestService(
 	}, nil
 }
 
-// extractInnerTxHash receives a transaction XDR, either feeBump or regular, and returns the hash of the inner transaction.
-func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
-	if err != nil {
-		return "", fmt.Errorf("deserializing envelope xdr: %w", err)
-	}
-
-	var innerTx *txnbuild.Transaction
-
-	feeBumpTx, ok := genericTx.FeeBump()
-	if ok {
-		innerTx = feeBumpTx.InnerTransaction()
-	} else {
-		innerTx, ok = genericTx.Transaction()
-		if !ok {
-			return "", errors.New("transaction is neither fee bump nor inner transaction")
-		}
-	}
-
-	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
-	if err != nil {
-		return "", fmt.Errorf("generating hashHex: %w", err)
-	}
-
-	return innerTxHash, nil
-}
-
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
 	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
@@ -294,15 +267,9 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 	statusCounts := make(map[string]float64)
 
 	for _, tx := range ledgerTransactions {
-		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		err := m.unlockChannelAccountFromTx(ctx, tx.EnvelopeXDR)
 		if err != nil {
-			return fmt.Errorf("extracting inner tx hash: %w", err)
-		}
-		rowsAffected, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash)
-		if err != nil {
-			return fmt.Errorf("unlocking channel account with txHash %s: %w", innerTxHash, err)
-		} else if rowsAffected > 0 {
-			log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
+			return fmt.Errorf("error unlocking channel account from tx: %w", err)
 		}
 		if !tx.FeeBump {
 			// because all transactions submitted by TSS are fee bump transactions
@@ -369,6 +336,49 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		m.metricsService.SetNumTssTransactionsIngestedPerLedger(status, count)
 	}
 	return nil
+}
+
+// unlockChannelAccountFromTx unlocks the channel account associated with the given transaction XDR.
+func (m *ingestService) unlockChannelAccountFromTx(ctx context.Context, txXDR string) error {
+	innerTxHash, err := m.extractInnerTxHash(txXDR)
+	if err != nil {
+		return fmt.Errorf("extracting inner tx hash: %w", err)
+	}
+
+	if rowsAffected, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash); err != nil {
+		return fmt.Errorf("unlocking channel account with txHash %s: %w", innerTxHash, err)
+	} else if rowsAffected > 0 {
+		log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
+	}
+
+	return nil
+}
+
+// extractInnerTxHash receives a transaction XDR, either feeBump or regular, and returns the hash of the inner transaction.
+func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return "", fmt.Errorf("deserializing envelope xdr: %w", err)
+	}
+
+	var innerTx *txnbuild.Transaction
+
+	feeBumpTx, ok := genericTx.FeeBump()
+	if ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else {
+		innerTx, ok = genericTx.Transaction()
+		if !ok {
+			return "", errors.New("transaction is neither fee bump nor inner transaction")
+		}
+	}
+
+	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
+	if err != nil {
+		return "", fmt.Errorf("generating hashHex: %w", err)
+	}
+
+	return innerTxHash, nil
 }
 
 func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker apptracker.AppTracker) {
