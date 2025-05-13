@@ -20,293 +20,295 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 )
 
-func TestChannelAccountServiceEnsureChannelAccounts(t *testing.T) {
+func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
 	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
-	ctx := context.Background()
-	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
-	signatureClient := signing.SignatureClientMock{}
-	channelAccountStore := store.ChannelAccountStoreMock{}
-	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
-	passphrase := "test"
-	s, outerErr := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
-		DB:                                 dbConnectionPool,
-		RPCService:                         &mockRPCService,
-		BaseFee:                            100 * txnbuild.MinBaseFee,
-		DistributionAccountSignatureClient: &signatureClient,
-		ChannelAccountStore:                &channelAccountStore,
-		PrivateKeyEncrypter:                &privateKeyEncrypter,
-		EncryptionPassphrase:               passphrase,
-	})
-	require.NoError(t, outerErr)
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
+	type testCase struct {
+		name             string
+		getCtx           func() context.Context
+		numberOfAccounts int64
+		setupMocks       func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock)
+		expectedError    string
+	}
 
-	t.Run("sufficient_number_of_channel_accounts", func(t *testing.T) {
-		channelAccountStore.
-			On("Count", ctx).
-			Return(5, nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
+	testCases := []testCase{
+		{
+			name:             "🟢sufficient_number_of_channel_accounts",
+			numberOfAccounts: 5,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, _ *RPCServiceMock, _ *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(5, nil).
+					Once()
+			},
+		},
+		{
+			name:             "🟢successfully_ensures_the_channel_accounts_creation",
+			numberOfAccounts: 5,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(2, nil).
+					Once()
 
-		err := s.EnsureChannelAccounts(ctx, 5)
-		require.NoError(t, err)
-	})
+				distributionAccount := keypair.MustRandom()
+				channelAccountsAddressesBeingInserted := []string{}
+				signedTx := txnbuild.Transaction{}
+				signatureClient.
+					On("GetAccountPublicKey", mock.Anything).
+					Return(distributionAccount.Address(), nil).
+					Once().
+					On("SignStellarTransaction", mock.Anything, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+					Run(func(args mock.Arguments) {
+						tx, ok := args.Get(1).(*txnbuild.Transaction)
+						require.True(t, ok)
 
-	t.Run("successfully_ensures_the_channel_accounts_creation", func(t *testing.T) {
-		channelAccountStore.
-			On("Count", ctx).
-			Return(2, nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
+						assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
+						assert.Len(t, tx.Operations(), 3*3)
 
-		distributionAccount := keypair.MustRandom()
-		channelAccountsAddressesBeingInserted := []string{}
-		signedTx := txnbuild.Transaction{}
-		signatureClient.
-			On("GetAccountPublicKey", ctx).
-			Return(distributionAccount.Address(), nil).
-			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
-			Run(func(args mock.Arguments) {
-				tx, ok := args.Get(1).(*txnbuild.Transaction)
-				require.True(t, ok)
+						for i := 0; i < len(tx.Operations()); i += 3 {
+							ops := tx.Operations()[i : i+3]
+							beginOp, ok := ops[0].(*txnbuild.BeginSponsoringFutureReserves)
+							require.True(t, ok)
+							assert.NotEqual(t, distributionAccount.Address(), beginOp.SponsoredID)
 
-				assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
-				// 3 ops for each channel account [beginSponsoring, createAccount, endSponsoring]
-				assert.Len(t, tx.Operations(), 3*3)
+							createOp, ok := ops[1].(*txnbuild.CreateAccount)
+							require.True(t, ok)
+							assert.NotEqual(t, distributionAccount.Address(), createOp.Destination)
+							assert.Equal(t, "0", createOp.Amount)
 
-				for i := 0; i < len(tx.Operations()); i += 3 {
-					ops := tx.Operations()[i : i+3]
-					beginOp, ok := ops[0].(*txnbuild.BeginSponsoringFutureReserves)
-					require.True(t, ok)
-					assert.NotEqual(t, distributionAccount.Address(), beginOp.SponsoredID)
+							endOp, ok := ops[2].(*txnbuild.EndSponsoringFutureReserves)
+							require.True(t, ok)
+							assert.NotEqual(t, distributionAccount.Address(), endOp.SourceAccount)
 
-					createOp, ok := ops[1].(*txnbuild.CreateAccount)
-					require.True(t, ok)
-					assert.NotEqual(t, distributionAccount.Address(), createOp.Destination)
-					assert.Equal(t, "0", createOp.Amount)
+							channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, createOp.Destination)
+						}
 
-					endOp, ok := ops[2].(*txnbuild.EndSponsoringFutureReserves)
-					require.True(t, ok)
-					assert.NotEqual(t, distributionAccount.Address(), endOp.SourceAccount)
+						tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+						require.NoError(t, err)
 
-					channelAccountsAddressesBeingInserted = append(channelAccountsAddressesBeingInserted, createOp.Destination)
-				}
+						signedTx = *tx
+					}).
+					Return(&signedTx, nil).
+					Once().
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Twice()
 
-				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
+				mockRPCService.
+					On("GetHeartbeatChannel").
+					Return(heartbeatChan).
+					Once().
+					On("GetAccountLedgerSequence", distributionAccount.Address()).
+					Return(int64(123), nil).
+					Once().
+					On("SendTransaction", mock.AnythingOfType("string")).
+					Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
+					Once().
+					On("GetTransaction", mock.AnythingOfType("string")).
+					Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
+					Once()
+
+				channelAccountStore.
+					On("BatchInsert", mock.Anything, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).
+					Run(func(args mock.Arguments) {
+						channelAccounts, ok := args.Get(2).([]*store.ChannelAccount)
+						require.True(t, ok)
+
+						channelAccountsAddresses := make([]string, 0, len(channelAccounts))
+						for _, ca := range channelAccounts {
+							channelAccountsAddresses = append(channelAccountsAddresses, ca.PublicKey)
+						}
+
+						assert.Equal(t, channelAccountsAddressesBeingInserted, channelAccountsAddresses)
+					}).
+					Return(nil).
+					Once()
+			},
+		},
+		{
+			name:             "🔴fails_when_transaction_submission_fails",
+			numberOfAccounts: 5,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(2, nil).
+					Once()
+
+				distributionAccount := keypair.MustRandom()
+				signedTx := txnbuild.Transaction{}
+				signatureClient.
+					On("GetAccountPublicKey", mock.Anything).
+					Return(distributionAccount.Address(), nil).
+					Once().
+					On("SignStellarTransaction", mock.Anything, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+					Run(func(args mock.Arguments) {
+						tx, ok := args.Get(1).(*txnbuild.Transaction)
+						require.True(t, ok)
+
+						tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+						require.NoError(t, err)
+
+						signedTx = *tx
+					}).
+					Return(&signedTx, nil).
+					Once().
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Twice()
+
+				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
+				mockRPCService.
+					On("GetHeartbeatChannel").
+					Return(heartbeatChan).
+					Once().
+					On("GetAccountLedgerSequence", distributionAccount.Address()).
+					Return(int64(123), nil).
+					Once().
+					On("SendTransaction", mock.AnythingOfType("string")).
+					Return(entities.RPCSendTransactionResult{
+						Status:         entities.ErrorStatus,
+						ErrorResultXDR: "error_xdr",
+					}, nil).
+					Once()
+			},
+			expectedError: "failed with errorResultXdr error_xdr",
+		},
+		{
+			name:             "🔴fails_when_transaction_status_check_fails",
+			numberOfAccounts: 5,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(2, nil).
+					Once()
+
+				distributionAccount := keypair.MustRandom()
+				signedTx := txnbuild.Transaction{}
+				signatureClient.
+					On("GetAccountPublicKey", mock.Anything).
+					Return(distributionAccount.Address(), nil).
+					Once().
+					On("SignStellarTransaction", mock.Anything, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+					Run(func(args mock.Arguments) {
+						tx, ok := args.Get(1).(*txnbuild.Transaction)
+						require.True(t, ok)
+
+						tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+						require.NoError(t, err)
+
+						signedTx = *tx
+					}).
+					Return(&signedTx, nil).
+					Once().
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Twice()
+
+				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
+				mockRPCService.
+					On("GetHeartbeatChannel").
+					Return(heartbeatChan).
+					Once().
+					On("GetAccountLedgerSequence", distributionAccount.Address()).
+					Return(int64(123), nil).
+					Once().
+					On("SendTransaction", mock.AnythingOfType("string")).
+					Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
+					Once().
+					On("GetTransaction", mock.AnythingOfType("string")).
+					Return(entities.RPCGetTransactionResult{
+						Status:         entities.FailedStatus,
+						ErrorResultXDR: "error_xdr",
+					}, nil).
+					Once()
+			},
+			expectedError: "failed with status FAILED and errorResultXdr error_xdr",
+		},
+		{
+			name:             "🔴fails_if_numOfChannelAccountsToCreate>MaximumCreateAccountOperationsPerStellarTx",
+			numberOfAccounts: MaximumCreateAccountOperationsPerStellarTx + 1,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, _ *RPCServiceMock, _ *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(0, nil).
+					Once()
+			},
+			expectedError: "number of channel accounts to create is greater than the maximum allowed per transaction (19)",
+		},
+		{
+			name:             "🔴fails_if_rpc_service_is_not_healthy",
+			numberOfAccounts: 5,
+			getCtx:           func() context.Context { ctx, cancel := context.WithCancel(context.Background()); cancel(); return ctx },
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(2, nil).
+					Once()
+
+				distributionAccount := keypair.MustRandom()
+				signatureClient.
+					On("GetAccountPublicKey", mock.Anything).
+					Return(distributionAccount.Address(), nil).
+					Once()
+
+				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+				mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
+			},
+			expectedError: "context cancelled while waiting for rpc service to become healthy",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create fresh mocks for each test
+			ctx := tc.getCtx()
+			mockRPCService := NewRPCServiceMock(t)
+			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
+			signatureClient := signing.NewSignatureClientMock(t)
+			channelAccountStore := store.NewChannelAccountStoreMock(t)
+
+			// Setup mocks
+			tc.setupMocks(t, mockRPCService, signatureClient, channelAccountStore)
+
+			// Create service with fresh mocks
+			s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
+				DB:                                 dbConnectionPool,
+				RPCService:                         mockRPCService,
+				BaseFee:                            txnbuild.MinBaseFee,
+				DistributionAccountSignatureClient: signatureClient,
+				ChannelAccountStore:                channelAccountStore,
+				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
+				EncryptionPassphrase:               "my-encryption-passphrase",
+			})
+			time.Sleep(50 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
+			require.NoError(t, err)
+
+			// Execute test
+			err = s.EnsureChannelAccounts(ctx, tc.numberOfAccounts)
+
+			// Assert expectations
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.expectedError)
+			} else {
 				require.NoError(t, err)
-
-				signedTx = *tx
-			}).
-			Return(&signedTx, nil).
-			Once().
-			On("NetworkPassphrase").
-			Return(network.TestNetworkPassphrase).
-			Twice()
-		defer signatureClient.AssertExpectations(t)
-
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-
-		// Create and set up the heartbeat channel
-		health, err := mockRPCService.GetHealth()
-		require.NoError(t, err)
-		heartbeatChan <- health
-		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", distributionAccount.Address()).
-			Return(int64(123), nil).
-			Once().
-			On("SendTransaction", mock.AnythingOfType("string")).
-			Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
-			Once().
-			On("GetTransaction", mock.AnythingOfType("string")).
-			Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		channelAccountStore.
-			On("BatchInsert", ctx, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).
-			Run(func(args mock.Arguments) {
-				channelAccounts, ok := args.Get(2).([]*store.ChannelAccount)
-				require.True(t, ok)
-
-				channelAccountsAddresses := make([]string, 0, len(channelAccounts))
-				for _, ca := range channelAccounts {
-					channelAccountsAddresses = append(channelAccountsAddresses, ca.PublicKey)
-				}
-
-				assert.Equal(t, channelAccountsAddressesBeingInserted, channelAccountsAddresses)
-			}).
-			Return(nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
-
-		err = s.EnsureChannelAccounts(ctx, 5)
-		require.NoError(t, err)
-	})
-
-	t.Run("fails_when_transaction_submission_fails", func(t *testing.T) {
-		channelAccountStore.
-			On("Count", ctx).
-			Return(2, nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
-
-		distributionAccount := keypair.MustRandom()
-		signedTx := txnbuild.Transaction{}
-		signatureClient.
-			On("GetAccountPublicKey", ctx).
-			Return(distributionAccount.Address(), nil).
-			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
-			Run(func(args mock.Arguments) {
-				tx, ok := args.Get(1).(*txnbuild.Transaction)
-				require.True(t, ok)
-
-				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
-				require.NoError(t, err)
-
-				signedTx = *tx
-			}).
-			Return(&signedTx, nil).
-			Once().
-			On("NetworkPassphrase").
-			Return(network.TestNetworkPassphrase).
-			Twice()
-		defer signatureClient.AssertExpectations(t)
-
-		mockRPCService.
-			On("GetHealth").
-			Return(entities.RPCGetHealthResult{Status: "healthy"}, nil)
-
-		// Create and set up the heartbeat channel
-		health, err := mockRPCService.GetHealth()
-		require.NoError(t, err)
-		heartbeatChan <- health
-		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", distributionAccount.Address()).
-			Return(int64(123), nil).
-			Once()
-
-		mockRPCService.
-			On("SendTransaction", mock.AnythingOfType("string")).
-			Return(entities.RPCSendTransactionResult{
-				Status:         entities.ErrorStatus,
-				ErrorResultXDR: "error_xdr",
-			}, nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		err = s.EnsureChannelAccounts(ctx, 5)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed with errorResultXdr error_xdr")
-	})
-
-	t.Run("fails_when_transaction_status_check_fails", func(t *testing.T) {
-		channelAccountStore.
-			On("Count", ctx).
-			Return(2, nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
-
-		distributionAccount := keypair.MustRandom()
-		signedTx := txnbuild.Transaction{}
-		signatureClient.
-			On("GetAccountPublicKey", ctx).
-			Return(distributionAccount.Address(), nil).
-			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
-			Run(func(args mock.Arguments) {
-				tx, ok := args.Get(1).(*txnbuild.Transaction)
-				require.True(t, ok)
-
-				tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
-				require.NoError(t, err)
-
-				signedTx = *tx
-			}).
-			Return(&signedTx, nil).
-			Once().
-			On("NetworkPassphrase").
-			Return(network.TestNetworkPassphrase).
-			Twice()
-		defer signatureClient.AssertExpectations(t)
-
-		// Create and set up the heartbeat channel
-		heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
-		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", distributionAccount.Address()).
-			Return(int64(123), nil).
-			Once()
-
-		mockRPCService.
-			On("SendTransaction", mock.AnythingOfType("string")).
-			Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).
-			Once()
-
-		mockRPCService.
-			On("GetTransaction", mock.AnythingOfType("string")).
-			Return(entities.RPCGetTransactionResult{
-				Status:         entities.FailedStatus,
-				ErrorResultXDR: "error_xdr",
-			}, nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		err := s.EnsureChannelAccounts(ctx, 5)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed with status FAILED and errorResultXdr error_xdr")
-	})
-
-	t.Run("fails if rpc service is not healthy", func(t *testing.T) {
-		cancelCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		channelAccountStore.
-			On("Count", cancelCtx).
-			Return(2, nil).
-			Once()
-		defer channelAccountStore.AssertExpectations(t)
-
-		distributionAccount := keypair.MustRandom()
-		signatureClient.
-			On("GetAccountPublicKey", cancelCtx).
-			Return(distributionAccount.Address(), nil).
-			Once()
-		defer signatureClient.AssertExpectations(t)
-
-		heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-		mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
-		defer mockRPCService.AssertExpectations(t)
-
-		err := s.EnsureChannelAccounts(cancelCtx, 5)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "context cancelled while waiting for rpc service to become healthy")
-	})
-
-	t.Run("fails_if_number_of_channel_accounts_to_create_is_greater_than_the_maximum_allowed_per_transaction", func(t *testing.T) {
-		channelAccountStore.
-			On("Count", ctx).
-			Return(0, nil).
-			Once()
-		err := s.EnsureChannelAccounts(ctx, MaximumCreateAccountOperationsPerStellarTx+1)
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "number of channel accounts to create is greater than the maximum allowed per transaction (19)")
-	})
+			}
+		})
+	}
 }
 
 func TestSubmitTransaction(t *testing.T) {
@@ -334,6 +336,7 @@ func TestSubmitTransaction(t *testing.T) {
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
 		EncryptionPassphrase:               passphrase,
 	})
+	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 	require.NoError(t, err)
 	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 

@@ -60,6 +60,20 @@ func (r *RPCServiceMock) SimulateTransaction(transactionXDR string, resourceConf
 	return args.Get(0).(entities.RPCSimulateTransactionResult), args.Error(1)
 }
 
+// NewRPCServiceMock creates a new instance of RPCServiceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewRPCServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *RPCServiceMock {
+	mock := &RPCServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
 type AccountSponsorshipServiceMock struct {
 	mock.Mock
 }
