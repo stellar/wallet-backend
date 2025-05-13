@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -28,6 +29,7 @@ type Configs struct {
 	LogLevel                      logrus.Level
 	AppTracker                    apptracker.AppTracker
 	RPCURL                        string
+	NetworkPassphrase             string
 	WebhookChannelMaxBufferSize   int
 	WebhookChannelMaxWorkers      int
 	WebhookChannelMaxRetries      int
@@ -65,7 +67,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, httpClient, metricsService)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
@@ -73,6 +75,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating tss store: %w", err)
 	}
+	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 	tssRouterConfig := tssrouter.RouterConfigs{
 		WebhookChannel: cfg.WebhookChannel,
 	}
@@ -80,7 +83,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	router := tssrouter.NewRouter(tssRouterConfig)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, chAccStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

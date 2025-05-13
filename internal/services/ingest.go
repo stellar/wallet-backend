@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -43,6 +44,7 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
+	chAccStore       store.ChannelAccountStore
 	metricsService   metrics.MetricsService
 }
 
@@ -53,6 +55,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
+	chAccStore store.ChannelAccountStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
@@ -73,6 +76,9 @@ func NewIngestService(
 	if tssStore == nil {
 		return nil, errors.New("tssStore cannot be nil")
 	}
+	if chAccStore == nil {
+		return nil, errors.New("chAccStore cannot be nil")
+	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
@@ -84,6 +90,7 @@ func NewIngestService(
 		rpcService:       rpcService,
 		tssRouter:        tssRouter,
 		tssStore:         tssStore,
+		chAccStore:       chAccStore,
 		metricsService:   metricsService,
 	}, nil
 }
@@ -260,6 +267,10 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 	statusCounts := make(map[string]float64)
 
 	for _, tx := range ledgerTransactions {
+		err := m.unlockChannelAccountFromTx(ctx, tx.EnvelopeXDR)
+		if err != nil {
+			return fmt.Errorf("error unlocking channel account from tx: %w", err)
+		}
 		if !tx.FeeBump {
 			// because all transactions submitted by TSS are fee bump transactions
 			continue
@@ -325,6 +336,49 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		m.metricsService.SetNumTssTransactionsIngestedPerLedger(status, count)
 	}
 	return nil
+}
+
+// unlockChannelAccountFromTx unlocks the channel account associated with the given transaction XDR.
+func (m *ingestService) unlockChannelAccountFromTx(ctx context.Context, txXDR string) error {
+	innerTxHash, err := m.extractInnerTxHash(txXDR)
+	if err != nil {
+		return fmt.Errorf("extracting inner tx hash: %w", err)
+	}
+
+	if rowsAffected, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash); err != nil {
+		return fmt.Errorf("unlocking channel account with txHash %s: %w", innerTxHash, err)
+	} else if rowsAffected > 0 {
+		log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
+	}
+
+	return nil
+}
+
+// extractInnerTxHash receives a transaction XDR, either feeBump or regular, and returns the hash of the inner transaction.
+func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return "", fmt.Errorf("deserializing envelope xdr: %w", err)
+	}
+
+	var innerTx *txnbuild.Transaction
+
+	feeBumpTx, ok := genericTx.FeeBump()
+	if ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else {
+		innerTx, ok = genericTx.Transaction()
+		if !ok {
+			return "", errors.New("transaction is neither fee bump nor inner transaction")
+		}
+	}
+
+	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
+	if err != nil {
+		return "", fmt.Errorf("generating hashHex: %w", err)
+	}
+
+	return innerTxHash, nil
 }
 
 func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker apptracker.AppTracker) {

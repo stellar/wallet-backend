@@ -38,6 +38,7 @@ type RPCService interface {
 	// which is particularly useful when the ingestor needs to catch up with the RPC service.
 	TrackRPCServiceHealth(ctx context.Context, healthCheckTrigger chan any)
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
+	NetworkPassphrase() string
 }
 
 type rpcService struct {
@@ -47,13 +48,14 @@ type rpcService struct {
 	metricsService             metrics.MetricsService
 	healthCheckWarningInterval time.Duration
 	healthCheckTickInterval    time.Duration
+	networkPassphrase          string
 }
 
 var PageLimit = 200
 
 var _ RPCService = (*rpcService)(nil)
 
-func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService metrics.MetricsService) (*rpcService, error) {
+func NewRPCService(rpcURL, networkPassphrase string, httpClient utils.HTTPClient, metricsService metrics.MetricsService) (*rpcService, error) {
 	if rpcURL == "" {
 		return nil, errors.New("rpcURL cannot be nil")
 	}
@@ -72,6 +74,7 @@ func NewRPCService(rpcURL string, httpClient utils.HTTPClient, metricsService me
 		metricsService:             metricsService,
 		healthCheckWarningInterval: defaultHealthCheckWarningInterval,
 		healthCheckTickInterval:    defaultHealthCheckTickInterval,
+		networkPassphrase:          networkPassphrase,
 	}, nil
 }
 
@@ -199,6 +202,10 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	}
 	accountEntry := ledgerEntryData.MustAccount()
 	return int64(accountEntry.SeqNum), nil
+}
+
+func (r *rpcService) NetworkPassphrase() string {
+	return r.networkPassphrase
 }
 
 func (r *rpcService) HealthCheckWarningInterval() time.Duration {
