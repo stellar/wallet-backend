@@ -154,7 +154,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		txHash, err := tx.HashHex(cfg.NetworkPassphrase)
 		assert.NoError(t, err)
 		channelAccountStore.
-			On("UnassignTxAndUnlockChannelAccount", context.Background(), txHash).
+			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
 			Return(nil).
 			Once()
 
@@ -168,7 +168,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		txHash, err := tx.HashHex(cfg.NetworkPassphrase)
 		assert.NoError(t, err)
 		channelAccountStore.
-			On("UnassignTxAndUnlockChannelAccount", context.Background(), txHash).
+			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
 			Return(nil).
 			Once()
 
@@ -182,7 +182,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		txHash, err := tx.HashHex(cfg.NetworkPassphrase)
 		assert.NoError(t, err)
 		channelAccountStore.
-			On("UnassignTxAndUnlockChannelAccount", context.Background(), txHash).
+			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
 			Return(errors.New("unabe to unlock channel account")).
 			Once()
 

@@ -88,6 +88,7 @@ func NewIngestService(
 	}, nil
 }
 
+// extractInnerTxHash receives a transaction XDR, either feeBump or regular, and returns the hash of the inner transaction.
 func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
 	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
 	if err != nil {

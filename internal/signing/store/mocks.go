@@ -44,8 +44,12 @@ func (s *ChannelAccountStoreMock) AssignTxToChannelAccount(ctx context.Context, 
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error {
-	args := s.Called(ctx, txHash)
+func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context.Context, txHashes ...string) error {
+	_ca := []any{ctx}
+	for _, txHash := range txHashes {
+		_ca = append(_ca, txHash)
+	}
+	args := s.Called(_ca...)
 	return args.Error(0)
 }
 

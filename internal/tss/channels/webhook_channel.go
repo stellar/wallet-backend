@@ -135,7 +135,7 @@ func (p *webhookPool) UnlockChannelAccount(ctx context.Context, txXDR string) er
 	if err != nil {
 		return fmt.Errorf("unable to hashhex transaction: %w", err)
 	}
-	err = p.ChannelAccountStore.UnassignTxAndUnlockChannelAccount(ctx, txHash)
+	err = p.ChannelAccountStore.UnassignTxAndUnlockChannelAccounts(ctx, txHash)
 	if err != nil {
 		return fmt.Errorf("unable to unlock channel account associated with transaction: %w", err)
 	}

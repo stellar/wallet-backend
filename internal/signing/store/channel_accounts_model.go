@@ -93,11 +93,23 @@ func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, pub
 	return nil
 }
 
-func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error {
-	const query = `UPDATE channel_accounts SET locked_tx_hash = NULL, locked_at = NULL, locked_until = NULL WHERE locked_tx_hash = $1`
-	_, err := ca.DB.ExecContext(ctx, query, txHash)
+func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, txHashes ...string) error {
+	if len(txHashes) == 0 {
+		return errors.New("txHashes cannot be empty")
+	}
+
+	const query = `
+		UPDATE channel_accounts
+		SET
+			locked_tx_hash = NULL,
+			locked_at = NULL,
+			locked_until = NULL
+		WHERE
+			locked_tx_hash = ANY($1)
+	`
+	_, err := ca.DB.ExecContext(ctx, query, pq.Array(txHashes))
 	if err != nil {
-		return fmt.Errorf("unlocking channel account: %w", err)
+		return fmt.Errorf("unlocking channel accounts %v: %w", txHashes, err)
 	}
 	return nil
 }

@@ -12,15 +12,19 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func createChannelAccountFixture(t *testing.T, ctx context.Context, dbConnectionPool db.ConnectionPool, channelAccounts ...ChannelAccount) {
 	t.Helper()
+	if len(channelAccounts) == 0 {
+		return
+	}
 	const q = `
-		INSERT INTO 
-			channel_accounts (public_key, encrypted_private_key)
+		INSERT INTO
+			channel_accounts (public_key, encrypted_private_key, locked_tx_hash, locked_at, locked_until)
 		VALUES
-			(:public_key, :encrypted_private_key)
+			(:public_key, :encrypted_private_key, :locked_tx_hash, :locked_at, :locked_until)
 	`
 	_, err := dbConnectionPool.NamedExecContext(ctx, q, channelAccounts)
 	require.NoError(t, err)
@@ -169,29 +173,103 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 func TestUnlockChannelAccountFromTx(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
+	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, outerErr)
 	defer dbConnectionPool.Close()
 
 	ctx := context.Background()
 	m := NewChannelAccountModel(dbConnectionPool)
 
-	channelAccount := keypair.MustRandom()
-	createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{PublicKey: channelAccount.Address(), EncryptedPrivateKey: channelAccount.Seed()})
-	err = m.AssignTxToChannelAccount(ctx, channelAccount.Address(), "txhash")
-	assert.NoError(t, err)
-	channelAccountFromDB, err := m.Get(ctx, dbConnectionPool, channelAccount.Address())
-	assert.NoError(t, err)
-	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
+	testCases := []struct {
+		name                string
+		numberOfFixtures    int
+		txHashes            func(fixtures []*keypair.Full) []string
+		expectedErrContains string
+	}{
+		{
+			name:             "🔴no_tx_hashes",
+			numberOfFixtures: 0,
+			txHashes: func(_ []*keypair.Full) []string {
+				return nil
+			},
+			expectedErrContains: "txHashes cannot be empty",
+		},
+		{
+			name:             "🟡tx_hashes_not_found",
+			numberOfFixtures: 0,
+			txHashes: func(_ []*keypair.Full) []string {
+				return []string{"not_found_1", "not_found_2"}
+			},
+		},
+		{
+			name:             "🟢single_tx_hash_found",
+			numberOfFixtures: 1,
+			txHashes: func(fixtures []*keypair.Full) []string {
+				return []string{"txhash_" + fixtures[0].Address()}
+			},
+		},
+		{
+			name:             "🟢multiple_tx_hashes_all_found",
+			numberOfFixtures: 2,
+			txHashes: func(fixtures []*keypair.Full) []string {
+				return []string{"txhash_" + fixtures[0].Address(), "txhash_" + fixtures[1].Address()}
+			},
+		},
+		{
+			name:             "🟢multiple_tx_hashes_some_found",
+			numberOfFixtures: 2,
+			txHashes: func(fixtures []*keypair.Full) []string {
+				return []string{"txhash_" + fixtures[0].Address(), "txhash_" + fixtures[1].Address(), "txhash_" + fixtures[0].Address(), "not_found_1"}
+			},
+		},
+	}
 
-	err = m.UnassignTxAndUnlockChannelAccount(ctx, "txhash")
-	assert.NoError(t, err)
-	channelAccountFromDB, err = m.Get(ctx, dbConnectionPool, channelAccount.Address())
-	assert.NoError(t, err)
-	assert.False(t, channelAccountFromDB.LockedTxHash.Valid)
-	assert.False(t, channelAccountFromDB.LockedAt.Valid)
-	assert.False(t, channelAccountFromDB.LockedUntil.Valid)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				require.NoError(t, err)
+			}()
+
+			// Create fixtures for this test case
+			fixtures := make([]*keypair.Full, tc.numberOfFixtures)
+			now := time.Now()
+			for i := range fixtures {
+				channelAccount := keypair.MustRandom()
+				createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+					PublicKey:           channelAccount.Address(),
+					EncryptedPrivateKey: channelAccount.Seed(),
+					LockedTxHash:        utils.SQLNullString("txhash_" + channelAccount.Address()),
+					LockedAt:            utils.SQLNullTime(now),
+					LockedUntil:         utils.SQLNullTime(now.Add(time.Minute)),
+				})
+				fixtures[i] = channelAccount
+			}
+
+			// 🔒 Channel accounts start locked
+			for _, fixture := range fixtures {
+				chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())
+				require.NoError(t, err)
+				require.True(t, chAccFromDB.LockedTxHash.Valid)
+			}
+
+			err := m.UnassignTxAndUnlockChannelAccounts(ctx, tc.txHashes(fixtures)...)
+			if tc.expectedErrContains != "" {
+				require.ErrorContains(t, err, tc.expectedErrContains)
+			} else {
+				require.NoError(t, err)
+
+				// 🔓 Channel accounts get unlocked
+				for _, fixture := range fixtures {
+					chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())
+					require.NoError(t, err)
+					require.False(t, chAccFromDB.LockedTxHash.Valid)
+					require.False(t, chAccFromDB.LockedAt.Valid)
+					require.False(t, chAccFromDB.LockedUntil.Valid)
+				}
+			}
+		})
+	}
 }
 
 func TestChannelAccountModelBatchInsert(t *testing.T) {
