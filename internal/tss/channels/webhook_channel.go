@@ -10,7 +10,6 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/metrics"
 	channelAccountStore "github.com/stellar/wallet-backend/internal/signing/store"
@@ -81,11 +80,6 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 	}
 	var sent bool
 	ctx := context.Background()
-	err = p.UnlockChannelAccount(ctx, payload.TransactionXDR)
-	if err != nil {
-		err = fmt.Errorf("[%s] error unlocking channel account from transaction: %w", WebhookChannelName, err)
-		log.Error(err)
-	}
 	for i := range p.MaxRetries {
 		httpResp, err := p.HTTPClient.Post(payload.WebhookURL, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
@@ -115,31 +109,6 @@ func (p *webhookPool) Receive(payload tss.Payload) {
 			log.Error(err)
 		}
 	}
-}
-
-func (p *webhookPool) UnlockChannelAccount(ctx context.Context, txXDR string) error {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
-	if err != nil {
-		return fmt.Errorf("bad transaction xdr: %w", err)
-	}
-	var tx *txnbuild.Transaction
-	feeBumpTx, isFeeBumpTx := genericTx.FeeBump()
-	if isFeeBumpTx {
-		tx = feeBumpTx.InnerTransaction()
-	}
-	simpleTx, isTransaction := genericTx.Transaction()
-	if isTransaction {
-		tx = simpleTx
-	}
-	txHash, err := tx.HashHex(p.NetworkPassphrase)
-	if err != nil {
-		return fmt.Errorf("unable to hashhex transaction: %w", err)
-	}
-	err = p.ChannelAccountStore.UnassignTxAndUnlockChannelAccounts(ctx, txHash)
-	if err != nil {
-		return fmt.Errorf("unable to unlock channel account associated with transaction: %w", err)
-	}
-	return nil
 }
 
 func (p *webhookPool) Stop() {
