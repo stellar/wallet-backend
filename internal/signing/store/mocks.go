@@ -77,3 +77,17 @@ func (s *KeypairStoreMock) Insert(ctx context.Context, publicKey string, encrypt
 	args := s.Called(ctx, publicKey, encryptedPrivateKey)
 	return args.Error(0)
 }
+
+// NewChannelAccountStoreMock creates a new instance of ChannelAccountStoreMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewChannelAccountStoreMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *ChannelAccountStoreMock {
+	mock := &ChannelAccountStoreMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
