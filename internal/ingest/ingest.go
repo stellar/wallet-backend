@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -74,6 +75,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating tss store: %w", err)
 	}
+	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 	tssRouterConfig := tssrouter.RouterConfigs{
 		WebhookChannel: cfg.WebhookChannel,
 	}
@@ -81,7 +83,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	router := tssrouter.NewRouter(tssRouterConfig)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, chAccStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

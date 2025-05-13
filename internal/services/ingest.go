@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -43,6 +44,7 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
+	chAccStore       store.ChannelAccountStore
 	metricsService   metrics.MetricsService
 }
 
@@ -53,6 +55,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
+	chAccStore store.ChannelAccountStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
@@ -73,6 +76,9 @@ func NewIngestService(
 	if tssStore == nil {
 		return nil, errors.New("tssStore cannot be nil")
 	}
+	if chAccStore == nil {
+		return nil, errors.New("chAccStore cannot be nil")
+	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
@@ -84,6 +90,7 @@ func NewIngestService(
 		rpcService:       rpcService,
 		tssRouter:        tssRouter,
 		tssStore:         tssStore,
+		chAccStore:       chAccStore,
 		metricsService:   metricsService,
 	}, nil
 }
@@ -287,6 +294,15 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 	statusCounts := make(map[string]float64)
 
 	for _, tx := range ledgerTransactions {
+		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		if err != nil {
+			return fmt.Errorf("extracting inner tx hash: %w", err)
+		}
+		err = m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash)
+		if err != nil {
+			return fmt.Errorf("unlocking channel account with txHash %s: %w", innerTxHash, err)
+		}
+		log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
 		if !tx.FeeBump {
 			// because all transactions submitted by TSS are fee bump transactions
 			continue
