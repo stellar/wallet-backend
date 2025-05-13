@@ -298,11 +298,12 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		if err != nil {
 			return fmt.Errorf("extracting inner tx hash: %w", err)
 		}
-		err = m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash)
+		rowsAffected, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHash)
 		if err != nil {
 			return fmt.Errorf("unlocking channel account with txHash %s: %w", innerTxHash, err)
+		} else if rowsAffected > 0 {
+			log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
 		}
-		log.Ctx(ctx).Infof("unlocked channel account with txHash %s", innerTxHash)
 		if !tx.FeeBump {
 			// because all transactions submitted by TSS are fee bump transactions
 			continue

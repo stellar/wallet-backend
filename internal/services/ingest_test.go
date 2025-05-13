@@ -171,7 +171,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 		mockMetricsService.On("SetNumTssTransactionsIngestedPerLedger", "SUCCESS", float64(1)).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(nil).Once()
+		mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(int64(1), nil).Once()
 
 		transactions := []entities.Transaction{
 			{
@@ -198,7 +198,7 @@ func TestProcessTSSTransactions(t *testing.T) {
 			Return(nil).
 			Once()
 
-		err := ingestService.processTSSTransactions(context.Background(), transactions)
+		err = ingestService.processTSSTransactions(context.Background(), transactions)
 		assert.NoError(t, err)
 
 		updatedTX, err := tssStore.GetTransaction(context.Background(), testInnerTxHash)
@@ -504,7 +504,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	require.NoError(t, err)
 	txHash, err := transaction.HashHex(network.TestNetworkPassphrase)
 	require.NoError(t, err)
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, txHash).Return(nil).Once()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, txHash).Return(int64(1), nil).Once()
 	txEnvXDR, err := transaction.Base64()
 	require.NoError(t, err)
 
@@ -574,7 +574,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockRouter := tssrouter.MockRouter{}
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(nil).Twice()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
 	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 

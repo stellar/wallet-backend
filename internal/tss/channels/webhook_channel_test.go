@@ -155,7 +155,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		assert.NoError(t, err)
 		channelAccountStore.
 			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
-			Return(nil).
+			Return(int64(1), nil).
 			Once()
 
 		err = channel.UnlockChannelAccount(context.Background(), txXDR)
@@ -169,7 +169,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		assert.NoError(t, err)
 		channelAccountStore.
 			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
-			Return(nil).
+			Return(int64(1), nil).
 			Once()
 
 		err = channel.UnlockChannelAccount(context.Background(), txXDR)
@@ -183,7 +183,7 @@ func TestUnlockChannelAccount(t *testing.T) {
 		assert.NoError(t, err)
 		channelAccountStore.
 			On("UnassignTxAndUnlockChannelAccounts", context.Background(), txHash).
-			Return(errors.New("unabe to unlock channel account")).
+			Return(int64(0), errors.New("unabe to unlock channel account")).
 			Once()
 
 		err = channel.UnlockChannelAccount(context.Background(), txXDR)

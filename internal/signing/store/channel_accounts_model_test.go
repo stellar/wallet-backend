@@ -170,7 +170,7 @@ func TestAssignTxToChannelAccount(t *testing.T) {
 	assert.Equal(t, "txhash", channelAccountFromDB.LockedTxHash.String)
 }
 
-func TestUnlockChannelAccountFromTx(t *testing.T) {
+func Test_ChannelAccountModel_UnassignTxAndUnlockChannelAccounts(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, outerErr := db.OpenDBConnectionPool(dbt.DSN)
@@ -253,12 +253,12 @@ func TestUnlockChannelAccountFromTx(t *testing.T) {
 				require.True(t, chAccFromDB.LockedTxHash.Valid)
 			}
 
-			err := m.UnassignTxAndUnlockChannelAccounts(ctx, tc.txHashes(fixtures)...)
+			rowsAffected, err := m.UnassignTxAndUnlockChannelAccounts(ctx, tc.txHashes(fixtures)...)
 			if tc.expectedErrContains != "" {
 				require.ErrorContains(t, err, tc.expectedErrContains)
 			} else {
 				require.NoError(t, err)
-
+				require.Equal(t, int64(tc.numberOfFixtures), rowsAffected)
 				// 🔓 Channel accounts get unlocked
 				for _, fixture := range fixtures {
 					chAccFromDB, err := m.Get(ctx, dbConnectionPool, fixture.Address())

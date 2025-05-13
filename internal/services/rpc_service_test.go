@@ -139,7 +139,7 @@ func TestSendRPCRequest(t *testing.T) {
 		resp, err := rpcService.sendRPCRequest("sendTransaction", entities.RPCParams{})
 
 		assert.Nil(t, resp)
-		assert.Equal(t, "parsing RPC response JSON: invalid character 'i' looking for beginning of object key string", err.Error())
+		assert.ErrorContains(t, err, "parsing RPC response {invalid-json: invalid character 'i' looking for beginning of object key string")
 	})
 
 	t.Run("response_has_no_result_field", func(t *testing.T) {
