@@ -639,3 +639,59 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 
 	mockRPCService.AssertExpectations(t)
 }
+
+func Test_ingestSvc_extractInnerTxHash(t *testing.T) {
+	networkPassphrase := network.TestNetworkPassphrase
+	sourceAccountKP := keypair.MustRandom()
+	destAccountKP := keypair.MustRandom()
+
+	// Create a simple inner transaction
+	innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &txnbuild.SimpleAccount{
+			AccountID: sourceAccountKP.Address(),
+			Sequence:  1,
+		},
+		Operations: []txnbuild.Operation{&txnbuild.CreateAccount{
+			Destination: destAccountKP.Address(),
+			Amount:      "1",
+		}},
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
+		IncrementSequenceNum: true,
+		BaseFee:              txnbuild.MinBaseFee,
+	})
+	require.NoError(t, err)
+	innerTx, err = innerTx.Sign(networkPassphrase, sourceAccountKP)
+	require.NoError(t, err)
+
+	innerTxHash, err := innerTx.HashHex(networkPassphrase)
+	require.NoError(t, err)
+	innerTxXDR, err := innerTx.Base64()
+	require.NoError(t, err)
+
+	// Create a fee bump transaction
+	feeBumpAccountKP := keypair.MustRandom()
+	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+		Inner:      innerTx,
+		FeeAccount: feeBumpAccountKP.Address(),
+		BaseFee:    2 * txnbuild.MinBaseFee,
+	})
+	require.NoError(t, err)
+	feeBumpTx, err = feeBumpTx.Sign(networkPassphrase, feeBumpAccountKP)
+	require.NoError(t, err)
+	feeBumpTxXDR, err := feeBumpTx.Base64()
+	require.NoError(t, err)
+
+	ingestSvc := ingestService{rpcService: &rpcService{networkPassphrase: networkPassphrase}}
+
+	t.Run("🟢inner_tx_hash", func(t *testing.T) {
+		gotTxHash, err := ingestSvc.extractInnerTxHash(innerTxXDR)
+		require.NoError(t, err)
+		assert.Equal(t, innerTxHash, gotTxHash)
+	})
+
+	t.Run("🟢fee_bump_tx_hash", func(t *testing.T) {
+		gotTxHash, err := ingestSvc.extractInnerTxHash(feeBumpTxXDR)
+		require.NoError(t, err)
+		assert.Equal(t, innerTxHash, gotTxHash)
+	})
+}

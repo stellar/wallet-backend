@@ -88,6 +88,32 @@ func NewIngestService(
 	}, nil
 }
 
+func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return "", fmt.Errorf("deserializing envelope xdr: %w", err)
+	}
+
+	var innerTx *txnbuild.Transaction
+
+	feeBumpTx, ok := genericTx.FeeBump()
+	if ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else {
+		innerTx, ok = genericTx.Transaction()
+		if !ok {
+			return "", errors.New("transaction is neither fee bump nor inner transaction")
+		}
+	}
+
+	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
+	if err != nil {
+		return "", fmt.Errorf("generating hashHex: %w", err)
+	}
+
+	return innerTxHash, nil
+}
+
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
 	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)

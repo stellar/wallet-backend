@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,7 @@ func TestSendRPCRequest(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
@@ -173,7 +174,7 @@ func TestSendTransaction(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
@@ -408,7 +409,7 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 				Once()
 
 			// Simulate Transaction
-			rpcService, err := NewRPCService(rpcURL, &mHTTPClient, mMetricsService)
+			rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mHTTPClient, mMetricsService)
 			require.NoError(t, err)
 			simulateTransactionResult, err := rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
 
@@ -437,7 +438,7 @@ func TestGetTransaction(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
@@ -532,7 +533,7 @@ func TestGetTransactions(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
@@ -614,7 +615,7 @@ func TestSendGetHealth(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := utils.MockHTTPClient{}
 	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
-	rpcService, err := NewRPCService(rpcURL, &mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
@@ -688,7 +689,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	healthResult := entities.RPCGetHealthResult{
@@ -758,7 +759,7 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	mockHTTPClient := &utils.MockHTTPClient{}
 	defer mockHTTPClient.AssertExpectations(t)
 	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 	rpcService.healthCheckTickInterval = healthCheckTickInterval
 	rpcService.healthCheckWarningInterval = healthCheckWarningInterval
@@ -809,7 +810,7 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockHTTPClient := &utils.MockHTTPClient{}
 	rpcURL := "http://test-url-track-rpc-service-health"
-	rpcService, err := NewRPCService(rpcURL, mockHTTPClient, mockMetricsService)
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
 	rpcService.TrackRPCServiceHealth(ctx, nil)
