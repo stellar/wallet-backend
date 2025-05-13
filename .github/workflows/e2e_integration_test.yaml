@@ -39,8 +39,7 @@ jobs:
 
       - name: Run Integration Tests
         shell: bash
-        run: |
-          docker exec api bash -c "./wallet-backend integration-tests --log-level=INFO"
+        run: docker exec api bash -c "./wallet-backend integration-tests --log-level=INFO"
 
       - name: Docker logs
         if: always()
