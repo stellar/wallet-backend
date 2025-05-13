@@ -1,0 +1,97 @@
+# This workflow publishes a new docker image to 'https://hub.docker.com/r/stellar/wallet-backend'
+# when a new release is created or when we merge something to the develop branch.
+name: DockerHub Publish
+
+on:
+  release:
+    types:
+      - published
+  push:
+    branches:
+      - develop
+jobs:
+  tests:
+    uses: ./.github/workflows/go.yaml # execute the callable go.yml
+    secrets: inherit # pass all secrets
+
+  e2e_integration_test:
+    uses: ./.github/workflows/e2e_integration_test.yaml # execute the callable e2e_integration_test.yml
+    needs:
+      - tests
+    secrets: inherit # pass all secrets
+
+  build_and_push_docker_image_on_release:
+    if: github.event_name == 'release'
+    name: Push to DockerHub (prd) # stellar/wallet-backend:{VERSION}
+    runs-on: ubuntu-latest
+    needs:
+      - tests
+      - e2e_integration_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release tag cannot be empty
+        run: |
+          if [[ -z "${{ github.event.release.tag_name }}" ]]; then
+            echo "Release tag name cannot be empty."
+            exit 1
+          fi
+
+      - name: Docker Tags
+        id: docker_tags
+        run: |
+          if [ "${{ github.event.release.prerelease }}" = "false" ]; then
+            echo "DOCKER_TAGS=stellar/wallet-backend:${{ github.event.release.tag_name }},stellar/wallet-backend:latest" >> $GITHUB_OUTPUT
+          else
+            echo "DOCKER_TAGS=stellar/wallet-backend:rc-${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish Docker Image
+        uses: ./.github/actions/docker-publish
+        with:
+          docker-tags: ${{ steps.docker_tags.outputs.DOCKER_TAGS }}
+          git-commit: ${{ github.event.release.tag_name }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  build_and_push_docker_image_on_dev_push:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    name: Push to DockerHub (develop) # stellar/wallet-backend:testing-{DATE}-{SHA}
+    runs-on: ubuntu-latest
+    needs:
+      - tests
+      - e2e_integration_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker Tags & SHA
+        id: get_info
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          SHA=$(git rev-parse --short ${{ github.sha }})
+          echo "DATE=$DATE" >> $GITHUB_OUTPUT
+          echo "SHA=$SHA" >> $GITHUB_OUTPUT
+          echo "DOCKER_TAGS=stellar/wallet-backend:testing,stellar/wallet-backend:testing-$DATE-$SHA" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Publish Docker Image
+        uses: ./.github/actions/docker-publish
+        with:
+          docker-tags: ${{ steps.get_info.outputs.DOCKER_TAGS }}
+          git-commit: ${{ steps.get_info.outputs.SHA }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  complete:
+    if: always()
+    needs:
+      - build_and_push_docker_image_on_release
+      - build_and_push_docker_image_on_dev_push
+    runs-on: ubuntu-latest
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

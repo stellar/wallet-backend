@@ -1,0 +1,45 @@
+name: "Docker Publish"
+description: "Build and push Docker image, then post status"
+inputs:
+  docker-tags:
+    description: "Docker tags to use"
+    required: true
+  git-commit:
+    description: "Git commit SHA"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Login to DockerHub
+      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+      with:
+        username: ${{ env.DOCKERHUB_USERNAME }}
+        password: ${{ env.DOCKERHUB_TOKEN }}
+
+    - name: Build and push to DockerHub
+      uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+      with:
+        push: true
+        build-args: |
+          GIT_COMMIT=${{ inputs.git-commit }}
+        tags: ${{ inputs.docker-tags }}
+        file: Dockerfile
+        platforms: linux/amd64,linux/arm64
+
+    - name: Post status with tag names
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const dockerTags = '${{ inputs.docker-tags }}'.split(',').map(tag => tag.split(':')[1]);
+          for (const dockerTag of dockerTags) {
+            const response = await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: '${{ github.sha }}',
+              context: `docker.io/stellar/wallet-backend:${dockerTag}`,
+              state: 'success',
+              target_url: `https://hub.docker.com/r/stellar/wallet-backend/tags?name=${dockerTag}`,
+              description: 'Available',
+            })
+            console.log(`status=${response.status}, body=${response.data}`);
+          }

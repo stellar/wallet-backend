@@ -2,6 +2,7 @@
 
 [![Swagger Documentation](https://img.shields.io/badge/docs-swagger-blue?logo=swagger)](https://petstore.swagger.io/?url=https://raw.githubusercontent.com/stellar/wallet-backend/refs/heads/main/openapi/main.yaml)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/stellar/wallet-backend)
+[![Docker Pulls](https://img.shields.io/docker/pulls/stellar/wallet-backend?logo=docker)](https://hub.docker.com/r/stellar/wallet-backend/tags)
 
 The wallet-backend serves as a backend service for Stellar wallet applications, providing transaction submission,
 account management, and payment tracking capabilities.
@@ -22,6 +23,10 @@ account management, and payment tracking capabilities.
   - [Authentication](#authentication)
     - [JWT Signature](#jwt-signature)
     - [JWT Claims](#jwt-claims)
+  - [Docker Hub Publishing](#docker-hub-publishing)
+    - [Push to `develop`](#push-to-develop)
+    - [GitHub Release](#github-release)
+    - [Pre-release](#pre-release)
 
 ## Overview
 
@@ -197,3 +202,25 @@ The JWT payload field should contain the following fields:
    ```
 
 For more details on the JWT implementation, please see [`jwt_manager.go`](./pkg/wbclient/auth/jwt_manager.go).
+
+## Docker Hub Publishing
+
+The CI/CD workflow, defined in [`publish_to_docker_hub.yaml`](./.github/workflows/publish_to_docker_hub.yaml) automates the process of building and publishing Docker images to Docker Hub. This workflow is triggered under two conditions:
+
+### Push to `develop`
+
+Whenever updates are made to the `develop` branch, the workflow creates and uploads a Docker image with two specific tags:
+
+- `testing`
+- `testing-{DATE}-{SHA}`
+
+### GitHub Release
+
+When a new release is published on GitHub, the workflow generates and uploads a Docker image with the following tags:
+
+- The release tag, e.g. `x.y.z`
+- `latest` (applied only if the release is not marked as a pre-release)
+
+### Pre-release
+
+When a pre-release is published on GitHub, the workflow generates and uploads a Docker image with the pre-release tag preceded by `rc-`, e.g. `rc-x.y.z`
