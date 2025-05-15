@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"go/types"
-	"net/http"
-	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
@@ -14,7 +12,6 @@ import (
 	"github.com/stellar/wallet-backend/cmd/utils"
 	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
-	tsschannels "github.com/stellar/wallet-backend/internal/tss/channels"
 )
 
 type ingestCmd struct{}
@@ -31,10 +28,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.RPCURLOption(&cfg.RPCURL),
 		utils.StartLedgerOption(&cfg.StartLedger),
 		utils.EndLedgerOption(&cfg.EndLedger),
-		utils.WebhookHandlerChannelMaxBufferSizeOption(&cfg.WebhookChannelMaxBufferSize),
-		utils.WebhookHandlerChannelMaxWorkersOptions(&cfg.WebhookChannelMaxWorkers),
-		utils.WebhookHandlerChannelMaxRetriesOption(&cfg.WebhookChannelMaxRetries),
-		utils.WebhookHandlerChannelMinWaitBtwnRetriesMSOption(&cfg.WebhookChannelWaitBtwnTriesMS),
 		{
 			Name:        "ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
@@ -68,20 +61,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 				return fmt.Errorf("initializing app tracker: %w", err)
 			}
 			cfg.AppTracker = appTracker
-			cfg.WebhookChannel = tsschannels.NewWebhookChannel(tsschannels.WebhookChannelConfigs{
-				HTTPClient:           &http.Client{Timeout: 30 * time.Second},
-				MaxBufferSize:        cfg.WebhookChannelMaxBufferSize,
-				MaxWorkers:           cfg.WebhookChannelMaxWorkers,
-				MaxRetries:           cfg.WebhookChannelMaxRetries,
-				MinWaitBtwnRetriesMS: cfg.WebhookChannelWaitBtwnTriesMS,
-			})
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return c.Run(cfg)
-		},
-		PersistentPostRun: func(_ *cobra.Command, _ []string) {
-			cfg.WebhookChannel.Stop()
 		},
 	}
 

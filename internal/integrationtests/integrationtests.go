@@ -86,7 +86,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
 
-	// Step 2: call /tss/transactions/build
+	// Step 2: call /transactions/build
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	for _, useCase := range useCases {
