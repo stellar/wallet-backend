@@ -61,7 +61,7 @@ func TestBuildTransactions(t *testing.T) {
 	opXDR := buf.String()
 	opXDRBase64 := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-	const endpoint = "/tss/transactions"
+	const endpoint = "/transactions/build"
 
 	t.Run("tx_signing_fails", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
