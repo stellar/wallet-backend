@@ -18,13 +18,13 @@ import (
 )
 
 type Configs struct {
-	DatabaseURL                   string
-	LedgerCursorName              string
-	StartLedger                   int
-	EndLedger                     int
-	LogLevel                      logrus.Level
-	AppTracker                    apptracker.AppTracker
-	RPCURL                        string
+	DatabaseURL      string
+	LedgerCursorName string
+	StartLedger      int
+	EndLedger        int
+	LogLevel         logrus.Level
+	AppTracker       apptracker.AppTracker
+	RPCURL           string
 }
 
 func Ingest(cfg Configs) error {

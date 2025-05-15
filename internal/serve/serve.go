@@ -51,7 +51,7 @@ type Configs struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// RPC
-	RPCURL                                               string
+	RPCURL string
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -71,7 +71,7 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
-	TransactionService txservices.TransactionService
+	TransactionService        txservices.TransactionService
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }

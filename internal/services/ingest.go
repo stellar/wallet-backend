@@ -15,8 +15,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/utils"
 	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (

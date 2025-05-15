@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	xdr3 "github.com/stellar/go-xdr/xdr3"
-	"github.com/stellar/go/xdr"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/pkg/utils"
 )
