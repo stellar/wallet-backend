@@ -1,8 +1,12 @@
 package utils
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 
+	xdr3 "github.com/stellar/go-xdr/xdr3"
+	"github.com/stellar/go/xdr"
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/pkg/utils"
@@ -29,4 +33,17 @@ func BuildOperations(txOpXDRs []string) ([]txnbuild.Operation, error) {
 	}
 
 	return operations, nil
+}
+
+func UnmarshallTransactionResultXDR(resultXDR string) (xdr.TransactionResult, error) {
+	decodedBytes, err := base64.StdEncoding.DecodeString(resultXDR)
+	if err != nil {
+		return xdr.TransactionResult{}, fmt.Errorf("unable to decode errorResultXDR %s: %w", resultXDR, err)
+	}
+	var txResultXDR xdr.TransactionResult
+	_, err = xdr3.Unmarshal(bytes.NewReader(decodedBytes), &txResultXDR)
+	if err != nil {
+		return xdr.TransactionResult{}, fmt.Errorf("unable to unmarshal errorResultXDR %s: %w", resultXDR, err)
+	}
+	return txResultXDR, nil
 }
