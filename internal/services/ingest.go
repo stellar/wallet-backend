@@ -22,7 +22,6 @@ import (
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	paymentPrometheusLabel                  = "payment"
-	tssPrometheusLabel                      = "tss"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
 	totalIngestionPrometheusLabel           = "total"
