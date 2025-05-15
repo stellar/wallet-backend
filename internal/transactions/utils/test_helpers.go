@@ -10,7 +10,6 @@ import (
 
 // BuildTestTransaction is a test helper that builds a transaction with a random account.
 // It is used to test the transaction manager.
-// It is not used to build transactions for the TSS.
 // For that, use the `BuildOperations` function.
 func BuildTestTransaction(t *testing.T) *txnbuild.Transaction {
 	t.Helper()

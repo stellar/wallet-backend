@@ -148,7 +148,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
 	}
 
-	// TSS setup
 	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
