@@ -90,6 +90,9 @@ func Serve(cfg Configs) error {
 		OnStarting: func() {
 			log.Infof("🌐 Starting Wallet Backend server on port %d", cfg.Port)
 		},
+		OnStopping: func() {
+			log.Info("Stopping Wallet Backend server")
+		},
 	})
 
 	return nil
