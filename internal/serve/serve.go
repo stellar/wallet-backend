@@ -245,6 +245,7 @@ func handler(deps handlerDeps) http.Handler {
 			r.Get("/", handler.GetPayments)
 		})
 
+		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
 		r.Route("/tx", func(r chi.Router) {
 			accountHandler := &httphandler.AccountHandler{
 				AccountService:            deps.AccountService,
