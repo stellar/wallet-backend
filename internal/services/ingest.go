@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/tss"
 	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
 	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
@@ -43,6 +44,7 @@ type ingestService struct {
 	rpcService       RPCService
 	tssRouter        tssrouter.Router
 	tssStore         tssstore.Store
+	chAccStore       store.ChannelAccountStore
 	metricsService   metrics.MetricsService
 }
 
@@ -53,6 +55,7 @@ func NewIngestService(
 	rpcService RPCService,
 	tssRouter tssrouter.Router,
 	tssStore tssstore.Store,
+	chAccStore store.ChannelAccountStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
@@ -73,6 +76,9 @@ func NewIngestService(
 	if tssStore == nil {
 		return nil, errors.New("tssStore cannot be nil")
 	}
+	if chAccStore == nil {
+		return nil, errors.New("chAccStore cannot be nil")
+	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
@@ -84,6 +90,7 @@ func NewIngestService(
 		rpcService:       rpcService,
 		tssRouter:        tssRouter,
 		tssStore:         tssStore,
+		chAccStore:       chAccStore,
 		metricsService:   metricsService,
 	}, nil
 }
@@ -134,23 +141,34 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			startTime := time.Now()
 			err = m.ingestPayments(ctx, ledgerTransactions)
 			if err != nil {
-				return fmt.Errorf("error ingesting payments: %w", err)
+				return fmt.Errorf("ingesting payments: %w", err)
 			}
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
 			startTime = time.Now()
+
+			// eagerly unlock channel accounts from txs
+			err = m.unlockChannelAccounts(ctx, ledgerTransactions)
+			if err != nil {
+				return fmt.Errorf("unlocking channel account from tx: %w", err)
+			}
+
+			// process tss transactions
 			err = m.processTSSTransactions(ctx, ledgerTransactions)
 			if err != nil {
-				return fmt.Errorf("error processing tss transactions: %w", err)
+				return fmt.Errorf("processing tss transactions: %w", err)
 			}
 			m.metricsService.ObserveIngestionDuration(tssPrometheusLabel, time.Since(startTime).Seconds())
 
+			// update cursor
 			err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
 			if err != nil {
-				return fmt.Errorf("error updating latest synced ledger: %w", err)
+				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
 			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
+
+			// immediately trigger the next ingestion the wallet-backend is behind the RPC's latest ledger
 			if resp.LatestLedger-ingestLedger > 1 {
 				manualTriggerChannel <- true
 			}
@@ -325,6 +343,59 @@ func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransa
 		m.metricsService.SetNumTssTransactionsIngestedPerLedger(status, count)
 	}
 	return nil
+}
+
+// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerTransactions []entities.Transaction) error {
+	if len(ledgerTransactions) == 0 {
+		log.Ctx(ctx).Debug("no transactions to unlock channel accounts from")
+		return nil
+	}
+
+	innerTxHashes := make([]string, 0, len(ledgerTransactions))
+	for _, tx := range ledgerTransactions {
+		if innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR); err != nil {
+			return fmt.Errorf("extracting inner tx hash: %w", err)
+		} else {
+			innerTxHashes = append(innerTxHashes, innerTxHash)
+		}
+	}
+
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHashes...); err != nil {
+		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
+	} else if affectedRows > 0 {
+		log.Ctx(ctx).Infof("unlocked %d channel accounts", affectedRows)
+	}
+
+	return nil
+}
+
+// extractInnerTxHash takes a transaction XDR string and returns the hash of its inner transaction.
+// For fee bump transactions, it returns the hash of the inner transaction.
+// For regular transactions, it returns the hash of the transaction itself.
+func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+	if err != nil {
+		return "", fmt.Errorf("deserializing envelope xdr %q: %w", txXDR, err)
+	}
+
+	var innerTx *txnbuild.Transaction
+	feeBumpTx, ok := genericTx.FeeBump()
+	if ok {
+		innerTx = feeBumpTx.InnerTransaction()
+	} else {
+		innerTx, ok = genericTx.Transaction()
+		if !ok {
+			return "", errors.New("transaction is neither fee bump nor inner transaction")
+		}
+	}
+
+	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
+	if err != nil {
+		return "", fmt.Errorf("generating hash hex: %w", err)
+	}
+
+	return innerTxHash, nil
 }
 
 func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker apptracker.AppTracker) {
