@@ -155,6 +155,8 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 	return txXDRs, nil
 }
 
+// buildAndSignTransactionWithChannelAccount will build a transaction with a channel account and sign it with that channel account.
+// If any error occurs after the channel account has been retrieved, the channel account public key will be returned.
 func (t *transactionService) buildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (tx *txnbuild.Transaction, chAccPubKey string, err error) {
 	// validate and sanitize transactions timeouts:
 	if timeoutInSecs > MaxTimeoutInSeconds {
