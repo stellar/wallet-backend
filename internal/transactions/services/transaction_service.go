@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -15,9 +16,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	pkgUtils "github.com/stellar/wallet-backend/pkg/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 const (
@@ -29,6 +32,7 @@ var ErrInvalidArguments = errors.New("invalid arguments")
 
 type TransactionService interface {
 	NetworkPassphrase() string
+	BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions []types.Transaction) (txXDRs []string, err error)
 	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
 }
 
@@ -97,14 +101,58 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
-	if timeoutInSecs > MaxTimeoutInSeconds {
-		return nil, fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
-	}
-	if timeoutInSecs <= 0 {
-		timeoutInSecs = DefaultTimeoutInSeconds
+func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions []types.Transaction) (txXDRs []string, err error) {
+	// unlock channel accounts if an error occurs:
+	channelAccountsIDs := make([]string, len(transactions))
+	defer func() {
+		if err != nil {
+			_, errUnlock := t.ChannelAccountStore.Unlock(ctx, channelAccountsIDs...)
+			if errUnlock != nil {
+				log.Ctx(ctx).Errorf("error unlocking channel accounts after the cause %v", err)
+			}
+		}
+	}()
+
+	// validate and sanitize transactions timeouts:
+	for i, transaction := range transactions {
+		if transaction.Timeout > MaxTimeoutInSeconds {
+			return nil, fmt.Errorf("%w for transaction[%d]: timeout cannot be greater than %d seconds", ErrInvalidArguments, i, MaxTimeoutInSeconds)
+		}
+		if transaction.Timeout <= 0 {
+			transaction.Timeout = DefaultTimeoutInSeconds
+		}
 	}
 
+	// build txnbuild operations:
+	txnBuildOps := make([][]txnbuild.Operation, len(transactions))
+	for i, transaction := range transactions {
+		ops, err := transactionsUtils.BuildOperations(transaction.Operations)
+		if err != nil {
+			return nil, fmt.Errorf("building txnbuildoperations for transaction[%d]: %w", i, err)
+		}
+
+		txnBuildOps[i] = ops
+	}
+
+	// build transactions and sign them with channel accounts:
+	for i, transaction := range transactions {
+		tx, err := t.BuildAndSignTransactionWithChannelAccount(ctx, txnBuildOps[i], transaction.Timeout, transaction.SimulationResult)
+		if err != nil {
+			return nil, fmt.Errorf("building transaction[%d] with channel account: %w", i, err)
+		}
+		channelAccountsIDs[i] = tx.SourceAccount().AccountID
+
+		txXDR, err := tx.Base64()
+		if err != nil {
+			return nil, fmt.Errorf("base64 encoding transaction[%d]: %w", i, err)
+		}
+		txXDRs = append(txXDRs, txXDR)
+	}
+
+	return txXDRs, nil
+}
+
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
