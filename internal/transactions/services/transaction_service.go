@@ -101,16 +101,9 @@ func (t *transactionService) NetworkPassphrase() string {
 }
 
 func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions ...types.Transaction) (txXDRs []string, err error) {
-	// unlock channel accounts if an error occurs:
-	channelAccountsIDs := make([]string, len(transactions))
-	defer func() {
-		if err != nil {
-			_, errUnlock := t.ChannelAccountStore.Unlock(ctx, channelAccountsIDs...)
-			if errUnlock != nil {
-				log.Ctx(ctx).Errorf("error unlocking channel accounts after the cause %v", err)
-			}
-		}
-	}()
+	if len(transactions) == 0 {
+		return nil, fmt.Errorf("%w: no transactions provided", ErrInvalidArguments)
+	}
 
 	txnBuildOps := make([][]txnbuild.Operation, len(transactions))
 	for i, transaction := range transactions {
@@ -131,13 +124,26 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 		txnBuildOps[i] = ops
 	}
 
+	// unlock channel accounts if an error occurs:
+	var channelAccountsIDs []string
+	defer func() {
+		if err != nil && len(channelAccountsIDs) > 0 {
+			_, errUnlock := t.ChannelAccountStore.Unlock(ctx, channelAccountsIDs...)
+			if errUnlock != nil {
+				log.Ctx(ctx).Errorf("error unlocking channel accounts after the cause %v", err)
+			}
+		}
+	}()
+
 	// build transactions and sign them with channel accounts:
 	for i, transaction := range transactions {
-		tx, err := t.buildAndSignTransactionWithChannelAccount(ctx, txnBuildOps[i], transaction.Timeout, transaction.SimulationResult)
+		tx, chAccPubKey, err := t.buildAndSignTransactionWithChannelAccount(ctx, txnBuildOps[i], transaction.Timeout, transaction.SimulationResult)
+		if chAccPubKey != "" {
+			channelAccountsIDs = append(channelAccountsIDs, chAccPubKey)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("building transaction[%d] with channel account: %w", i, err)
 		}
-		channelAccountsIDs[i] = tx.SourceAccount().AccountID
 
 		txXDR, err := tx.Base64()
 		if err != nil {
@@ -149,39 +155,39 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 	return txXDRs, nil
 }
 
-func (t *transactionService) buildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+func (t *transactionService) buildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (tx *txnbuild.Transaction, chAccPubKey string, err error) {
 	// validate and sanitize transactions timeouts:
 	if timeoutInSecs > MaxTimeoutInSeconds {
-		return nil, fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
+		return nil, "", fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
 	}
 	if timeoutInSecs <= 0 {
 		timeoutInSecs = DefaultTimeoutInSeconds
 	}
 
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
+	chAccPubKey, err = t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
-		return nil, fmt.Errorf("getting channel account public key: %w", err)
+		return nil, "", fmt.Errorf("getting channel account public key: %w", err)
 	}
 
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
-		if op.GetSourceAccount() == channelAccountPublicKey {
-			return nil, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
+		if op.GetSourceAccount() == chAccPubKey {
+			return nil, chAccPubKey, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
 		}
 		// Prevent bad actors from using the channel account as a source account (inherited from the parent transaction).
 		if !pkgUtils.IsSorobanTxnbuildOp(op) && op.GetSourceAccount() == "" {
-			return nil, fmt.Errorf("%w: operation source account cannot be empty", ErrInvalidArguments)
+			return nil, chAccPubKey, fmt.Errorf("%w: operation source account cannot be empty", ErrInvalidArguments)
 		}
 	}
 
-	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
+	channelAccountSeq, err := t.RPCService.GetAccountLedgerSequence(chAccPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)
+		return nil, chAccPubKey, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", chAccPubKey, err)
 	}
 
 	buildTxParams := txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
-			AccountID: channelAccountPublicKey,
+			AccountID: chAccPubKey,
 			Sequence:  channelAccountSeq,
 		},
 		Operations: operations,
@@ -192,31 +198,31 @@ func (t *transactionService) buildAndSignTransactionWithChannelAccount(ctx conte
 		IncrementSequenceNum: true,
 	}
 	// Adjust the transaction params with the soroban-related information (the `Ext` field):
-	buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams, simulationResponse)
+	buildTxParams, err = t.adjustParamsForSoroban(ctx, chAccPubKey, buildTxParams, simulationResponse)
 	if err != nil {
-		return nil, fmt.Errorf("handling soroban flows: %w", err)
+		return nil, chAccPubKey, fmt.Errorf("handling soroban flows: %w", err)
 	}
 
-	tx, err := txnbuild.NewTransaction(buildTxParams)
+	tx, err = txnbuild.NewTransaction(buildTxParams)
 	if err != nil {
-		return nil, fmt.Errorf("building transaction: %w", err)
+		return nil, chAccPubKey, fmt.Errorf("building transaction: %w", err)
 	}
 	txHash, err := tx.HashHex(t.ChannelAccountSignatureClient.NetworkPassphrase())
 	if err != nil {
-		return nil, fmt.Errorf("unable to hashhex transaction: %w", err)
+		return nil, chAccPubKey, fmt.Errorf("unable to hashhex transaction: %w", err)
 	}
 
-	err = t.ChannelAccountStore.AssignTxToChannelAccount(ctx, channelAccountPublicKey, txHash)
+	err = t.ChannelAccountStore.AssignTxToChannelAccount(ctx, chAccPubKey, txHash)
 	if err != nil {
-		return nil, fmt.Errorf("assigning channel account to tx: %w", err)
+		return nil, chAccPubKey, fmt.Errorf("assigning channel account to tx: %w", err)
 	}
 
-	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
+	tx, err = t.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, chAccPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("signing transaction with channel account: %w", err)
+		return nil, chAccPubKey, fmt.Errorf("signing transaction with channel account: %w", err)
 	}
 
-	return tx, nil
+	return tx, chAccPubKey, nil
 }
 
 // adjustParamsForSoroban will use the `simulationResponse` to set the `Ext` field in the sorobanOp, in case the transaction

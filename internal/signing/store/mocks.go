@@ -24,7 +24,11 @@ func (s *ChannelAccountStoreMock) GetAndLockIdleChannelAccount(ctx context.Conte
 }
 
 func (s *ChannelAccountStoreMock) Unlock(ctx context.Context, publicKeys ...string) ([]ChannelAccount, error) {
-	args := s.Called(ctx, publicKeys)
+	_args := []any{ctx}
+	for _, publicKey := range publicKeys {
+		_args = append(_args, publicKey)
+	}
+	args := s.Called(_args...)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -71,6 +75,20 @@ func (s *ChannelAccountStoreMock) Count(ctx context.Context) (int64, error) {
 	return int64(args.Int(0)), args.Error(1)
 }
 
+// NewChannelAccountStoreMock creates a new instance of ChannelAccountStoreMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewChannelAccountStoreMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *ChannelAccountStoreMock {
+	mock := &ChannelAccountStoreMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
 type KeypairStoreMock struct {
 	mock.Mock
 }
@@ -88,18 +106,4 @@ func (s *KeypairStoreMock) GetByPublicKey(ctx context.Context, publicKey string)
 func (s *KeypairStoreMock) Insert(ctx context.Context, publicKey string, encryptedPrivateKey []byte) error {
 	args := s.Called(ctx, publicKey, encryptedPrivateKey)
 	return args.Error(0)
-}
-
-// NewChannelAccountStoreMock creates a new instance of ChannelAccountStoreMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
-func NewChannelAccountStoreMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-}) *ChannelAccountStoreMock {
-	mock := &ChannelAccountStoreMock{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
 }
