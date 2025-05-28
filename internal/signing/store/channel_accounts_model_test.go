@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -350,4 +351,114 @@ func TestChannelAccountModelCount(t *testing.T) {
 	n, err = m.Count(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n)
+}
+
+func Test_ChannelAccountModel_Unlock(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	chAccModel := NewChannelAccountModel(dbConnectionPool)
+
+	now := time.Now()
+	defaultChAccKP := keypair.MustRandom()
+	defaultChAccKP2 := keypair.MustRandom()
+
+	testCases := []struct {
+		name                    string
+		channelAccountsToInsert []ChannelAccount
+		channelAccIDsToUnlock   []string
+		wantAmountUnlocked      int
+	}{
+		{
+			name:                    "🟢unlocks_channel_account_that_were_not_locked",
+			channelAccountsToInsert: []ChannelAccount{{PublicKey: defaultChAccKP.Address(), EncryptedPrivateKey: defaultChAccKP.Seed()}},
+			channelAccIDsToUnlock:   []string{defaultChAccKP.Address()},
+			wantAmountUnlocked:      0, // no channel account was locked
+		},
+		{
+			name: "🟢unlocks_channel_account_whose_lock_was_expired",
+			channelAccountsToInsert: []ChannelAccount{{
+				PublicKey:           defaultChAccKP.Address(),
+				EncryptedPrivateKey: defaultChAccKP.Seed(),
+				LockedAt:            sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
+				LockedUntil:         sql.NullTime{Time: now.Add(-30 * time.Minute), Valid: true},
+				LockedTxHash:        sql.NullString{String: "txhash1", Valid: true},
+			}},
+			channelAccIDsToUnlock: []string{defaultChAccKP.Address()},
+			wantAmountUnlocked:    1, // one channel account was unlocked
+		},
+		{
+			name: "🟢unlocks_locked_channel_account",
+			channelAccountsToInsert: []ChannelAccount{{
+				PublicKey:           defaultChAccKP.Address(),
+				EncryptedPrivateKey: defaultChAccKP.Seed(),
+				LockedAt:            sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
+				LockedUntil:         sql.NullTime{Time: now.Add(30 * time.Minute), Valid: true},
+				LockedTxHash:        sql.NullString{String: "txhash2", Valid: true},
+			}},
+			channelAccIDsToUnlock: []string{defaultChAccKP.Address()},
+			wantAmountUnlocked:    1, // one channel account was unlocked
+		},
+		{
+			name: "🟢unlocks_multiple_locked_channel_accounts",
+			channelAccountsToInsert: []ChannelAccount{
+				{
+					PublicKey:           defaultChAccKP.Address(),
+					EncryptedPrivateKey: defaultChAccKP.Seed(),
+					LockedAt:            sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
+					LockedUntil:         sql.NullTime{Time: now.Add(30 * time.Minute), Valid: true},
+					LockedTxHash:        sql.NullString{String: "txhash2", Valid: true},
+				},
+				{
+					PublicKey:           defaultChAccKP2.Address(),
+					EncryptedPrivateKey: defaultChAccKP2.Seed(),
+					LockedAt:            sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true},
+					LockedUntil:         sql.NullTime{Time: now.Add(30 * time.Minute), Valid: true},
+					LockedTxHash:        sql.NullString{String: "txhash2", Valid: true},
+				},
+			},
+			channelAccIDsToUnlock: []string{defaultChAccKP.Address(), defaultChAccKP2.Address()},
+			wantAmountUnlocked:    2, // two channel accounts were unlocked
+		},
+		{
+			name:                  "🟠non_existing_channel_account_id",
+			channelAccIDsToUnlock: []string{"non_existing_channel_account_id"},
+			wantAmountUnlocked:    0, // no channel account was unlocked
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(func() {
+				q := `DELETE FROM channel_accounts`
+				_, err := dbConnectionPool.ExecContext(ctx, q)
+				require.NoError(t, err)
+			})
+
+			if len(tc.channelAccountsToInsert) > 0 {
+				createChannelAccountFixture(t, ctx, dbConnectionPool, tc.channelAccountsToInsert...)
+				for _, channelAccount := range tc.channelAccountsToInsert {
+					channelAccountRefreshed, err := chAccModel.Get(ctx, dbConnectionPool, channelAccount.PublicKey)
+					require.NoError(t, err)
+					assert.Equal(t, channelAccount.LockedAt.Valid, channelAccountRefreshed.LockedAt.Valid)
+					assert.Equal(t, channelAccount.LockedTxHash.Valid, channelAccountRefreshed.LockedTxHash.Valid)
+					assert.Equal(t, channelAccount.LockedUntil.Valid, channelAccountRefreshed.LockedUntil.Valid)
+				}
+			}
+
+			channelAccount, err := chAccModel.Unlock(ctx, tc.channelAccIDsToUnlock...)
+
+			require.NoError(t, err)
+			require.Len(t, channelAccount, tc.wantAmountUnlocked)
+			for _, channelAccount := range channelAccount {
+				assert.False(t, channelAccount.LockedAt.Valid)
+				assert.False(t, channelAccount.LockedTxHash.Valid)
+				assert.False(t, channelAccount.LockedUntil.Valid)
+			}
+		})
+	}
 }

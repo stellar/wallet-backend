@@ -20,6 +20,8 @@ type ChannelAccount struct {
 
 type ChannelAccountStore interface {
 	GetAndLockIdleChannelAccount(ctx context.Context, lockedUntil time.Duration) (*ChannelAccount, error)
+	// Unlock unlocks the channel accounts with the given public keys and returns the unlocked channel accounts.
+	Unlock(ctx context.Context, publicKeys ...string) ([]ChannelAccount, error)
 	Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error)
 	GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error)
 	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error

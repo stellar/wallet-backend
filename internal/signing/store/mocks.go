@@ -23,6 +23,14 @@ func (s *ChannelAccountStoreMock) GetAndLockIdleChannelAccount(ctx context.Conte
 	return args.Get(0).(*ChannelAccount), args.Error(1)
 }
 
+func (s *ChannelAccountStoreMock) Unlock(ctx context.Context, publicKeys ...string) ([]ChannelAccount, error) {
+	args := s.Called(ctx, publicKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]ChannelAccount), args.Error(1)
+}
+
 func (s *ChannelAccountStoreMock) Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error) {
 	args := s.Called(ctx, sqlExec, publicKey)
 	if args.Get(0) == nil {

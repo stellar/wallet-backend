@@ -57,6 +57,32 @@ func (ca *ChannelAccountModel) GetAndLockIdleChannelAccount(ctx context.Context,
 	return &channelAccount, nil
 }
 
+// Unlock unlocks the channel accounts with the given public keys and returns the unlocked channel accounts.
+func (ca *ChannelAccountModel) Unlock(ctx context.Context, publicKeys ...string) ([]ChannelAccount, error) {
+	const query = `
+		UPDATE channel_accounts
+		SET
+			locked_tx_hash = NULL,
+			locked_at = NULL,
+			locked_until = NULL
+		WHERE
+			public_key = ANY($1)
+			AND (
+				locked_at IS NOT NULL
+				OR locked_tx_hash IS NOT NULL
+				OR locked_until IS NOT NULL
+			)
+		RETURNING *;
+	`
+	var channelAccounts []ChannelAccount
+	err := ca.DB.SelectContext(ctx, &channelAccounts, query, pq.Array(publicKeys))
+	if err != nil {
+		return nil, fmt.Errorf("unlocking channel accounts %v: %w", publicKeys, err)
+	}
+
+	return channelAccounts, nil
+}
+
 func (ca *ChannelAccountModel) Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error) {
 	const query = `SELECT * FROM channel_accounts WHERE public_key = $1`
 
