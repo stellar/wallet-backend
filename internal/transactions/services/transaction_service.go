@@ -32,8 +32,7 @@ var ErrInvalidArguments = errors.New("invalid arguments")
 
 type TransactionService interface {
 	NetworkPassphrase() string
-	BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions []types.Transaction) (txXDRs []string, err error)
-	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
+	BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions ...types.Transaction) (txXDRs []string, err error)
 }
 
 type transactionService struct {
@@ -101,7 +100,7 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions []types.Transaction) (txXDRs []string, err error) {
+func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx context.Context, transactions ...types.Transaction) (txXDRs []string, err error) {
 	// unlock channel accounts if an error occurs:
 	channelAccountsIDs := make([]string, len(transactions))
 	defer func() {
@@ -113,19 +112,17 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 		}
 	}()
 
-	// validate and sanitize transactions timeouts:
+	txnBuildOps := make([][]txnbuild.Operation, len(transactions))
 	for i, transaction := range transactions {
+		// validate and sanitize transactions timeouts:
 		if transaction.Timeout > MaxTimeoutInSeconds {
 			return nil, fmt.Errorf("%w for transaction[%d]: timeout cannot be greater than %d seconds", ErrInvalidArguments, i, MaxTimeoutInSeconds)
 		}
 		if transaction.Timeout <= 0 {
 			transaction.Timeout = DefaultTimeoutInSeconds
 		}
-	}
 
-	// build txnbuild operations:
-	txnBuildOps := make([][]txnbuild.Operation, len(transactions))
-	for i, transaction := range transactions {
+		// build txnbuild operations:
 		ops, err := transactionsUtils.BuildOperations(transaction.Operations)
 		if err != nil {
 			return nil, fmt.Errorf("building txnbuildoperations for transaction[%d]: %w", i, err)
@@ -136,7 +133,7 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 
 	// build transactions and sign them with channel accounts:
 	for i, transaction := range transactions {
-		tx, err := t.BuildAndSignTransactionWithChannelAccount(ctx, txnBuildOps[i], transaction.Timeout, transaction.SimulationResult)
+		tx, err := t.buildAndSignTransactionWithChannelAccount(ctx, txnBuildOps[i], transaction.Timeout, transaction.SimulationResult)
 		if err != nil {
 			return nil, fmt.Errorf("building transaction[%d] with channel account: %w", i, err)
 		}
@@ -152,7 +149,15 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 	return txXDRs, nil
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+func (t *transactionService) buildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+	// validate and sanitize transactions timeouts:
+	if timeoutInSecs > MaxTimeoutInSeconds {
+		return nil, fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
+	}
+	if timeoutInSecs <= 0 {
+		timeoutInSecs = DefaultTimeoutInSeconds
+	}
+
 	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)

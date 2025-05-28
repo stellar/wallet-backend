@@ -21,7 +21,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -63,19 +62,19 @@ func TestBuildTransactions(t *testing.T) {
 
 	const endpoint = "/transactions/build"
 
-	t.Run("tx_signing_fails", func(t *testing.T) {
+	t.Run("🔴tx_signing_fails", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
 			"transactions": [{"operations": [%q], "timeout": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		expectedOps, err := utils.BuildOperations([]string{opXDRBase64})
-		require.NoError(t, err)
-
 		err = errors.New("unable to find channel account")
 		mockTxService.
-			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100), entities.RPCSimulateTransactionResult{}).
+			On("BuildAndSignTransactionsWithChannelAccounts", context.Background(), types.Transaction{
+				Operations: []string{opXDRBase64},
+				Timeout:    100,
+			}).
 			Return(nil, err).
 			Once()
 
@@ -94,20 +93,23 @@ func TestBuildTransactions(t *testing.T) {
 		assert.JSONEq(t, expectedRespBody, string(respBody))
 	})
 
-	t.Run("happy_path", func(t *testing.T) {
+	t.Run("🟢happy_path", func(t *testing.T) {
 		reqBody := fmt.Sprintf(`{
 			"transactions": [{"operations": [%q], "timeout": 100}]
 		}`, opXDRBase64)
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		expectedOps, err := utils.BuildOperations([]string{opXDRBase64})
-		require.NoError(t, err)
 		tx := utils.BuildTestTransaction(t)
+		txXDR, err := tx.Base64()
+		require.NoError(t, err)
 
 		mockTxService.
-			On("BuildAndSignTransactionWithChannelAccount", context.Background(), expectedOps, int64(100), entities.RPCSimulateTransactionResult{}).
-			Return(tx, nil).
+			On("BuildAndSignTransactionsWithChannelAccounts", context.Background(), types.Transaction{
+				Operations: []string{opXDRBase64},
+				Timeout:    100,
+			}).
+			Return([]string{txXDR}, nil).
 			Once()
 
 		http.HandlerFunc(handler.BuildTransactions).ServeHTTP(rw, req)
@@ -120,8 +122,6 @@ func TestBuildTransactions(t *testing.T) {
 		var buildTxResp types.BuildTransactionsResponse
 		err = json.Unmarshal(respBody, &buildTxResp)
 		require.NoError(t, err)
-		expectedTxXDR, err := tx.Base64()
-		require.NoError(t, err)
-		assert.Equal(t, expectedTxXDR, buildTxResp.TransactionXDRs[0])
+		assert.Equal(t, txXDR, buildTxResp.TransactionXDRs[0])
 	})
 }
