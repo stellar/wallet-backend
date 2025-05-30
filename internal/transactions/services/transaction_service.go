@@ -116,7 +116,8 @@ func (t *transactionService) BuildAndSignTransactionsWithChannelAccounts(ctx con
 		}
 
 		// build txnbuild operations:
-		ops, err := transactionsUtils.BuildOperations(transaction.Operations)
+		var ops []txnbuild.Operation
+		ops, err = transactionsUtils.BuildOperations(transaction.Operations)
 		if err != nil {
 			return nil, fmt.Errorf("building txnbuildoperations for transaction[%d]: %w", i, err)
 		}
