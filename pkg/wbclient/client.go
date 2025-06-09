@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	buildTransactionsPath        = "/tss/transactions/build"
+	buildTransactionsPath        = "/transactions/build"
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
 )
 

@@ -10,7 +10,6 @@ import (
 
 // BuildTestTransaction is a test helper that builds a transaction with a random account.
 // It is used to test the transaction manager.
-// It is not used to build transactions for the TSS.
 // For that, use the `BuildOperations` function.
 func BuildTestTransaction(t *testing.T) *txnbuild.Transaction {
 	t.Helper()
@@ -35,18 +34,4 @@ func BuildTestTransaction(t *testing.T) *txnbuild.Transaction {
 	})
 	require.NoError(t, err)
 	return tx
-}
-
-// BuildTestFeeBumpTransaction is a test helper that builds a fee bump transaction with a random fee account.
-func BuildTestFeeBumpTransaction(t *testing.T) *txnbuild.FeeBumpTransaction {
-	t.Helper()
-
-	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
-		txnbuild.FeeBumpTransactionParams{
-			Inner:      BuildTestTransaction(t),
-			FeeAccount: keypair.MustRandom().Address(),
-			BaseFee:    110,
-		})
-	require.NoError(t, err)
-	return feeBumpTx
 }

@@ -7,3 +7,4 @@ env.sh
 .idea
 __debug_bin*
 *.out
+CLAUDE.md

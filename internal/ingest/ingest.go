@@ -16,25 +16,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/tss"
-	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
-	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 )
 
 type Configs struct {
-	DatabaseURL                   string
-	LedgerCursorName              string
-	StartLedger                   int
-	EndLedger                     int
-	LogLevel                      logrus.Level
-	AppTracker                    apptracker.AppTracker
-	RPCURL                        string
-	NetworkPassphrase             string
-	WebhookChannelMaxBufferSize   int
-	WebhookChannelMaxWorkers      int
-	WebhookChannelMaxRetries      int
-	WebhookChannelWaitBtwnTriesMS int
-	WebhookChannel                tss.Channel
+	DatabaseURL       string
+	LedgerCursorName  string
+	StartLedger       int
+	EndLedger         int
+	LogLevel          logrus.Level
+	AppTracker        apptracker.AppTracker
+	RPCURL            string
+	NetworkPassphrase string
 }
 
 func Ingest(cfg Configs) error {
@@ -71,19 +63,10 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
-	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating tss store: %w", err)
-	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-	tssRouterConfig := tssrouter.RouterConfigs{
-		WebhookChannel: cfg.WebhookChannel,
-	}
-
-	router := tssrouter.NewRouter(tssRouterConfig)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, router, tssStore, chAccStore, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

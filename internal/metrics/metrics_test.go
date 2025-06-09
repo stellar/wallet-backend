@@ -85,60 +85,6 @@ func TestIngestMetrics(t *testing.T) {
 	})
 }
 
-func TestTSSMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
-
-	t.Run("TSS transactions submitted counter", func(t *testing.T) {
-		// Increment the counter multiple times
-		ms.IncNumTSSTransactionsSubmitted()
-		ms.IncNumTSSTransactionsSubmitted()
-		ms.IncNumTSSTransactionsSubmitted()
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "num_tss_transactions_submitted" {
-				found = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, float64(3), metric.GetCounter().GetValue(), "Expected counter value to be 3")
-			}
-		}
-		assert.True(t, found, "TSS transactions submitted metric not found")
-	})
-
-	t.Run("TSS transaction inclusion time", func(t *testing.T) {
-		// Test successful transaction
-		ms.ObserveTSSTransactionInclusionTime("success", 5.5)
-		// Test failed transaction
-		ms.ObserveTSSTransactionInclusionTime("failed", 2.3)
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "tss_transaction_inclusion_time_seconds" {
-				found = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
-				assert.Equal(t, 2.3, metric.GetSummary().GetSampleSum())
-				assert.Equal(t, "failed", metric.GetLabel()[0].GetValue())
-
-				metric = mf.GetMetric()[1]
-				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
-				assert.Equal(t, 5.5, metric.GetSummary().GetSampleSum())
-				assert.Equal(t, "success", metric.GetLabel()[0].GetValue())
-			}
-		}
-		assert.True(t, found, "Transaction inclusion time metric not found")
-	})
-}
-
 func TestAccountMetrics(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

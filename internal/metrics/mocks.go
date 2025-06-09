@@ -29,24 +29,12 @@ func (m *MockMetricsService) SetNumPaymentOpsIngestedPerLedger(operationType str
 	m.Called(operationType, value)
 }
 
-func (m *MockMetricsService) SetNumTssTransactionsIngestedPerLedger(status string, value float64) {
-	m.Called(status, value)
-}
-
 func (m *MockMetricsService) SetLatestLedgerIngested(value float64) {
 	m.Called(value)
 }
 
 func (m *MockMetricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
 	m.Called(ingestionType, duration)
-}
-
-func (m *MockMetricsService) IncNumTSSTransactionsSubmitted() {
-	m.Called()
-}
-
-func (m *MockMetricsService) ObserveTSSTransactionInclusionTime(status string, durationSeconds float64) {
-	m.Called(status, durationSeconds)
 }
 
 func (m *MockMetricsService) IncActiveAccount() {
@@ -95,10 +83,6 @@ func (m *MockMetricsService) ObserveDBQueryDuration(queryType, table string, dur
 
 func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 	m.Called(queryType, table)
-}
-
-func (m *MockMetricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
-	m.Called(oldStatus, newStatus)
 }
 
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {

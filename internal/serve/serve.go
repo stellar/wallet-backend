@@ -27,11 +27,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	"github.com/stellar/wallet-backend/internal/tss"
-	tsschannel "github.com/stellar/wallet-backend/internal/tss/channels"
-	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
-	tssservices "github.com/stellar/wallet-backend/internal/tss/services"
-	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
@@ -54,22 +50,8 @@ type Configs struct {
 	BaseFee                            int
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
-	// TSS
-	RPCURL                                               string
-	RPCCallerServiceChannelBufferSize                    int
-	RPCCallerServiceChannelMaxWorkers                    int
-	ErrorHandlerServiceJitterChannelBufferSize           int
-	ErrorHandlerServiceJitterChannelMaxWorkers           int
-	ErrorHandlerServiceNonJitterChannelBufferSize        int
-	ErrorHandlerServiceNonJitterChannelMaxWorkers        int
-	ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS int
-	ErrorHandlerServiceNonJitterChannelWaitBtwnRetriesMS int
-	ErrorHandlerServiceJitterChannelMaxRetries           int
-	ErrorHandlerServiceNonJitterChannelMaxRetries        int
-	WebhookHandlerServiceChannelMaxBufferSize            int
-	WebhookHandlerServiceChannelMaxWorkers               int
-	WebhookHandlerServiceChannelMaxRetries               int
-	WebhookHandlerServiceChannelMinWaitBtwnRetriesMS     int
+	// RPC
+	RPCURL string
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -89,15 +71,7 @@ type handlerDeps struct {
 	AccountSponsorshipService services.AccountSponsorshipService
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
-	// TSS
-	RPCCallerChannel      tss.Channel
-	ErrorJitterChannel    tss.Channel
-	ErrorNonJitterChannel tss.Channel
-	WebhookChannel        tss.Channel
-	TSSRouter             tssrouter.Router
-	PoolPopulator         tssservices.PoolPopulator
-	TSSStore              tssstore.Store
-	TSSTransactionService tssservices.TransactionService
+	TransactionService        txservices.TransactionService
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -115,14 +89,9 @@ func Serve(cfg Configs) error {
 		Handler:    handler(deps),
 		OnStarting: func() {
 			log.Infof("🌐 Starting Wallet Backend server on port %d", cfg.Port)
-			go populatePools(ctx, deps.PoolPopulator)
 		},
 		OnStopping: func() {
 			log.Info("Stopping Wallet Backend server")
-			deps.ErrorJitterChannel.Stop()
-			deps.ErrorNonJitterChannel.Stop()
-			deps.RPCCallerChannel.Stop()
-			deps.WebhookChannel.Stop()
 		},
 	})
 
@@ -182,8 +151,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
 	}
 
-	// TSS setup
-	tssTxService, err := tssservices.NewTransactionService(tssservices.TransactionServiceOptions{
+	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
@@ -192,74 +160,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		BaseFee:                            int64(cfg.BaseFee),
 	})
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating tss transaction service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating transaction service: %w", err)
 	}
-
-	tssStore, err := tssstore.NewStore(dbConnectionPool, metricsService)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating tss store: %w", err)
-	}
-	txManager := tssservices.NewTransactionManager(tssservices.TransactionManagerConfigs{
-		TxService:  tssTxService,
-		RPCService: rpcService,
-		Store:      tssStore,
-	})
-
-	rpcCallerChannel := tsschannel.NewRPCCallerChannel(tsschannel.RPCCallerChannelConfigs{
-		TxManager:      txManager,
-		Store:          tssStore,
-		MaxBufferSize:  cfg.RPCCallerServiceChannelBufferSize,
-		MaxWorkers:     cfg.RPCCallerServiceChannelMaxWorkers,
-		MetricsService: metricsService,
-	})
-
-	errorJitterChannel := tsschannel.NewErrorJitterChannel(tsschannel.ErrorJitterChannelConfigs{
-		TxManager:            txManager,
-		MaxBufferSize:        cfg.ErrorHandlerServiceJitterChannelBufferSize,
-		MaxWorkers:           cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
-		MaxRetries:           cfg.ErrorHandlerServiceJitterChannelMaxRetries,
-		MinWaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
-		MetricsService:       metricsService,
-	})
-
-	errorNonJitterChannel := tsschannel.NewErrorNonJitterChannel(tsschannel.ErrorNonJitterChannelConfigs{
-		TxManager:         txManager,
-		MaxBufferSize:     cfg.ErrorHandlerServiceJitterChannelBufferSize,
-		MaxWorkers:        cfg.ErrorHandlerServiceJitterChannelMaxWorkers,
-		MaxRetries:        cfg.ErrorHandlerServiceJitterChannelMaxRetries,
-		WaitBtwnRetriesMS: cfg.ErrorHandlerServiceJitterChannelMinWaitBtwnRetriesMS,
-		MetricsService:    metricsService,
-	})
 
 	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
-	webhookChannel := tsschannel.NewWebhookChannel(tsschannel.WebhookChannelConfigs{
-		HTTPClient:           &httpClient,
-		Store:                tssStore,
-		ChannelAccountStore:  channelAccountStore,
-		MaxBufferSize:        cfg.WebhookHandlerServiceChannelMaxBufferSize,
-		MaxWorkers:           cfg.WebhookHandlerServiceChannelMaxWorkers,
-		MaxRetries:           cfg.WebhookHandlerServiceChannelMaxRetries,
-		MinWaitBtwnRetriesMS: cfg.WebhookHandlerServiceChannelMinWaitBtwnRetriesMS,
-		NetworkPassphrase:    cfg.NetworkPassphrase,
-		MetricsService:       metricsService,
-	})
-
-	router := tssrouter.NewRouter(tssrouter.RouterConfigs{
-		RPCCallerChannel:      rpcCallerChannel,
-		ErrorJitterChannel:    errorJitterChannel,
-		ErrorNonJitterChannel: errorNonJitterChannel,
-		WebhookChannel:        webhookChannel,
-	})
-
-	rpcCallerChannel.SetRouter(router)
-	errorJitterChannel.SetRouter(router)
-	errorNonJitterChannel.SetRouter(router)
-
-	poolPopulator, err := tssservices.NewPoolPopulator(router, tssStore, rpcService)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating tss pool populator")
-	}
-
 	channelAccountService, err := services.NewChannelAccountService(ctx, services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         rpcService,
@@ -290,25 +194,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		MetricsService:            metricsService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
-		// TSS
-		RPCCallerChannel:      rpcCallerChannel,
-		ErrorJitterChannel:    errorJitterChannel,
-		ErrorNonJitterChannel: errorNonJitterChannel,
-		WebhookChannel:        webhookChannel,
-		TSSRouter:             router,
-		PoolPopulator:         poolPopulator,
-		TSSStore:              tssStore,
-		TSSTransactionService: tssTxService,
+		TransactionService:        txService,
 	}, nil
-}
-
-func populatePools(ctx context.Context, poolPopulator tssservices.PoolPopulator) {
-	alertAfter := time.Minute * 10
-	ticker := time.NewTicker(alertAfter)
-
-	for range ticker.C {
-		poolPopulator.PopulatePools(ctx)
-	}
 }
 
 func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
@@ -358,31 +245,28 @@ func handler(deps handlerDeps) http.Handler {
 			r.Get("/", handler.GetPayments)
 		})
 
+		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
 		r.Route("/tx", func(r chi.Router) {
-			handler := &httphandler.AccountHandler{
+			accountHandler := &httphandler.AccountHandler{
 				AccountService:            deps.AccountService,
 				AccountSponsorshipService: deps.AccountSponsorshipService,
 				SupportedAssets:           deps.SupportedAssets,
 				AppTracker:                deps.AppTracker,
 			}
 
-			r.Post("/create-sponsored-account", handler.SponsorAccountCreation)
-			r.Post("/create-fee-bump", handler.CreateFeeBumpTransaction)
+			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
+			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 
-		r.Route("/tss", func(r chi.Router) {
-			handler := &httphandler.TSSHandler{
-				Router:             deps.TSSRouter,
-				Store:              deps.TSSStore,
+		r.Route("/transactions", func(r chi.Router) {
+			handler := &httphandler.TransactionsHandler{
+				TransactionService: deps.TransactionService,
 				AppTracker:         deps.AppTracker,
 				NetworkPassphrase:  deps.NetworkPassphrase,
 				MetricsService:     deps.MetricsService,
-				TransactionService: deps.TSSTransactionService,
 			}
 
-			r.Get("/transactions/{transactionhash}", handler.GetTransaction)
-			r.Post("/transactions/build", handler.BuildTransactions)
-			r.Post("/transactions", handler.SubmitTransactions)
+			r.Post("/build", handler.BuildTransactions)
 		})
 	})
 

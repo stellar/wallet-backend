@@ -6,7 +6,6 @@ import (
 	"github.com/stellar/go/txnbuild"
 
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/tss"
 
 	"github.com/stretchr/testify/mock"
 )
@@ -28,23 +27,4 @@ func (t *TransactionServiceMock) BuildAndSignTransactionWithChannelAccount(ctx c
 		return result.(*txnbuild.Transaction), args.Error(1)
 	}
 	return nil, args.Error(1)
-}
-
-func (t *TransactionServiceMock) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
-	args := t.Called(ctx, tx)
-	if result := args.Get(0); result != nil {
-		return result.(*txnbuild.FeeBumpTransaction), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
-
-type TransactionManagerMock struct {
-	mock.Mock
-}
-
-var _ TransactionManager = (*TransactionManagerMock)(nil)
-
-func (t *TransactionManagerMock) BuildAndSubmitTransaction(ctx context.Context, channelName string, payload tss.Payload) (tss.RPCSendTxResponse, error) {
-	args := t.Called(ctx, channelName, payload)
-	return args.Get(0).(tss.RPCSendTxResponse), args.Error(1)
 }

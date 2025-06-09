@@ -16,16 +16,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/tss"
-	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
-	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
+	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	paymentPrometheusLabel                  = "payment"
-	tssPrometheusLabel                      = "tss"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
 	totalIngestionPrometheusLabel           = "total"
@@ -42,8 +39,6 @@ type ingestService struct {
 	ledgerCursorName string
 	appTracker       apptracker.AppTracker
 	rpcService       RPCService
-	tssRouter        tssrouter.Router
-	tssStore         tssstore.Store
 	chAccStore       store.ChannelAccountStore
 	metricsService   metrics.MetricsService
 }
@@ -53,8 +48,6 @@ func NewIngestService(
 	ledgerCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
-	tssRouter tssrouter.Router,
-	tssStore tssstore.Store,
 	chAccStore store.ChannelAccountStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
@@ -70,12 +63,6 @@ func NewIngestService(
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
-	if tssRouter == nil {
-		return nil, errors.New("tssRouter cannot be nil")
-	}
-	if tssStore == nil {
-		return nil, errors.New("tssStore cannot be nil")
-	}
 	if chAccStore == nil {
 		return nil, errors.New("chAccStore cannot be nil")
 	}
@@ -88,8 +75,6 @@ func NewIngestService(
 		ledgerCursorName: ledgerCursorName,
 		appTracker:       appTracker,
 		rpcService:       rpcService,
-		tssRouter:        tssRouter,
-		tssStore:         tssStore,
 		chAccStore:       chAccStore,
 		metricsService:   metricsService,
 	}, nil
@@ -145,20 +130,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
-			startTime = time.Now()
-
 			// eagerly unlock channel accounts from txs
 			err = m.unlockChannelAccounts(ctx, ledgerTransactions)
 			if err != nil {
 				return fmt.Errorf("unlocking channel account from tx: %w", err)
 			}
-
-			// process tss transactions
-			err = m.processTSSTransactions(ctx, ledgerTransactions)
-			if err != nil {
-				return fmt.Errorf("processing tss transactions: %w", err)
-			}
-			m.metricsService.ObserveIngestionDuration(tssPrometheusLabel, time.Since(startTime).Seconds())
 
 			// update cursor
 			err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
@@ -219,7 +195,7 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 			if err != nil {
 				return fmt.Errorf("generic transaction cannot be unpacked into a transaction")
 			}
-			txResultXDR, err := tss.UnmarshallTransactionResultXDR(tx.ResultXDR)
+			txResultXDR, err := txutils.UnmarshallTransactionResultXDR(tx.ResultXDR)
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal transacation result xdr: %s", err.Error())
 			}
@@ -270,78 +246,6 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 		return fmt.Errorf("ingesting payments: %w", err)
 	}
 
-	return nil
-}
-
-func (m *ingestService) processTSSTransactions(ctx context.Context, ledgerTransactions []entities.Transaction) error {
-	// Initialize a map to track counts by status
-	statusCounts := make(map[string]float64)
-
-	for _, tx := range ledgerTransactions {
-		if !tx.FeeBump {
-			// because all transactions submitted by TSS are fee bump transactions
-			continue
-		}
-		tssTry, err := m.tssStore.GetTry(ctx, tx.Hash)
-		if err != nil {
-			return fmt.Errorf("error when getting try: %w", err)
-		}
-		if tssTry == (tssstore.Try{}) {
-			continue
-		}
-
-		transaction, err := m.tssStore.GetTransaction(ctx, tssTry.OrigTxHash)
-		if err != nil {
-			return fmt.Errorf("error getting transaction: %w", err)
-		}
-		status := tss.RPCTXStatus{RPCStatus: tx.Status}
-		code, err := tss.TransactionResultXDRToCode(tx.ResultXDR)
-		if err != nil {
-			return fmt.Errorf("error unmarshaling resultxdr: %w", err)
-		}
-		err = m.tssStore.UpsertTry(ctx, tssTry.OrigTxHash, tssTry.Hash, tssTry.XDR, status, code, tx.ResultXDR)
-		if err != nil {
-			return fmt.Errorf("error updating try: %w", err)
-		}
-		err = m.tssStore.UpsertTransaction(ctx, transaction.WebhookURL, tssTry.OrigTxHash, transaction.XDR, status)
-		if err != nil {
-			return fmt.Errorf("error updating transaction: %w", err)
-		}
-
-		txCode, err := tss.TransactionResultXDRToCode(tx.ResultXDR)
-		if err != nil {
-			return fmt.Errorf("unable to extract tx code from result xdr string: %w", err)
-		}
-
-		tssGetIngestResponse := tss.RPCGetIngestTxResponse{
-			Status:      tx.Status,
-			Code:        txCode,
-			EnvelopeXDR: tx.EnvelopeXDR,
-			ResultXDR:   tx.ResultXDR,
-			CreatedAt:   int64(tx.CreatedAt),
-		}
-		payload := tss.Payload{
-			RPCGetIngestTxResponse: tssGetIngestResponse,
-		}
-		err = m.tssRouter.Route(payload)
-		if err != nil {
-			return fmt.Errorf("unable to route payload: %w", err)
-		}
-		// Record the transaction status transition
-		m.metricsService.RecordTSSTransactionStatusTransition(transaction.Status, string(tx.Status))
-
-		// Calculate and record the transaction inclusion time using the transaction's creation time in our system
-		inclusionTime := time.Since(transaction.CreatedAt).Seconds()
-		m.metricsService.ObserveTSSTransactionInclusionTime(string(tx.Status), inclusionTime)
-
-		// Increment the count for this status
-		statusCounts[string(tx.Status)]++
-	}
-
-	// Set the final counts for each status
-	for status, count := range statusCounts {
-		m.metricsService.SetNumTssTransactionsIngestedPerLedger(status, count)
-	}
 	return nil
 }
 

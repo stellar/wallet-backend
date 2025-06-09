@@ -22,7 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/tss/utils"
+	"github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
@@ -497,91 +497,6 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		mChannelAccountStore.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
 		assert.Equal(t, signedTx, tx)
-		assert.NoError(t, err)
-	})
-}
-
-func TestBuildFeeBumpTransaction(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-	distributionAccountSignatureClient := signing.SignatureClientMock{}
-	channelAccountSignatureClient := signing.SignatureClientMock{}
-	channelAccountStore := store.ChannelAccountStoreMock{}
-	mockRPCService := &services.RPCServiceMock{}
-	txService, err := NewTransactionService(TransactionServiceOptions{
-		DB:                                 dbConnectionPool,
-		DistributionAccountSignatureClient: &distributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      &channelAccountSignatureClient,
-		ChannelAccountStore:                &channelAccountStore,
-		RPCService:                         mockRPCService,
-		BaseFee:                            114,
-	})
-	require.NoError(t, err)
-	t.Run("distribution_account_signature_client_get_account_public_key_err", func(t *testing.T) {
-		tx := utils.BuildTestTransaction(t)
-		distributionAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return("", errors.New("channel accounts unavailable")).
-			Once()
-
-		feeBumpTx, err := txService.BuildFeeBumpTransaction(context.Background(), tx)
-
-		distributionAccountSignatureClient.AssertExpectations(t)
-		assert.Empty(t, feeBumpTx)
-		assert.Equal(t, "getting distribution account public key: channel accounts unavailable", err.Error())
-	})
-
-	t.Run("building_tx_fails", func(t *testing.T) {
-		distributionAccount := keypair.MustRandom()
-		distributionAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return(distributionAccount.Address(), nil).
-			Once()
-
-		feeBumpTx, err := txService.BuildFeeBumpTransaction(context.Background(), nil)
-
-		distributionAccountSignatureClient.AssertExpectations(t)
-		assert.Empty(t, feeBumpTx)
-		assert.Equal(t, "building fee-bump transaction inner transaction is missing", err.Error())
-	})
-
-	t.Run("signing_feebump_tx_fails", func(t *testing.T) {
-		tx := utils.BuildTestTransaction(t)
-		distributionAccount := keypair.MustRandom()
-		distributionAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return(distributionAccount.Address(), nil).
-			Once().
-			On("SignStellarFeeBumpTransaction", context.Background(), mock.AnythingOfType("*txnbuild.FeeBumpTransaction")).
-			Return(nil, errors.New("unable to sign fee bump transaction")).
-			Once()
-
-		feeBumpTx, err := txService.BuildFeeBumpTransaction(context.Background(), tx)
-
-		distributionAccountSignatureClient.AssertExpectations(t)
-		assert.Empty(t, feeBumpTx)
-		assert.Equal(t, "signing the fee bump transaction with distribution account: unable to sign fee bump transaction", err.Error())
-	})
-
-	t.Run("returns_singed_feebump_tx", func(t *testing.T) {
-		tx := utils.BuildTestTransaction(t)
-		feeBump := utils.BuildTestFeeBumpTransaction(t)
-		distributionAccount := keypair.MustRandom()
-		distributionAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background()).
-			Return(distributionAccount.Address(), nil).
-			Once().
-			On("SignStellarFeeBumpTransaction", context.Background(), mock.AnythingOfType("*txnbuild.FeeBumpTransaction")).
-			Return(feeBump, nil).
-			Once()
-
-		feeBumpTx, err := txService.BuildFeeBumpTransaction(context.Background(), tx)
-
-		distributionAccountSignatureClient.AssertExpectations(t)
-		assert.Equal(t, feeBump, feeBumpTx)
 		assert.NoError(t, err)
 	})
 }

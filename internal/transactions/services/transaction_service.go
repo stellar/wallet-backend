@@ -30,7 +30,6 @@ var ErrInvalidArguments = errors.New("invalid arguments")
 type TransactionService interface {
 	NetworkPassphrase() string
 	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
-	BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error)
 }
 
 type transactionService struct {
@@ -222,27 +221,4 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 	buildTxParams.BaseFee = int64(math.Max(float64(adjustedBaseFee), float64(txnbuild.MinBaseFee)))
 
 	return buildTxParams, nil
-}
-
-func (t *transactionService) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
-	distributionAccountPublicKey, err := t.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting distribution account public key: %w", err)
-	}
-	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(
-		txnbuild.FeeBumpTransactionParams{
-			Inner:      tx,
-			FeeAccount: distributionAccountPublicKey,
-			BaseFee:    int64(t.BaseFee),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("building fee-bump transaction %w", err)
-	}
-
-	feeBumpTx, err = t.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
-	if err != nil {
-		return nil, fmt.Errorf("signing the fee bump transaction with distribution account: %w", err)
-	}
-	return feeBumpTx, nil
 }

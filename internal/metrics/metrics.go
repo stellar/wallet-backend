@@ -14,11 +14,8 @@ type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool *pond.WorkerPool)
 	GetRegistry() *prometheus.Registry
 	SetNumPaymentOpsIngestedPerLedger(operationType string, value int)
-	SetNumTssTransactionsIngestedPerLedger(status string, value float64)
 	SetLatestLedgerIngested(value float64)
 	ObserveIngestionDuration(ingestionType string, duration float64)
-	IncNumTSSTransactionsSubmitted()
-	ObserveTSSTransactionInclusionTime(status string, durationSeconds float64)
 	IncActiveAccount()
 	DecActiveAccount()
 	IncRPCRequests(endpoint string)
@@ -31,7 +28,6 @@ type MetricsService interface {
 	ObserveRequestDuration(endpoint, method string, duration float64)
 	ObserveDBQueryDuration(queryType, table string, duration float64)
 	IncDBQuery(queryType, table string)
-	RecordTSSTransactionStatusTransition(oldStatus, newStatus string)
 	IncSignatureVerificationExpired(expiredSeconds float64)
 }
 
@@ -41,14 +37,9 @@ type metricsService struct {
 	db       *sqlx.DB
 
 	// Ingest Service Metrics
-	numPaymentOpsIngestedPerLedger      *prometheus.GaugeVec
-	numTssTransactionsIngestedPerLedger *prometheus.GaugeVec
-	latestLedgerIngested                prometheus.Gauge
-	ingestionDuration                   *prometheus.SummaryVec
-
-	// TSS Service Metrics
-	numTSSTransactionsSubmitted      prometheus.Counter
-	timeUntilTSSTransactionInclusion *prometheus.SummaryVec
+	numPaymentOpsIngestedPerLedger *prometheus.GaugeVec
+	latestLedgerIngested           prometheus.Gauge
+	ingestionDuration              *prometheus.SummaryVec
 
 	// Account Metrics
 	activeAccounts prometheus.Gauge
@@ -60,9 +51,6 @@ type metricsService struct {
 	rpcEndpointSuccesses *prometheus.CounterVec
 	rpcServiceHealth     prometheus.Gauge
 	rpcLatestLedger      prometheus.Gauge
-
-	// TSS Transaction Status Metrics
-	tssTransactionCurrentStates *prometheus.GaugeVec
 
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
@@ -91,13 +79,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"operation_type"},
 	)
-	m.numTssTransactionsIngestedPerLedger = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "num_tss_transactions_ingested_per_ledger",
-			Help: "Number of tss transactions ingested per ledger",
-		},
-		[]string{"status"},
-	)
 	m.latestLedgerIngested = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "latest_ledger_ingested",
@@ -111,22 +92,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
 		},
 		[]string{"type"},
-	)
-
-	// TSS Service Metrics
-	m.numTSSTransactionsSubmitted = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "num_tss_transactions_submitted",
-			Help: "Total number of transactions submitted to TSS",
-		},
-	)
-	m.timeUntilTSSTransactionInclusion = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "tss_transaction_inclusion_time_seconds",
-			Help:       "Time from transaction submission to ledger inclusion (success or failure)",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"status"},
 	)
 
 	// Account Metrics
@@ -178,14 +143,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Name: "rpc_latest_ledger",
 			Help: "Latest ledger number reported by the RPC service",
 		},
-	)
-
-	m.tssTransactionCurrentStates = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "tss_transaction_current_states",
-			Help: "Current number of TSS transactions in each state",
-		},
-		[]string{"channel", "status"},
 	)
 
 	// HTTP Request Metrics
@@ -240,11 +197,8 @@ func (m *metricsService) registerMetrics() {
 	m.registry.MustRegister(
 		collector,
 		m.numPaymentOpsIngestedPerLedger,
-		m.numTssTransactionsIngestedPerLedger,
 		m.latestLedgerIngested,
 		m.ingestionDuration,
-		m.numTSSTransactionsSubmitted,
-		m.timeUntilTSSTransactionInclusion,
 		m.activeAccounts,
 		m.rpcRequestsTotal,
 		m.rpcRequestsDuration,
@@ -252,7 +206,6 @@ func (m *metricsService) registerMetrics() {
 		m.rpcEndpointSuccesses,
 		m.rpcServiceHealth,
 		m.rpcLatestLedger,
-		m.tssTransactionCurrentStates,
 		m.numRequestsTotal,
 		m.requestsDuration,
 		m.dbQueryDuration,
@@ -351,26 +304,12 @@ func (m *metricsService) SetNumPaymentOpsIngestedPerLedger(operationType string,
 	m.numPaymentOpsIngestedPerLedger.WithLabelValues(operationType).Set(float64(value))
 }
 
-func (m *metricsService) SetNumTssTransactionsIngestedPerLedger(status string, value float64) {
-	m.numTssTransactionsIngestedPerLedger.WithLabelValues(status).Set(value)
-}
-
 func (m *metricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)
 }
 
 func (m *metricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
 	m.ingestionDuration.WithLabelValues(ingestionType).Observe(duration)
-}
-
-// TSS Service Metrics
-func (m *metricsService) IncNumTSSTransactionsSubmitted() {
-	m.numTSSTransactionsSubmitted.Inc()
-}
-
-// ObserveTSSTransactionInclusionTime records the time taken for a transaction to be included in the ledger
-func (m *metricsService) ObserveTSSTransactionInclusionTime(status string, durationSeconds float64) {
-	m.timeUntilTSSTransactionInclusion.WithLabelValues(status).Observe(durationSeconds)
 }
 
 // Account Service Metrics
@@ -427,17 +366,6 @@ func (m *metricsService) ObserveDBQueryDuration(queryType, table string, duratio
 
 func (m *metricsService) IncDBQuery(queryType, table string) {
 	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
-}
-
-// TSS Transaction Status Metrics
-func (m *metricsService) RecordTSSTransactionStatusTransition(oldStatus, newStatus string) {
-	if oldStatus == newStatus {
-		return
-	}
-	if oldStatus != "" {
-		m.tssTransactionCurrentStates.WithLabelValues(oldStatus).Dec()
-	}
-	m.tssTransactionCurrentStates.WithLabelValues(newStatus).Inc()
 }
 
 // Signature Verification Metrics
