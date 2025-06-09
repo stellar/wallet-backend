@@ -1,12 +1,7 @@
 -- +migrate Up
 
-DROP INDEX IF EXISTS idx_tx_current_status;
-DROP INDEX IF EXISTS idx_claimed_until;
-DROP TABLE IF EXISTS tss_transactions;
-
-DROP INDEX IF EXISTS idx_original_transaction_hash;
-DROP INDEX IF EXISTS idx_last_updated;
-DROP TABLE IF EXISTS tss_transaction_submission_tries;
+DROP TABLE IF EXISTS tss_transactions CASCADE;
+DROP TABLE IF EXISTS tss_transaction_submission_tries CASCADE;
 
 -- +migrate Down
 
