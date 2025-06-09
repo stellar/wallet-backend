@@ -130,8 +130,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
-			startTime = time.Now()
-
 			// eagerly unlock channel accounts from txs
 			err = m.unlockChannelAccounts(ctx, ledgerTransactions)
 			if err != nil {
