@@ -23,9 +23,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/tss"
-	tssrouter "github.com/stellar/wallet-backend/internal/tss/router"
-	tssstore "github.com/stellar/wallet-backend/internal/tss/store"
 )
 
 const (
@@ -48,11 +45,8 @@ func TestGetLedgerTransactions(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
-	mockRouter := tssrouter.MockRouter{}
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockChAccStore, mockMetricsService)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockMetricsService)
 	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
@@ -136,81 +130,6 @@ func TestGetLedgerTransactions(t *testing.T) {
 	})
 }
 
-func TestProcessTSSTransactions(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
-	mockRouter := tssrouter.MockRouter{}
-	mockChAccStore := &store.ChannelAccountStoreMock{}
-	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockChAccStore, mockMetricsService)
-	require.NoError(t, err)
-
-	t.Run("routes_to_tss_router", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transactions").Times(2)
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "tss_transaction_submission_tries").Times(2)
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transaction_submission_tries", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transaction_submission_tries").Times(2)
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "tss_transactions", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "SELECT", "tss_transactions").Times(2)
-		mockMetricsService.On("RecordTSSTransactionStatusTransition", "NEW", "SUCCESS").Once()
-		mockMetricsService.On("ObserveTSSTransactionInclusionTime", "SUCCESS", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("SetNumTssTransactionsIngestedPerLedger", "SUCCESS", float64(1)).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(int64(1), nil).Once()
-
-		transactions := []entities.Transaction{
-			{
-				Status:              entities.SuccessStatus,
-				Hash:                testFeeBumpTxHash,
-				ApplicationOrder:    1,
-				FeeBump:             true,
-				EnvelopeXDR:         testFeeBumpTxXDR,
-				ResultXDR:           "AAAAAAAAAMj////9AAAAAA==",
-				ResultMetaXDR:       "meta",
-				Ledger:              123456,
-				DiagnosticEventsXDR: []string{"diag"},
-				CreatedAt:           1695939098,
-			},
-		}
-
-		err = tssStore.UpsertTransaction(context.Background(), "localhost:8000/webhook", testInnerTxHash, testFeeBumpTxXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus})
-		require.NoError(t, err)
-		err = tssStore.UpsertTry(context.Background(), testInnerTxHash, testFeeBumpTxHash, testFeeBumpTxXDR, tss.RPCTXStatus{OtherStatus: tss.NewStatus}, tss.RPCTXCode{OtherCodes: tss.NewCode}, "")
-		require.NoError(t, err)
-
-		mockRouter.
-			On("Route", mock.AnythingOfType("tss.Payload")).
-			Return(nil).
-			Once()
-
-		err = ingestService.processTSSTransactions(context.Background(), transactions)
-		assert.NoError(t, err)
-
-		updatedTX, err := tssStore.GetTransaction(context.Background(), testInnerTxHash)
-		require.NoError(t, err)
-		assert.Equal(t, string(entities.SuccessStatus), updatedTX.Status)
-		updatedTry, err := tssStore.GetTry(context.Background(), testFeeBumpTxHash)
-		require.NoError(t, err)
-		assert.Equal(t, "AAAAAAAAAMj////9AAAAAA==", updatedTry.ResultXDR)
-		assert.Equal(t, int32(xdr.TransactionResultCodeTxTooLate), updatedTry.Code)
-	})
-}
-
 func TestIngestPayments(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -224,11 +143,8 @@ func TestIngestPayments(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
-	mockRouter := tssrouter.MockRouter{}
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	tssStore, err := tssstore.NewStore(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, &mockRouter, tssStore, mockChAccStore, mockMetricsService)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockMetricsService)
 	require.NoError(t, err)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
