@@ -71,7 +71,7 @@ deadcode: ## Find unused code
 goimports: ## Check import formatting and organization
 	@echo "==> Checking imports..."
 	@command -v goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
-	@non_compliant_files=$$(find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/freighter-backend-v2" -l); \
+	@non_compliant_files=$$(find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -l); \
 	if [ -n "$$non_compliant_files" ]; then \
 		echo "🚨 The following files are not compliant with goimports:"; \
 		echo "$$non_compliant_files"; \
@@ -87,7 +87,7 @@ govulncheck: ## Check for known vulnerabilities
 
 check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulncheck ## Run all checks
 	@echo "✅ All checks completed successfully"
-	
+
 docker-build:
 	$(SUDO) docker build \
 		--file Dockerfile \
