@@ -28,11 +28,3 @@ func (t *TransactionServiceMock) BuildAndSignTransactionWithChannelAccount(ctx c
 	}
 	return nil, args.Error(1)
 }
-
-func (t *TransactionServiceMock) BuildFeeBumpTransaction(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.FeeBumpTransaction, error) {
-	args := t.Called(ctx, tx)
-	if result := args.Get(0); result != nil {
-		return result.(*txnbuild.FeeBumpTransaction), args.Error(1)
-	}
-	return nil, args.Error(1)
-}
