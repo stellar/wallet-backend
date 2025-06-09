@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing/store"
 )
 
 type Configs struct {
@@ -25,6 +26,7 @@ type Configs struct {
 	LogLevel         logrus.Level
 	AppTracker       apptracker.AppTracker
 	RPCURL           string
+	NetworkPassphrase             string
 }
 
 func Ingest(cfg Configs) error {
@@ -57,13 +59,14 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating models: %w", err)
 	}
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	rpcService, err := services.NewRPCService(cfg.RPCURL, httpClient, metricsService)
+	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

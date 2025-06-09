@@ -23,7 +23,7 @@ type ChannelAccountStore interface {
 	Get(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) (*ChannelAccount, error)
 	GetAllByPublicKey(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) ([]*ChannelAccount, error)
 	AssignTxToChannelAccount(ctx context.Context, publicKey string, txHash string) error
-	UnassignTxAndUnlockChannelAccount(ctx context.Context, txHash string) error
+	UnassignTxAndUnlockChannelAccounts(ctx context.Context, txHashes ...string) (int64, error)
 	BatchInsert(ctx context.Context, sqlExec db.SQLExecuter, channelAccounts []*ChannelAccount) error
 	Count(ctx context.Context) (int64, error)
 }
