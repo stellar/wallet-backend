@@ -11,18 +11,11 @@ const (
 	defaultExpiration = 24 * time.Hour
 )
 
-type ContractStore interface {
-	Set(ctx context.Context, contractID string, name string, symbol string) error
-	Name(ctx context.Context, contractID string) (string, error)
-	Symbol(ctx context.Context, contractID string) (string, error)
-	Exists(ctx context.Context, contractID string) (bool, error)
-}
-
 type contractStore struct {
-	redis *RedisStore
+	redis RedisClient
 }
 
-func NewContractStore(redis *RedisStore) ContractStore {
+func NewContractStore(redis RedisClient) ContractStore {
 	return &contractStore{
 		redis: redis,
 	}
