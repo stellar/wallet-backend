@@ -13,13 +13,12 @@ type RedisStore struct {
 	redis *redis.Client
 }
 
-func NewRedisStore(host string, port int, password string) *RedisStore {
+func NewRedisStore(host string, port int) *RedisStore {
 	addr := fmt.Sprintf("%s:%d", host, port)
 
 	return &RedisStore{
 		redis: redis.NewClient(&redis.Options{
 			Addr:     addr,
-			Password: password,
 		}),
 	}
 }

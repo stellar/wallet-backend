@@ -26,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	cache "github.com/stellar/wallet-backend/internal/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
@@ -38,6 +39,8 @@ type Configs struct {
 	Port                    int
 	DatabaseURL             string
 	ServerBaseURL           string
+	RedisHost               string
+	RedisPort               int
 	ClientAuthPublicKeys    []string
 	LogLevel                logrus.Level
 	EncryptionPassphrase    string
@@ -72,6 +75,10 @@ type handlerDeps struct {
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
 	TransactionService        txservices.TransactionService
+
+	// Cache
+	RedisStore *cache.RedisStore
+	ContractStore cache.ContractStore
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -183,6 +190,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
 	}
 
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort)
+	contractStore := cache.NewContractStore(redisStore)
+
 	return handlerDeps{
 		Models:                    models,
 		ServerHostname:            serverHostname.Hostname(),
@@ -195,6 +205,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		TransactionService:        txService,
+		RedisStore:                redisStore,
+		ContractStore:             contractStore,
 	}, nil
 }
 
