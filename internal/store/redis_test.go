@@ -22,7 +22,10 @@ func setupTestRedis(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	addr := mr.Addr()
 	parts := strings.Split(addr, ":")
 	host := parts[0]
-	port, _ := strconv.Atoi(parts[1])
+	port, err := strconv.Atoi(parts[1])
+	if err != nil {
+		t.Fatalf("Failed to parse port: %v", err)
+	}
 
 	store := NewRedisStore(host, port)
 

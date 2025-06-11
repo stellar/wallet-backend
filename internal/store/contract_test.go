@@ -42,7 +42,8 @@ func TestContractStore_Set(t *testing.T) {
 
 		err := store.Set(ctx, contractID, name, symbol)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Contains(t, err.Error(), "setting contract name")
 
 		mockRedis.AssertExpectations(t)
 	})
@@ -61,7 +62,8 @@ func TestContractStore_Set(t *testing.T) {
 
 		err := store.Set(ctx, contractID, name, symbol)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Contains(t, err.Error(), "setting contract symbol")
 
 		mockRedis.AssertExpectations(t)
 	})
@@ -97,7 +99,8 @@ func TestContractStore_Name(t *testing.T) {
 
 		name, err := store.Name(ctx, contractID)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Contains(t, err.Error(), "getting contract name")
 		assert.Empty(t, name)
 
 		mockRedis.AssertExpectations(t)
@@ -134,7 +137,8 @@ func TestContractStore_Symbol(t *testing.T) {
 
 		symbol, err := store.Symbol(ctx, contractID)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Contains(t, err.Error(), "getting contract symbol")
 		assert.Empty(t, symbol)
 
 		mockRedis.AssertExpectations(t)
@@ -185,7 +189,8 @@ func TestContractStore_Exists(t *testing.T) {
 
 		exists, err := store.Exists(ctx, contractID)
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Contains(t, err.Error(), "checking contract existence")
 		assert.False(t, exists)
 
 		mockRedis.AssertExpectations(t)
