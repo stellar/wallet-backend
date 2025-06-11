@@ -15,8 +15,6 @@ CREATE TABLE state_changes (
     amount TEXT,
     claimable_balance_id TEXT,
     contract_id TEXT,
-    contract_invocation JSONB,
-    contract_sub_invocations JSONB,
     flags JSONB,
     key_value JSONB,
     offer_id TEXT,

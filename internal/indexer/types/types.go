@@ -131,11 +131,9 @@ type StateChange struct {
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	TargetAccountID    sql.NullString `json:"targetAccountId,omitempty" db:"target_account_id"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
-	Thresholds             NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
-	ContractInvocation     NullableJSONB `json:"contractInvocation,omitempty" db:"contract_invocation"`
-	ContractSubInvocations NullableJSONB `json:"contractSubInvocations,omitempty" db:"contract_sub_invocations"`
-	Flags                  NullableJSONB `json:"flags,omitempty" db:"flags"`
-	KeyValue               NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+	Thresholds NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
+	Flags      NullableJSONB `json:"flags,omitempty" db:"flags"`
+	KeyValue   NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty" db:"account"`
