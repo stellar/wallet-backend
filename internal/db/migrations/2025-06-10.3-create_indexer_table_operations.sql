@@ -19,10 +19,8 @@ CREATE TABLE operations_accounts (
     operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
     account_id TEXT NOT NULL REFERENCES accounts(stellar_address) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (operation_id, account_id)
+    PRIMARY KEY (account_id, operation_id)
 );
-
-CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id);
 
 -- +migrate Down
 
