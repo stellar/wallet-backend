@@ -56,14 +56,6 @@ func (r *RedisStore) HSet(ctx context.Context, key string, field string, value i
 	return nil
 }
 
-func (r *RedisStore) HGetAll(ctx context.Context, key string) (map[string]string, error) {
-	val, err := r.redis.HGetAll(ctx, key).Result()
-	if err != nil {
-		return nil, fmt.Errorf("getting all hash fields from key %s: %w", key, err)
-	}
-	return val, nil
-}
-
 func (r *RedisStore) Delete(ctx context.Context, keys ...string) error {
 	if err := r.redis.Del(ctx, keys...).Err(); err != nil {
 		return fmt.Errorf("deleting keys: %w", err)

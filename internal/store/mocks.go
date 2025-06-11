@@ -21,14 +21,6 @@ func (m *MockRedisClient) HSet(ctx context.Context, key string, field string, va
 	return args.Error(0)
 }
 
-func (m *MockRedisClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
-	args := m.Called(ctx, key)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(map[string]string), args.Error(1)
-}
-
 func (m *MockRedisClient) Delete(ctx context.Context, keys ...string) error {
 	args := m.Called(ctx, keys)
 	return args.Error(0)

@@ -106,42 +106,6 @@ func TestRedisStore_HSet_HGet(t *testing.T) {
 	})
 }
 
-func TestRedisStore_HGetAll(t *testing.T) {
-	store, _ := setupTestRedis(t)
-	defer store.Close()
-
-	ctx := context.Background()
-
-	t.Run("get_all_fields", func(t *testing.T) {
-		key := "test:hash"
-
-		// Set multiple fields
-		err := store.HSet(ctx, key, "field1", "value1", 0)
-		require.NoError(t, err)
-		err = store.HSet(ctx, key, "field2", "value2", 0)
-		require.NoError(t, err)
-		err = store.HSet(ctx, key, "field3", "value3", 0)
-		require.NoError(t, err)
-
-		// Get all fields
-		result, err := store.HGetAll(ctx, key)
-		require.NoError(t, err)
-
-		expected := map[string]string{
-			"field1": "value1",
-			"field2": "value2",
-			"field3": "value3",
-		}
-		assert.Equal(t, expected, result)
-	})
-
-	t.Run("get_all_non_existent_key", func(t *testing.T) {
-		result, err := store.HGetAll(ctx, "non:existent:key")
-		require.NoError(t, err)
-		assert.Empty(t, result)
-	})
-}
-
 func TestRedisStore_Delete(t *testing.T) {
 	store, _ := setupTestRedis(t)
 	defer store.Close()

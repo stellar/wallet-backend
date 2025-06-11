@@ -9,7 +9,6 @@ import (
 type RedisClient interface {
 	HGet(ctx context.Context, key string, field string) (string, error)
 	HSet(ctx context.Context, key string, field string, value interface{}, expiration time.Duration) error
-	HGetAll(ctx context.Context, key string) (map[string]string, error)
 	Delete(ctx context.Context, keys ...string) error
 	Exists(ctx context.Context, keys ...string) (int64, error)
 }
