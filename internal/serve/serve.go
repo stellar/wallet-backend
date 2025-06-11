@@ -26,8 +26,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	cache "github.com/stellar/wallet-backend/internal/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	cache "github.com/stellar/wallet-backend/internal/store"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -77,7 +77,7 @@ type handlerDeps struct {
 	TransactionService        txservices.TransactionService
 
 	// Cache
-	RedisStore *cache.RedisStore
+	RedisStore    *cache.RedisStore
 	ContractStore cache.ContractStore
 	// Error Tracker
 	AppTracker apptracker.AppTracker

@@ -71,7 +71,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	contractStore := cache.NewContractStore(redisStore)
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore,metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

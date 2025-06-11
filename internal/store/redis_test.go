@@ -17,15 +17,15 @@ import (
 // setupTestRedis creates a new miniredis instance and returns a RedisStore connected to it
 func setupTestRedis(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	mr := miniredis.RunT(t)
-	
+
 	// Extract host and port from the address
 	addr := mr.Addr()
 	parts := strings.Split(addr, ":")
 	host := parts[0]
 	port, _ := strconv.Atoi(parts[1])
-	
+
 	store := NewRedisStore(host, port)
-	
+
 	return store, mr
 }
 
@@ -48,7 +48,7 @@ func TestRedisStore_GetHealth(t *testing.T) {
 		health, err := store.GetHealth(ctx)
 		assert.Error(t, err)
 		assert.Equal(t, entities.HealthResponse{Status: entities.Error}, health)
-		
+
 		store.Close()
 	})
 }
@@ -111,7 +111,7 @@ func TestRedisStore_HGetAll(t *testing.T) {
 
 	t.Run("get_all_fields", func(t *testing.T) {
 		key := "test:hash"
-		
+
 		// Set multiple fields
 		err := store.HSet(ctx, key, "field1", "value1", 0)
 		require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestRedisStore_HGetAll(t *testing.T) {
 		// Get all fields
 		result, err := store.HGetAll(ctx, key)
 		require.NoError(t, err)
-		
+
 		expected := map[string]string{
 			"field1": "value1",
 			"field2": "value2",
@@ -147,7 +147,7 @@ func TestRedisStore_Delete(t *testing.T) {
 
 	t.Run("delete_single_key", func(t *testing.T) {
 		key := "test:delete"
-		
+
 		// Set a value
 		err := store.HSet(ctx, key, "field", "value", 0)
 		require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestRedisStore_Delete(t *testing.T) {
 
 	t.Run("delete_multiple_keys", func(t *testing.T) {
 		keys := []string{"test:key1", "test:key2", "test:key3"}
-		
+
 		// Set values for all keys
 		for _, key := range keys {
 			err := store.HSet(ctx, key, "field", "value", 0)
@@ -201,7 +201,7 @@ func TestRedisStore_Exists(t *testing.T) {
 
 	t.Run("single_key_exists", func(t *testing.T) {
 		key := "test:exists"
-		
+
 		// Set a value
 		err := store.HSet(ctx, key, "field", "value", 0)
 		require.NoError(t, err)

@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
-	"time"
 	"github.com/redis/go-redis/v9"
+	"time"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 )
@@ -18,7 +18,7 @@ func NewRedisStore(host string, port int) *RedisStore {
 
 	return &RedisStore{
 		redis: redis.NewClient(&redis.Options{
-			Addr:     addr,
+			Addr: addr,
 		}),
 	}
 }

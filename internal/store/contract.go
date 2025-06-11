@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	contractNameKey = "name"
+	contractNameKey   = "name"
 	contractSymbolKey = "symbol"
 	defaultExpiration = 24 * time.Hour
 )
