@@ -51,7 +51,7 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	r.Post("/accounts/{address}", handler.RegisterAccount)
 
 	clearAccounts := func(ctx context.Context) {
-		_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE accounts")
+		_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE accounts CASCADE")
 		require.NoError(t, err)
 	}
 
