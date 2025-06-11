@@ -11,7 +11,7 @@ CREATE TABLE state_changes (
     account_id TEXT NOT NULL REFERENCES accounts(stellar_address),
     operation_id TEXT NOT NULL REFERENCES operations(id),
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
-    asset TEXT,
+    token TEXT,
     amount TEXT,
     claimable_balance_id TEXT,
     contract_id TEXT,
@@ -34,7 +34,7 @@ CREATE INDEX idx_state_changes_state_change_category ON state_changes(state_chan
 CREATE INDEX idx_state_changes_state_change_reason ON state_changes(state_change_reason);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
 CREATE INDEX idx_state_changes_ledger_number ON state_changes(ledger_number);
-CREATE INDEX idx_state_changes_asset ON state_changes(asset);
+CREATE INDEX idx_state_changes_token ON state_changes(token);
 CREATE INDEX idx_state_changes_contract_id ON state_changes(contract_id);
 
 
