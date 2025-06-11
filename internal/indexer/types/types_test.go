@@ -1,33 +1,5 @@
 package types
 
-// type NullableJSONB map[string]any
-
-// var _ sql.Scanner = (*NullableJSONB)(nil)
-
-// func (n *NullableJSONB) Scan(value any) error {
-// 	if value == nil {
-// 		*n = nil
-// 		return nil
-// 	}
-
-// 	if err := json.Unmarshal(value.([]byte), n); err != nil {
-// 		return fmt.Errorf("unmarshalling JSONB: %w", err)
-// 	}
-
-// 	return nil
-// }
-
-// var _ driver.Valuer = (*NullableJSONB)(nil)
-
-// func (n NullableJSONB) Value() (driver.Value, error) {
-// 	bytes, err := json.Marshal(n)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("marshalling JSONB: %w", err)
-// 	}
-
-// 	return bytes, nil
-// }
-
 import (
 	"database/sql/driver"
 	"testing"
