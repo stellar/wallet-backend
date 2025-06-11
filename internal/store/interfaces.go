@@ -13,7 +13,7 @@ type RedisClient interface {
 	Exists(ctx context.Context, keys ...string) (int64, error)
 }
 
-// ContractStore defines the interface for contract-related operations
+// ContractStore defines the interface for interactions with the contract ID cache
 type ContractStore interface {
 	Set(ctx context.Context, contractID string, name string, symbol string) error
 	Name(ctx context.Context, contractID string) (string, error)
