@@ -19,6 +19,10 @@ type Transaction struct {
 	LedgerNumber      int64     `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt   time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt        time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Relationships:
+	Operations   []Operation   `json:"operations,omitempty" db:"operations"`
+	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
+	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
 }
 
 type OperationType string
@@ -55,11 +59,15 @@ const (
 
 type Operation struct {
 	ID              string        `json:"id,omitempty" db:"id"`
-	TxHash          string        `json:"txHash,omitempty" db:"tx_hash"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// Relationships:
+	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
+	Transaction  *Transaction  `json:"transaction,omitempty" db:"transaction"`
+	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
+	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
 }
 
 type StateChangeCategory string
@@ -110,9 +118,6 @@ type StateChange struct {
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        int64               `json:"ledgerNumber,omitempty" db:"ledger_number"`
-	AccountID           string              `json:"accountId,omitempty" db:"account_id"`
-	OperationID         string              `json:"operationId,omitempty" db:"operation_id"`
-	TxHash              string              `json:"txHash,omitempty" db:"tx_hash"`
 	// Nullable fields:
 	Asset              sql.NullString `json:"asset,omitempty" db:"asset"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
@@ -129,4 +134,11 @@ type StateChange struct {
 	ContractSubInvocations sql.NullString `json:"contractSubInvocations,omitempty" db:"contract_sub_invocations"`
 	Flags                  sql.NullString `json:"flags,omitempty" db:"flags"`
 	KeyValue               sql.NullString `json:"keyValue,omitempty" db:"key_value"`
+	// Relationships:
+	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	Account     *Account     `json:"account,omitempty" db:"account"`
+	OperationID string       `json:"operationId,omitempty" db:"operation_id"`
+	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
+	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
+	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
 }
