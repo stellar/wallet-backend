@@ -2,6 +2,8 @@ package types
 
 import (
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"time"
 )
 
@@ -129,11 +131,11 @@ type StateChange struct {
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	TargetAccountID    sql.NullString `json:"targetAccountId,omitempty" db:"target_account_id"`
 	Thresholds         sql.NullString `json:"thresholds,omitempty" db:"thresholds"`
-	// Nullable JSONB fields:
-	ContractInvocation     sql.NullString `json:"contractInvocation,omitempty" db:"contract_invocation"`
-	ContractSubInvocations sql.NullString `json:"contractSubInvocations,omitempty" db:"contract_sub_invocations"`
-	Flags                  sql.NullString `json:"flags,omitempty" db:"flags"`
-	KeyValue               sql.NullString `json:"keyValue,omitempty" db:"key_value"`
+	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
+	ContractInvocation     NullableJSONB `json:"contractInvocation,omitempty" db:"contract_invocation"`
+	ContractSubInvocations NullableJSONB `json:"contractSubInvocations,omitempty" db:"contract_sub_invocations"`
+	Flags                  NullableJSONB `json:"flags,omitempty" db:"flags"`
+	KeyValue               NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty" db:"account"`
@@ -142,3 +144,22 @@ type StateChange struct {
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
 }
+
+type NullableJSONB map[string]any
+
+var _ sql.Scanner = (*NullableJSONB)(nil)
+
+func (n *NullableJSONB) Scan(value interface{}) error {
+	if value == nil {
+		*n = nil
+		return nil
+	}
+
+	return json.Unmarshal(value.([]byte), n)
+}
+
+func (n NullableJSONB) Value() (driver.Value, error) {
+	return json.Marshal(n)
+}
+
+var _ driver.Valuer = (*NullableJSONB)(nil)
