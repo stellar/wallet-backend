@@ -18,7 +18,7 @@ CREATE TABLE state_changes (
     contract_invocation JSONB,
     contract_sub_invocations JSONB,
     flags JSONB,
-    keyvalue JSONB,
+    key_value JSONB,
     offer_id TEXT,
     signer_account_id TEXT,
     signer_weight INTEGER,
