@@ -36,8 +36,6 @@ CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created
 CREATE INDEX idx_state_changes_ledger_number ON state_changes(ledger_number);
 CREATE INDEX idx_state_changes_asset ON state_changes(asset);
 CREATE INDEX idx_state_changes_contract_id ON state_changes(contract_id);
-CREATE INDEX idx_state_changes_claimable_balance_id ON state_changes(claimable_balance_id);
-CREATE INDEX idx_state_changes_offer_id ON state_changes(offer_id);
 
 
 -- +migrate Down

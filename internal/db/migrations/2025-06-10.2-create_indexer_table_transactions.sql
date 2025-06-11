@@ -14,7 +14,6 @@ CREATE TABLE transactions (
 
 CREATE INDEX idx_transactions_ledger_number ON transactions(ledger_number);
 CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_at);
-CREATE INDEX idx_transactions_ingested_at ON transactions(ingested_at);
 
 -- Table: transactions_accounts
 CREATE TABLE transactions_accounts (
