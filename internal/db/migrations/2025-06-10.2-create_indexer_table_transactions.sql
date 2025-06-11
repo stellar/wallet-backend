@@ -6,7 +6,6 @@ CREATE TABLE transactions (
     envelope_xdr TEXT,
     result_xdr TEXT,
     meta_xdr TEXT,
-    fee_charged_stroops INTEGER,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

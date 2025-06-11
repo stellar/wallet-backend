@@ -14,14 +14,13 @@ type Account struct {
 }
 
 type Transaction struct {
-	Hash              string    `json:"hash,omitempty" db:"hash"`
-	EnvelopeXDR       string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
-	ResultXDR         string    `json:"resultXdr,omitempty" db:"result_xdr"`
-	MetaXDR           string    `json:"metaXdr,omitempty" db:"meta_xdr"`
-	FeeChargedStroops int64     `json:"feeChargedStroops,omitempty" db:"fee_charged_stroops"`
-	LedgerNumber      int64     `json:"ledgerNumber,omitempty" db:"ledger_number"`
-	LedgerCreatedAt   time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	IngestedAt        time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
+	Hash            string    `json:"hash,omitempty" db:"hash"`
+	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
+	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
+	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
+	LedgerNumber    int64     `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
+	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty" db:"operations"`
 	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
