@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -55,7 +56,7 @@ const (
 	OperationTypeLiquidityPoolDeposit          OperationType = "LIQUIDITY_POOL_DEPOSIT"
 	OperationTypeLiquidityPoolWithdraw         OperationType = "LIQUIDITY_POOL_WITHDRAW"
 	OperationTypeInvokeHostFunction            OperationType = "INVOKE_HOST_FUNCTION"
-	OperationTypeExtendFootprintTtl            OperationType = "EXTEND_FOOTPRINT_TTL"
+	OperationTypeExtendFootprintTTL            OperationType = "EXTEND_FOOTPRINT_TTL"
 	OperationTypeRestoreFootprint              OperationType = "RESTORE_FOOTPRINT"
 )
 
@@ -149,17 +150,26 @@ type NullableJSONB map[string]any
 
 var _ sql.Scanner = (*NullableJSONB)(nil)
 
-func (n *NullableJSONB) Scan(value interface{}) error {
+func (n *NullableJSONB) Scan(value any) error {
 	if value == nil {
 		*n = nil
 		return nil
 	}
 
-	return json.Unmarshal(value.([]byte), n)
-}
+	if err := json.Unmarshal(value.([]byte), n); err != nil {
+		return fmt.Errorf("unmarshalling JSONB: %w", err)
+	}
 
-func (n NullableJSONB) Value() (driver.Value, error) {
-	return json.Marshal(n)
+	return nil
 }
 
 var _ driver.Valuer = (*NullableJSONB)(nil)
+
+func (n NullableJSONB) Value() (driver.Value, error) {
+	bytes, err := json.Marshal(n)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling JSONB: %w", err)
+	}
+
+	return bytes, nil
+}
