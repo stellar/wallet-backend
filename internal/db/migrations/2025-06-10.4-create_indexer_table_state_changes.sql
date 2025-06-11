@@ -30,12 +30,7 @@ CREATE TABLE state_changes (
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
 CREATE INDEX idx_state_changes_tx_hash ON state_changes(tx_hash);
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
-CREATE INDEX idx_state_changes_state_change_category ON state_changes(state_change_category);
-CREATE INDEX idx_state_changes_state_change_reason ON state_changes(state_change_reason);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
-CREATE INDEX idx_state_changes_ledger_number ON state_changes(ledger_number);
-CREATE INDEX idx_state_changes_token ON state_changes(token);
-CREATE INDEX idx_state_changes_contract_id ON state_changes(contract_id);
 
 
 -- +migrate Down
