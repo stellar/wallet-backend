@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+type Account struct {
+	StellarAddress string    `json:"stellarAddress,omitempty" db:"stellar_address"`
+	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
+}
+
 type Transaction struct {
 	Hash              string    `json:"hash,omitempty" db:"hash"`
 	EnvelopeXDR       string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
