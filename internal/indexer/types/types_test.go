@@ -33,7 +33,7 @@ func TestNullableJSONB_Scan(t *testing.T) {
 			name:            "🔴invalid JSON",
 			input:           []byte(`{"key": "value"`), // missing closing brace
 			want:            nil,
-			wantErrContains: "unmarshalling JSONB",
+			wantErrContains: "unmarshalling value []byte",
 		},
 	}
 

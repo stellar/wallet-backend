@@ -4,7 +4,7 @@
 CREATE TABLE state_changes (
     id TEXT PRIMARY KEY,
     state_change_category TEXT NOT NULL,
-    state_change_reason TEXT NOT NULL,
+    state_change_reason TEXT,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,

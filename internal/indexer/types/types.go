@@ -131,8 +131,8 @@ type StateChange struct {
 	SignerWeight       sql.NullInt64  `json:"signerWeight,omitempty" db:"signer_weight"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	TargetAccountID    sql.NullString `json:"targetAccountId,omitempty" db:"target_account_id"`
-	Thresholds         sql.NullString `json:"thresholds,omitempty" db:"thresholds"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
+	Thresholds             NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
 	ContractInvocation     NullableJSONB `json:"contractInvocation,omitempty" db:"contract_invocation"`
 	ContractSubInvocations NullableJSONB `json:"contractSubInvocations,omitempty" db:"contract_sub_invocations"`
 	Flags                  NullableJSONB `json:"flags,omitempty" db:"flags"`
@@ -156,8 +156,17 @@ func (n *NullableJSONB) Scan(value any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(value.([]byte), n); err != nil {
-		return fmt.Errorf("unmarshalling JSONB: %w", err)
+	switch v := value.(type) {
+	case []byte:
+		if err := json.Unmarshal(v, n); err != nil {
+			return fmt.Errorf("unmarshalling value []byte: %w", err)
+		}
+	case string:
+		if err := json.Unmarshal([]byte(v), n); err != nil {
+			return fmt.Errorf("unmarshalling value string: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported type for JSONB: %T", value)
 	}
 
 	return nil
