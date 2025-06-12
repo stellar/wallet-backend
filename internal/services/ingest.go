@@ -20,6 +20,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const advisoryLockID = int(3747555612780983)
+
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	paymentPrometheusLabel                  = "payment"
@@ -81,6 +83,19 @@ func NewIngestService(
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.Payments.DB, advisoryLockID); err != nil {
+		return fmt.Errorf("acquiring advisory lock: %w", err)
+	} else if !lockAcquired {
+		return fmt.Errorf("advisory lock not acquired")
+	}
+	defer func() {
+		if err := db.ReleaseAdvisoryLock(ctx, m.models.Payments.DB, advisoryLockID); err != nil {
+			err = fmt.Errorf("releasing advisory lock: %w", err)
+			log.Ctx(ctx).Error(err)
+		}
+	}()
+
 	manualTriggerChannel := make(chan any, 1)
 	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
 	ingestHeartbeatChannel := make(chan any, 1)
