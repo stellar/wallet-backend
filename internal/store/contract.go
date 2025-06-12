@@ -13,7 +13,7 @@ import (
 const (
 	contractNameKey   = "name"
 	contractSymbolKey = "symbol"
-	defaultExpiration = 24 * time.Hour
+	defaultExpiration = 7 * 24 * time.Hour
 )
 
 type contractStore struct {
