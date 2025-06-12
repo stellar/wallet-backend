@@ -82,6 +82,31 @@ func NewIngestService(
 	}, nil
 }
 
+type LedgerSeqRange struct {
+	Start uint32
+	End   uint32
+}
+
+const maxLedgerWindow = 1 // NOTE: cannot be larger than 200
+
+// getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
+// - the ledgers available in the RPC,
+// - the latest ledger synced by the ingestion service,
+// - the max ledger window to ingest.
+//
+// The returned ledger sequence range is inclusive of the start and end ledgers.
+func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (LedgerSeqRange, bool) {
+	if latestLedgerSynced >= rpcNewestLedger {
+		return LedgerSeqRange{}, true
+	}
+
+	var ledgerRange LedgerSeqRange
+	ledgerRange.Start = max(latestLedgerSynced+1, rpcOldestLedger)
+	ledgerRange.End = min(ledgerRange.Start+maxLedgerWindow, rpcNewestLedger)
+
+	return ledgerRange, false
+}
+
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {

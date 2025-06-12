@@ -32,6 +32,75 @@ const (
 	testFeeBumpTxXDR  = "AAAABQAAAACRDhlb19H9O6EVQnLPSBX5kH4+ycO03nl6OOK1drSinwAAAAAAAAGQAAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQsAAAAAAAAAAXa0op8AAABADjCsmF/xr9jXwNStUM7YqXEd49qfbvGZPJPplANW7aiErkHWxEj6C2RVOyPyK8KBr1fjCleBSmDZjD1X0kkJCQ=="
 )
 
+func Test_getLedgerSeqRange(t *testing.T) {
+	testCases := []struct {
+		name               string
+		latestLedgerSynced uint32
+		rpcOldestLedger    uint32
+		rpcNewestLedger    uint32
+		wantInSync         bool
+		wantResult         LedgerSeqRange
+	}{
+		{
+			name:               "latest_synced_behind_rpc_oldest",
+			latestLedgerSynced: 5,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 10,
+				End:   10 + maxLedgerWindow,
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_oldest",
+			latestLedgerSynced: 10,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 11,
+				End:   11 + maxLedgerWindow,
+			},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_oldest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 15,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 16,
+				End:   16 + maxLedgerWindow,
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 20,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 25,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ledgerRange, inSync := getLedgerSeqRange(tc.rpcOldestLedger, tc.rpcNewestLedger, tc.latestLedgerSynced)
+			assert.Equal(t, tc.wantResult, ledgerRange)
+			assert.Equal(t, tc.wantInSync, inSync)
+		})
+	}
+}
+
 func TestGetLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
