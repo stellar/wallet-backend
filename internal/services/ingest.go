@@ -84,13 +84,13 @@ func NewIngestService(
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.Payments.DB, advisoryLockID); err != nil {
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
 		return fmt.Errorf("acquiring advisory lock: %w", err)
 	} else if !lockAcquired {
 		return fmt.Errorf("advisory lock not acquired")
 	}
 	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.Payments.DB, advisoryLockID); err != nil {
+		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
@@ -194,7 +194,7 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 }
 
 func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
-	err := db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
+	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		paymentOpsIngested := 0
 		pathPaymentStrictSendOpsIngested := 0
 		pathPaymentStrictReceiveOpsIngested := 0
