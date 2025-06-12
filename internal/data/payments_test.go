@@ -148,65 +148,6 @@ func TestPaymentModelAddPayment(t *testing.T) {
 	})
 }
 
-func TestPaymentModelGetLatestLedgerSynced(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.Anything).Return().Times(2)
-	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Return().Times(2)
-	defer mockMetricsService.AssertExpectations(t)
-
-	ctx := context.Background()
-	m := &PaymentModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
-	const key = "ingest_store_key"
-	lastSyncedLedger, err := m.GetLatestLedgerSynced(ctx, key)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(0), lastSyncedLedger)
-
-	_, err = dbConnectionPool.ExecContext(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, $2)`, key, 123)
-	require.NoError(t, err)
-
-	lastSyncedLedger, err = m.GetLatestLedgerSynced(ctx, key)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(123), lastSyncedLedger)
-}
-
-func TestPaymentModelUpdateLatestLedgerSynced(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.Anything).Return().Times(1)
-	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_store").Return().Times(1)
-	defer mockMetricsService.AssertExpectations(t)
-
-	ctx := context.Background()
-	m := &PaymentModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
-	const key = "ingest_store_key"
-	err = m.UpdateLatestLedgerSynced(ctx, key, 123)
-	require.NoError(t, err)
-
-	var lastSyncedLedger uint32
-	err = m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, key)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(123), lastSyncedLedger)
-}
-
 func TestPaymentModelGetPaymentsPaginated(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

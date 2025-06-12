@@ -104,7 +104,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	if startLedger == 0 {
 		var err error
-		startLedger, err = m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
+		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
 			return fmt.Errorf("erorr getting start ledger: %w", err)
 		}
@@ -152,7 +152,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 
 			// update cursor
-			err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
+			err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
 			if err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
