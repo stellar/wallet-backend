@@ -86,7 +86,7 @@ func TestMemoryContractStore_Name(t *testing.T) {
 
 		name, err := store.Name(ctx, contractID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "getting contract name: contract not found")
+		assert.Contains(t, err.Error(), "getting contract data: contract not found")
 		assert.Empty(t, name)
 	})
 }
@@ -116,7 +116,7 @@ func TestMemoryContractStore_Symbol(t *testing.T) {
 
 		symbol, err := store.Symbol(ctx, contractID)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "getting contract symbol: contract not found")
+		assert.Contains(t, err.Error(), "getting contract data: contract not found")
 		assert.Empty(t, symbol)
 	})
 }
