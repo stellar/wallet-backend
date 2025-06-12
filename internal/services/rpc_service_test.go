@@ -36,6 +36,75 @@ func (e *errorReader) Close() error {
 	return nil
 }
 
+func Test_rpcService_NewRPCService(t *testing.T) {
+	testCases := []struct {
+		name              string
+		rpcURL            string
+		networkPassphrase string
+		httpClient        utils.HTTPClient
+		metricsService    metrics.MetricsService
+		wantErrContains   string
+		wantResult        *rpcService
+	}{
+		{
+			name:            "🔴rpcURL_is_empty",
+			rpcURL:          "",
+			wantErrContains: "rpcURL is required",
+		},
+		{
+			name:              "🔴networkPassphrase_is_empty",
+			rpcURL:            "https://soroban-testnet.stellar.org",
+			networkPassphrase: "",
+			wantErrContains:   "networkPassphrase is required",
+		},
+		{
+			name:              "🔴httpClient_is_nil",
+			rpcURL:            "https://soroban-testnet.stellar.org",
+			networkPassphrase: "Test SDF Network ; September 2015",
+			httpClient:        nil,
+			wantErrContains:   "httpClient is required",
+		},
+		{
+			name:              "🔴httpClient_is_nil",
+			rpcURL:            "https://soroban-testnet.stellar.org",
+			networkPassphrase: "Test SDF Network ; September 2015",
+			httpClient:        &http.Client{Timeout: time.Duration(30 * time.Second)},
+			wantErrContains:   "metricsService is required",
+		},
+		{
+			name:              "🟢successful",
+			rpcURL:            "https://soroban-testnet.stellar.org",
+			networkPassphrase: "Test SDF Network ; September 2015",
+			httpClient:        &http.Client{Timeout: time.Duration(30 * time.Second)},
+			metricsService:    metrics.NewMockMetricsService(),
+			wantResult: &rpcService{
+				rpcURL:                     "https://soroban-testnet.stellar.org",
+				networkPassphrase:          "Test SDF Network ; September 2015",
+				httpClient:                 &http.Client{Timeout: time.Duration(30 * time.Second)},
+				healthCheckWarningInterval: defaultHealthCheckWarningInterval,
+				healthCheckTickInterval:    defaultHealthCheckTickInterval,
+				metricsService:             metrics.NewMockMetricsService(),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rpcService, err := NewRPCService(tc.rpcURL, tc.networkPassphrase, tc.httpClient, tc.metricsService)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Nil(t, rpcService)
+			} else {
+				assert.NoError(t, err)
+				require.Equal(t, cap(rpcService.heartbeatChannel), 1)
+				require.Equal(t, len(rpcService.heartbeatChannel), 0)
+				tc.wantResult.heartbeatChannel = rpcService.heartbeatChannel
+				assert.Equal(t, tc.wantResult, rpcService)
+			}
+		})
+	}
+}
+
 func TestSendRPCRequest(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
