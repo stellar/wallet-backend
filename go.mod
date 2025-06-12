@@ -22,6 +22,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stellar/go v0.0.0-20250417130535-10df2019148f
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2
+	github.com/stellar/stellar-rpc v0.9.6-0.20250523162628-6bb9d7a387d5
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/term v0.31.0
 	golang.org/x/text v0.24.0

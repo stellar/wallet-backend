@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -152,6 +153,26 @@ func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntri
 	if err != nil {
 		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
 	}
+	return result, nil
+}
+
+func (r *rpcService) GetLedgers(startLedger int64, limit int) (protocol.GetLedgersResponse, error) {
+	resultBytes, err := r.sendRPCRequest("getLedgers", entities.RPCParams{
+		StartLedger: startLedger,
+		Pagination: entities.RPCPagination{
+			Limit: limit,
+		},
+	})
+	if err != nil {
+		return protocol.GetLedgersResponse{}, fmt.Errorf("sending getLedgers request: %w", err)
+	}
+
+	var result protocol.GetLedgersResponse
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return protocol.GetLedgersResponse{}, fmt.Errorf("parsing getLedgers result JSON: %w", err)
+	}
+
 	return result, nil
 }
 
