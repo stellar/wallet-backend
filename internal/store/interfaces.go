@@ -2,16 +2,7 @@ package store
 
 import (
 	"context"
-	"time"
 )
-
-// RedisClient defines the interface for Redis operations
-type RedisClient interface {
-	HGet(ctx context.Context, key string, field string) (string, error)
-	HSet(ctx context.Context, key string, field string, value interface{}, expiration time.Duration) error
-	Delete(ctx context.Context, keys ...string) error
-	Exists(ctx context.Context, keys ...string) (int64, error)
-}
 
 // ContractStore defines the interface for interactions with the contract ID cache
 type ContractStore interface {

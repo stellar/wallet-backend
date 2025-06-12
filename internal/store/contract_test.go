@@ -1,198 +1,187 @@
+// Package store provides storage interfaces and implementations for wallet-backend.
+// This file contains tests for the in-memory contract store implementation.
 package store
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestContractStore_Set(t *testing.T) {
+func TestMemoryContractStore_Set(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+		store := NewContractStore()
 
 		contractID := "CONTRACT123"
 		name := "Test Token"
 		symbol := "TEST"
-
-		mockRedis.On("HSet", ctx, contractID, contractNameKey, name, defaultExpiration).Return(nil).Once()
-		mockRedis.On("HSet", ctx, contractID, contractSymbolKey, symbol, defaultExpiration).Return(nil).Once()
 
 		err := store.Set(ctx, contractID, name, symbol)
 		require.NoError(t, err)
 
-		mockRedis.AssertExpectations(t)
+		// Verify the data was stored correctly
+		storedName, err := store.Name(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, name, storedName)
+
+		storedSymbol, err := store.Symbol(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, symbol, storedSymbol)
 	})
 
-	t.Run("error_setting_name", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+	t.Run("overwrite existing values", func(t *testing.T) {
+		store := NewContractStore()
 
 		contractID := "CONTRACT123"
-		name := "Test Token"
-		symbol := "TEST"
-		expectedErr := errors.New("redis error")
+		name1 := "Test Token"
+		symbol1 := "TEST"
+		name2 := "Updated Token"
+		symbol2 := "UPDT"
 
-		mockRedis.On("HSet", ctx, contractID, contractNameKey, name, defaultExpiration).Return(expectedErr).Once()
+		// Set initial values
+		err := store.Set(ctx, contractID, name1, symbol1)
+		require.NoError(t, err)
 
-		err := store.Set(ctx, contractID, name, symbol)
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, expectedErr)
-		assert.Contains(t, err.Error(), "setting contract name")
+		// Overwrite with new values
+		err = store.Set(ctx, contractID, name2, symbol2)
+		require.NoError(t, err)
 
-		mockRedis.AssertExpectations(t)
-	})
+		// Verify the data was updated
+		storedName, err := store.Name(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, name2, storedName)
 
-	t.Run("error_setting_symbol", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
-
-		contractID := "CONTRACT123"
-		name := "Test Token"
-		symbol := "TEST"
-		expectedErr := errors.New("redis error")
-
-		mockRedis.On("HSet", ctx, contractID, contractNameKey, name, defaultExpiration).Return(nil).Once()
-		mockRedis.On("HSet", ctx, contractID, contractSymbolKey, symbol, defaultExpiration).Return(expectedErr).Once()
-
-		err := store.Set(ctx, contractID, name, symbol)
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, expectedErr)
-		assert.Contains(t, err.Error(), "setting contract symbol")
-
-		mockRedis.AssertExpectations(t)
+		storedSymbol, err := store.Symbol(ctx, contractID)
+		require.NoError(t, err)
+		assert.Equal(t, symbol2, storedSymbol)
 	})
 }
 
-func TestContractStore_Name(t *testing.T) {
+func TestMemoryContractStore_Name(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+		store := NewContractStore()
 
 		contractID := "CONTRACT123"
 		expectedName := "Test Token"
+		symbol := "TEST"
 
-		mockRedis.On("HGet", ctx, contractID, contractNameKey).Return(expectedName, nil).Once()
+		err := store.Set(ctx, contractID, expectedName, symbol)
+		require.NoError(t, err)
 
 		name, err := store.Name(ctx, contractID)
 		require.NoError(t, err)
 		assert.Equal(t, expectedName, name)
-
-		mockRedis.AssertExpectations(t)
 	})
 
-	t.Run("error", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+	t.Run("not found", func(t *testing.T) {
+		store := NewContractStore()
 
-		contractID := "CONTRACT123"
-		expectedErr := errors.New("redis error")
-
-		mockRedis.On("HGet", ctx, contractID, contractNameKey).Return("", expectedErr).Once()
+		contractID := "NONEXISTENT"
 
 		name, err := store.Name(ctx, contractID)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, expectedErr)
-		assert.Contains(t, err.Error(), "getting contract name")
+		assert.Contains(t, err.Error(), "getting contract name: contract not found")
 		assert.Empty(t, name)
-
-		mockRedis.AssertExpectations(t)
 	})
 }
 
-func TestContractStore_Symbol(t *testing.T) {
+func TestMemoryContractStore_Symbol(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+		store := NewContractStore()
 
 		contractID := "CONTRACT123"
+		name := "Test Token"
 		expectedSymbol := "TEST"
 
-		mockRedis.On("HGet", ctx, contractID, contractSymbolKey).Return(expectedSymbol, nil).Once()
+		err := store.Set(ctx, contractID, name, expectedSymbol)
+		require.NoError(t, err)
 
 		symbol, err := store.Symbol(ctx, contractID)
 		require.NoError(t, err)
 		assert.Equal(t, expectedSymbol, symbol)
-
-		mockRedis.AssertExpectations(t)
 	})
 
-	t.Run("error", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+	t.Run("not found", func(t *testing.T) {
+		store := NewContractStore()
 
-		contractID := "CONTRACT123"
-		expectedErr := errors.New("redis error")
-
-		mockRedis.On("HGet", ctx, contractID, contractSymbolKey).Return("", expectedErr).Once()
+		contractID := "NONEXISTENT"
 
 		symbol, err := store.Symbol(ctx, contractID)
 		assert.Error(t, err)
-		assert.ErrorIs(t, err, expectedErr)
-		assert.Contains(t, err.Error(), "getting contract symbol")
+		assert.Contains(t, err.Error(), "getting contract symbol: contract not found")
 		assert.Empty(t, symbol)
-
-		mockRedis.AssertExpectations(t)
 	})
 }
 
-func TestContractStore_Exists(t *testing.T) {
+func TestMemoryContractStore_Exists(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("exists", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+		store := NewContractStore()
 
 		contractID := "CONTRACT123"
+		name := "Test Token"
+		symbol := "TEST"
 
-		mockRedis.On("Exists", ctx, []string{contractID}).Return(int64(1), nil).Once()
+		err := store.Set(ctx, contractID, name, symbol)
+		require.NoError(t, err)
 
 		exists, err := store.Exists(ctx, contractID)
 		require.NoError(t, err)
 		assert.True(t, exists)
-
-		mockRedis.AssertExpectations(t)
 	})
 
-	t.Run("does_not_exist", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+	t.Run("does not exist", func(t *testing.T) {
+		store := NewContractStore()
 
-		contractID := "CONTRACT123"
-
-		mockRedis.On("Exists", ctx, []string{contractID}).Return(int64(0), nil).Once()
+		contractID := "NONEXISTENT"
 
 		exists, err := store.Exists(ctx, contractID)
 		require.NoError(t, err)
 		assert.False(t, exists)
-
-		mockRedis.AssertExpectations(t)
 	})
+}
 
-	t.Run("error", func(t *testing.T) {
-		mockRedis := new(MockRedisClient)
-		store := NewContractStore(mockRedis)
+func TestMemoryContractStore_MultipleContracts(t *testing.T) {
+	ctx := context.Background()
+	store := NewContractStore()
 
-		contractID := "CONTRACT123"
-		expectedErr := errors.New("redis error")
+	// Set multiple contracts
+	contracts := []struct {
+		id     string
+		name   string
+		symbol string
+	}{
+		{"CONTRACT1", "Token One", "TK1"},
+		{"CONTRACT2", "Token Two", "TK2"},
+		{"CONTRACT3", "Token Three", "TK3"},
+	}
 
-		mockRedis.On("Exists", ctx, []string{contractID}).Return(int64(0), expectedErr).Once()
+	for _, c := range contracts {
+		err := store.Set(ctx, c.id, c.name, c.symbol)
+		require.NoError(t, err)
+	}
 
-		exists, err := store.Exists(ctx, contractID)
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, expectedErr)
-		assert.Contains(t, err.Error(), "checking contract existence")
-		assert.False(t, exists)
+	// Verify all contracts exist and have correct data
+	for _, c := range contracts {
+		exists, err := store.Exists(ctx, c.id)
+		require.NoError(t, err)
+		assert.True(t, exists)
 
-		mockRedis.AssertExpectations(t)
-	})
+		name, err := store.Name(ctx, c.id)
+		require.NoError(t, err)
+		assert.Equal(t, c.name, name)
+
+		symbol, err := store.Symbol(ctx, c.id)
+		require.NoError(t, err)
+		assert.Equal(t, c.symbol, symbol)
+	}
 }

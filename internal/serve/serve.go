@@ -39,8 +39,6 @@ type Configs struct {
 	Port                    int
 	DatabaseURL             string
 	ServerBaseURL           string
-	RedisHost               string
-	RedisPort               int
 	ClientAuthPublicKeys    []string
 	LogLevel                logrus.Level
 	EncryptionPassphrase    string
@@ -77,7 +75,6 @@ type handlerDeps struct {
 	TransactionService        txservices.TransactionService
 
 	// Cache
-	RedisStore    *cache.RedisStore
 	ContractStore cache.ContractStore
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -190,8 +187,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
 	}
 
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort)
-	contractStore := cache.NewContractStore(redisStore)
+	contractStore := cache.NewContractStore()
 
 	return handlerDeps{
 		Models:                    models,
@@ -205,7 +201,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		TransactionService:        txService,
-		RedisStore:                redisStore,
 		ContractStore:             contractStore,
 	}, nil
 }
