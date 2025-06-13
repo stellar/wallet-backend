@@ -57,13 +57,16 @@ var _ RPCService = (*rpcService)(nil)
 
 func NewRPCService(rpcURL, networkPassphrase string, httpClient utils.HTTPClient, metricsService metrics.MetricsService) (*rpcService, error) {
 	if rpcURL == "" {
-		return nil, errors.New("rpcURL cannot be nil")
+		return nil, errors.New("rpcURL is required")
+	}
+	if networkPassphrase == "" {
+		return nil, errors.New("networkPassphrase is required")
 	}
 	if httpClient == nil {
-		return nil, errors.New("httpClient cannot be nil")
+		return nil, errors.New("httpClient is required")
 	}
 	if metricsService == nil {
-		return nil, errors.New("metricsService cannot be nil")
+		return nil, errors.New("metricsService is required")
 	}
 
 	heartbeatChannel := make(chan entities.RPCGetHealthResult, 1)
