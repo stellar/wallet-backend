@@ -124,6 +124,7 @@ type StateChange struct {
 	Token              sql.NullString `json:"token,omitempty" db:"token"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
+	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 	ContractID         sql.NullString `json:"contractId,omitempty" db:"contract_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
