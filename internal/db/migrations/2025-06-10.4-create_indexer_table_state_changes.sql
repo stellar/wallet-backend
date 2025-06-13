@@ -14,6 +14,7 @@ CREATE TABLE state_changes (
     token TEXT,
     amount TEXT,
     claimable_balance_id TEXT,
+    liquidity_pool_id TEXT,
     contract_id TEXT,
     flags JSONB,
     key_value JSONB,
