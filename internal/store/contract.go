@@ -1,59 +1,87 @@
+// Package store provides storage interfaces and implementations for wallet-backend.
+// This file contains the in-memory implementation of the contract store.
 package store
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/patrickmn/go-cache"
 )
 
 const (
 	contractNameKey   = "name"
 	contractSymbolKey = "symbol"
-	defaultExpiration = 24 * time.Hour
+	defaultExpiration = 7 * 24 * time.Hour
 )
 
 type contractStore struct {
-	redis RedisClient
+	cache *cache.Cache
 }
 
-func NewContractStore(redis RedisClient) ContractStore {
+func NewContractStore() ContractStore {
+	// Create cache with default expiration of 24 hours and cleanup every 10 minutes
 	return &contractStore{
-		redis: redis,
+		cache: cache.New(defaultExpiration, 10*time.Minute),
 	}
 }
 
 func (s *contractStore) Set(ctx context.Context, contractID string, name string, symbol string) error {
-	err := s.redis.HSet(ctx, contractID, contractNameKey, name, defaultExpiration)
-	if err != nil {
-		return fmt.Errorf("setting contract name: %w", err)
+	contractData := map[string]string{
+		contractNameKey:   name,
+		contractSymbolKey: symbol,
 	}
-	err = s.redis.HSet(ctx, contractID, contractSymbolKey, symbol, defaultExpiration)
-	if err != nil {
-		return fmt.Errorf("setting contract symbol: %w", err)
-	}
+	s.cache.Set(contractID, contractData, cache.DefaultExpiration)
 	return nil
 }
 
 func (s *contractStore) Name(ctx context.Context, contractID string) (string, error) {
-	name, err := s.redis.HGet(ctx, contractID, contractNameKey)
+	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract name: %w", err)
+		return "", fmt.Errorf("getting contract data: %w", err)
 	}
+
+	name, exists := contractData[contractNameKey]
+	if !exists {
+		return "", fmt.Errorf("getting contract name: name field not found")
+	}
+
 	return name, nil
 }
 
 func (s *contractStore) Symbol(ctx context.Context, contractID string) (string, error) {
-	symbol, err := s.redis.HGet(ctx, contractID, contractSymbolKey)
+	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract symbol: %w", err)
+		return "", fmt.Errorf("getting contract data: %w", err)
 	}
+
+	symbol, exists := contractData[contractSymbolKey]
+	if !exists {
+		return "", fmt.Errorf("getting contract symbol: symbol field not found")
+	}
+
 	return symbol, nil
 }
 
 func (s *contractStore) Exists(ctx context.Context, contractID string) (bool, error) {
-	count, err := s.redis.Exists(ctx, contractID)
-	if err != nil {
-		return false, fmt.Errorf("checking contract existence: %w", err)
+	_, found := s.cache.Get(contractID)
+	return found, nil
+}
+
+func (s *contractStore) getContractData(contractID string) (map[string]string, error) {
+	data, found := s.cache.Get(contractID)
+	if !found {
+		return nil, fmt.Errorf("getting contract data: contract not found")
 	}
-	return count > 0, nil
+
+	// Since Go is statically typed, and cache values can be anything, type
+	// assertion is needed when values are being passed to functions that don't
+	// take arbitrary types, (i.e. interface{}).
+	contractData, ok := data.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("getting contract data: invalid data type")
+	}
+
+	return contractData, nil
 }

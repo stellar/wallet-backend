@@ -28,8 +28,6 @@ type Configs struct {
 	AppTracker        apptracker.AppTracker
 	RPCURL            string
 	NetworkPassphrase string
-	RedisHost         string
-	RedisPort         int
 }
 
 func Ingest(cfg Configs) error {
@@ -67,8 +65,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort)
-	contractStore := cache.NewContractStore(redisStore)
+	contractStore := cache.NewContractStore()
 
 	ingestService, err := services.NewIngestService(
 		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService)
