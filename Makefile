@@ -88,6 +88,13 @@ govulncheck: ## Check for known vulnerabilities
 check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulncheck ## Run all checks
 	@echo "✅ All checks completed successfully"
 
+# ==================================================================================== #
+# TESTING
+# ==================================================================================== #
+unit-test: ## Run unit tests
+	@echo "==> Running unit tests..."
+	ENABLE_INTEGRATION_TESTS=false go test -v -race ./...
+
 docker-build:
 	$(SUDO) docker build \
 		--file Dockerfile \
