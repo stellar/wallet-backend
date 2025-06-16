@@ -11,4 +11,4 @@ CREATE TABLE contracts (
 
 -- +migrate Down
 
-DROP TABLE contracts CASCADE;
+DROP TABLE contracts;
