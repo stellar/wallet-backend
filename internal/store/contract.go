@@ -1,5 +1,3 @@
-// Package store provides storage interfaces and implementations for wallet-backend.
-// This file contains the in-memory implementation of the contract store.
 package store
 
 import (
@@ -72,7 +70,6 @@ func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, nam
 			return s.db.Insert(ctx, tx, contract)
 		}
 	})
-
 	if err != nil {
 		return fmt.Errorf("upserting contract in db: %w", err)
 	}

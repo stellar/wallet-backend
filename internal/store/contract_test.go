@@ -330,23 +330,26 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	}
 
 	// Verify all contracts exist and have correct data in cache
+	var exists bool
+	var name, symbol string
 	for _, c := range contracts {
-		exists, err := store.Exists(ctx, c.id)
+		exists, err = store.Exists(ctx, c.id)
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		name, err := store.Name(ctx, c.id)
+		name, err = store.Name(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, name)
 
-		symbol, err := store.Symbol(ctx, c.id)
+		symbol, err = store.Symbol(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.symbol, symbol)
 	}
 
 	// Verify all contracts exist in database
+	var contract *data.Contract
 	for _, c := range contracts {
-		contract, err := models.Contract.GetByID(ctx, c.id)
+		contract, err = models.Contract.GetByID(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, contract.Name)
 		assert.Equal(t, c.symbol, contract.Symbol)
@@ -397,16 +400,18 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify all contracts are in cache
+	var exists bool
+	var name, symbol string
 	for _, c := range contracts {
-		exists, err := store.Exists(ctx, c.id)
+		exists, err = store.Exists(ctx, c.id)
 		require.NoError(t, err)
 		assert.True(t, exists, "Contract %s should exist in cache after initialization", c.id)
 
-		name, err := store.Name(ctx, c.id)
+		name, err = store.Name(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, name)
 
-		symbol, err := store.Symbol(ctx, c.id)
+		symbol, err = store.Symbol(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.symbol, symbol)
 	}
