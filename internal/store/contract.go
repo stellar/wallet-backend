@@ -4,6 +4,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,94 +35,66 @@ func NewContractStore(dbModel *data.ContractModel) ContractStore {
 	contracts, err := store.db.GetAll(context.Background())
 	if err == nil && len(contracts) > 0 {
 		for _, contract := range contracts {
-			contractData := map[string]string{
-				contractNameKey:   contract.Name,
-				contractSymbolKey: contract.Symbol,
-			}
-			store.cache.Add(contract.ID, contractData, cache.DefaultExpiration)
+			store.set(contract.ID, contract.Name, contract.Symbol)
 		}
 	}
 
 	return store
 }
 
-func (s *contractStore) InsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
-	contract := &data.Contract{
-		ID:     contractID,
-		Name:   name,
-		Symbol: symbol,
+func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
+	// Check if contract exists in database
+	existing, err := s.db.GetByID(ctx, contractID)
+	if err != nil && !isNoRowsError(err) {
+		return fmt.Errorf("checking existing contract: %w", err)
 	}
 
-	err := db.RunInTransaction(ctx, s.db.DB, nil, func (tx db.Transaction) error {
-		return s.db.Insert(ctx, tx, contract)
-	})
-	if err != nil {
-		return fmt.Errorf("inserting contract in database: %w", err)
-	}
-	
-	// Only update cache after successful database operation
-	contractData := map[string]string{
-		contractNameKey:   name,
-		contractSymbolKey: symbol,
-	}
-	s.cache.Add(contractID, contractData, defaultExpiration)
-	
-	return nil
-}
-
-func (s *contractStore) UpdateWithTx(ctx context.Context, contractID string, name string, symbol string) error {
-	contract, err := s.db.GetByID(ctx, contractID)
-	if err != nil {
-		return fmt.Errorf("getting contract from database: %w", err)
-	}
-
-	if contract == nil {
-		return fmt.Errorf("contract not found")
+	if existing.ID != "" {
+		// Update existing contract
+		existing.Name = name
+		existing.Symbol = symbol
+		err = db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+			return s.db.Update(ctx, tx, existing)
+		})
+		if err != nil {
+			return fmt.Errorf("updating contract in database: %w", err)
+		}
+	} else {
+		// Insert new contract
+		contract := &data.Contract{
+			ID:     contractID,
+			Name:   name,
+			Symbol: symbol,
+		}
+		err = db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+			return s.db.Insert(ctx, tx, contract)
+		})
+		if err != nil {
+			return fmt.Errorf("inserting contract in database: %w", err)
+		}
 	}
 
-	contract.Name = name
-	contract.Symbol = symbol
-	err = db.RunInTransaction(ctx, s.db.DB, nil, func (tx db.Transaction) error {
-		return s.db.Update(ctx, tx, contract)
-	})
-	if err != nil {
-		return fmt.Errorf("updating contract in database: %w", err)
-	}
-
-	contractData := map[string]string{
-		contractNameKey:   name,
-		contractSymbolKey: symbol,
-	}
-	s.cache.Set(contractID, contractData, defaultExpiration)
+	// Update cache after successful database operation
+	s.set(contractID, name, symbol)
 	return nil
 }
 
 func (s *contractStore) Name(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract data: %w", err)
+		return "", err
 	}
 
-	name, exists := contractData[contractNameKey]
-	if !exists {
-		return "", fmt.Errorf("getting contract name: name field not found")
-	}
-
-	return name, nil
+	return contractData[contractNameKey], nil
 }
 
 func (s *contractStore) Symbol(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract data: %w", err)
+		return "", err
 	}
 
-	symbol, exists := contractData[contractSymbolKey]
-	if !exists {
-		return "", fmt.Errorf("getting contract symbol: symbol field not found")
-	}
-
-	return symbol, nil
+	return contractData[contractSymbolKey], nil
 }
 
 func (s *contractStore) Exists(ctx context.Context, contractID string) (bool, error) {
@@ -143,4 +117,17 @@ func (s *contractStore) getContractData(contractID string) (map[string]string, e
 	}
 
 	return contractData, nil
+}
+
+func (s *contractStore) set(contractID, name, symbol string) {
+	contractData := map[string]string{
+		contractNameKey:   name,
+		contractSymbolKey: symbol,
+	}
+	s.cache.Set(contractID, contractData, defaultExpiration)
+}
+
+func isNoRowsError(err error) bool {
+	// Check if this is a "no rows" error
+	return errors.Is(err, sql.ErrNoRows)
 }
