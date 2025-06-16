@@ -44,14 +44,16 @@ func NewContractStore(dbModel *data.ContractModel) ContractStore {
 	return store
 }
 
-func (s *contractStore) InsertWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
+func (s *contractStore) InsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
 	contract := &data.Contract{
 		ID:     contractID,
 		Name:   name,
 		Symbol: symbol,
 	}
-	
-	err := s.db.Insert(ctx, tx, contract)
+
+	err := db.RunInTransaction(ctx, s.db.DB, nil, func (tx db.Transaction) error {
+		return s.db.Insert(ctx, tx, contract)
+	})
 	if err != nil {
 		return fmt.Errorf("inserting contract in database: %w", err)
 	}
@@ -66,7 +68,7 @@ func (s *contractStore) InsertWithTx(ctx context.Context, tx db.Transaction, con
 	return nil
 }
 
-func (s *contractStore) UpdateWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
+func (s *contractStore) UpdateWithTx(ctx context.Context, contractID string, name string, symbol string) error {
 	contract, err := s.db.GetByID(ctx, contractID)
 	if err != nil {
 		return fmt.Errorf("getting contract from database: %w", err)
@@ -78,7 +80,9 @@ func (s *contractStore) UpdateWithTx(ctx context.Context, tx db.Transaction, con
 
 	contract.Name = name
 	contract.Symbol = symbol
-	err = s.db.Update(ctx, tx, contract)
+	err = db.RunInTransaction(ctx, s.db.DB, nil, func (tx db.Transaction) error {
+		return s.db.Update(ctx, tx, contract)
+	})
 	if err != nil {
 		return fmt.Errorf("updating contract in database: %w", err)
 	}

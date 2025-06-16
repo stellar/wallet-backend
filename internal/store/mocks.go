@@ -4,20 +4,19 @@ import (
 	"context"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/stellar/wallet-backend/internal/db"
 )
 
 type MockContractStore struct {
 	mock.Mock
 }
 
-func (m *MockContractStore) InsertWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
-	args := m.Called(ctx, tx, contractID, name, symbol)
+func (m *MockContractStore) InsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
+	args := m.Called(ctx, contractID, name, symbol)
 	return args.Error(0)
 }
 
-func (m *MockContractStore) UpdateWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
-	args := m.Called(ctx, tx, contractID, name, symbol)
+func (m *MockContractStore) UpdateWithTx(ctx context.Context, contractID string, name string, symbol string) error {
+	args := m.Called(ctx, contractID, name, symbol)
 	return args.Error(0)
 }
 

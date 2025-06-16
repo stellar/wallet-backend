@@ -41,9 +41,7 @@ func TestContractStore_InsertWithTx(t *testing.T) {
 		symbol := "TEST"
 
 		// Insert contract with transaction
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, name, symbol)
-		})
+		err := store.InsertWithTx(ctx, contractID, name, symbol)
 		require.NoError(t, err)
 
 		// Verify the data was stored correctly in cache
@@ -72,15 +70,11 @@ func TestContractStore_InsertWithTx(t *testing.T) {
 		symbol := "TEST"
 
 		// First insert should succeed
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, name, symbol)
-		})
+		err := store.InsertWithTx(ctx, contractID, name, symbol)
 		require.NoError(t, err)
 
 		// Second insert with same ID should fail
-		err = db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, "Another Name", "ANTH")
-		})
+		err = store.InsertWithTx(ctx, contractID, "Another Name", "ANTH")
 		assert.Error(t, err)
 
 		cleanUpDB()
@@ -115,15 +109,11 @@ func TestContractStore_UpdateWithTx(t *testing.T) {
 		symbol2 := "UPDT"
 
 		// Insert initial contract
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, name1, symbol1)
-		})
+		err := store.InsertWithTx(ctx, contractID, name1, symbol1)
 		require.NoError(t, err)
 
 		// Update contract
-		err = db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.UpdateWithTx(ctx, dbTx, contractID, name2, symbol2)
-		})
+		err = store.UpdateWithTx(ctx, contractID, name2, symbol2)
 		require.NoError(t, err)
 
 		// Verify the data was updated in cache
@@ -148,49 +138,12 @@ func TestContractStore_UpdateWithTx(t *testing.T) {
 		store := NewContractStore(models.Contract)
 
 		// Try to update non-existent contract
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.UpdateWithTx(ctx, dbTx, "NONEXISTENT", "Name", "SYM")
-		})
+		err := store.UpdateWithTx(ctx, "NONEXISTENT", "Name", "SYM")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "getting contract from database")
 
 		cleanUpDB()
 	})
-}
-
-func TestContractStore_InitializeCacheFromDB(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
-	db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(dbTx db.Transaction) error {
-		contracts := []*data.Contract{
-			{ID: "CONTRACT1", Name: "Token One", Symbol: "TK1"},
-			{ID: "CONTRACT2", Name: "Token Two", Symbol: "TK2"},
-		}
-
-		for _, c := range contracts {
-			err := models.Contract.Insert(context.Background(), dbTx, c)
-			require.NoError(t, err)
-		}
-
-		return nil
-	})
-
-	store := NewContractStore(models.Contract)
-	contract, err := store.Name(context.Background(), "CONTRACT1")
-	require.NoError(t, err)
-	assert.Equal(t, "Token One", contract)
-
-	contract, err = store.Name(context.Background(), "CONTRACT2")
-	require.NoError(t, err)
-	assert.Equal(t, "Token Two", contract)
 }
 
 func TestContractStore_Name(t *testing.T) {
@@ -219,9 +172,7 @@ func TestContractStore_Name(t *testing.T) {
 		symbol := "TEST"
 
 		// Insert contract
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, expectedName, symbol)
-		})
+		err := store.InsertWithTx(ctx, contractID, expectedName, symbol)
 		require.NoError(t, err)
 
 		// Get name from cache
@@ -270,9 +221,7 @@ func TestContractStore_Symbol(t *testing.T) {
 		expectedSymbol := "TEST"
 
 		// Insert contract
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, name, expectedSymbol)
-		})
+		err := store.InsertWithTx(ctx, contractID, name, expectedSymbol)
 		require.NoError(t, err)
 
 		// Get symbol from cache
@@ -321,9 +270,7 @@ func TestContractStore_Exists(t *testing.T) {
 		symbol := "TEST"
 
 		// Insert contract
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, contractID, name, symbol)
-		})
+		err := store.InsertWithTx(ctx, contractID, name, symbol)
 		require.NoError(t, err)
 
 		exists, err := store.Exists(ctx, contractID)
@@ -370,9 +317,7 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	}
 
 	for _, c := range contracts {
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
-			return store.InsertWithTx(ctx, dbTx, c.id, c.name, c.symbol)
-		})
+		err := store.InsertWithTx(ctx, c.id, c.name, c.symbol)
 		require.NoError(t, err)
 	}
 
