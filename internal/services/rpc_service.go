@@ -141,27 +141,6 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	return result, nil
 }
 
-func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
-	resultBytes, err := r.sendRPCRequest("getLedgerEntries", entities.RPCParams{
-		LedgerKeys: keys,
-	})
-	if err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
-	}
-
-	var result entities.RPCGetLedgerEntriesResult
-	err = json.Unmarshal(resultBytes, &result)
-	if err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
-	}
-	return result, nil
-}
-
-type LedgerSeqRange struct {
-	Start uint32
-	End   uint32
-}
-
 type GetLedgersResponse protocol.GetLedgersResponse
 
 func (r *rpcService) GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error) {
@@ -182,6 +161,27 @@ func (r *rpcService) GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersRespon
 	}
 
 	return result, nil
+}
+
+func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	resultBytes, err := r.sendRPCRequest("getLedgerEntries", entities.RPCParams{
+		LedgerKeys: keys,
+	})
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
+	}
+
+	var result entities.RPCGetLedgerEntriesResult
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
+	}
+	return result, nil
+}
+
+type LedgerSeqRange struct {
+	Start uint32
+	End   uint32
 }
 
 func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error) {
