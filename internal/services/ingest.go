@@ -87,7 +87,7 @@ func NewIngestService(
 	}, nil
 }
 
-const maxLedgerWindow = 1 // NOTE: cannot be larger than 200
+const maxLedgerWindow = 200 // NOTE: cannot be larger than 200
 
 // getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
 // - the ledgers available in the RPC,
@@ -129,12 +129,14 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	ticker := time.NewTicker(time.Second * 5)
+	const tickerDuration = time.Second * 5
+	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 	manualTriggerChan := make(chan any, 1)
+	defer close(manualTriggerChan)
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
@@ -147,45 +149,38 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		case <-manualTriggerChan:
 			log.Ctx(ctx).Info("Manual trigger received")
-			fallthrough
 		case <-ticker.C:
 			log.Ctx(ctx).Info("Ticker ticked")
-			totalIngestionStart := time.Now()
-			// fetch ledgers
-			getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, startLedger)
-			if err != nil {
-				return fmt.Errorf("fetching next ledgers batch: %w", err)
-			}
-			if errors.Is(err, ErrAlreadyInSync) {
-				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
-				continue
-			}
-
-			// process ledgers
-			err = m.processLedgerResponse(ctx, getLedgersResponse)
-			if err != nil {
-				return fmt.Errorf("processing ledger response: %w", err)
-			}
-
-			// update cursor
-			startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-			err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger)
-			if err != nil {
-				return fmt.Errorf("updating latest synced ledger: %w", err)
-			}
-			m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
-			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
-
-			// Trigger another ingestion immediately if we're behind
-			rpcHealth, err := m.rpcService.GetHealth()
-			if err != nil {
-				log.Ctx(ctx).Errorf("Failed to get RPC health to check if we're behind: %v", err)
-				continue
-			}
-			if rpcHealth.LatestLedger-startLedger > 1 {
-				manualTriggerChan <- true
-			}
 		}
+
+		totalIngestionStart := time.Now()
+		// fetch ledgers
+		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("fetching next ledgers batch: %w", err)
+		}
+		if errors.Is(err, ErrAlreadyInSync) {
+			log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
+			continue
+		}
+
+		// process ledgers
+		err = m.processLedgerResponse(ctx, getLedgersResponse)
+		if err != nil {
+			return fmt.Errorf("processing ledger response: %w", err)
+		}
+
+		// update cursor
+		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+		err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger)
+		if err != nil {
+			return fmt.Errorf("updating latest synced ledger: %w", err)
+		}
+		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
+		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
+
+		ticker.Reset(tickerDuration)
+		manualTriggerChan <- nil
 	}
 }
 
@@ -199,6 +194,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	return nil
 }
 
+// fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
 func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, startLedger uint32) (GetLedgersResponse, error) {
 	rpcHealth, err := m.rpcService.GetHealth()
 	if err != nil {
