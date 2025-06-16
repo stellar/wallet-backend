@@ -1,7 +1,7 @@
 package store
 
 import (
-	"context"	
+	"context"
 )
 
 // ContractStore defines the interface for interactions with the contract ID cache

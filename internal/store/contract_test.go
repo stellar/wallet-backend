@@ -317,28 +317,32 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	}
 
 	for _, c := range contracts {
-		err := store.UpsertWithTx(ctx, c.id, c.name, c.symbol)
+		err = store.UpsertWithTx(ctx, c.id, c.name, c.symbol)
 		require.NoError(t, err)
 	}
 
 	// Verify all contracts exist and have correct data in cache
 	for _, c := range contracts {
-		exists, err := store.Exists(ctx, c.id)
+		var exists bool
+		exists, err = store.Exists(ctx, c.id)
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		name, err := store.Name(ctx, c.id)
+		var name string
+		name, err = store.Name(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, name)
 
-		symbol, err := store.Symbol(ctx, c.id)
+		var symbol string
+		symbol, err = store.Symbol(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.symbol, symbol)
 	}
 
 	// Verify all contracts exist in database
 	for _, c := range contracts {
-		contract, err := models.Contract.GetByID(ctx, c.id)
+		var contract *data.Contract
+		contract, err = models.Contract.GetByID(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, contract.Name)
 		assert.Equal(t, c.symbol, contract.Symbol)
@@ -373,7 +377,7 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	}
 
 	for _, c := range contracts {
-		err := db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
+		err = db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
 			contract := &data.Contract{
 				ID:     c.id,
 				Name:   c.name,
@@ -389,15 +393,18 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 
 	// Verify all contracts are in cache
 	for _, c := range contracts {
-		exists, err := store.Exists(ctx, c.id)
+		var exists bool
+		exists, err = store.Exists(ctx, c.id)
 		require.NoError(t, err)
 		assert.True(t, exists, "Contract %s should exist in cache after initialization", c.id)
 
-		name, err := store.Name(ctx, c.id)
+		var name string
+		name, err = store.Name(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.name, name)
 
-		symbol, err := store.Symbol(ctx, c.id)
+		var symbol string
+		symbol, err = store.Symbol(ctx, c.id)
 		require.NoError(t, err)
 		assert.Equal(t, c.symbol, symbol)
 	}
@@ -436,20 +443,25 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 				symbol := fmt.Sprintf("CT%d", id)
 
 				// Upsert
-				err := store.UpsertWithTx(ctx, contractID, name, symbol)
-				require.NoError(t, err)
+				upsertErr := store.UpsertWithTx(ctx, contractID, name, symbol)
+				require.NoError(t, upsertErr)
 
 				// Read back
-				readName, err := store.Name(ctx, contractID)
-				require.NoError(t, err)
+				var readName string
+				var readSymbol string
+				var exists bool
+				var readErr error
+
+				readName, readErr = store.Name(ctx, contractID)
+				require.NoError(t, readErr)
 				assert.Equal(t, name, readName)
 
-				readSymbol, err := store.Symbol(ctx, contractID)
-				require.NoError(t, err)
+				readSymbol, readErr = store.Symbol(ctx, contractID)
+				require.NoError(t, readErr)
 				assert.Equal(t, symbol, readSymbol)
 
-				exists, err := store.Exists(ctx, contractID)
-				require.NoError(t, err)
+				exists, readErr = store.Exists(ctx, contractID)
+				require.NoError(t, readErr)
 				assert.True(t, exists)
 			}(i)
 		}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/patrickmn/go-cache"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 )

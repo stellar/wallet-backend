@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -24,7 +25,10 @@ type Contract struct {
 func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contract, error) {
 	contract := &Contract{}
 	err := m.DB.GetContext(ctx, contract, "SELECT * FROM contracts WHERE id = $1", contractID)
-	return contract, err
+	if err != nil {
+		return nil, fmt.Errorf("getting contract by ID %s: %w", contractID, err)
+	}
+	return contract, nil
 }
 
 func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract *Contract) error {
@@ -33,7 +37,10 @@ func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract 
 		VALUES (:id, :name, :symbol)
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
-	return err
+	if err != nil {
+		return fmt.Errorf("inserting contract %s: %w", contract.ID, err)
+	}
+	return nil
 }
 
 func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract *Contract) error {
@@ -43,11 +50,17 @@ func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract 
 		WHERE id = :id
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
-	return err
+	if err != nil {
+		return fmt.Errorf("updating contract %s: %w", contract.ID, err)
+	}
+	return nil
 }
 
 func (m *ContractModel) GetAll(ctx context.Context) ([]*Contract, error) {
 	contracts := []*Contract{}
 	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contracts")
-	return contracts, err
+	if err != nil {
+		return nil, fmt.Errorf("getting all contracts: %w", err)
+	}
+	return contracts, nil
 }
