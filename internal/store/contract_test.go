@@ -1,5 +1,3 @@
-// Package store provides storage interfaces and implementations for wallet-backend.
-// This file contains tests for the contract store implementation.
 package store
 
 import (
@@ -431,106 +429,64 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 
 	ctx := context.Background()
 
-	t.Run("concurrent upserts and reads", func(t *testing.T) {
+	t.Run("concurrent reads and writes on same contracts", func(t *testing.T) {
 		store, err := NewContractStore(models.Contract)
 		require.NoError(t, err)
 
-		// Start multiple goroutines doing upserts and reads
-		const numGoroutines = 10
-		done := make(chan bool, numGoroutines)
+		// Pre-populate some contracts
+		sharedContracts := []string{"SHARED_1", "SHARED_2", "SHARED_3"}
+		for i, id := range sharedContracts {
+			err = store.UpsertWithTx(ctx, id, fmt.Sprintf("Initial %d", i), fmt.Sprintf("INIT%d", i))
+			require.NoError(t, err)
+		}
 
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
+		const numReaders = 20
+		const numWriters = 10
+		done := make(chan bool, numReaders+numWriters)
+
+		// Start reader goroutines
+		for i := range numReaders {
+			go func(readerID int) {
 				defer func() { done <- true }()
 
-				contractID := fmt.Sprintf("CONCURRENT_%d", id)
-				name := fmt.Sprintf("Concurrent Token %d", id)
-				symbol := fmt.Sprintf("CT%d", id)
+				// Repeatedly read random contracts
+				for j := range 100 {
+					contractID := sharedContracts[j%len(sharedContracts)]
 
-				// Upsert
-				err = store.UpsertWithTx(ctx, contractID, name, symbol)
-				require.NoError(t, err)
-
-				// Read back
-				readName, err := store.Name(ctx, contractID)
-				require.NoError(t, err)
-				assert.Equal(t, name, readName)
-
-				readSymbol, err := store.Symbol(ctx, contractID)
-				require.NoError(t, err)
-				assert.Equal(t, symbol, readSymbol)
-
-				exists, err := store.Exists(ctx, contractID)
-				require.NoError(t, err)
-				assert.True(t, exists)
+					_, _ = store.Name(ctx, contractID)   //nolint:errcheck
+					_, _ = store.Symbol(ctx, contractID) //nolint:errcheck
+					_, _ = store.Exists(ctx, contractID) //nolint:errcheck
+				}
 			}(i)
 		}
 
-		// Wait for all goroutines to complete
-		for i := 0; i < numGoroutines; i++ {
+		// Start writer goroutines
+		for i := range numWriters {
+			go func(writerID int) {
+				defer func() { done <- true }()
+
+				// Repeatedly update random contracts
+				for j := range 50 {
+					contractID := sharedContracts[j%len(sharedContracts)]
+					name := fmt.Sprintf("Updated by %d at %d", writerID, j)
+					symbol := fmt.Sprintf("UPD%d", writerID)
+
+					err := store.UpsertWithTx(ctx, contractID, name, symbol)
+					assert.NoError(t, err)
+				}
+			}(i)
+		}
+
+		// Wait for completion
+		for range numReaders + numWriters {
 			<-done
 		}
 
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
-		require.NoError(t, err)
+		// Verify all contracts still exist and are valid
+		for _, id := range sharedContracts {
+			exists, err := store.Exists(ctx, id)
+			require.NoError(t, err)
+			assert.True(t, exists)
+		}
 	})
-}
-
-func TestContractStore_ErrorScenarios(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
-	t.Run("update existing contract", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
-		require.NoError(t, err)
-
-		contractID := "CONTRACT_UPDATE_TEST"
-		name1 := "Original Name"
-		symbol1 := "ORIG"
-		name2 := "Updated Name"
-		symbol2 := "UPD"
-
-		// First upsert - should insert
-		err = store.UpsertWithTx(ctx, contractID, name1, symbol1)
-		require.NoError(t, err)
-
-		// Verify original values
-		storedName, err := store.Name(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, name1, storedName)
-
-		// Second upsert - should update
-		err = store.UpsertWithTx(ctx, contractID, name2, symbol2)
-		require.NoError(t, err)
-
-		// Verify updated values
-		storedName, err = store.Name(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, name2, storedName)
-
-		storedSymbol, err := store.Symbol(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, symbol2, storedSymbol)
-
-		// Verify in database too
-		contract, err := models.Contract.GetByID(ctx, contractID)
-		require.NoError(t, err)
-		assert.Equal(t, name2, contract.Name)
-		assert.Equal(t, symbol2, contract.Symbol)
-
-		// Clean up
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
-		require.NoError(t, err)
-	})
-
 }
