@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	cache "github.com/stellar/wallet-backend/internal/store"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type TokenTransferProcessor struct {
@@ -48,18 +49,13 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		contractAddress := meta.GetContractAddress()
 
 		// Get operation details if available
-		var operationType *xdr.OperationType
-		var opSourceAccount string
-		if meta.GetOperationIndex() > 0 {
-			// GetOperation expects 0-based index, but meta has 1-based index
-			if op, found := tx.GetOperation(meta.GetOperationIndex() - 1); found {
-				operationType = &op.Body.Type
-				opSourceAccount = op.SourceAccount.Address()
-			}
+		opId, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex() - 1)
+		if err != nil {
+			return nil, fmt.Errorf("parsing operation details: %w", err)
 		}
 
-		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash)
-		changes, err := p.processEventWithOperation(e.GetEvent(), contractAddress, baseChange, operationType, opSourceAccount)
+		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash, opId)
+		changes, err := p.processEventWithOperation(e.GetEvent(), contractAddress, baseChange, opType, opSourceAccount)
 		if err != nil {
 			return nil, err
 		}
@@ -67,6 +63,24 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	}
 
 	return stateChanges, nil
+}
+
+func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (string, *xdr.OperationType, string, error) {
+	op, found := tx.GetOperation(opIdx)
+	if !found {
+		return "", nil, "", fmt.Errorf("operation not found")
+	}
+	
+	operationType := &op.Body.Type
+	var opSourceAccount string
+	if op.SourceAccount != nil {
+		opSourceAccount = op.SourceAccount.ToAccountId().Address()
+	} else {
+		opSourceAccount = tx.Envelope.SourceAccount().ToAccountId().Address()
+	}
+	opId := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
+	
+	return opId, operationType, opSourceAccount, nil
 }
 
 func (p *TokenTransferProcessor) processEventWithOperation(event any, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
@@ -86,12 +100,13 @@ func (p *TokenTransferProcessor) processEventWithOperation(event any, contractAd
 	}
 }
 
-func (p *TokenTransferProcessor) createBaseStateChange(ledgerNumber uint32, ledgerCloseTime int64, txHash string) types.StateChange {
+func (p *TokenTransferProcessor) createBaseStateChange(ledgerNumber uint32, ledgerCloseTime int64, txHash string, opId string) types.StateChange {
 	change := types.StateChange{
 		LedgerNumber:    int64(ledgerNumber),
 		LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 		IngestedAt:      time.Now(),
 		TxHash:          txHash,
+		OperationID:     opId,
 	}
 
 	return change
