@@ -187,7 +187,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
 	}
 
-	contractStore := cache.NewContractStore(models.Contract)
+	contractStore, err := cache.NewContractStore(models.Contract)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating contract store: %w", err)
+	}
 
 	return handlerDeps{
 		Models:                    models,

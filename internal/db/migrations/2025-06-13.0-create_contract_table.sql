@@ -9,6 +9,11 @@ CREATE TABLE contracts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TRIGGER contracts_set_updated_at BEFORE UPDATE ON contracts FOR EACH ROW EXECUTE PROCEDURE
+  refresh_updated_at_column();
+
 -- +migrate Down
 
 DROP TABLE contracts;
+
+DROP TRIGGER contracts_set_updated_at ON contracts;

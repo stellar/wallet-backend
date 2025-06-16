@@ -26,7 +26,7 @@ type contractStore struct {
 	db    *data.ContractModel
 }
 
-func NewContractStore(dbModel *data.ContractModel) ContractStore {
+func NewContractStore(dbModel *data.ContractModel) (ContractStore, error) {
 	store := &contractStore{
 		cache: cache.New(defaultExpiration, defaultExpiration),
 		db:    dbModel,
@@ -34,13 +34,17 @@ func NewContractStore(dbModel *data.ContractModel) ContractStore {
 
 	// Populate cache with existing contracts
 	contracts, err := store.db.GetAll(context.Background())
-	if err == nil && len(contracts) > 0 {
+	if err != nil {
+		return nil, fmt.Errorf("getting all contracts: %w", err)
+	}
+
+	if len(contracts) > 0 {
 		for _, contract := range contracts {
 			store.set(contract.ID, contract.Name, contract.Symbol)
 		}
 	}
 
-	return store
+	return store, nil
 }
 
 func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
@@ -50,7 +54,7 @@ func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, nam
 		return fmt.Errorf("checking existing contract: %w", err)
 	}
 
-	if existing.ID != "" {
+	if existing != nil {
 		// Update existing contract
 		existing.Name = name
 		existing.Symbol = symbol
