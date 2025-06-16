@@ -223,8 +223,7 @@ func TestContractStore_Exists(t *testing.T) {
 		err = store.UpsertWithTx(ctx, contractID, name, symbol)
 		require.NoError(t, err)
 
-		exists, err := store.Exists(ctx, contractID)
-		require.NoError(t, err)
+		exists := store.Exists(ctx, contractID)
 		assert.True(t, exists)
 
 		cleanUpDB()
@@ -236,8 +235,7 @@ func TestContractStore_Exists(t *testing.T) {
 
 		contractID := "NONEXISTENT"
 
-		exists, err := store.Exists(ctx, contractID)
-		require.NoError(t, err)
+		exists := store.Exists(ctx, contractID)
 		assert.False(t, exists)
 	})
 
@@ -254,8 +252,7 @@ func TestContractStore_Exists(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify data is in cache
-		exists, err := store.Exists(ctx, contractID)
-		require.NoError(t, err)
+		exists := store.Exists(ctx, contractID)
 		assert.True(t, exists)
 
 		storedName, err := store.Name(ctx, contractID)
@@ -266,8 +263,7 @@ func TestContractStore_Exists(t *testing.T) {
 		store.(*contractStore).cache.Delete(contractID)
 
 		// Now Exists should return false (cache miss)
-		exists, err = store.Exists(ctx, contractID)
-		require.NoError(t, err)
+		exists = store.Exists(ctx, contractID)
 		assert.False(t, exists, "Exists should return false when cache expires")
 
 		// Name should also fail since cache is empty
@@ -282,8 +278,7 @@ func TestContractStore_Exists(t *testing.T) {
 		require.NoError(t, err)
 
 		// Now everything should work with fresh data
-		exists, err = store.Exists(ctx, contractID)
-		require.NoError(t, err)
+		exists = store.Exists(ctx, contractID)
 		assert.True(t, exists)
 
 		storedName, err = store.Name(ctx, contractID)
@@ -333,8 +328,7 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	var exists bool
 	var name, symbol string
 	for _, c := range contracts {
-		exists, err = store.Exists(ctx, c.id)
-		require.NoError(t, err)
+		exists = store.Exists(ctx, c.id)
 		assert.True(t, exists)
 
 		name, err = store.Name(ctx, c.id)
@@ -403,8 +397,7 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	var exists bool
 	var name, symbol string
 	for _, c := range contracts {
-		exists, err = store.Exists(ctx, c.id)
-		require.NoError(t, err)
+		exists = store.Exists(ctx, c.id)
 		assert.True(t, exists, "Contract %s should exist in cache after initialization", c.id)
 
 		name, err = store.Name(ctx, c.id)
@@ -460,7 +453,7 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 
 					_, _ = store.Name(ctx, contractID)   //nolint:errcheck
 					_, _ = store.Symbol(ctx, contractID) //nolint:errcheck
-					_, _ = store.Exists(ctx, contractID) //nolint:errcheck
+					_ = store.Exists(ctx, contractID)    //nolint:errcheck
 				}
 			}(i)
 		}
@@ -489,8 +482,7 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 
 		// Verify all contracts still exist and are valid
 		for _, id := range sharedContracts {
-			exists, err := store.Exists(ctx, id)
-			require.NoError(t, err)
+			exists := store.Exists(ctx, id)
 			assert.True(t, exists)
 		}
 	})

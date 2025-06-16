@@ -25,7 +25,7 @@ func (m *MockContractStore) Symbol(ctx context.Context, contractID string) (stri
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockContractStore) Exists(ctx context.Context, contractID string) (bool, error) {
+func (m *MockContractStore) Exists(ctx context.Context, contractID string) bool {
 	args := m.Called(ctx, contractID)
-	return args.Get(0).(bool), args.Error(1)
+	return args.Get(0).(bool)
 }

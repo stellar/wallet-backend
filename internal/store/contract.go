@@ -97,9 +97,9 @@ func (s *contractStore) Symbol(ctx context.Context, contractID string) (string, 
 	return contractData[contractSymbolKey], nil
 }
 
-func (s *contractStore) Exists(ctx context.Context, contractID string) (bool, error) {
+func (s *contractStore) Exists(ctx context.Context, contractID string) bool {
 	_, found := s.cache.Get(contractID)
-	return found, nil
+	return found
 }
 
 func (s *contractStore) getContractData(contractID string) (map[string]string, error) {
