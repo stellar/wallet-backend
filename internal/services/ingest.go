@@ -9,9 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alitto/pond"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -184,14 +186,57 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 }
 
+type result[T any] struct {
+	ledger        protocol.LedgerInfo
+	processedData T
+	err           error
+}
+
 func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
 	log.Ctx(ctx).Warnf("🚧 TODO: process & ingest ledger response")
-	var sequences []uint32
-	for _, ledger := range getLedgersResponse.Ledgers {
-		sequences = append(sequences, ledger.Sequence)
+
+	// Create a worker pool with
+	const poolSize = 4
+	pool := pond.New(poolSize, maxLedgerWindow, pond.Context(ctx))
+
+	// Create a slice to store results
+	results := make([]result[any], len(getLedgersResponse.Ledgers))
+	var errs []error
+
+	// Submit tasks to the pool
+	for i, ledger := range getLedgersResponse.Ledgers {
+		ledger := ledger // Create a new variable to avoid closure issues
+		pool.Submit(func() {
+			processedData, err := m.processLedger(ctx, ledger)
+			if err != nil {
+				err = fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err)
+				errs = append(errs, err)
+			}
+			results[i] = result[any]{
+				ledger:        ledger,
+				processedData: processedData,
+				err:           err,
+			}
+		})
 	}
-	log.Ctx(ctx).Debugf("sequences(%d): %v", len(sequences), sequences)
+
+	// Wait for all tasks to complete
+	pool.StopAndWait()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
+	}
+
+	for _, result := range results {
+		log.Ctx(ctx).Debugf("Processed ledger %d", result.ledger.Sequence)
+	}
+
 	return nil
+}
+
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) (any, error) {
+	log.Ctx(ctx).Warnf("🚧 TODO: process ledger %d", ledgerInfo.Sequence)
+	return nil, nil
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
