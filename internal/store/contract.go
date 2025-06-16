@@ -48,35 +48,33 @@ func NewContractStore(dbModel *data.ContractModel) (ContractStore, error) {
 }
 
 func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
-	// Check if contract exists in database
-	existing, err := s.db.GetByID(ctx, contractID)
-	if err != nil && !isNoRowsError(err) {
-		return fmt.Errorf("checking existing contract: %w", err)
-	}
+	var contract *data.Contract
 
-	if existing != nil {
-		// Update existing contract
-		existing.Name = name
-		existing.Symbol = symbol
-		err = db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+	err := db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+		// Check if contract exists within the transaction
+		existing, err := s.db.GetByID(ctx, contractID)
+		if err != nil && !isNoRowsError(err) {
+			return fmt.Errorf("checking existing contract: %w", err)
+		}
+
+		if existing != nil {
+			// Update existing
+			existing.Name = name
+			existing.Symbol = symbol
 			return s.db.Update(ctx, tx, existing)
-		})
-		if err != nil {
-			return fmt.Errorf("updating contract in database: %w", err)
-		}
-	} else {
-		// Insert new contract
-		contract := &data.Contract{
-			ID:     contractID,
-			Name:   name,
-			Symbol: symbol,
-		}
-		err = db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+		} else {
+			// Insert new
+			contract = &data.Contract{
+				ID:     contractID,
+				Name:   name,
+				Symbol: symbol,
+			}
 			return s.db.Insert(ctx, tx, contract)
-		})
-		if err != nil {
-			return fmt.Errorf("inserting contract in database: %w", err)
 		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("upserting contract in db: %w", err)
 	}
 
 	// Update cache after successful database operation
