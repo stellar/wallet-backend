@@ -8,31 +8,86 @@ import (
 	"time"
 
 	"github.com/patrickmn/go-cache"
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 const (
 	contractNameKey   = "name"
 	contractSymbolKey = "symbol"
-	defaultExpiration = 7 * 24 * time.Hour
+	defaultExpiration = 30 * 24 * time.Hour
 )
 
 type contractStore struct {
 	cache *cache.Cache
+	db    *data.ContractModel
 }
 
-func NewContractStore() ContractStore {
-	// Create cache with default expiration of 24 hours and cleanup every 10 minutes
-	return &contractStore{
-		cache: cache.New(defaultExpiration, 10*time.Minute),
+func NewContractStore(dbModel *data.ContractModel) ContractStore {
+	store := &contractStore{
+		cache: cache.New(defaultExpiration, defaultExpiration),
+		db:    dbModel,
 	}
+
+	// Populate cache with existing contracts
+	contracts, err := store.db.GetAll(context.Background())
+	if err == nil && len(contracts) > 0 {
+		for _, contract := range contracts {
+			contractData := map[string]string{
+				contractNameKey:   contract.Name,
+				contractSymbolKey: contract.Symbol,
+			}
+			store.cache.Add(contract.ID, contractData, cache.DefaultExpiration)
+		}
+	}
+
+	return store
 }
 
-func (s *contractStore) Set(ctx context.Context, contractID string, name string, symbol string) error {
+func (s *contractStore) InsertWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
+	contract := &data.Contract{
+		ID:     contractID,
+		Name:   name,
+		Symbol: symbol,
+	}
+	
+	err := s.db.Insert(ctx, tx, contract)
+	if err != nil {
+		return fmt.Errorf("inserting contract in database: %w", err)
+	}
+	
+	// Only update cache after successful database operation
 	contractData := map[string]string{
 		contractNameKey:   name,
 		contractSymbolKey: symbol,
 	}
-	s.cache.Set(contractID, contractData, cache.DefaultExpiration)
+	s.cache.Add(contractID, contractData, defaultExpiration)
+	
+	return nil
+}
+
+func (s *contractStore) UpdateWithTx(ctx context.Context, tx db.Transaction, contractID string, name string, symbol string) error {
+	contract, err := s.db.GetByID(ctx, contractID)
+	if err != nil {
+		return fmt.Errorf("getting contract from database: %w", err)
+	}
+
+	if contract == nil {
+		return fmt.Errorf("contract not found")
+	}
+
+	contract.Name = name
+	contract.Symbol = symbol
+	err = s.db.Update(ctx, tx, contract)
+	if err != nil {
+		return fmt.Errorf("updating contract in database: %w", err)
+	}
+
+	contractData := map[string]string{
+		contractNameKey:   name,
+		contractSymbolKey: symbol,
+	}
+	s.cache.Set(contractID, contractData, defaultExpiration)
 	return nil
 }
 
