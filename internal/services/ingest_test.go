@@ -49,7 +49,7 @@ func Test_getLedgerSeqRange(t *testing.T) {
 			wantInSync:         false,
 			wantResult: LedgerSeqRange{
 				Start: 10,
-				End:   10 + maxLedgerWindow,
+				End:   min(10+maxLedgerWindow, 20),
 			},
 		},
 		{
@@ -60,7 +60,7 @@ func Test_getLedgerSeqRange(t *testing.T) {
 			wantInSync:         false,
 			wantResult: LedgerSeqRange{
 				Start: 11,
-				End:   11 + maxLedgerWindow,
+				End:   min(11+maxLedgerWindow, 20),
 			},
 		},
 		{
@@ -71,7 +71,7 @@ func Test_getLedgerSeqRange(t *testing.T) {
 			wantInSync:         false,
 			wantResult: LedgerSeqRange{
 				Start: 16,
-				End:   16 + maxLedgerWindow,
+				End:   min(16+maxLedgerWindow, 20),
 			},
 		},
 		{
