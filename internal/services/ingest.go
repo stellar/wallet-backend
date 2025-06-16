@@ -259,6 +259,7 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, startLedger u
 	return getLedgersResponse, nil
 }
 
+// RunOld is the old ingestion loop. It is being deprecated.
 func (m *ingestService) RunOld(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
