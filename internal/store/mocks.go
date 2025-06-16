@@ -10,7 +10,7 @@ type MockContractStore struct {
 	mock.Mock
 }
 
-func (m *MockContractStore) Set(ctx context.Context, contractID string, name string, symbol string) error {
+func (m *MockContractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
 	args := m.Called(ctx, contractID, name, symbol)
 	return args.Error(0)
 }

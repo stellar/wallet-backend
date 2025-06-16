@@ -1,67 +1,100 @@
-// Package store provides storage interfaces and implementations for wallet-backend.
-// This file contains the in-memory implementation of the contract store.
 package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/patrickmn/go-cache"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 const (
 	contractNameKey   = "name"
 	contractSymbolKey = "symbol"
-	defaultExpiration = 7 * 24 * time.Hour
+	defaultExpiration = 30 * 24 * time.Hour
 )
 
 type contractStore struct {
 	cache *cache.Cache
+	db    *data.ContractModel
 }
 
-func NewContractStore() ContractStore {
-	// Create cache with default expiration of 24 hours and cleanup every 10 minutes
-	return &contractStore{
-		cache: cache.New(defaultExpiration, 10*time.Minute),
+func NewContractStore(dbModel *data.ContractModel) (ContractStore, error) {
+	store := &contractStore{
+		cache: cache.New(defaultExpiration, defaultExpiration),
+		db:    dbModel,
 	}
+
+	// Populate cache with existing contracts
+	contracts, err := store.db.GetAll(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("getting all contracts: %w", err)
+	}
+
+	if len(contracts) > 0 {
+		for _, contract := range contracts {
+			store.set(contract.ID, contract.Name, contract.Symbol)
+		}
+	}
+
+	return store, nil
 }
 
-func (s *contractStore) Set(ctx context.Context, contractID string, name string, symbol string) error {
-	contractData := map[string]string{
-		contractNameKey:   name,
-		contractSymbolKey: symbol,
+func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
+	var contract *data.Contract
+
+	err := db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
+		// Check if contract exists within the transaction
+		existing, err := s.db.GetByID(ctx, contractID)
+		if err != nil && !isNoRowsError(err) {
+			return fmt.Errorf("checking existing contract: %w", err)
+		}
+
+		if existing != nil {
+			// Update existing
+			existing.Name = name
+			existing.Symbol = symbol
+			return s.db.Update(ctx, tx, existing)
+		} else {
+			// Insert new
+			contract = &data.Contract{
+				ID:     contractID,
+				Name:   name,
+				Symbol: symbol,
+			}
+			return s.db.Insert(ctx, tx, contract)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("upserting contract in db: %w", err)
 	}
-	s.cache.Set(contractID, contractData, cache.DefaultExpiration)
+
+	// Update cache after successful database operation
+	s.set(contractID, name, symbol)
 	return nil
 }
 
 func (s *contractStore) Name(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract data: %w", err)
+		return "", err
 	}
 
-	name, exists := contractData[contractNameKey]
-	if !exists {
-		return "", fmt.Errorf("getting contract name: name field not found")
-	}
-
-	return name, nil
+	return contractData[contractNameKey], nil
 }
 
 func (s *contractStore) Symbol(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
-		return "", fmt.Errorf("getting contract data: %w", err)
+		return "", err
 	}
 
-	symbol, exists := contractData[contractSymbolKey]
-	if !exists {
-		return "", fmt.Errorf("getting contract symbol: symbol field not found")
-	}
-
-	return symbol, nil
+	return contractData[contractSymbolKey], nil
 }
 
 func (s *contractStore) Exists(ctx context.Context, contractID string) (bool, error) {
@@ -84,4 +117,17 @@ func (s *contractStore) getContractData(contractID string) (map[string]string, e
 	}
 
 	return contractData, nil
+}
+
+func (s *contractStore) set(contractID, name, symbol string) {
+	contractData := map[string]string{
+		contractNameKey:   name,
+		contractSymbolKey: symbol,
+	}
+	s.cache.Set(contractID, contractData, defaultExpiration)
+}
+
+func isNoRowsError(err error) bool {
+	// Check if this is a "no rows" error
+	return errors.Is(err, sql.ErrNoRows)
 }
