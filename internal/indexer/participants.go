@@ -16,13 +16,13 @@ import (
 // from different sources (transactions, operations, etc)
 type ParticipantsProcessor struct {
 	network    string
-	dataBundle DataBundle
+	DataBundle DataBundle
 }
 
 func NewParticipantsProcessor(network string) *ParticipantsProcessor {
 	return &ParticipantsProcessor{
 		network:    network,
-		dataBundle: NewDataBundle(network),
+		DataBundle: NewDataBundle(network),
 	}
 }
 
@@ -137,13 +137,17 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 
 	// 3. Push transaction and participants to data bundle
 	for _, xdrParticipant := range participants {
-		p.dataBundle.PushTransactionWithParticipant(Participant(xdrParticipant.Address()), dbTx)
+		p.DataBundle.PushTransactionWithParticipant(Participant(xdrParticipant.Address()), dbTx)
 	}
 
 	return nil
 }
 
 func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, transaction ingest.LedgerTransaction) error {
+	if !transaction.Successful() {
+		return nil
+	}
+
 	now := time.Now()
 	ledgerCreatedAt := transaction.Ledger.ClosedAt()
 	txHash := transaction.Hash.HexString()
@@ -157,21 +161,21 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 			LedgerSequence: sequence,
 			Network:        p.network,
 		}
-		opID := op.ID()
+		opID := fmt.Sprintf("%d", op.ID())
 
 		// 2. Get participants for the operation
 		participants, err := op.Participants()
 		if err != nil {
-			return fmt.Errorf("reading operation %v participants: %w", opID, err)
+			return fmt.Errorf("reading operation %s participants: %w", opID, err)
 		}
 
 		// 3. Build database operation object
 		xdrOpStr, err := xdr.MarshalBase64(xdrOp)
 		if err != nil {
-			return fmt.Errorf("marshalling operation %v: %w", opID, err)
+			return fmt.Errorf("marshalling operation %s: %w", opID, err)
 		}
 		dbOp := types.Operation{
-			ID:              string(opID),
+			ID:              opID,
 			OperationType:   types.OperationTypeFromXDR(op.OperationType()),
 			OperationXDR:    xdrOpStr,
 			LedgerCreatedAt: ledgerCreatedAt,
@@ -181,7 +185,7 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 
 		// 4. Push operation and participants to data bundle
 		for _, xdrParticipant := range participants {
-			p.dataBundle.PushOperationWithParticipant(Participant(xdrParticipant.Address()), dbOp)
+			p.DataBundle.PushOperationWithParticipant(Participant(xdrParticipant.Address()), dbOp)
 		}
 	}
 
