@@ -22,6 +22,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
@@ -164,11 +165,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		// fetch ledgers
 		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, startLedger)
 		if err != nil {
+			if errors.Is(err, ErrAlreadyInSync) {
+				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
+				continue
+			}
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
-		}
-		if errors.Is(err, ErrAlreadyInSync) {
-			log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
-			continue
 		}
 
 		// process ledgers
@@ -187,13 +188,16 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
 		ticker.Reset(tickerDuration)
-		manualTriggerChan <- nil
+
+		if len(getLedgersResponse.Ledgers) > maxLedgerWindow {
+			manualTriggerChan <- nil
+		}
 	}
 }
 
-type result[T any] struct {
+type jobResultData struct {
 	ledger        protocol.LedgerInfo
-	processedData T
+	processedData indexer.DataBundle
 	err           error
 }
 
@@ -201,26 +205,19 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	log.Ctx(ctx).Infof("🚧 Will process & ingest %d ledgers", len(getLedgersResponse.Ledgers))
 
 	// Create a worker pool with
-	const poolSize = 32
+	const poolSize = 200
 	pool := pond.New(poolSize, maxLedgerWindow, pond.Context(ctx))
 
-	// Create a slice to store results
-	results := make([]result[any], len(getLedgersResponse.Ledgers))
+	// Create a slice to store jobResults
 	var errs []error
+	dataProcessor := indexer.NewParticipantsProcessor(m.networkPassphrase)
 
 	// Submit tasks to the pool
-	for i, ledger := range getLedgersResponse.Ledgers {
+	for _, ledger := range getLedgersResponse.Ledgers {
 		ledger := ledger // Create a new variable to avoid closure issues
 		pool.Submit(func() {
-			processedData, err := m.processLedger(ctx, ledger)
-			if err != nil {
-				err = fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err)
-				errs = append(errs, err)
-			}
-			results[i] = result[any]{
-				ledger:        ledger,
-				processedData: processedData,
-				err:           err,
+			if err := m.processLedger(ctx, ledger, dataProcessor); err != nil {
+				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
 			}
 		})
 	}
@@ -232,31 +229,82 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
+	err := m.ingestProcessedData(ctx, dataProcessor)
+	if err != nil {
+		return fmt.Errorf("ingesting processed data: %w", err)
+	}
+
 	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers", len(getLedgersResponse.Ledgers))
 
 	return nil
 }
 
-func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) (indexer.DataBundle, error) {
+func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *indexer.ParticipantsProcessor) error {
+	return db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		dataBundle := &dataProcessor.DataBundle
+		// 1. Filter participants that are not in the watchlist.
+		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, dataBundle.Participants.ToSlice())
+		if err != nil {
+			return fmt.Errorf("getting existing accounts: %w", err)
+		}
+
+		if len(existingAccounts) == 0 {
+			return nil
+		}
+
+		// 2. Identify which data should be ingested.
+		txHashesToInsert := make(indexer.Set[string])
+		participantsByTxHash := map[string][]string{}
+		for _, participant := range existingAccounts {
+			if !dataBundle.Participants.Contains(participant) {
+				continue
+			}
+
+			// 2.1. Identify which transactions should be ingested.
+			participantTxHashes := dataBundle.GetParticipantTransactionHashes(participant)
+			txHashesToInsert.Append(participantTxHashes)
+			for txHash := range participantTxHashes {
+				participantsByTxHash[txHash] = append(participantsByTxHash[txHash], participant)
+			}
+
+			// 2.2. TODO: Identify which operations should be ingested.
+		}
+
+		// 3. Build the data to be ingested.
+		var transactionsToInsert = make([]types.Transaction, 0, len(txHashesToInsert))
+		for txHash := range txHashesToInsert {
+			transactionsToInsert = append(transactionsToInsert, dataBundle.TxByHash[txHash])
+		}
+
+		// 4. Insert the transactions into the database.
+		err = m.models.Transactions.BatchInsert(ctx, dbTx, transactionsToInsert, participantsByTxHash)
+		if err != nil {
+			return fmt.Errorf("inserting transactions: %w", err)
+		}
+
+		return nil
+	})
+}
+
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, dataProcessor *indexer.ParticipantsProcessor) error {
 	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
-		return indexer.DataBundle{}, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+		return fmt.Errorf("unmarshalling ledger close meta: %w", err)
 	}
 
 	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
 	if err != nil {
-		return indexer.DataBundle{}, fmt.Errorf("getting ledger transactions: %w", err)
+		return fmt.Errorf("getting ledger transactions: %w", err)
 	}
 
-	participantsProcessor := indexer.NewParticipantsProcessor(m.networkPassphrase)
 	for _, tx := range transactions {
-		err := participantsProcessor.ProcessTransactionData(xdrLedgerCloseMeta, tx)
+		err := dataProcessor.ProcessTransactionData(xdrLedgerCloseMeta, tx)
 		if err != nil {
-			return indexer.DataBundle{}, fmt.Errorf("processing transaction: %w", err)
+			return fmt.Errorf("processing transaction: %w", err)
 		}
 	}
 
-	return participantsProcessor.DataBundle, nil
+	return nil
 }
 
 func (m *ingestService) getLedgerTransactions(_ context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
