@@ -50,7 +50,7 @@ func (m *AccountModel) GetExisting(ctx context.Context, dbTx db.Transaction, ste
 		sqlExecuter = m.DB
 	}
 
-	const query = "SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)"
+	const query = "SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1) FOR UPDATE"
 	var existingAddresses []string
 	start := time.Now()
 	err := sqlExecuter.SelectContext(ctx, &existingAddresses, query, pq.Array(stellarAddresses))
