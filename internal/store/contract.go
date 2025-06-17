@@ -55,7 +55,7 @@ func (s *contractStore) UpsertWithTx(ctx context.Context, contractID string, nam
 			return fmt.Errorf("checking existing contract: %w", err)
 		}
 
-		if existing != nil {
+		if existing != nil && (existing.Name != name || existing.Symbol != symbol) {
 			// Update existing
 			existing.Name = name
 			existing.Symbol = symbol
