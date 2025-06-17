@@ -1,108 +1,253 @@
 package processors
 
 import (
-	"bufio"
 	"context"
-	"errors"
-	"fmt"
-	"io"
-	"os"
+	"database/sql"
 	"testing"
 
+	"github.com/stellar/go/amount"
+	assetProto "github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-const (
-	testFile          = "testdata/test-ledger.txt"
-	networkPassphrase = "Public Global Stellar Network ; September 2015"
+var (
+	networkPassphrase     = "Public Global Stellar Network ; September 2015"
+	someNetworkPassphrase = "some network passphrase"
+	someTxAccount         = xdr.MustMuxedAddress("GBF3XFXGBGNQDN3HOSZ7NVRF6TJ2JOD5U6ELIWJOOEI6T5WKMQT2YSXQ")
+	someTxHash            = xdr.Hash{1, 1, 1, 1}
+
+	accountA         = xdr.MustMuxedAddress("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON")
+	accountB         = xdr.MustMuxedAddress("GCCOBXW2XQNUSL467IEILE6MMCNRR66SSVL4YQADUNYYNUVREF3FIV2Z")
+	memoA            = uint64(123)
+	memoB            = uint64(234)
+	muxedAccountA, _ = xdr.MuxedAccountFromAccountId(accountA.Address(), memoA)
+	muxedAccountB, _ = xdr.MuxedAccountFromAccountId(accountB.Address(), memoB)
+
+	oneUnit = xdr.Int64(1e7)
+
+	unitsToStr = func(v xdr.Int64) string {
+		return amount.String64Raw(v)
+	}
+
+	usdcIssuer     = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	usdcAccount    = xdr.MustMuxedAddress(usdcIssuer)
+	usdcAsset      = xdr.MustNewCreditAsset("USDC", usdcIssuer)
+	usdcProtoAsset = assetProto.NewProtoAsset(usdcAsset)
+
+	ethIssuer     = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
+	ethAccount    = xdr.MustMuxedAddress(ethIssuer)
+	ethAsset      = xdr.MustNewCreditAsset("ETH", ethIssuer)
+	ethProtoAsset = assetProto.NewProtoAsset(ethAsset)
+
+	btcIsuer      = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
+	btcAccount    = xdr.MustMuxedAddress(btcIsuer)
+	btcAsset      = xdr.MustNewCreditAsset("BTC", btcIsuer)
+	btcProtoAsset = assetProto.NewProtoAsset(btcAsset)
+
+	lpBtcEthId, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)
+	lpEthUsdcId, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18)
+
+	someBalanceId = xdr.ClaimableBalanceId{
+		Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
+		V0:   &xdr.Hash{1, 2, 3, 4, 5},
+	}
+
+	someLcm = xdr.LedgerCloseMeta{
+		V: int32(0),
+		V0: &xdr.LedgerCloseMetaV0{
+			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+				Header: xdr.LedgerHeader{
+					LedgerVersion: 20,
+					LedgerSeq:     xdr.Uint32(12345),
+					ScpValue:      xdr.StellarValue{CloseTime: xdr.TimePoint(12345 * 100)},
+				},
+			},
+			TxSet:              xdr.TransactionSet{},
+			TxProcessing:       nil,
+			UpgradesProcessing: nil,
+			ScpInfo:            nil,
+		},
+		V1: nil,
+	}
+
+	someTx = ingest.LedgerTransaction{
+		Index: 1,
+		Ledger:        someLcm,
+		Hash:          someTxHash,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1: &xdr.TransactionV1Envelope{
+				Tx: xdr.Transaction{
+					SourceAccount: someTxAccount,
+					SeqNum:        xdr.SequenceNumber(54321),
+				},
+			},
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: someTxHash,
+			Result: xdr.TransactionResult{
+				FeeCharged: xdr.Int64(100),
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{
+			V: 3,
+			V3: &xdr.TransactionMetaV3{
+				Operations: []xdr.OperationMeta{{}},
+			},
+		},
+	}
 )
 
-func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
-	ledgers, err := readTestLedgers(t)
-	require.NoError(t, err)
+func createTx(op xdr.Operation, changes xdr.LedgerEntryChanges, opResult *xdr.OperationResult, isFailed bool) ingest.LedgerTransaction {
+	resp := someTx
 
-	t.Run("extracts all state changes from the ledgers", func(t *testing.T) {
-		processor := NewTokenTransferProcessor(networkPassphrase)
+	if isFailed {
+		resp.Result.Result.Result.Code = xdr.TransactionResultCodeTxFailed
+	} else {
+		resp.Result.Result.Result.Code = xdr.TransactionResultCodeTxSuccess
+	}
 
-		for _, ledger := range ledgers {
-			// Create transaction reader from ledger
-			txReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledger)
-			require.NoError(t, err)
-			defer txReader.Close()
+	resp.Envelope.V1.Tx.Operations = []xdr.Operation{op}
+	if changes != nil {
+		resp.UnsafeMeta.V3.Operations = []xdr.OperationMeta{{
+			Changes: changes,
+		}}
+	}
 
-			// Collect all state changes from all transactions
-			var allStateChanges []types.StateChange
-
-			for {
-				tx, err := txReader.Read()
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				require.NoError(t, err)
-
-				stateChanges, err := processor.ProcessTransaction(context.Background(), tx)
-				require.NoError(t, err)
-
-				allStateChanges = append(allStateChanges, stateChanges...)
-			}
-
-			require.NotEmpty(t, allStateChanges)
-			// For each transfer event, we generate 2 state changes. Our test ledger has 8 "Transfer" events and 19 "Fee" events.
-			// Hence the total state changes generated are 35.
-			assert.Equal(t, 2*8+19, len(allStateChanges))
-
-			// Check that the state changes are valid
-			for _, stateChange := range allStateChanges {
-				assert.NotEmpty(t, stateChange.AccountID)
-				assert.NotEmpty(t, stateChange.Amount)
-				assert.Equal(t, int64(26154623), stateChange.LedgerNumber)
-			}
-
-			// Verify that specific state changes exist (order may vary)
-			foundNativeTransfer := false
-			foundMFNTransfer := false
-
-			for _, sc := range allStateChanges {
-				if sc.AccountID == "GANIJUT5I2J4QJHR6CIXXC5O5KSIMUNM47HIQYDAN5RYE7UM5WSHU4GV" &&
-					sc.Token.String == "native" &&
-					sc.Amount.String == "100" {
-					foundNativeTransfer = true
-				}
-
-				if sc.AccountID == "GBJVYTCIAEOINWPDE7SZPI4JJ3L4F53VBJ7R3F27T2BYZALLQCKG3Z5V" &&
-					sc.Token.String == "MFN:GC55P5MTVPOPPY7NBBS5RPRUF5K3667ZQ2GN4J5GGE6AZVLPC72S5K46" &&
-					sc.Amount.String == "11250000" {
-					foundMFNTransfer = true
-				}
-			}
-
-			assert.True(t, foundNativeTransfer, "Expected native transfer not found")
-			assert.True(t, foundMFNTransfer, "Expected MFN transfer not found")
-		}
-	})
+	if opResult != nil {
+		resp.Result.Result.Result.Results = &[]xdr.OperationResult{*opResult}
+	}
+	return resp
 }
 
-// Helper function to read a single line from the input file
-func readTestLedgers(t *testing.T) ([]xdr.LedgerCloseMeta, error) {
-	file, err := os.Open(testFile)
-	if err != nil {
-		t.Fatalf("failed to open test file: %v", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	ledgers := make([]xdr.LedgerCloseMeta, 0)
-	for scanner.Scan() {
-		var ledger xdr.LedgerCloseMeta
-		if err := xdr.SafeUnmarshalBase64(scanner.Text(), &ledger); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal ledger: %w", err)
+func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
+	t.Run("extracts CreateAccount state changes for successful account creation", func(t *testing.T) {
+		createAccountOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypeCreateAccount,
+				CreateAccountOp: &xdr.CreateAccountOp{
+					Destination:     accountB.ToAccountId(),
+					StartingBalance: 100 * oneUnit,
+				},
+			},
 		}
-		ledgers = append(ledgers, ledger)
-	}
-	return ledgers, nil
+		createAccountResult := &xdr.OperationResult{}
+		tx := createTx(createAccountOp, nil, createAccountResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// We get 1 fee event for txn source account and 2 events for the account creation - 1 debit and 1 credit
+		require.Len(t, changes, 3)
+		require.Equal(t, changes[0].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[0].AccountID, someTxAccount.ToAccountId().Address())
+		require.Equal(t, changes[0].Amount, sql.NullString{String: "100"})
+
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[1].AccountID, accountA.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "1000000000"})
+
+		require.Equal(t, changes[2].StateChangeCategory, types.StateChangeCategoryCredit)
+		require.Equal(t, changes[2].AccountID, accountB.ToAccountId().Address())
+		require.Equal(t, changes[2].Amount, sql.NullString{String: "1000000000"})
+	})
+	t.Run("extracts only fee event for failed txn", func(t *testing.T) {
+		createAccountOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypeCreateAccount,
+				CreateAccountOp: &xdr.CreateAccountOp{
+					Destination:     accountB.ToAccountId(),
+					StartingBalance: 100 * oneUnit,
+				},
+			},
+		}
+		createAccountResult := &xdr.OperationResult{}
+		tx := createTx(createAccountOp, nil, createAccountResult, true)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// We get only 1 fee event for txn source account
+		require.Len(t, changes, 1)
+		require.Equal(t, changes[0].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[0].AccountID, someTxAccount.ToAccountId().Address())
+		require.Equal(t, changes[0].Amount, sql.NullString{String: "100"})
+	})
+	
+	// Payment Operations Tests
+	t.Run("extracts Payment state changes for native XLM payment", func(t *testing.T) {
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+					Amount:      50 * oneUnit,
+				},
+			},
+		}
+		paymentResult := &xdr.OperationResult{}
+		tx := createTx(paymentOp, nil, paymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + debit + credit
+		require.Len(t, changes, 3)
+		
+		require.Equal(t, changes[0].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[0].AccountID, someTxAccount.ToAccountId().Address())
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[1].AccountID, accountA.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "500000000"})
+		
+		require.Equal(t, changes[2].StateChangeCategory, types.StateChangeCategoryCredit)
+		require.Equal(t, changes[2].AccountID, accountB.ToAccountId().Address())
+		require.Equal(t, changes[2].Amount, sql.NullString{String: "500000000"})
+	})
+	
+	t.Run("extracts Payment state changes for custom asset payment", func(t *testing.T) {
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		paymentResult := &xdr.OperationResult{}
+		tx := createTx(paymentOp, nil, paymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + debit + credit
+		require.Len(t, changes, 3)
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[1].AccountID, accountA.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "1000000000"})
+		require.Equal(t, changes[1].Token, sql.NullString{String: "USDC:" + usdcIssuer})
+		
+		require.Equal(t, changes[2].StateChangeCategory, types.StateChangeCategoryCredit)
+		require.Equal(t, changes[2].AccountID, accountB.ToAccountId().Address())
+		require.Equal(t, changes[2].Amount, sql.NullString{String: "1000000000"})
+		require.Equal(t, changes[2].Token, sql.NullString{String: "USDC:" + usdcIssuer})
+	})
+
 }

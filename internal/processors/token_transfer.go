@@ -3,6 +3,7 @@ package processors
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+var (
+	ErrOperationNotFound = errors.New("operation not found")
+)
+
 type TokenTransferProcessor struct {
 	eventsProcessor *ttp.EventsProcessor
 }
@@ -25,7 +30,7 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 	}
 }
 
-func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
+func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Hash.HexString()
@@ -43,14 +48,23 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	for _, e := range allEvents {
 		meta := e.GetMeta()
 		contractAddress := meta.GetContractAddress()
+		event := e.GetEvent()
 
-		opID, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex()-1)
-		if err != nil {
-			return nil, fmt.Errorf("parsing operation details: %w", err)
+		var opID, opSourceAccount string
+		var opType *xdr.OperationType
+		var err error
+		if _, isFeeEvent := event.(*ttp.TokenTransferEvent_Fee); !isFeeEvent {
+			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex())
+			if err != nil {
+				if errors.Is(err, ErrOperationNotFound) {
+					continue
+				}
+				return nil, fmt.Errorf("parsing operation details: %w", err)
+			}
 		}
 
 		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash, opID)
-		changes, err := p.processEventWithOperation(e.GetEvent(), contractAddress, baseChange, opType, opSourceAccount)
+		changes, err := p.processEventWithOperation(event, contractAddress, baseChange, opType, opSourceAccount)
 		if err != nil {
 			return nil, err
 		}
@@ -61,9 +75,9 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 }
 
 func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (string, *xdr.OperationType, string, error) {
-	op, found := tx.GetOperation(opIdx)
+	op, found := tx.GetOperation(opIdx-1)
 	if !found {
-		return "", nil, "", fmt.Errorf("operation not found")
+		return "", nil, "", ErrOperationNotFound
 	}
 
 	operationType := &op.Body.Type
