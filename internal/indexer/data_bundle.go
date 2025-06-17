@@ -1,4 +1,4 @@
-package ingest
+package indexer
 
 import "github.com/stellar/wallet-backend/internal/indexer/types"
 

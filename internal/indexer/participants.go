@@ -1,4 +1,4 @@
-package ingest
+package indexer
 
 import (
 	"fmt"
@@ -188,7 +188,7 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 	return nil
 }
 
-func (p *ParticipantsProcessor) ProcessTransaction(lcm xdr.LedgerCloseMeta, transaction ingest.LedgerTransaction) error {
+func (p *ParticipantsProcessor) ProcessTransactionData(lcm xdr.LedgerCloseMeta, transaction ingest.LedgerTransaction) error {
 	if err := p.addOperationsParticipants(lcm.LedgerSequence(), transaction); err != nil {
 		return err
 	}
