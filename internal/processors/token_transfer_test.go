@@ -11,9 +11,10 @@ import (
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 const (
@@ -26,7 +27,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("extracts all state changes from the ledgers", func(t *testing.T) {
-		processor := NewTokenTransferProcessor(nil, networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase)
 
 		for _, ledger := range ledgers {
 			// Create transaction reader from ledger

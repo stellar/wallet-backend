@@ -10,22 +10,18 @@ import (
 	"github.com/stellar/go/ingest"
 	ttp "github.com/stellar/go/processors/token_transfer"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	cache "github.com/stellar/wallet-backend/internal/store"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type TokenTransferProcessor struct {
-	contractStore     cache.ContractStore
-	eventsProcessor   *ttp.EventsProcessor
-	networkPassphrase string
+	eventsProcessor *ttp.EventsProcessor
 }
 
-func NewTokenTransferProcessor(contractStore cache.ContractStore, networkPassphrase string) *TokenTransferProcessor {
+func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor {
 	return &TokenTransferProcessor{
-		contractStore:     contractStore,
-		eventsProcessor:   ttp.NewEventsProcessor(networkPassphrase),
-		networkPassphrase: networkPassphrase,
+		eventsProcessor: ttp.NewEventsProcessor(networkPassphrase),
 	}
 }
 
@@ -48,13 +44,12 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		meta := e.GetMeta()
 		contractAddress := meta.GetContractAddress()
 
-		// Get operation details if available
-		opId, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex() - 1)
+		opID, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex()-1)
 		if err != nil {
 			return nil, fmt.Errorf("parsing operation details: %w", err)
 		}
 
-		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash, opId)
+		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash, opID)
 		changes, err := p.processEventWithOperation(e.GetEvent(), contractAddress, baseChange, opType, opSourceAccount)
 		if err != nil {
 			return nil, err
@@ -70,7 +65,7 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	if !found {
 		return "", nil, "", fmt.Errorf("operation not found")
 	}
-	
+
 	operationType := &op.Body.Type
 	var opSourceAccount string
 	if op.SourceAccount != nil {
@@ -78,9 +73,9 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	} else {
 		opSourceAccount = tx.Envelope.SourceAccount().ToAccountId().Address()
 	}
-	opId := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
-	
-	return opId, operationType, opSourceAccount, nil
+	opID := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
+
+	return opID, operationType, opSourceAccount, nil
 }
 
 func (p *TokenTransferProcessor) processEventWithOperation(event any, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
@@ -100,13 +95,13 @@ func (p *TokenTransferProcessor) processEventWithOperation(event any, contractAd
 	}
 }
 
-func (p *TokenTransferProcessor) createBaseStateChange(ledgerNumber uint32, ledgerCloseTime int64, txHash string, opId string) types.StateChange {
+func (p *TokenTransferProcessor) createBaseStateChange(ledgerNumber uint32, ledgerCloseTime int64, txHash string, opID string) types.StateChange {
 	change := types.StateChange{
 		LedgerNumber:    int64(ledgerNumber),
 		LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 		IngestedAt:      time.Now(),
 		TxHash:          txHash,
-		OperationID:     opId,
+		OperationID:     opID,
 	}
 
 	return change
@@ -130,26 +125,18 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		baseChange.StateChangeCategory = types.StateChangeCategoryDebit
 		baseChange.AccountID = transfer.GetFrom()
 		baseChange.ClaimableBalanceID = sql.NullString{String: transfer.GetTo()}
-		p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
-		return []types.StateChange{baseChange}, nil
 	case xdr.OperationTypeClaimClaimableBalance:
 		baseChange.StateChangeCategory = types.StateChangeCategoryCredit
 		baseChange.AccountID = transfer.GetTo()
 		baseChange.ClaimableBalanceID = sql.NullString{String: transfer.GetFrom()}
-		p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
-		return []types.StateChange{baseChange}, nil
 	case xdr.OperationTypeLiquidityPoolDeposit:
 		baseChange.StateChangeCategory = types.StateChangeCategoryDebit
 		baseChange.AccountID = transfer.GetFrom()
 		baseChange.LiquidityPoolID = sql.NullString{String: transfer.GetTo()}
-		p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
-		return []types.StateChange{baseChange}, nil
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		baseChange.StateChangeCategory = types.StateChangeCategoryCredit
 		baseChange.AccountID = transfer.GetTo()
 		baseChange.LiquidityPoolID = sql.NullString{String: transfer.GetFrom()}
-		p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
-		return []types.StateChange{baseChange}, nil
 	case xdr.OperationTypeSetTrustLineFlags, xdr.OperationTypeAllowTrust:
 		// We skip events generated by these operations since they involve only an LP and Claimable Balance ID.
 		return nil, nil
@@ -168,6 +155,9 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		p.setAssetOrContract(&creditChange, transfer.GetAsset(), contractAddress)
 		return []types.StateChange{debitChange, creditChange}, nil
 	}
+
+	p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
+	return []types.StateChange{baseChange}, nil
 }
 
 func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {
