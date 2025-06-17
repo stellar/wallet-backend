@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/stellar/go/xdr"
 )
 
 type Account struct {
@@ -18,7 +20,7 @@ type Transaction struct {
 	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
-	LedgerNumber    int64     `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
@@ -28,6 +30,44 @@ type Transaction struct {
 }
 
 type OperationType string
+
+// xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
+var xdrToOperationTypeMap = map[xdr.OperationType]OperationType{
+	xdr.OperationTypeCreateAccount:                 OperationTypeCreateAccount,
+	xdr.OperationTypePayment:                       OperationTypePayment,
+	xdr.OperationTypePathPaymentStrictReceive:      OperationTypePathPaymentStrictReceive,
+	xdr.OperationTypeManageSellOffer:               OperationTypeManageSellOffer,
+	xdr.OperationTypeCreatePassiveSellOffer:        OperationTypeCreatePassiveSellOffer,
+	xdr.OperationTypeSetOptions:                    OperationTypeSetOptions,
+	xdr.OperationTypeChangeTrust:                   OperationTypeChangeTrust,
+	xdr.OperationTypeAllowTrust:                    OperationTypeAllowTrust,
+	xdr.OperationTypeAccountMerge:                  OperationTypeAccountMerge,
+	xdr.OperationTypeInflation:                     OperationTypeInflation,
+	xdr.OperationTypeManageData:                    OperationTypeManageData,
+	xdr.OperationTypeBumpSequence:                  OperationTypeBumpSequence,
+	xdr.OperationTypeManageBuyOffer:                OperationTypeManageBuyOffer,
+	xdr.OperationTypePathPaymentStrictSend:         OperationTypePathPaymentStrictSend,
+	xdr.OperationTypeCreateClaimableBalance:        OperationTypeCreateClaimableBalance,
+	xdr.OperationTypeClaimClaimableBalance:         OperationTypeClaimClaimableBalance,
+	xdr.OperationTypeBeginSponsoringFutureReserves: OperationTypeBeginSponsoringFutureReserves,
+	xdr.OperationTypeEndSponsoringFutureReserves:   OperationTypeEndSponsoringFutureReserves,
+	xdr.OperationTypeRevokeSponsorship:             OperationTypeRevokeSponsorship,
+	xdr.OperationTypeClawback:                      OperationTypeClawback,
+	xdr.OperationTypeClawbackClaimableBalance:      OperationTypeClawbackClaimableBalance,
+	xdr.OperationTypeSetTrustLineFlags:             OperationTypeSetTrustLineFlags,
+	xdr.OperationTypeLiquidityPoolDeposit:          OperationTypeLiquidityPoolDeposit,
+	xdr.OperationTypeLiquidityPoolWithdraw:         OperationTypeLiquidityPoolWithdraw,
+	xdr.OperationTypeInvokeHostFunction:            OperationTypeInvokeHostFunction,
+	xdr.OperationTypeExtendFootprintTtl:            OperationTypeExtendFootprintTTL,
+	xdr.OperationTypeRestoreFootprint:              OperationTypeRestoreFootprint,
+}
+
+func OperationTypeFromXDR(xdrOpType xdr.OperationType) OperationType {
+	if mappedType, exists := xdrToOperationTypeMap[xdrOpType]; exists {
+		return mappedType
+	}
+	return ""
+}
 
 const (
 	OperationTypeCreateAccount                 OperationType = "CREATE_ACCOUNT"
