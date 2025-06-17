@@ -21,6 +21,7 @@ tidy: ## Tidy modfiles and format source files
 	go mod tidy -v
 	@echo "==> Formatting code..."
 	go fmt ./...
+	$(shell go env GOPATH)/bin/gofumpt -l -w .
 	@echo "==> Fixing imports..."
 	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
 	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w

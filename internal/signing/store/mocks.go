@@ -87,7 +87,8 @@ func (s *KeypairStoreMock) Insert(ctx context.Context, publicKey string, encrypt
 func NewChannelAccountStoreMock(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *ChannelAccountStoreMock {
+},
+) *ChannelAccountStoreMock {
 	mock := &ChannelAccountStoreMock{}
 	mock.Mock.Test(t)
 

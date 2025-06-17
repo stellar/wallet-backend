@@ -70,7 +70,8 @@ func (r *RPCServiceMock) NetworkPassphrase() string {
 func NewRPCServiceMock(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *RPCServiceMock {
+},
+) *RPCServiceMock {
 	mock := &RPCServiceMock{}
 	mock.Mock.Test(t)
 

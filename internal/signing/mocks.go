@@ -48,7 +48,8 @@ func (s *SignatureClientMock) SignStellarFeeBumpTransaction(ctx context.Context,
 func NewSignatureClientMock(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *SignatureClientMock {
+},
+) *SignatureClientMock {
 	mock := &SignatureClientMock{}
 	mock.Mock.Test(t)
 

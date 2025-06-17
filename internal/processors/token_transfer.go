@@ -16,9 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-var (
-	ErrOperationNotFound = errors.New("operation not found")
-)
+var ErrOperationNotFound = errors.New("operation not found")
 
 type TokenTransferProcessor struct {
 	eventsProcessor *ttp.EventsProcessor
@@ -75,7 +73,7 @@ func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTr
 }
 
 func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (string, *xdr.OperationType, string, error) {
-	op, found := tx.GetOperation(opIdx-1)
+	op, found := tx.GetOperation(opIdx - 1)
 	if !found {
 		return "", nil, "", ErrOperationNotFound
 	}
