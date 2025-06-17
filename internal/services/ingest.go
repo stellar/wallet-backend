@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/alitto/pond"
+	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -19,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
@@ -44,12 +47,13 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models           *data.Models
-	ledgerCursorName string
-	appTracker       apptracker.AppTracker
-	rpcService       RPCService
-	chAccStore       store.ChannelAccountStore
-	metricsService   metrics.MetricsService
+	models            *data.Models
+	ledgerCursorName  string
+	appTracker        apptracker.AppTracker
+	rpcService        RPCService
+	chAccStore        store.ChannelAccountStore
+	metricsService    metrics.MetricsService
+	networkPassphrase string
 }
 
 func NewIngestService(
@@ -80,12 +84,13 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:           models,
-		ledgerCursorName: ledgerCursorName,
-		appTracker:       appTracker,
-		rpcService:       rpcService,
-		chAccStore:       chAccStore,
-		metricsService:   metricsService,
+		models:            models,
+		ledgerCursorName:  ledgerCursorName,
+		appTracker:        appTracker,
+		rpcService:        rpcService,
+		chAccStore:        chAccStore,
+		metricsService:    metricsService,
+		networkPassphrase: rpcService.NetworkPassphrase(),
 	}, nil
 }
 
@@ -235,8 +240,53 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 }
 
 func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) (any, error) {
-	log.Ctx(ctx).Warnf("🚧 TODO: process ledger %d", ledgerInfo.Sequence)
+	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
+	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
+		return nil, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+	}
+
+	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting ledger transactions: %w", err)
+	}
+
+	dataBundle := indexer.NewParticipantsProcessor(m.networkPassphrase)
+	for _, tx := range transactions {
+		err := dataBundle.ProcessTransactionData(xdrLedgerCloseMeta, tx)
+		if err != nil {
+			return nil, fmt.Errorf("processing transaction: %w", err)
+		}
+	}
+
 	return nil, nil
+}
+
+func (m *ingestService) getLedgerTransactions(_ context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
+	}
+	defer ledgerTxReader.Close()
+
+	transactions := make([]ingest.LedgerTransaction, 0)
+	for {
+		tx, err := ledgerTxReader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("reading ledger: %w", err)
+		}
+
+		if !tx.Successful() {
+			// TODO: understand what we're indexing for unsuccessful transactions
+			continue
+		}
+
+		transactions = append(transactions, tx)
+	}
+
+	return transactions, nil
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
@@ -474,7 +524,7 @@ func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
 		}
 	}
 
-	innerTxHash, err := innerTx.HashHex(m.rpcService.NetworkPassphrase())
+	innerTxHash, err := innerTx.HashHex(m.networkPassphrase)
 	if err != nil {
 		return "", fmt.Errorf("generating hash hex: %w", err)
 	}
