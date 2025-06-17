@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/lib/pq"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -76,6 +77,102 @@ func TestAccountModelDelete(t *testing.T) {
 	var dbAddress sql.NullString
 	err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
 	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func Test_AccountModel_GetExisting(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	existingAddress1 := keypair.MustRandom().Address()
+	existingAddress2 := keypair.MustRandom().Address()
+	existingAddresses := []string{existingAddress1, existingAddress2}
+	nonExistingAddress := keypair.MustRandom().Address()
+
+	// Insert addresses to test against
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) SELECT unnest($1::text[])", pq.Array(existingAddresses))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		inputValues     []string
+		useDbTx         bool
+		wantResults     []string
+		wantErrContains string
+	}{
+		{
+			name:            "🟢all_addresses_found",
+			inputValues:     existingAddresses,
+			useDbTx:         false,
+			wantResults:     existingAddresses,
+			wantErrContains: "",
+		},
+		{
+			name:            "🟢all_addresses_found_with_db_transaction",
+			inputValues:     existingAddresses,
+			useDbTx:         true,
+			wantResults:     existingAddresses,
+			wantErrContains: "",
+		},
+		{
+			name:            "🟢no_addresses_found",
+			inputValues:     []string{nonExistingAddress},
+			useDbTx:         false,
+			wantResults:     nil,
+			wantErrContains: "",
+		},
+		{
+			name:            "🟢mixed_addresses",
+			inputValues:     []string{existingAddress1, existingAddress2, nonExistingAddress},
+			useDbTx:         false,
+			wantResults:     []string{existingAddress1, existingAddress2},
+			wantErrContains: "",
+		},
+		{
+			name:            "🟢empty_input",
+			inputValues:     []string{},
+			useDbTx:         false,
+			wantResults:     nil,
+			wantErrContains: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create fresh mock for each test case
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.
+				On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return().
+				On("IncDBQuery", "SELECT", "accounts").Return()
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &AccountModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			var dbTx db.Transaction
+			if tc.useDbTx {
+				dbTx, err = dbConnectionPool.BeginTxx(ctx, nil)
+				require.NoError(t, err)
+				defer dbTx.Rollback()
+			}
+
+			got, err := m.GetExisting(ctx, dbTx, tc.inputValues)
+
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
+				assert.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantResults, got)
+			}
+		})
+	}
 }
 
 func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
