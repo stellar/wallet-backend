@@ -250,4 +250,122 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, changes[2].Token, sql.NullString{String: "USDC:" + usdcIssuer})
 	})
 
+	// Mint Events - Payments FROM issuer accounts
+	t.Run("extracts Payment state changes for USDC mint (issuer to account)", func(t *testing.T) {
+		mintPaymentOp := xdr.Operation{
+			SourceAccount: &usdcAccount,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		mintPaymentResult := &xdr.OperationResult{}
+		tx := createTx(mintPaymentOp, nil, mintPaymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + mint event
+		require.Len(t, changes, 2)
+		
+		require.Equal(t, changes[0].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[0].AccountID, someTxAccount.ToAccountId().Address())
+		require.Equal(t, changes[0].Amount, sql.NullString{String: "100"})
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryMint)
+		require.Equal(t, changes[1].AccountID, accountB.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "1000000000"})
+		require.Equal(t, changes[1].Token, sql.NullString{String: "USDC:" + usdcIssuer})
+	})
+	
+	t.Run("extracts Payment state changes for ETH mint (issuer to account)", func(t *testing.T) {
+		mintPaymentOp := xdr.Operation{
+			SourceAccount: &ethAccount,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountA,
+					Asset:       ethAsset,
+					Amount:      50 * oneUnit,
+				},
+			},
+		}
+		mintPaymentResult := &xdr.OperationResult{}
+		tx := createTx(mintPaymentOp, nil, mintPaymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + mint event
+		require.Len(t, changes, 2)
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryMint)
+		require.Equal(t, changes[1].AccountID, accountA.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "500000000"})
+		require.Equal(t, changes[1].Token, sql.NullString{String: "ETH:" + ethIssuer})
+	})
+	
+	// Burn Events - Payments TO issuer accounts
+	t.Run("extracts Payment state changes for USDC burn (account to issuer)", func(t *testing.T) {
+		burnPaymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: usdcAccount,
+					Asset:       usdcAsset,
+					Amount:      75 * oneUnit,
+				},
+			},
+		}
+		burnPaymentResult := &xdr.OperationResult{}
+		tx := createTx(burnPaymentOp, nil, burnPaymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + burn event
+		require.Len(t, changes, 2)
+		
+		require.Equal(t, changes[0].StateChangeCategory, types.StateChangeCategoryDebit)
+		require.Equal(t, changes[0].AccountID, someTxAccount.ToAccountId().Address())
+		require.Equal(t, changes[0].Amount, sql.NullString{String: "100"})
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryBurn)
+		require.Equal(t, changes[1].AccountID, accountA.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "750000000"})
+		require.Equal(t, changes[1].Token, sql.NullString{String: "USDC:" + usdcIssuer})
+	})
+	
+	t.Run("extracts Payment state changes for BTC burn (account to issuer)", func(t *testing.T) {
+		burnPaymentOp := xdr.Operation{
+			SourceAccount: &accountB,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: btcAccount,
+					Asset:       btcAsset,
+					Amount:      25 * oneUnit,
+				},
+			},
+		}
+		burnPaymentResult := &xdr.OperationResult{}
+		tx := createTx(burnPaymentOp, nil, burnPaymentResult, false)
+		
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		changes, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + burn event
+		require.Len(t, changes, 2)
+		
+		require.Equal(t, changes[1].StateChangeCategory, types.StateChangeCategoryBurn)
+		require.Equal(t, changes[1].AccountID, accountB.ToAccountId().Address())
+		require.Equal(t, changes[1].Amount, sql.NullString{String: "250000000"})
+		require.Equal(t, changes[1].Token, sql.NullString{String: "BTC:" + btcIsuer})
+	})
+
 }
