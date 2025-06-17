@@ -137,7 +137,7 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 
 	// 3. Push transaction and participants to data bundle
 	for _, xdrParticipant := range participants {
-		p.DataBundle.PushTransactionWithParticipant(Participant(xdrParticipant.Address()), dbTx)
+		p.DataBundle.PushTransactionWithParticipant(xdrParticipant.Address(), dbTx)
 	}
 
 	return nil
@@ -185,7 +185,7 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 
 		// 4. Push operation and participants to data bundle
 		for _, xdrParticipant := range participants {
-			p.DataBundle.PushOperationWithParticipant(Participant(xdrParticipant.Address()), dbOp)
+			p.DataBundle.PushOperationWithParticipant(xdrParticipant.Address(), dbOp)
 		}
 	}
 
