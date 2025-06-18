@@ -205,7 +205,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	log.Ctx(ctx).Infof("🚧 Will process & ingest %d ledgers", len(getLedgersResponse.Ledgers))
 
 	// Create a worker pool with
-	const poolSize = 200
+	const poolSize = 16
 	pool := pond.New(poolSize, maxLedgerWindow, pond.Context(ctx))
 
 	// Create a slice to store jobResults
@@ -277,9 +277,20 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *
 		}
 
 		// 4. Insert the transactions into the database.
+		log.Ctx(ctx).Infof("inserting %d transactions with participants %#v", len(transactionsToInsert), participantsByTxHash)
 		err = m.models.Transactions.BatchInsert(ctx, dbTx, transactionsToInsert, participantsByTxHash)
 		if err != nil {
 			return fmt.Errorf("inserting transactions: %w", err)
+		}
+
+		// 5. Unlock channel accounts.
+		txEnvelopeXDRs := make([]string, 0, len(dataBundle.TxByHash))
+		for _, tx := range dataBundle.TxByHash {
+			txEnvelopeXDRs = append(txEnvelopeXDRs, tx.EnvelopeXDR)
+		}
+		err = m.unlockChannelAccounts(ctx, dbTx, txEnvelopeXDRs)
+		if err != nil {
+			return fmt.Errorf("unlocking channel accounts: %w", err)
 		}
 
 		return nil
@@ -402,7 +413,7 @@ func (m *ingestService) RunOld(ctx context.Context, startLedger uint32, endLedge
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
 			// eagerly unlock channel accounts from txs
-			err = m.unlockChannelAccounts(ctx, ledgerTransactions)
+			err = m.unlockChannelAccountsOld(ctx, ledgerTransactions)
 			if err != nil {
 				return fmt.Errorf("unlocking channel account from tx: %w", err)
 			}
@@ -521,7 +532,32 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerTransactions []entities.Transaction) error {
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, dbTx db.Transaction, txEnvelopeXDRs []string) error {
+	if len(txEnvelopeXDRs) == 0 {
+		log.Ctx(ctx).Debug("no transactions to unlock channel accounts from")
+		return nil
+	}
+
+	innerTxHashes := make([]string, 0, len(txEnvelopeXDRs))
+	for _, txEnvelopeXDR := range txEnvelopeXDRs {
+		if innerTxHash, err := m.extractInnerTxHash(txEnvelopeXDR); err != nil {
+			return fmt.Errorf("extracting inner tx hash: %w", err)
+		} else {
+			innerTxHashes = append(innerTxHashes, innerTxHash)
+		}
+	}
+
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, dbTx, innerTxHashes...); err != nil {
+		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
+	} else if affectedRows > 0 {
+		log.Ctx(ctx).Infof("unlocked %d channel accounts", affectedRows)
+	}
+
+	return nil
+}
+
+// unlockChannelAccountsOld unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccountsOld(ctx context.Context, ledgerTransactions []entities.Transaction) error {
 	if len(ledgerTransactions) == 0 {
 		log.Ctx(ctx).Debug("no transactions to unlock channel accounts from")
 		return nil
