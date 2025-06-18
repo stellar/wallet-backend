@@ -247,9 +247,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
-		ticker.Reset(tickerDuration)
-
-		if len(getLedgersResponse.Ledgers) > getLedgersLimit {
+		if len(getLedgersResponse.Ledgers) == getLedgersLimit {
+			ticker.Reset(tickerDuration)
 			manualTriggerChan <- nil
 		}
 	}
