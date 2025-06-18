@@ -14,5 +14,4 @@ CREATE TRIGGER contracts_set_updated_at BEFORE UPDATE ON contracts FOR EACH ROW 
 
 -- +migrate Down
 
-DROP TRIGGER contracts_set_updated_at ON contracts;
-DROP TABLE contracts;
+DROP TABLE contracts CASCADE;
