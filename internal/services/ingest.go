@@ -4,14 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/alitto/pond"
+	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -296,23 +301,87 @@ func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint
 }
 
 func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
-	firstLedger := getLedgersResponse.Ledgers[0]
-	latestLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1]
+	// Create a worker pool with
+	const poolSize = 16
+	pool := pond.New(poolSize, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
-	var firstLedgerXDR xdr.LedgerHeaderHistoryEntry
-	err := xdr.SafeUnmarshalBase64(firstLedger.LedgerHeader, &firstLedgerXDR)
-	if err != nil {
-		return fmt.Errorf("unmarshalling first ledger header: %w", err)
+	// Create a slice of errors
+	mu := sync.Mutex{}
+	var allTxHashes []string
+	var errs []error
+
+	// Submit tasks to the pool
+	for _, ledger := range getLedgersResponse.Ledgers {
+		ledger := ledger // Create a new variable to avoid closure issues
+		pool.Submit(func() {
+			txHashes, err := m.processLedger(ctx, ledger)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
+			} else {
+				mu.Lock()
+				allTxHashes = append(allTxHashes, txHashes...)
+				mu.Unlock()
+			}
+		})
 	}
 
-	var latestLedgerXDR xdr.LedgerHeaderHistoryEntry
-	err = xdr.SafeUnmarshalBase64(latestLedger.LedgerHeader, &latestLedgerXDR)
-	if err != nil {
-		return fmt.Errorf("unmarshalling latest ledger header: %w", err)
+	// Wait for all tasks to complete
+	pool.StopAndWait()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
-	log.Ctx(ctx).Warnf("🚧 Ledgers processing is not implemented yet... [count: %d, first: %d, latest: %d]", len(getLedgersResponse.Ledgers), firstLedgerXDR.Header.LedgerSeq, latestLedgerXDR.Header.LedgerSeq)
+	// TODO: ingest processed data
+	// TODO: unlock channel accounts
+
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers", len(getLedgersResponse.Ledgers))
+
 	return nil
+}
+
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) ([]string, error) {
+	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
+	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
+		return nil, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+	}
+
+	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting ledger transactions: %w", err)
+	}
+
+	// TODO: process transactions
+	log.Ctx(ctx).Debugf("🚧 Got %d transactions for ledger %d", len(transactions), xdrLedgerCloseMeta.LedgerSequence())
+	txHashes := make([]string, 0, len(transactions))
+	for _, tx := range transactions {
+		txHashes = append(txHashes, tx.Hash.HexString())
+	}
+
+	return txHashes, nil
+}
+
+func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
+	}
+	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
+
+	transactions := make([]ingest.LedgerTransaction, 0)
+	for {
+		tx, err := ledgerTxReader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("reading ledger: %w", err)
+		}
+
+		transactions = append(transactions, tx)
+	}
+
+	return transactions, nil
 }
 
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
