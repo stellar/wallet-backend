@@ -89,7 +89,7 @@ func NewIngestService(
 	}, nil
 }
 
-func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
 	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
 	ingestHeartbeatChannel := make(chan any, 1)

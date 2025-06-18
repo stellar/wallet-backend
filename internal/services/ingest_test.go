@@ -523,7 +523,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
-	err = ingestService.Run(ctx, uint32(49), uint32(50))
+	err = ingestService.DeprecatedRun(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
 
 	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
@@ -625,7 +625,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockAppTracker.On("CaptureMessage", mock.Anything).Maybe().Return(nil)
 
 	// Start ingestion at ledger 100 (ahead of RPC's initial position at 50)
-	err = ingestService.Run(ctx, uint32(100), uint32(100))
+	err = ingestService.DeprecatedRun(ctx, uint32(100), uint32(100))
 	require.NoError(t, err)
 
 	// Verify the debug log message was written
