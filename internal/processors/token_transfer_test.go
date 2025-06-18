@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/require"
 
@@ -38,12 +39,12 @@ var (
 	ethIssuer = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
 	ethAsset  = xdr.MustNewCreditAsset("ETH", ethIssuer)
 
-	// btcIsuer   = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
-	// btcAccount = xdr.MustMuxedAddress(btcIsuer)
-	// btcAsset   = xdr.MustNewCreditAsset("BTC", btcIsuer)
+	btcIssuer   = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
+	btcAccount = xdr.MustMuxedAddress(btcIssuer)
+	btcAsset   = xdr.MustNewCreditAsset("BTC", btcIssuer)
 
-	// lpBtcEthId, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
-	// lpEthUsdcId, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
+	lpBtcEthId, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
+	lpEthUsdcId, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
 
 	someBalanceID = xdr.ClaimableBalanceId{
 		Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
@@ -216,6 +217,109 @@ func clawbackClaimableBalanceOp(balanceID xdr.ClaimableBalanceId, source *xdr.Mu
 			},
 		},
 	}
+}
+
+// Helper function to create liquidity pool deposit operation
+func lpDepositOp(poolID xdr.PoolId, maxAmountA, maxAmountB, minPrice, maxPrice xdr.Int64, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeLiquidityPoolDeposit,
+			LiquidityPoolDepositOp: &xdr.LiquidityPoolDepositOp{
+				LiquidityPoolId: poolID,
+				MaxAmountA:      maxAmountA,
+				MaxAmountB:      maxAmountB,
+				MinPrice:        xdr.Price{N: xdr.Int32(minPrice), D: 1},
+				MaxPrice:        xdr.Price{N: xdr.Int32(maxPrice), D: 1},
+			},
+		},
+	}
+}
+
+// Helper function to create liquidity pool withdraw operation
+func lpWithdrawOp(poolID xdr.PoolId, amount, minAmountA, minAmountB xdr.Int64, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeLiquidityPoolWithdraw,
+			LiquidityPoolWithdrawOp: &xdr.LiquidityPoolWithdrawOp{
+				LiquidityPoolId: poolID,
+				Amount:          amount,
+				MinAmountA:      minAmountA,
+				MinAmountB:      minAmountB,
+			},
+		},
+	}
+}
+
+// Helper function to create liquidity pool ledger entry
+func lpLedgerEntry(poolID xdr.PoolId, assetA, assetB xdr.Asset, reserveA, reserveB xdr.Int64) xdr.LedgerEntry {
+	return xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LiquidityPoolEntry{
+				LiquidityPoolId: poolID,
+				Body: xdr.LiquidityPoolEntryBody{
+					Type: xdr.LiquidityPoolTypeLiquidityPoolConstantProduct,
+					ConstantProduct: &xdr.LiquidityPoolEntryConstantProduct{
+						Params: xdr.LiquidityPoolConstantProductParameters{
+							AssetA: assetA,
+							AssetB: assetB,
+							Fee:    xdr.LiquidityPoolFeeV18,
+						},
+						ReserveA:                 reserveA,
+						ReserveB:                 reserveB,
+						TotalPoolShares:          xdr.Int64(1000000000),
+						PoolSharesTrustLineCount: 1,
+					},
+				},
+			},
+		},
+	}
+}
+
+// Helper function to generate liquidity pool entry created change
+func generateLpEntryCreatedChange(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
+	return xdr.LedgerEntryChange{
+		Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &entry,
+	}
+}
+
+// Helper function to generate liquidity pool entry state change
+func generateLpEntryChangeState(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
+	return xdr.LedgerEntryChange{
+		Type:  xdr.LedgerEntryChangeTypeLedgerEntryState,
+		State: &entry,
+	}
+}
+
+// Helper function to generate liquidity pool entry updated change
+func generateLpEntryUpdatedChange(prevEntry xdr.LedgerEntry, newReserveA, newReserveB xdr.Int64) xdr.LedgerEntryChange {
+	updatedEntry := prevEntry
+	updatedEntry.Data.LiquidityPool.Body.ConstantProduct.ReserveA = newReserveA
+	updatedEntry.Data.LiquidityPool.Body.ConstantProduct.ReserveB = newReserveB
+	return xdr.LedgerEntryChange{
+		Type:    xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+		Updated: &updatedEntry,
+	}
+}
+
+// Helper function to generate liquidity pool entry removed change
+func generateLpEntryRemovedChange(poolID xdr.PoolId) xdr.LedgerEntryChange {
+	return xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved,
+		Removed: &xdr.LedgerKey{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LedgerKeyLiquidityPool{
+				LiquidityPoolId: poolID,
+			},
+		},
+	}
+}
+
+func lpIdToStrkey(lpId xdr.PoolId) string {
+	return strkey.MustEncode(strkey.VersionByteLiquidityPool, lpId[:])
 }
 
 func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
@@ -759,4 +863,134 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
 		require.Equal(t, someBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
 	})
+
+	// Liquidity Pool Events Tests
+	t.Run("LiquidityPoolDeposit - extracts state changes for new LP creation with transfer events", func(t *testing.T) {
+		lpDepositOperation := lpDepositOp(lpBtcEthId, 10*oneUnit, 20*oneUnit, 1, 10, &accountA)
+		lpDepositResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeLiquidityPoolDeposit,
+				LiquidityPoolDepositResult: &xdr.LiquidityPoolDepositResult{
+					Code: xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositSuccess,
+				},
+			},
+		}
+
+		// Create LP entry with initial deposits
+		lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 5*oneUnit, 15*oneUnit)
+		changes := xdr.LedgerEntryChanges{
+			generateLpEntryCreatedChange(lpEntry),
+		}
+
+		tx := createTx(lpDepositOperation, changes, lpDepositResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + 2 transfer events (BTC and ETH to LP)
+		require.Len(t, stateChanges, 3)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[1].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount)
+		require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
+		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[1].LiquidityPoolID.String)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[2].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "150000000"}, stateChanges[2].Amount)
+		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
+		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[2].LiquidityPoolID.String)
+	})
+
+	t.Run("LiquidityPoolWithdraw - extracts state changes for LP removal with transfer events", func(t *testing.T) {
+		lpWithdrawOperation := lpWithdrawOp(lpBtcEthId, 100*oneUnit, 2*oneUnit, 5*oneUnit, &accountA)
+		lpWithdrawResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeLiquidityPoolWithdraw,
+				LiquidityPoolWithdrawResult: &xdr.LiquidityPoolWithdrawResult{
+					Code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawSuccess,
+				},
+			},
+		}
+
+		// Create LP entry state changes showing removal
+		lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 5*oneUnit, 12*oneUnit)
+		changes := xdr.LedgerEntryChanges{
+			generateLpEntryChangeState(lpEntry),
+			generateLpEntryRemovedChange(lpBtcEthId),
+		}
+
+		tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + 2 credit events (all BTC and ETH from LP)
+		require.Len(t, stateChanges, 3)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[1].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount) // All 5 BTC
+		require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
+		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[1].LiquidityPoolID.String)
+
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[2].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "120000000"}, stateChanges[2].Amount) // All 12 ETH
+		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
+		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[2].LiquidityPoolID.String)
+	})
+
+	// t.Run("LiquidityPoolWithdraw - extracts state changes for withdraw by ETH issuer with burn event", func(t *testing.T) {
+	// 	ethAccount := xdr.MustMuxedAddress(ethIssuer)
+	// 	lpWithdrawOperation := lpWithdrawOp(lpBtcEthId, 100*oneUnit, 2*oneUnit, 5*oneUnit, &ethAccount)
+	// 	lpWithdrawResult := &xdr.OperationResult{
+	// 		Code: xdr.OperationResultCodeOpInner,
+	// 		Tr: &xdr.OperationResultTr{
+	// 			Type: xdr.OperationTypeLiquidityPoolWithdraw,
+	// 			LiquidityPoolWithdrawResult: &xdr.LiquidityPoolWithdrawResult{
+	// 				Code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawSuccess,
+	// 			},
+	// 		},
+	// 	}
+
+	// 	// Create LP entry state changes showing removal
+	// 	lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 3*oneUnit, 9*oneUnit)
+	// 	changes := xdr.LedgerEntryChanges{
+	// 		generateLpEntryChangeState(lpEntry),
+	// 		generateLpEntryRemovedChange(lpBtcEthId),
+	// 	}
+
+	// 	tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
+
+	// 	processor := NewTokenTransferProcessor(networkPassphrase)
+	// 	stateChanges, err := processor.Process(context.Background(), tx)
+	// 	require.NoError(t, err)
+	// 	// Fee event + transfer event for BTC + burn event for ETH
+	// 	require.Len(t, stateChanges, 3)
+
+	// 	require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+	// 	require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+
+	// 	require.Equal(t, types.StateChangeCategoryCredit, stateChanges[1].StateChangeCategory)
+	// 	require.Equal(t, ethAccount.ToAccountId().Address(), stateChanges[1].AccountID)
+	// 	require.Equal(t, sql.NullString{String: "30000000"}, stateChanges[1].Amount) // 3 BTC
+	// 	require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
+
+	// 	require.Equal(t, types.StateChangeCategoryBurn, stateChanges[2].StateChangeCategory)
+	// 	// For burn events, the AccountID should be the LP pool ID
+	// 	require.NotEmpty(t, stateChanges[2].AccountID)
+	// 	require.Equal(t, sql.NullString{String: "90000000"}, stateChanges[2].Amount) // 9 ETH burned
+	// 	require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
+	// })
 }
