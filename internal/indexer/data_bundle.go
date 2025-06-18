@@ -58,7 +58,9 @@ func NewDataBundle(network string) DataBundle {
 		OpByID:                map[string]types.Operation{},
 		TxByHash:              map[string]types.Transaction{},
 		TxHashesByParticipant: map[string]Set[string]{},
+		ParticipantsByTxHash:  map[string]Set[string]{},
 		OpIDsByParticipant:    map[string]Set[string]{},
+		ParticipantsByOpID:    map[string]Set[string]{},
 	}
 }
 
@@ -69,7 +71,14 @@ func (b *DataBundle) PushTransactionWithParticipant(participant string, transact
 	b.TxByHash[transaction.Hash] = transaction
 	b.Participants.Add(participant)
 
+	if b.TxHashesByParticipant[participant] == nil {
+		b.TxHashesByParticipant[participant] = Set[string]{}
+	}
 	b.TxHashesByParticipant[participant].Add(transaction.Hash)
+
+	if b.ParticipantsByTxHash[transaction.Hash] == nil {
+		b.ParticipantsByTxHash[transaction.Hash] = Set[string]{}
+	}
 	b.ParticipantsByTxHash[transaction.Hash].Add(participant)
 }
 
@@ -80,10 +89,24 @@ func (b *DataBundle) PushOperationWithParticipant(participant string, operation 
 	b.OpByID[operation.ID] = operation
 	b.Participants.Add(participant)
 
+	if b.OpIDsByParticipant[participant] == nil {
+		b.OpIDsByParticipant[participant] = make(Set[string])
+	}
 	b.OpIDsByParticipant[participant].Add(operation.ID)
+
+	if b.ParticipantsByOpID[operation.ID] == nil {
+		b.ParticipantsByOpID[operation.ID] = make(Set[string])
+	}
 	b.ParticipantsByOpID[operation.ID].Add(participant)
 
+	if b.TxHashesByParticipant[participant] == nil {
+		b.TxHashesByParticipant[participant] = make(Set[string])
+	}
 	b.TxHashesByParticipant[participant].Add(operation.TxHash)
+
+	if b.ParticipantsByTxHash[operation.TxHash] == nil {
+		b.ParticipantsByTxHash[operation.TxHash] = make(Set[string])
+	}
 	b.ParticipantsByTxHash[operation.TxHash].Add(participant)
 }
 
