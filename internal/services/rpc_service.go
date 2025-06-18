@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -23,11 +24,17 @@ const (
 	getHealthMethodName               = "getHealth"
 )
 
+type LedgerSeqRange struct {
+	Start uint32
+	End   uint32
+}
+
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 	GetHealth() (entities.RPCGetHealthResult, error)
+	GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
@@ -134,6 +141,28 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
 		return entities.RPCGetHealthResult{}, fmt.Errorf("parsing getHealth result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
+type GetLedgersResponse protocol.GetLedgersResponse
+
+func (r *rpcService) GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error) {
+	resultBytes, err := r.sendRPCRequest("getLedgers", entities.RPCParams{
+		StartLedger: int64(ledgerSeqRange.Start),
+		Pagination: entities.RPCPagination{
+			Limit: int(ledgerSeqRange.End - ledgerSeqRange.Start + 1),
+		},
+	})
+	if err != nil {
+		return GetLedgersResponse{}, fmt.Errorf("sending getLedgers request: %w", err)
+	}
+
+	var result GetLedgersResponse
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return GetLedgersResponse{}, fmt.Errorf("parsing getLedgers result JSON: %w", err)
 	}
 
 	return result, nil
@@ -311,7 +340,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		r.metricsService.IncRPCEndpointFailure(method)
-		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
+		return nil, fmt.Errorf("parsing RPC response JSON body %v: %w", string(body), err)
 	}
 
 	if res.Result == nil {
