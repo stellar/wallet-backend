@@ -24,17 +24,12 @@ const (
 	getHealthMethodName               = "getHealth"
 )
 
-type LedgerSeqRange struct {
-	Start uint32
-	End   uint32
-}
-
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 	GetHealth() (entities.RPCGetHealthResult, error)
-	GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error)
+	GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
@@ -148,11 +143,11 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 
 type GetLedgersResponse protocol.GetLedgersResponse
 
-func (r *rpcService) GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error) {
+func (r *rpcService) GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error) {
 	resultBytes, err := r.sendRPCRequest("getLedgers", entities.RPCParams{
-		StartLedger: int64(ledgerSeqRange.Start),
+		StartLedger: int64(startLedger),
 		Pagination: entities.RPCPagination{
-			Limit: int(ledgerSeqRange.End - ledgerSeqRange.Start + 1),
+			Limit: int(limit),
 		},
 	})
 	if err != nil {

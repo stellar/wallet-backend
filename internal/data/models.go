@@ -8,6 +8,7 @@ import (
 )
 
 type Models struct {
+	DB          db.ConnectionPool
 	Account     *AccountModel
 	Contract    *ContractModel
 	IngestStore *IngestStoreModel
@@ -20,6 +21,7 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 	}
 
 	return &Models{
+		DB:          db,
 		Account:     &AccountModel{DB: db, MetricsService: metricsService},
 		Contract:    &ContractModel{DB: db, MetricsService: metricsService},
 		IngestStore: &IngestStoreModel{DB: db, MetricsService: metricsService},

@@ -803,10 +803,7 @@ func Test_rpcService_GetLedgers(t *testing.T) {
 		rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 		require.NoError(t, err)
 
-		result, err := rpcService.GetLedgers(LedgerSeqRange{
-			Start: 1541075,
-			End:   1541075,
-		})
+		result, err := rpcService.GetLedgers(1541075, 1)
 		require.NoError(t, err)
 
 		assert.Equal(t, GetLedgersResponse{
@@ -844,10 +841,7 @@ func Test_rpcService_GetLedgers(t *testing.T) {
 		rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
 		require.NoError(t, err)
 
-		result, err := rpcService.GetLedgers(LedgerSeqRange{
-			Start: 1541075,
-			End:   1541075,
-		})
+		result, err := rpcService.GetLedgers(1541075, 1)
 		require.Error(t, err)
 
 		assert.Equal(t, GetLedgersResponse{}, result)

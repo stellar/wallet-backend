@@ -22,7 +22,9 @@ import (
 )
 
 const (
+	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
+	getLedgersLimit                         = 200 // NOTE: cannot be larger than 200
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
@@ -162,7 +164,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	return nil
 }
 
-const maxLedgerWindow = 200 // NOTE: cannot be larger than 200
+
+type LedgerSeqRange struct {
+	StartLedger uint32
+	Limit       uint32
+}
 
 // getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
 // - the ledgers available in the RPC,
@@ -174,9 +180,8 @@ func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint
 	if latestLedgerSynced >= rpcNewestLedger {
 		return LedgerSeqRange{}, true
 	}
-
-	ledgerRange.Start = max(latestLedgerSynced+1, rpcOldestLedger)
-	ledgerRange.End = min(ledgerRange.Start+(maxLedgerWindow-1), rpcNewestLedger)
+	ledgerRange.StartLedger = max(latestLedgerSynced+1, rpcOldestLedger)
+	ledgerRange.Limit = getLedgersLimit
 
 	return ledgerRange, false
 }

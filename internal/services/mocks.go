@@ -44,8 +44,8 @@ func (r *RPCServiceMock) GetHealth() (entities.RPCGetHealthResult, error) {
 	return args.Get(0).(entities.RPCGetHealthResult), args.Error(1)
 }
 
-func (r *RPCServiceMock) GetLedgers(ledgerSeqRange LedgerSeqRange) (GetLedgersResponse, error) {
-	args := r.Called(ledgerSeqRange)
+func (r *RPCServiceMock) GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error) {
+	args := r.Called(startLedger, limit)
 	return args.Get(0).(GetLedgersResponse), args.Error(1)
 }
 
