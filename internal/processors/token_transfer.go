@@ -168,6 +168,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		return []types.StateChange{debitChange, creditChange}, nil
 	}
 
+	baseChange.Amount = sql.NullString{String: transfer.GetAmount()}
 	p.setAssetOrContract(&baseChange, transfer.GetAsset(), contractAddress)
 	return []types.StateChange{baseChange}, nil
 }
