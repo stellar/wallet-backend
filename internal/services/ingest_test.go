@@ -460,7 +460,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
 	mockRPCService.AssertExpectations(t)
 
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(50), ledger)
 }
@@ -565,7 +565,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	assert.Contains(t, logOutput, expectedLog)
 
 	// Verify the ledger was eventually processed
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(100), ledger)
 
