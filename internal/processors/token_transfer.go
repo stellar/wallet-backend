@@ -62,7 +62,7 @@ func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTr
 		}
 
 		baseChange := p.createBaseStateChange(ledgerNumber, ledgerCloseTime, txHash, opID)
-		changes, err := p.processEventWithOperation(event, contractAddress, baseChange, opType, opSourceAccount)
+		changes, err := p.processEvent(event, contractAddress, baseChange, opType, opSourceAccount)
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +90,7 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	return opID, operationType, opSourceAccount, nil
 }
 
-func (p *TokenTransferProcessor) processEventWithOperation(event any, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
+func (p *TokenTransferProcessor) processEvent(event any, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
 	switch event := event.(type) {
 	case *ttp.TokenTransferEvent_Transfer:
 		return p.handleTransfer(event.Transfer, contractAddress, baseChange, operationType)

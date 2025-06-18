@@ -35,9 +35,8 @@ var (
 	usdcAccount = xdr.MustMuxedAddress(usdcIssuer)
 	usdcAsset   = xdr.MustNewCreditAsset("USDC", usdcIssuer)
 
-	ethIssuer  = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
-	ethAccount = xdr.MustMuxedAddress(ethIssuer)
-	ethAsset   = xdr.MustNewCreditAsset("ETH", ethIssuer)
+	ethIssuer = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
+	ethAsset  = xdr.MustNewCreditAsset("ETH", ethIssuer)
 
 	// btcIsuer   = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
 	// btcAccount = xdr.MustMuxedAddress(btcIsuer)
@@ -46,12 +45,12 @@ var (
 	// lpBtcEthId, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
 	// lpEthUsdcId, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
 
-	someBalanceId = xdr.ClaimableBalanceId{
+	someBalanceID = xdr.ClaimableBalanceId{
 		Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
 		V0:   &xdr.Hash{1, 2, 3, 4, 5},
 	}
 
-	anotherBalanceId = xdr.ClaimableBalanceId{
+	anotherBalanceID = xdr.ClaimableBalanceId{
 		Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
 		V0:   &xdr.Hash{6, 7, 8, 9, 10},
 	}
@@ -141,6 +140,21 @@ func claimCBOp(balanceID xdr.ClaimableBalanceId, source *xdr.MuxedAccount) xdr.O
 	}
 }
 
+// Helper function to create claimable balance operation
+func createCBOp(asset xdr.Asset, amount xdr.Int64, claimants []xdr.Claimant, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeCreateClaimableBalance,
+			CreateClaimableBalanceOp: &xdr.CreateClaimableBalanceOp{
+				Asset:     asset,
+				Amount:    amount,
+				Claimants: claimants,
+			},
+		},
+	}
+}
+
 // Helper function to create claimable balance ledger entry
 func cbLedgerEntry(id xdr.ClaimableBalanceId, asset xdr.Asset, amount xdr.Int64) xdr.LedgerEntry {
 	return xdr.LedgerEntry{
@@ -166,7 +180,7 @@ func generateCBEntryChangeState(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
 // Helper function to generate claimable balance entry removed change
 func generateCBEntryRemovedChange(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
 	return xdr.LedgerEntryChange{
-		Type:    xdr.LedgerEntryChangeTypeLedgerEntryRemoved,
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved,
 		Removed: &xdr.LedgerKey{
 			Type: xdr.LedgerEntryTypeClaimableBalance,
 			ClaimableBalance: &xdr.LedgerKeyClaimableBalance{
@@ -230,17 +244,17 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 			},
 		}
 		tx := createTx(accountMergeOp, nil, accountMergeResult, false)
-		
+
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
 		// Fee event + transfer event for account merge
 		require.Len(t, changes, 3)
-		
+
 		require.Equal(t, types.StateChangeCategoryDebit, changes[0].StateChangeCategory)
 		require.Equal(t, someTxAccount.ToAccountId().Address(), changes[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, changes[0].Amount)
-		
+
 		require.Equal(t, types.StateChangeCategoryDebit, changes[1].StateChangeCategory)
 		require.Equal(t, accountA.ToAccountId().Address(), changes[1].AccountID)
 		require.Equal(t, sql.NullString{String: "1000000000"}, changes[1].Amount)
@@ -251,7 +265,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "1000000000"}, changes[2].Amount)
 		require.Equal(t, sql.NullString{String: "native"}, changes[2].Token)
 	})
-	
+
 	t.Run("AccountMerge - no events for empty account merge", func(t *testing.T) {
 		accountMergeOp := xdr.Operation{
 			SourceAccount: &accountA,
@@ -271,18 +285,18 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 			},
 		}
 		tx := createTx(accountMergeOp, nil, accountMergeResult, false)
-		
+
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
 		// Only fee event - no transfer event since no balance
 		require.Len(t, changes, 1)
-		
+
 		require.Equal(t, types.StateChangeCategoryDebit, changes[0].StateChangeCategory)
 		require.Equal(t, someTxAccount.ToAccountId().Address(), changes[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, changes[0].Amount)
 	})
-	
+
 	t.Run("extracts only fee event for failed txn", func(t *testing.T) {
 		createAccountOp := xdr.Operation{
 			SourceAccount: &accountA,
@@ -365,7 +379,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, types.StateChangeCategoryDebit, changes[1].StateChangeCategory)
 		require.Equal(t, accountA.ToAccountId().Address(), changes[1].AccountID)
 		require.Equal(t, sql.NullString{String: "1000000000"}, changes[1].Amount)
-		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, changes[1].Token)	
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, changes[1].Token)
 
 		require.Equal(t, types.StateChangeCategoryCredit, changes[2].StateChangeCategory)
 		require.Equal(t, accountB.ToAccountId().Address(), changes[2].AccountID)
@@ -405,37 +419,6 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, changes[1].Token)
 	})
 
-	t.Run("Payment - extracts state changes for ETH mint (issuer to account)", func(t *testing.T) {
-		mintPaymentOp := xdr.Operation{
-			SourceAccount: &ethAccount,
-			Body: xdr.OperationBody{
-				Type: xdr.OperationTypePayment,
-				PaymentOp: &xdr.PaymentOp{
-					Destination: accountA,
-					Asset:       ethAsset,
-					Amount:      50 * oneUnit,
-				},
-			},
-		}
-		mintPaymentResult := &xdr.OperationResult{}
-		tx := createTx(mintPaymentOp, nil, mintPaymentResult, false)
-
-		processor := NewTokenTransferProcessor(networkPassphrase)
-		changes, err := processor.Process(context.Background(), tx)
-		require.NoError(t, err)
-		// Fee event + mint event
-		require.Len(t, changes, 2)
-
-		require.Equal(t, types.StateChangeCategoryDebit, changes[0].StateChangeCategory)
-		require.Equal(t, someTxAccount.ToAccountId().Address(), changes[0].AccountID)
-		require.Equal(t, sql.NullString{String: "100"}, changes[0].Amount)
-
-		require.Equal(t, types.StateChangeCategoryMint, changes[1].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), changes[1].AccountID)
-		require.Equal(t, sql.NullString{String: "500000000"}, changes[1].Amount)
-		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, changes[1].Token)
-	})
-
 	// Burn Events - Payments TO issuer accounts
 	t.Run("Payment - extracts state changes for USDC burn (account to issuer)", func(t *testing.T) {
 		burnPaymentOp := xdr.Operation{
@@ -469,46 +452,8 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 	})
 
 	// Claim Claimable Balance Tests
-	t.Run("ClaimClaimableBalance - extracts state changes for claiming native XLM balance", func(t *testing.T) {
-		claimOp := claimCBOp(someBalanceId, &accountA)
-		claimResult := &xdr.OperationResult{
-			Code: xdr.OperationResultCodeOpInner,
-			Tr: &xdr.OperationResultTr{
-				Type: xdr.OperationTypeClaimClaimableBalance,
-				ClaimClaimableBalanceResult: &xdr.ClaimClaimableBalanceResult{
-					Code: xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceSuccess,
-				},
-			},
-		}
-		
-		// Create claimable balance entry
-		cbEntry := cbLedgerEntry(someBalanceId, xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, 100*oneUnit)
-		changes := xdr.LedgerEntryChanges{
-			generateCBEntryChangeState(cbEntry),
-			generateCBEntryRemovedChange(cbEntry),
-		}
-		
-		tx := createTx(claimOp, changes, claimResult, false)
-
-		processor := NewTokenTransferProcessor(networkPassphrase)
-		stateChanges, err := processor.Process(context.Background(), tx)
-		require.NoError(t, err)
-		// Fee event + credit event for the claim
-		require.Len(t, stateChanges, 2)
-
-		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
-		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
-		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
-
-		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[1].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
-		require.Equal(t, sql.NullString{String: "1000000000"}, stateChanges[1].Amount)
-		require.Equal(t, sql.NullString{String: "native"}, stateChanges[1].Token)
-		require.Equal(t, someBalanceId.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
-	})
-
 	t.Run("ClaimClaimableBalance - extracts state changes for claiming USDC balance", func(t *testing.T) {
-		claimOp := claimCBOp(anotherBalanceId, &accountB)
+		claimOp := claimCBOp(anotherBalanceID, &accountB)
 		claimResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
 			Tr: &xdr.OperationResultTr{
@@ -518,14 +463,14 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 				},
 			},
 		}
-		
+
 		// Create USDC claimable balance entry
-		cbEntry := cbLedgerEntry(anotherBalanceId, usdcAsset, 50*oneUnit)
+		cbEntry := cbLedgerEntry(anotherBalanceID, usdcAsset, 50*oneUnit)
 		changes := xdr.LedgerEntryChanges{
 			generateCBEntryChangeState(cbEntry),
 			generateCBEntryRemovedChange(cbEntry),
 		}
-		
+
 		tx := createTx(claimOp, changes, claimResult, false)
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
@@ -542,24 +487,24 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
-		require.Equal(t, anotherBalanceId.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
+		require.Equal(t, anotherBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
 	})
 
 	t.Run("ClaimClaimableBalance - multiple claims in single transaction", func(t *testing.T) {
 		// First claim operation
-		claimOp1 := claimCBOp(someBalanceId, &accountA)
-		
+		claimOp1 := claimCBOp(someBalanceID, &accountA)
+
 		// Second claim operation - different account claiming different balance
-		claimOp2 := claimCBOp(anotherBalanceId, &accountC)
-		
+		claimOp2 := claimCBOp(anotherBalanceID, &accountC)
+
 		// Create a transaction with two operations
 		tx := someTx
 		tx.Envelope.V1.Tx.Operations = []xdr.Operation{claimOp1, claimOp2}
-		
+
 		// Create claimable balance entries
-		cbEntry1 := cbLedgerEntry(someBalanceId, xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, 100*oneUnit)
-		cbEntry2 := cbLedgerEntry(anotherBalanceId, ethAsset, 25*oneUnit)
-		
+		cbEntry1 := cbLedgerEntry(someBalanceID, xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, 100*oneUnit)
+		cbEntry2 := cbLedgerEntry(anotherBalanceID, ethAsset, 25*oneUnit)
+
 		// Set up meta for two operations
 		tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{
 			{
@@ -575,7 +520,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 				},
 			},
 		}
-		
+
 		// Set up results for both operations
 		tx.Result.Result.Result.Results = &[]xdr.OperationResult{
 			{
@@ -612,18 +557,18 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "1000000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "native"}, stateChanges[1].Token)
-		require.Equal(t, someBalanceId.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
+		require.Equal(t, someBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
 
 		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[2].StateChangeCategory)
 		require.Equal(t, accountC.ToAccountId().Address(), stateChanges[2].AccountID)
 		require.Equal(t, sql.NullString{String: "250000000"}, stateChanges[2].Amount)
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
-		require.Equal(t, anotherBalanceId.MustEncodeToStrkey(), stateChanges[2].ClaimableBalanceID.String)
+		require.Equal(t, anotherBalanceID.MustEncodeToStrkey(), stateChanges[2].ClaimableBalanceID.String)
 	})
 
 	t.Run("ClaimClaimableBalance - no source account uses transaction source", func(t *testing.T) {
 		// Create claim op without source account (nil source)
-		claimOp := claimCBOp(someBalanceId, nil)
+		claimOp := claimCBOp(someBalanceID, nil)
 		claimResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
 			Tr: &xdr.OperationResultTr{
@@ -633,14 +578,14 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 				},
 			},
 		}
-		
+
 		// Create claimable balance entry
-		cbEntry := cbLedgerEntry(someBalanceId, xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, 200*oneUnit)
+		cbEntry := cbLedgerEntry(someBalanceID, xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, 200*oneUnit)
 		changes := xdr.LedgerEntryChanges{
 			generateCBEntryChangeState(cbEntry),
 			generateCBEntryRemovedChange(cbEntry),
 		}
-		
+
 		tx := createTx(claimOp, changes, claimResult, false)
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
@@ -658,6 +603,64 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "2000000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "native"}, stateChanges[1].Token)
-		require.Equal(t, someBalanceId.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
+		require.Equal(t, someBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
+	})
+
+	// Create Claimable Balance Tests
+	t.Run("CreateClaimableBalance - extracts state changes for creating USDC balance", func(t *testing.T) {
+		// Create claimants
+		claimants := []xdr.Claimant{
+			{
+				Type: xdr.ClaimantTypeClaimantTypeV0,
+				V0: &xdr.ClaimantV0{
+					Destination: accountB.ToAccountId(),
+					Predicate: xdr.ClaimPredicate{
+						Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional,
+					},
+				},
+			},
+		}
+
+		// Create the operation using helper function
+		createOp := createCBOp(usdcAsset, 75*oneUnit, claimants, &accountA)
+
+		// Create operation result with the claimable balance ID
+		createResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeCreateClaimableBalance,
+				CreateClaimableBalanceResult: &xdr.CreateClaimableBalanceResult{
+					Code:      xdr.CreateClaimableBalanceResultCodeCreateClaimableBalanceSuccess,
+					BalanceId: &anotherBalanceID,
+				},
+			},
+		}
+
+		// Create the new claimable balance entry
+		newCBEntry := cbLedgerEntry(anotherBalanceID, usdcAsset, 75*oneUnit)
+		changes := xdr.LedgerEntryChanges{
+			xdr.LedgerEntryChange{
+				Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+				Created: &newCBEntry,
+			},
+		}
+
+		tx := createTx(createOp, changes, createResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + debit event for the creation
+		require.Len(t, stateChanges, 2)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[1].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "750000000"}, stateChanges[1].Amount)
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
+		require.Equal(t, anotherBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
 	})
 }
