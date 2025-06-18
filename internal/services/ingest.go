@@ -43,13 +43,14 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models           *data.Models
-	ledgerCursorName string
-	appTracker       apptracker.AppTracker
-	rpcService       RPCService
-	chAccStore       store.ChannelAccountStore
-	contractStore    cache.TokenContractStore
-	metricsService   metrics.MetricsService
+	models            *data.Models
+	ledgerCursorName  string
+	appTracker        apptracker.AppTracker
+	rpcService        RPCService
+	chAccStore        store.ChannelAccountStore
+	contractStore     cache.TokenContractStore
+	metricsService    metrics.MetricsService
+	networkPassphrase string
 }
 
 func NewIngestService(
@@ -84,13 +85,14 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:           models,
-		ledgerCursorName: ledgerCursorName,
-		appTracker:       appTracker,
-		rpcService:       rpcService,
-		chAccStore:       chAccStore,
-		contractStore:    contractStore,
-		metricsService:   metricsService,
+		models:            models,
+		ledgerCursorName:  ledgerCursorName,
+		appTracker:        appTracker,
+		rpcService:        rpcService,
+		chAccStore:        chAccStore,
+		contractStore:     contractStore,
+		metricsService:    metricsService,
+		networkPassphrase: rpcService.NetworkPassphrase(),
 	}, nil
 }
 
