@@ -18,7 +18,7 @@ type Transaction struct {
 	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
-	LedgerNumber    int64     `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
