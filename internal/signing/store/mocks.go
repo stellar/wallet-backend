@@ -44,8 +44,8 @@ func (s *ChannelAccountStoreMock) AssignTxToChannelAccount(ctx context.Context, 
 	return args.Error(0)
 }
 
-func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context.Context, txHashes ...string) (int64, error) {
-	_ca := []any{ctx}
+func (s *ChannelAccountStoreMock) UnassignTxAndUnlockChannelAccounts(ctx context.Context, sqlExec db.SQLExecuter, txHashes ...string) (int64, error) {
+	_ca := []any{ctx, sqlExec}
 	for _, txHash := range txHashes {
 		_ca = append(_ca, txHash)
 	}

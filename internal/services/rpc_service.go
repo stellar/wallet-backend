@@ -340,7 +340,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		r.metricsService.IncRPCEndpointFailure(method)
-		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
+		return nil, fmt.Errorf("parsing RPC response JSON body %v: %w", string(body), err)
 	}
 
 	if res.Result == nil {

@@ -484,7 +484,7 @@ func Test_Ingest_RunOld_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	require.NoError(t, err)
 	txHash, err := transaction.HashHex(network.TestNetworkPassphrase)
 	require.NoError(t, err)
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, txHash).Return(int64(1), nil).Once()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, txHash).Return(int64(1), nil).Once()
 	txEnvXDR, err := transaction.Base64()
 	require.NoError(t, err)
 
@@ -553,7 +553,7 @@ func Test_Ingest_RunOld_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		On("TrackRPCServiceHealth", ctx, mock.Anything).Once().
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockMetricsService)
 	require.NoError(t, err)
 
