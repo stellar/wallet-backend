@@ -309,7 +309,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 
 	for _, tx := range transactions {
-		err := dataProcessor.ProcessTransactionData(xdrLedgerCloseMeta, tx)
+		err := dataProcessor.ProcessTransactionData(tx)
 		if err != nil {
 			return fmt.Errorf("processing transaction: %w", err)
 		}

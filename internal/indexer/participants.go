@@ -132,7 +132,7 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 		EnvelopeXDR:     envelopeXDR,
 		ResultXDR:       resultXDR,
 		MetaXDR:         metaXDR,
-		LedgerNumber:    transaction.LedgerVersion,
+		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 	}
 
 	// 3. Push transaction and participants to data bundle
@@ -143,7 +143,7 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 	return nil
 }
 
-func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, transaction ingest.LedgerTransaction) error {
+func (p *ParticipantsProcessor) addOperationsParticipants(transaction ingest.LedgerTransaction) error {
 	if !transaction.Successful() {
 		return nil
 	}
@@ -151,6 +151,7 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 	now := time.Now()
 	ledgerCreatedAt := transaction.Ledger.ClosedAt()
 	txHash := transaction.Hash.HexString()
+	ledgerSequence := transaction.Ledger.LedgerSequence()
 
 	for opi, xdrOp := range transaction.Envelope.Operations() {
 		// 1. Build op wrapper, so we can use its methods
@@ -158,7 +159,7 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 			Index:          uint32(opi),
 			Transaction:    transaction,
 			Operation:      xdrOp,
-			LedgerSequence: sequence,
+			LedgerSequence: ledgerSequence,
 			Network:        p.network,
 		}
 		opID := fmt.Sprintf("%d", op.ID())
@@ -192,8 +193,8 @@ func (p *ParticipantsProcessor) addOperationsParticipants(sequence uint32, trans
 	return nil
 }
 
-func (p *ParticipantsProcessor) ProcessTransactionData(lcm xdr.LedgerCloseMeta, transaction ingest.LedgerTransaction) error {
-	if err := p.addOperationsParticipants(lcm.LedgerSequence(), transaction); err != nil {
+func (p *ParticipantsProcessor) ProcessTransactionData(transaction ingest.LedgerTransaction) error {
+	if err := p.addOperationsParticipants(transaction); err != nil {
 		return err
 	}
 
