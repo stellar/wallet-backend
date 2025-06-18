@@ -157,7 +157,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		// Check if either the from or to account is a liquidity pool
 		fromIsLP := isLiquidityPool(transfer.GetFrom())
 		toIsLP := isLiquidityPool(transfer.GetTo())
-		
+
 		// If one side is an LP, create a single state change for the non-LP account
 		if fromIsLP || toIsLP {
 			var change types.StateChange
@@ -178,7 +178,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 			p.setAssetOrContract(&change, transfer.GetAsset(), contractAddress)
 			return []types.StateChange{change}, nil
 		}
-		
+
 		// Normal transfer between two non-LP accounts
 		debitChange := baseChange
 		debitChange.StateChangeCategory = types.StateChangeCategoryDebit

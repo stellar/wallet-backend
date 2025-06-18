@@ -21,16 +21,8 @@ var (
 	accountA = xdr.MustMuxedAddress("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON")
 	accountB = xdr.MustMuxedAddress("GCCOBXW2XQNUSL467IEILE6MMCNRR66SSVL4YQADUNYYNUVREF3FIV2Z")
 	accountC = xdr.MustMuxedAddress("GD4I7AFSLZGTDL34TQLWJOM2NHLIIOEKD5RHHZUW54HERBLSIRKUOXRR")
-	// memoA    = uint64(123)
-	// memoB    = uint64(234)
-	// muxedAccountA, _ = xdr.MuxedAccountFromAccountId(accountA.Address(), memoA) //nolint:errcheck
-	// muxedAccountB, _ = xdr.MuxedAccountFromAccountId(accountB.Address(), memoB) //nolint:errcheck
 
 	oneUnit = xdr.Int64(1e7)
-
-	// unitsToStr = func(v xdr.Int64) string {
-	// 	return amount.String64Raw(v)
-	// }
 
 	usdcIssuer  = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	usdcAccount = xdr.MustMuxedAddress(usdcIssuer)
@@ -333,7 +325,7 @@ func manageSellOfferOp(source *xdr.MuxedAccount) xdr.Operation {
 	return xdr.Operation{
 		SourceAccount: source,
 		Body: xdr.OperationBody{
-			Type: xdr.OperationTypeManageSellOffer,
+			Type:              xdr.OperationTypeManageSellOffer,
 			ManageSellOfferOp: &xdr.ManageSellOfferOp{},
 		},
 	}
@@ -375,26 +367,31 @@ func pathPaymentStrictReceiveOp(sendAsset xdr.Asset, sendMax xdr.Int64, destinat
 	}
 }
 
-func generateClaimAtom(claimAtomType xdr.ClaimAtomType, sellerId *xdr.MuxedAccount, lpId *xdr.PoolId, assetSold xdr.Asset, amountSold xdr.Int64, assetBought xdr.Asset, amountBought xdr.Int64) xdr.ClaimAtom {
+func generateClaimAtom(claimAtomType xdr.ClaimAtomType, sellerID *xdr.MuxedAccount, lpID *xdr.PoolId, assetSold xdr.Asset, amountSold xdr.Int64, assetBought xdr.Asset, amountBought xdr.Int64) xdr.ClaimAtom {
 	claimAtom := xdr.ClaimAtom{
 		Type: claimAtomType,
 	}
-	if claimAtomType == xdr.ClaimAtomTypeClaimAtomTypeLiquidityPool {
+
+	switch claimAtomType {
+	case xdr.ClaimAtomTypeClaimAtomTypeLiquidityPool:
 		claimAtom.LiquidityPool = &xdr.ClaimLiquidityAtom{
-			LiquidityPoolId: *lpId,
+			LiquidityPoolId: *lpID,
 			AssetBought:     assetBought,
 			AmountBought:    amountBought,
 			AssetSold:       assetSold,
 			AmountSold:      amountSold,
 		}
-	} else if claimAtomType == xdr.ClaimAtomTypeClaimAtomTypeOrderBook {
+	case xdr.ClaimAtomTypeClaimAtomTypeOrderBook:
 		claimAtom.OrderBook = &xdr.ClaimOfferAtom{
-			SellerId:     sellerId.ToAccountId(),
+			SellerId:     sellerID.ToAccountId(),
 			AssetBought:  assetBought,
 			AmountBought: amountBought,
 			AssetSold:    assetSold,
 			AmountSold:   amountSold,
 		}
+	case xdr.ClaimAtomTypeClaimAtomTypeV0:
+		// V0 claim atoms are not supported in this test helper
+		panic("ClaimAtomTypeV0 is not supported")
 	}
 	return claimAtom
 }
@@ -1035,10 +1032,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		pathPaymentOp := pathPaymentStrictSendOp(
 			btcAsset,    // send asset (BTC)
-			oneUnit,  // send amount (1 BTC)
+			oneUnit,     // send amount (1 BTC)
 			accountB,    // destination
 			usdcAsset,   // destination asset (USDC)
-			10*oneUnit, // destination min (10 USDC)
+			10*oneUnit,  // destination min (10 USDC)
 			path,        // path through ETH
 			&btcAccount, // source (BTC issuer)
 		)
@@ -1107,7 +1104,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[4].AccountID)
 		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[4].Amount) // 10 USDC
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[4].Token)
-		
+
 		// Event 5: Transfer USDC from BTC issuer to accountB (credit)
 		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[5].StateChangeCategory)
 		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[5].AccountID)
@@ -1120,13 +1117,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		path := []xdr.Asset{ethAsset}
 
 		pathPaymentOp := pathPaymentStrictReceiveOp(
-			btcAsset,     // send asset (BTC)
+			btcAsset,    // send asset (BTC)
 			1*oneUnit,   // send max (1 BTC)
-			usdcAccount,  // destination (USDC issuer)
-			usdcAsset,    // destination asset (USDC)
+			usdcAccount, // destination (USDC issuer)
+			usdcAsset,   // destination asset (USDC)
 			6*oneUnit,   // destination amount (6 USDC exact)
-			path,         // path through ETH
-			&btcAccount,  // source (BTC issuer)
+			path,        // path through ETH
+			&btcAccount, // source (BTC issuer)
 		)
 
 		pathPaymentResult := &xdr.OperationResult{
@@ -1222,7 +1219,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
-		
+
 		// Fee event + 6 transfer events (2 trades × 3 transfers each: BURN + DEBIT + CREDIT)
 		require.Len(t, stateChanges, 7)
 
@@ -1295,7 +1292,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
-		
+
 		// Fee event + 6 transfer events (2 trades × 3 transfers each: DEBIT + CREDIT + MINT)
 		require.Len(t, stateChanges, 7)
 
