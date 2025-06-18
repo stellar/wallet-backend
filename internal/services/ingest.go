@@ -162,6 +162,25 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	return nil
 }
 
+const maxLedgerWindow = 200 // NOTE: cannot be larger than 200
+
+// getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
+// - the ledgers available in the RPC,
+// - the latest ledger synced by the ingestion service,
+// - the max ledger window to ingest.
+//
+// The returned ledger sequence range is inclusive of the start and end ledgers.
+func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (ledgerRange LedgerSeqRange, inSync bool) {
+	if latestLedgerSynced >= rpcNewestLedger {
+		return LedgerSeqRange{}, true
+	}
+
+	ledgerRange.Start = max(latestLedgerSynced+1, rpcOldestLedger)
+	ledgerRange.End = min(ledgerRange.Start+(maxLedgerWindow-1), rpcNewestLedger)
+
+	return ledgerRange, false
+}
+
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
 	var ledgerTransactions []entities.Transaction
 	var cursor string
