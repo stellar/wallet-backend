@@ -190,6 +190,34 @@ func generateCBEntryRemovedChange(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
 	}
 }
 
+// Helper function to create clawback operation
+func clawbackOp(asset xdr.Asset, amount xdr.Int64, from xdr.MuxedAccount, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeClawback,
+			ClawbackOp: &xdr.ClawbackOp{
+				Asset:  asset,
+				From:   from,
+				Amount: amount,
+			},
+		},
+	}
+}
+
+// Helper function to create clawback claimable balance operation
+func clawbackClaimableBalanceOp(balanceID xdr.ClaimableBalanceId, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeClawbackClaimableBalance,
+			ClawbackClaimableBalanceOp: &xdr.ClawbackClaimableBalanceOp{
+				BalanceId: balanceID,
+			},
+		},
+	}
+}
+
 func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 	t.Run("CreateAccount - extracts state changes for successful account creation", func(t *testing.T) {
 		createAccountOp := xdr.Operation{
@@ -662,5 +690,73 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "750000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
 		require.Equal(t, anotherBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
+	})
+
+	// Clawback Events Tests
+	t.Run("Clawback - extracts state changes for USDC clawback", func(t *testing.T) {
+		clawbackOperation := clawbackOp(usdcAsset, 50*oneUnit, accountA, &usdcAccount)
+		clawbackResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeClawback,
+				ClawbackResult: &xdr.ClawbackResult{
+					Code: xdr.ClawbackResultCodeClawbackSuccess,
+				},
+			},
+		}
+		tx := createTx(clawbackOperation, nil, clawbackResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + debit event for the clawback
+		require.Len(t, stateChanges, 2)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[1].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[1].Amount)
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
+	})
+
+	t.Run("ClawbackClaimableBalance - extracts state changes for USDC claimable balance clawback", func(t *testing.T) {
+		clawbackCBOperation := clawbackClaimableBalanceOp(someBalanceID, &usdcAccount)
+		clawbackCBResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeClawbackClaimableBalance,
+				ClawbackClaimableBalanceResult: &xdr.ClawbackClaimableBalanceResult{
+					Code: xdr.ClawbackClaimableBalanceResultCodeClawbackClaimableBalanceSuccess,
+				},
+			},
+		}
+
+		// Create USDC claimable balance entry that will be clawed back
+		cbEntry := cbLedgerEntry(someBalanceID, usdcAsset, 25*oneUnit)
+		changes := xdr.LedgerEntryChanges{
+			generateCBEntryChangeState(cbEntry),
+			generateCBEntryRemovedChange(cbEntry),
+		}
+
+		tx := createTx(clawbackCBOperation, changes, clawbackCBResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + burn event for the claimable balance clawback
+		require.Len(t, stateChanges, 2)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
+
+		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[1].StateChangeCategory)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "250000000"}, stateChanges[1].Amount)
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
+		require.Equal(t, someBalanceID.MustEncodeToStrkey(), stateChanges[1].ClaimableBalanceID.String)
 	})
 }
