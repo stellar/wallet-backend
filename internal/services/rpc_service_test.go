@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -320,7 +321,7 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	const rpcURL = "http://api.vibrantapp.com/soroban/rpc"
+	const rpcURL = "https://test.com/soroban-rpc"
 	const transactionXDR = "AAAAAgAAAACnroqZn2p1MGBHWWDhZOaG3H73hXYtdc4Jz27c287ITQAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABoCqJrAAAAAAAAAAEAAAAAAAAAGAAAAAAAAAAB15KLcsJwPM/q9+uf9O9NUEpVqLl5/JtFDqLIQrTRzmEAAAAIdHJhbnNmZXIAAAADAAAAEgAAAAAAAAAAEG5rRhQ6188E3xuAkXVVe82tgIW2yZyDyH43k9/YHKUAAAASAAAAAAAAAAAQbmtGFDrXzwTfG4CRdVV7za2AhbbJnIPIfjeT39gcpQAAAAoAAAAAAAAAAAAAAAAF9eEAAAAAAAAAAAAAAAAA"
 
 	testCases := []struct {
@@ -737,6 +738,120 @@ func TestSendGetHealth(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, entities.RPCGetHealthResult{}, result)
 		assert.Equal(t, "sending getHealth request: sending POST request to RPC: connection failed", err.Error())
+	})
+}
+
+func Test_rpcService_GetLedgers(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	const rpcURL = "https://test.com/soroban-rpc"
+
+	t.Run("🟢successful", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.
+			On("IncRPCRequests", "getLedgers").Once().
+			On("IncRPCEndpointSuccess", "getLedgers").Once().
+			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		payload := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "getLedgers",
+			"params": entities.RPCParams{
+				StartLedger: 1541075,
+				Pagination: entities.RPCPagination{
+					Limit: 1,
+				},
+			},
+		}
+		jsonData, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		mockHTTPClient := utils.MockHTTPClient{}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", bytes.NewBuffer(jsonData)).
+			Return(&http.Response{
+				StatusCode: http.StatusOK,
+				Body: io.NopCloser(strings.NewReader(`{
+					"jsonrpc": "2.0",
+					"id": 8675309,
+					"result": {
+						"ledgers": [
+						{
+							"hash": "f0174cd1dad2b9304af43c9a3ed30900e738d2d0f88940d49d776c51bcfa610d",
+							"sequence": 1541075,
+							"ledgerCloseTime": "1750117639",
+							"headerXdr": "8BdM0drSuTBK9DyaPtMJAOc40tD4iUDUnXdsUbz6YQ0AAAAWZfBjwPwfuchZSCct99MtE4yNfMuH0ishqJI3+m+vz9aw7CHKFwey/sLAvUFPrqMz3wS3efPbVR4hGaKsW7b6kwAAAABoUK0HAAAAAAAAAAEAAAAAqCTNGLyddQZNKZpbW6ykO8OqLzJpOBU9jC+btctt8DMAAABACMD13DKnK60i/BL7Mp0H4vWLhEXK1tzZ1h3AHKRV56KZSoz2ybKa2P9fQuWdvUhVXTroQz1LL3zRHeoyUPp4C98/YZgEqS/bQFcZLcQ910jqd4rcUrxJjOgFJMAUuBEZ08HM8t09UZJ1Kqg6cuLLvK6IV3+m24+jVo/lTAPkWJEAF4PTDeC2s6dkAAAAAAEKk0jb3QAAAAAAAAAAAAB+pwAAAGQATEtAAAAAyErGE6gBB1x9QL8XPn3RWBGlWkkhSzINUNtpHEgvUn0Y62DCzECDr9D1930epUoKD/aiJy08uliELqIZSfcqk1u0dEs3T0QyOh071TGfSuMRy+VYJD1rKa+7JQTYNwADLhRpfTb42PTjRzh3ChN9hbTQIDrhnu7KnZl+cPDflR4eAAAAAAAAAAA=",
+							"metadataXdr": "AAAAAQAAAADwF0zR2tK5MEr0PJo+0wkA5zjS0PiJQNSdd2xRvPphDQAAABZl8GPA/B+5yFlIJy330y0TjI18y4fSKyGokjf6b6/P1rDsIcoXB7L+wsC9QU+uozPfBLd589tVHiEZoqxbtvqTAAAAAGhQrQcAAAAAAAAAAQAAAACoJM0YvJ11Bk0pmltbrKQ7w6ovMmk4FT2ML5u1y23wMwAAAEAIwPXcMqcrrSL8EvsynQfi9YuERcrW3NnWHcAcpFXnoplKjPbJsprY/19C5Z29SFVdOuhDPUsvfNEd6jJQ+ngL3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERnTwczy3T1RknUqqDpy4su8rohXf6bbj6NWj+VMA+RYkQAXg9MN4Lazp2QAAAAAAQqTSNvdAAAAAAAAAAAAAH6nAAAAZABMS0AAAADISsYTqAEHXH1Avxc+fdFYEaVaSSFLMg1Q22kcSC9SfRjrYMLMQIOv0PX3fR6lSgoP9qInLTy6WIQuohlJ9yqTW7R0SzdPRDI6HTvVMZ9K4xHL5VgkPWspr7slBNg3AAMuFGl9NvjY9ONHOHcKE32FtNAgOuGe7sqdmX5w8N+VHh4AAAAAAAAAAAAAAAFl8GPA/B+5yFlIJy330y0TjI18y4fSKyGokjf6b6/P1gAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/ZvdkAAAAAAAAAAA=="
+						}
+						],
+						"latestLedger": 1541079,
+						"latestLedgerCloseTime": 1750117659,
+						"oldestLedger": 1420120,
+						"oldestLedgerCloseTime": 1749512372,
+						"cursor": "1541075"
+					}
+				}`)),
+			}, nil).
+			Once()
+
+		rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
+		require.NoError(t, err)
+
+		result, err := rpcService.GetLedgers(LedgerSeqRange{
+			Start: 1541075,
+			End:   1541075,
+		})
+		require.NoError(t, err)
+
+		assert.Equal(t, GetLedgersResponse{
+			LatestLedger:          1541079,
+			LatestLedgerCloseTime: 1750117659,
+			OldestLedger:          1420120,
+			OldestLedgerCloseTime: 1749512372,
+			Cursor:                "1541075",
+			Ledgers: []protocol.LedgerInfo{
+				{
+					Sequence:        1541075,
+					Hash:            "f0174cd1dad2b9304af43c9a3ed30900e738d2d0f88940d49d776c51bcfa610d",
+					LedgerHeader:    "8BdM0drSuTBK9DyaPtMJAOc40tD4iUDUnXdsUbz6YQ0AAAAWZfBjwPwfuchZSCct99MtE4yNfMuH0ishqJI3+m+vz9aw7CHKFwey/sLAvUFPrqMz3wS3efPbVR4hGaKsW7b6kwAAAABoUK0HAAAAAAAAAAEAAAAAqCTNGLyddQZNKZpbW6ykO8OqLzJpOBU9jC+btctt8DMAAABACMD13DKnK60i/BL7Mp0H4vWLhEXK1tzZ1h3AHKRV56KZSoz2ybKa2P9fQuWdvUhVXTroQz1LL3zRHeoyUPp4C98/YZgEqS/bQFcZLcQ910jqd4rcUrxJjOgFJMAUuBEZ08HM8t09UZJ1Kqg6cuLLvK6IV3+m24+jVo/lTAPkWJEAF4PTDeC2s6dkAAAAAAEKk0jb3QAAAAAAAAAAAAB+pwAAAGQATEtAAAAAyErGE6gBB1x9QL8XPn3RWBGlWkkhSzINUNtpHEgvUn0Y62DCzECDr9D1930epUoKD/aiJy08uliELqIZSfcqk1u0dEs3T0QyOh071TGfSuMRy+VYJD1rKa+7JQTYNwADLhRpfTb42PTjRzh3ChN9hbTQIDrhnu7KnZl+cPDflR4eAAAAAAAAAAA=",
+					LedgerCloseTime: 1750117639,
+					LedgerMetadata:  "AAAAAQAAAADwF0zR2tK5MEr0PJo+0wkA5zjS0PiJQNSdd2xRvPphDQAAABZl8GPA/B+5yFlIJy330y0TjI18y4fSKyGokjf6b6/P1rDsIcoXB7L+wsC9QU+uozPfBLd589tVHiEZoqxbtvqTAAAAAGhQrQcAAAAAAAAAAQAAAACoJM0YvJ11Bk0pmltbrKQ7w6ovMmk4FT2ML5u1y23wMwAAAEAIwPXcMqcrrSL8EvsynQfi9YuERcrW3NnWHcAcpFXnoplKjPbJsprY/19C5Z29SFVdOuhDPUsvfNEd6jJQ+ngL3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERnTwczy3T1RknUqqDpy4su8rohXf6bbj6NWj+VMA+RYkQAXg9MN4Lazp2QAAAAAAQqTSNvdAAAAAAAAAAAAAH6nAAAAZABMS0AAAADISsYTqAEHXH1Avxc+fdFYEaVaSSFLMg1Q22kcSC9SfRjrYMLMQIOv0PX3fR6lSgoP9qInLTy6WIQuohlJ9yqTW7R0SzdPRDI6HTvVMZ9K4xHL5VgkPWspr7slBNg3AAMuFGl9NvjY9ONHOHcKE32FtNAgOuGe7sqdmX5w8N+VHh4AAAAAAAAAAAAAAAFl8GPA/B+5yFlIJy330y0TjI18y4fSKyGokjf6b6/P1gAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/ZvdkAAAAAAAAAAA==",
+				},
+			},
+		}, result)
+	})
+
+	t.Run("🔴rpc_request_fails", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.
+			On("IncRPCRequests", "getLedgers").Once().
+			On("IncRPCEndpointFailure", "getLedgers").Once().
+			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		mockHTTPClient := utils.MockHTTPClient{}
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
+
+		rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
+		require.NoError(t, err)
+
+		result, err := rpcService.GetLedgers(LedgerSeqRange{
+			Start: 1541075,
+			End:   1541075,
+		})
+		require.Error(t, err)
+
+		assert.Equal(t, GetLedgersResponse{}, result)
+		assert.Equal(t, "sending getLedgers request: sending POST request to RPC: connection failed", err.Error())
 	})
 }
 

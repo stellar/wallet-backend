@@ -32,6 +32,75 @@ const (
 	testFeeBumpTxXDR  = "AAAABQAAAACRDhlb19H9O6EVQnLPSBX5kH4+ycO03nl6OOK1drSinwAAAAAAAAGQAAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQsAAAAAAAAAAXa0op8AAABADjCsmF/xr9jXwNStUM7YqXEd49qfbvGZPJPplANW7aiErkHWxEj6C2RVOyPyK8KBr1fjCleBSmDZjD1X0kkJCQ=="
 )
 
+func Test_getLedgerSeqRange(t *testing.T) {
+	testCases := []struct {
+		name               string
+		latestLedgerSynced uint32
+		rpcOldestLedger    uint32
+		rpcNewestLedger    uint32
+		wantInSync         bool
+		wantResult         LedgerSeqRange
+	}{
+		{
+			name:               "latest_synced_behind_rpc_oldest",
+			latestLedgerSynced: 5,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 10,
+				End:   min(10+maxLedgerWindow, 20),
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_oldest",
+			latestLedgerSynced: 10,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 11,
+				End:   min(11+maxLedgerWindow, 20),
+			},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_oldest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 15,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				Start: 16,
+				End:   min(16+maxLedgerWindow, 20),
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 20,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 25,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ledgerRange, inSync := getLedgerSeqRange(tc.rpcOldestLedger, tc.rpcNewestLedger, tc.latestLedgerSynced)
+			assert.Equal(t, tc.wantResult, ledgerRange)
+			assert.Equal(t, tc.wantInSync, inSync)
+		})
+	}
+}
+
 func TestGetLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -358,7 +427,7 @@ func TestIngestPayments(t *testing.T) {
 	})
 }
 
-func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
+func Test_Ingest_RunOld_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
@@ -415,7 +484,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	require.NoError(t, err)
 	txHash, err := transaction.HashHex(network.TestNetworkPassphrase)
 	require.NoError(t, err)
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, txHash).Return(int64(1), nil).Once()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, txHash).Return(int64(1), nil).Once()
 	txEnvXDR, err := transaction.Base64()
 	require.NoError(t, err)
 
@@ -451,18 +520,18 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
-	err = ingestService.Run(ctx, uint32(49), uint32(50))
+	err = ingestService.RunOld(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
 
 	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
 	mockRPCService.AssertExpectations(t)
 
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(50), ledger)
 }
 
-func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
+func Test_Ingest_RunOld_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
@@ -484,7 +553,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		On("TrackRPCServiceHealth", ctx, mock.Anything).Once().
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
+	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockMetricsService)
 	require.NoError(t, err)
 
@@ -552,7 +621,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockAppTracker.On("CaptureMessage", mock.Anything).Maybe().Return(nil)
 
 	// Start ingestion at ledger 100 (ahead of RPC's initial position at 50)
-	err = ingestService.Run(ctx, uint32(100), uint32(100))
+	err = ingestService.RunOld(ctx, uint32(100), uint32(100))
 	require.NoError(t, err)
 
 	// Verify the debug log message was written
@@ -561,7 +630,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	assert.Contains(t, logOutput, expectedLog)
 
 	// Verify the ledger was eventually processed
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(100), ledger)
 
