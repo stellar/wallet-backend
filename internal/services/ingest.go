@@ -241,12 +241,10 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if err != nil {
 			return fmt.Errorf("processing ledger response: %w", err)
 		}
-		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
 		// update cursor
 		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-		err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger)
-		if err != nil {
+		if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
 			return fmt.Errorf("updating latest synced ledger: %w", err)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
@@ -315,13 +313,13 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		ledger := ledger // Create a new variable to avoid closure issues
 		pool.Submit(func() {
 			txHashes, err := m.processLedger(ctx, ledger)
+			mu.Lock()
 			if err != nil {
 				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
 			} else {
-				mu.Lock()
 				allTxHashes = append(allTxHashes, txHashes...)
-				mu.Unlock()
 			}
+			mu.Unlock()
 		})
 	}
 
