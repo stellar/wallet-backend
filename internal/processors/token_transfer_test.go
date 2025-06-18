@@ -39,12 +39,12 @@ var (
 	ethIssuer = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
 	ethAsset  = xdr.MustNewCreditAsset("ETH", ethIssuer)
 
-	btcIssuer   = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
+	btcIssuer  = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
 	btcAccount = xdr.MustMuxedAddress(btcIssuer)
 	btcAsset   = xdr.MustNewCreditAsset("BTC", btcIssuer)
 
-	lpBtcEthId, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
-	lpEthUsdcId, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
+	lpBtcEthID, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
+	lpEthUsdcID, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
 
 	someBalanceID = xdr.ClaimableBalanceId{
 		Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
@@ -295,15 +295,6 @@ func generateLpEntryChangeState(entry xdr.LedgerEntry) xdr.LedgerEntryChange {
 }
 
 // Helper function to generate liquidity pool entry updated change
-func generateLpEntryUpdatedChange(prevEntry xdr.LedgerEntry, newReserveA, newReserveB xdr.Int64) xdr.LedgerEntryChange {
-	updatedEntry := prevEntry
-	updatedEntry.Data.LiquidityPool.Body.ConstantProduct.ReserveA = newReserveA
-	updatedEntry.Data.LiquidityPool.Body.ConstantProduct.ReserveB = newReserveB
-	return xdr.LedgerEntryChange{
-		Type:    xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-		Updated: &updatedEntry,
-	}
-}
 
 // Helper function to generate liquidity pool entry removed change
 func generateLpEntryRemovedChange(poolID xdr.PoolId) xdr.LedgerEntryChange {
@@ -318,8 +309,50 @@ func generateLpEntryRemovedChange(poolID xdr.PoolId) xdr.LedgerEntryChange {
 	}
 }
 
-func lpIdToStrkey(lpId xdr.PoolId) string {
-	return strkey.MustEncode(strkey.VersionByteLiquidityPool, lpId[:])
+func lpIDToStrkey(lpID xdr.PoolId) string {
+	return strkey.MustEncode(strkey.VersionByteLiquidityPool, lpID[:])
+}
+
+// Helper function to create path payment strict send operation
+func pathPaymentStrictSendOp(sendAsset xdr.Asset, sendAmount xdr.Int64, destination xdr.MuxedAccount, destAsset xdr.Asset, destMin xdr.Int64, path []xdr.Asset, source *xdr.MuxedAccount) xdr.Operation {
+	return xdr.Operation{
+		SourceAccount: source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypePathPaymentStrictSend,
+			PathPaymentStrictSendOp: &xdr.PathPaymentStrictSendOp{
+				SendAsset:   sendAsset,
+				SendAmount:  sendAmount,
+				Destination: destination,
+				DestAsset:   destAsset,
+				DestMin:     destMin,
+				Path:        path,
+			},
+		},
+	}
+}
+
+func generateClaimAtom(claimAtomType xdr.ClaimAtomType, sellerId *xdr.MuxedAccount, lpId *xdr.PoolId, assetSold xdr.Asset, amountSold xdr.Int64, assetBought xdr.Asset, amountBought xdr.Int64) xdr.ClaimAtom {
+	claimAtom := xdr.ClaimAtom{
+		Type: claimAtomType,
+	}
+	if claimAtomType == xdr.ClaimAtomTypeClaimAtomTypeLiquidityPool {
+		claimAtom.LiquidityPool = &xdr.ClaimLiquidityAtom{
+			LiquidityPoolId: *lpId,
+			AssetBought:     assetBought,
+			AmountBought:    amountBought,
+			AssetSold:       assetSold,
+			AmountSold:      amountSold,
+		}
+	} else if claimAtomType == xdr.ClaimAtomTypeClaimAtomTypeOrderBook {
+		claimAtom.OrderBook = &xdr.ClaimOfferAtom{
+			SellerId:     sellerId.ToAccountId(),
+			AssetBought:  assetBought,
+			AmountBought: amountBought,
+			AssetSold:    assetSold,
+			AmountSold:   amountSold,
+		}
+	}
+	return claimAtom
 }
 
 func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
@@ -866,7 +899,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 
 	// Liquidity Pool Events Tests
 	t.Run("LiquidityPoolDeposit - extracts state changes for new LP creation with transfer events", func(t *testing.T) {
-		lpDepositOperation := lpDepositOp(lpBtcEthId, 10*oneUnit, 20*oneUnit, 1, 10, &accountA)
+		lpDepositOperation := lpDepositOp(lpBtcEthID, 10*oneUnit, 20*oneUnit, 1, 10, &accountA)
 		lpDepositResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
 			Tr: &xdr.OperationResultTr{
@@ -878,7 +911,7 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		}
 
 		// Create LP entry with initial deposits
-		lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 5*oneUnit, 15*oneUnit)
+		lpEntry := lpLedgerEntry(lpBtcEthID, btcAsset, ethAsset, 5*oneUnit, 15*oneUnit)
 		changes := xdr.LedgerEntryChanges{
 			generateLpEntryCreatedChange(lpEntry),
 		}
@@ -899,17 +932,17 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
-		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[1].LiquidityPoolID.String)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[1].LiquidityPoolID.String)
 
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[2].StateChangeCategory)
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
 		require.Equal(t, sql.NullString{String: "150000000"}, stateChanges[2].Amount)
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
-		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[2].LiquidityPoolID.String)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[2].LiquidityPoolID.String)
 	})
 
 	t.Run("LiquidityPoolWithdraw - extracts state changes for LP removal with transfer events", func(t *testing.T) {
-		lpWithdrawOperation := lpWithdrawOp(lpBtcEthId, 100*oneUnit, 2*oneUnit, 5*oneUnit, &accountA)
+		lpWithdrawOperation := lpWithdrawOp(lpBtcEthID, 100*oneUnit, 2*oneUnit, 5*oneUnit, &accountA)
 		lpWithdrawResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
 			Tr: &xdr.OperationResultTr{
@@ -921,10 +954,10 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		}
 
 		// Create LP entry state changes showing removal
-		lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 5*oneUnit, 12*oneUnit)
+		lpEntry := lpLedgerEntry(lpBtcEthID, btcAsset, ethAsset, 5*oneUnit, 12*oneUnit)
 		changes := xdr.LedgerEntryChanges{
 			generateLpEntryChangeState(lpEntry),
-			generateLpEntryRemovedChange(lpBtcEthId),
+			generateLpEntryRemovedChange(lpBtcEthID),
 		}
 
 		tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
@@ -942,55 +975,168 @@ func TestTokenTransferProcessor_ProcessTransaction(t *testing.T) {
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount) // All 5 BTC
 		require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
-		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[1].LiquidityPoolID.String)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[1].LiquidityPoolID.String)
 
 		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[2].StateChangeCategory)
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
 		require.Equal(t, sql.NullString{String: "120000000"}, stateChanges[2].Amount) // All 12 ETH
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
-		require.Equal(t, lpIdToStrkey(lpBtcEthId), stateChanges[2].LiquidityPoolID.String)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[2].LiquidityPoolID.String)
 	})
 
-	// t.Run("LiquidityPoolWithdraw - extracts state changes for withdraw by ETH issuer with burn event", func(t *testing.T) {
-	// 	ethAccount := xdr.MustMuxedAddress(ethIssuer)
-	// 	lpWithdrawOperation := lpWithdrawOp(lpBtcEthId, 100*oneUnit, 2*oneUnit, 5*oneUnit, &ethAccount)
-	// 	lpWithdrawResult := &xdr.OperationResult{
+	// Path Payment Events Tests
+	t.Run("PathPaymentStrictSend - BTC Issuer sends BTC to B as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint and Transfer events", func(t *testing.T) {
+		// Path: BTC -> ETH -> USDC (using ETH as intermediary)
+		path := []xdr.Asset{ethAsset}
+
+		pathPaymentOp := pathPaymentStrictSendOp(
+			btcAsset,    // send asset (BTC)
+			oneUnit,  // send amount (1 BTC)
+			accountB,    // destination
+			usdcAsset,   // destination asset (USDC)
+			10*oneUnit, // destination min (10 USDC)
+			path,        // path through ETH
+			&btcAccount, // source (BTC issuer)
+		)
+
+		pathPaymentResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypePathPaymentStrictSend,
+				PathPaymentStrictSendResult: &xdr.PathPaymentStrictSendResult{
+					Code: xdr.PathPaymentStrictSendResultCodePathPaymentStrictSendSuccess,
+					Success: &xdr.PathPaymentStrictSendResultSuccess{
+						Offers: []xdr.ClaimAtom{
+							// source Account traded against the BtcEth Liquidity pool and acquired Eth and sold BTC(minted)
+							generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeLiquidityPool, nil, &lpBtcEthID, ethAsset, 5*oneUnit, btcAsset, oneUnit),
+							// source Account then traded against the EthUsdc pool and acquired USDC
+							generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeLiquidityPool, nil, &lpEthUsdcID, usdcAsset, 10*oneUnit, ethAsset, 3*oneUnit),
+						},
+						Last: xdr.SimplePaymentResult{
+							Destination: accountB.ToAccountId(),
+							Asset:       usdcAsset,
+							Amount:      10 * oneUnit, // Final amount received (10 USDC)
+						},
+					},
+				},
+			},
+		}
+
+		tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+
+		// Fee state change + 5 operation state changes = 6 total state changes
+		// (LP transfers are now single state changes with LiquidityPoolID field)
+		require.Len(t, stateChanges, 6)
+
+		// Event 0: Fee event
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
+
+		// Event 1: Transfer ETH from LP-BTC-ETH to BTC issuer (Credit to BTC issuer)
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[1].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount) // 5 ETH
+		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[1].Token)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[1].LiquidityPoolID.String)
+
+		// Event 2: Transfer USDC from LP-ETH-USDC to BTC issuer (Credit to BTC issuer)
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[2].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[2].Amount) // 10 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[2].Token)
+		require.Equal(t, lpIDToStrkey(lpEthUsdcID), stateChanges[3].LiquidityPoolID.String)
+
+		// Event 3: Transfer ETH from BTC issuer to LP-ETH-USDC (Debit from BTC issuer)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[3].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[3].AccountID)
+		require.Equal(t, sql.NullString{String: "30000000"}, stateChanges[3].Amount) // 30 ETH
+		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[3].Token)
+		require.Equal(t, lpIDToStrkey(lpEthUsdcID), stateChanges[3].LiquidityPoolID.String)
+
+		// Event 4: Transfer USDC from BTC issuer to accountB (debit)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[4].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[4].AccountID)
+		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[4].Amount) // 10 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[4].Token)
+		
+		// Event 5: Transfer USDC from BTC issuer to accountB (credit)
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[5].StateChangeCategory)
+		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[5].AccountID)
+		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[5].Amount) // 10 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[5].Token)
+	})
+
+	// t.Run("PathPaymentStrictReceive - extracts state changes for BTC to USDC path payment", func(t *testing.T) {
+	// 	// Path: BTC -> ETH -> USDC (using ETH as intermediary)
+	// 	path := []xdr.Asset{ethAsset}
+
+	// 	pathPaymentOp := pathPaymentStrictReceiveOp(
+	// 		btcAsset,     // send asset
+	// 		50*oneUnit,   // send max (50 BTC)
+	// 		accountB,     // destination
+	// 		usdcAsset,    // destination asset
+	// 		200*oneUnit,  // destination amount (200 USDC)
+	// 		path,         // path through ETH
+	// 		&accountA,    // source
+	// 	)
+
+	// 	pathPaymentResult := &xdr.OperationResult{
 	// 		Code: xdr.OperationResultCodeOpInner,
 	// 		Tr: &xdr.OperationResultTr{
-	// 			Type: xdr.OperationTypeLiquidityPoolWithdraw,
-	// 			LiquidityPoolWithdrawResult: &xdr.LiquidityPoolWithdrawResult{
-	// 				Code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawSuccess,
+	// 			Type: xdr.OperationTypePathPaymentStrictReceive,
+	// 			PathPaymentStrictReceiveResult: &xdr.PathPaymentStrictReceiveResult{
+	// 				Code: xdr.PathPaymentStrictReceiveResultCodePathPaymentStrictReceiveSuccess,
+	// 				Success: &xdr.PathPaymentStrictReceiveResultSuccess{
+	// 					Offers: []xdr.ClaimAtom{
+	// 						{
+	// 							Type: xdr.ClaimAtomTypeClaimAtomTypeOrderBook,
+	// 							OrderBook: &xdr.ClaimOfferAtom{
+	// 								SellerId:     accountC.ToAccountId(),
+	// 								OfferId:      xdr.Int64(11111),
+	// 								AssetSold:    btcAsset,
+	// 								AmountSold:   25*oneUnit,
+	// 								AssetBought:  ethAsset,
+	// 								AmountBought: 100*oneUnit, // 25 BTC -> 100 ETH
+	// 							},
+	// 						},
+	// 						{
+	// 							Type: xdr.ClaimAtomTypeClaimAtomTypeOrderBook,
+	// 							OrderBook: &xdr.ClaimOfferAtom{
+	// 								SellerId:     accountC.ToAccountId(),
+	// 								OfferId:      xdr.Int64(22222),
+	// 								AssetSold:    ethAsset,
+	// 								AmountSold:   100*oneUnit,
+	// 								AssetBought:  usdcAsset,
+	// 								AmountBought: 200*oneUnit, // 100 ETH -> 200 USDC
+	// 							},
+	// 						},
+	// 					},
+	// 					Last: xdr.SimplePaymentResult{
+	// 						Destination: accountB.ToAccountId(),
+	// 						Asset:       usdcAsset,
+	// 						Amount:      200*oneUnit, // Final amount received
+	// 					},
+	// 				},
 	// 			},
 	// 		},
 	// 	}
 
-	// 	// Create LP entry state changes showing removal
-	// 	lpEntry := lpLedgerEntry(lpBtcEthId, btcAsset, ethAsset, 3*oneUnit, 9*oneUnit)
-	// 	changes := xdr.LedgerEntryChanges{
-	// 		generateLpEntryChangeState(lpEntry),
-	// 		generateLpEntryRemovedChange(lpBtcEthId),
-	// 	}
-
-	// 	tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
+	// 	tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
 
 	// 	processor := NewTokenTransferProcessor(networkPassphrase)
 	// 	stateChanges, err := processor.Process(context.Background(), tx)
 	// 	require.NoError(t, err)
-	// 	// Fee event + transfer event for BTC + burn event for ETH
-	// 	require.Len(t, stateChanges, 3)
+	// 	// Fee event + multiple transfer events for the path payment
+	// 	require.GreaterOrEqual(t, len(stateChanges), 2) // At least fee + some transfers
 
+	// 	// First event should be the fee
 	// 	require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
 	// 	require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
-
-	// 	require.Equal(t, types.StateChangeCategoryCredit, stateChanges[1].StateChangeCategory)
-	// 	require.Equal(t, ethAccount.ToAccountId().Address(), stateChanges[1].AccountID)
-	// 	require.Equal(t, sql.NullString{String: "30000000"}, stateChanges[1].Amount) // 3 BTC
-	// 	require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
-
-	// 	require.Equal(t, types.StateChangeCategoryBurn, stateChanges[2].StateChangeCategory)
-	// 	// For burn events, the AccountID should be the LP pool ID
-	// 	require.NotEmpty(t, stateChanges[2].AccountID)
-	// 	require.Equal(t, sql.NullString{String: "90000000"}, stateChanges[2].Amount) // 9 ETH burned
-	// 	require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
+	// 	require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
 	// })
 }
