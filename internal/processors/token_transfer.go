@@ -2,16 +2,13 @@ package processors
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
 	ttp "github.com/stellar/go/processors/token_transfer"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -22,73 +19,6 @@ var ErrOperationNotFound = errors.New("operation not found")
 
 type TokenTransferProcessor struct {
 	eventsProcessor *ttp.EventsProcessor
-}
-
-// StateChangeBuilder provides a fluent interface for creating state changes
-type StateChangeBuilder struct {
-	base types.StateChange
-}
-
-// newStateChangeBuilder creates a new builder with base state change fields
-func (p *TokenTransferProcessor) newStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash, opID string) *StateChangeBuilder {
-	return &StateChangeBuilder{
-		base: types.StateChange{
-			LedgerNumber:    int64(ledgerNumber),
-			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
-			IngestedAt:      time.Now(),
-			TxHash:          txHash,
-			OperationID:     opID,
-		},
-	}
-}
-
-// WithCategory sets the state change category and account
-func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *StateChangeBuilder {
-	b.base.StateChangeCategory = category
-	return b
-}
-
-// WithAccount sets the account ID
-func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
-	b.base.AccountID = accountID
-	return b
-}
-
-// WithAmount sets the amount
-func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
-	b.base.Amount = sql.NullString{String: amount}
-	return b
-}
-
-// WithAsset sets the asset or contract
-func (b *StateChangeBuilder) WithAsset(asset *asset.Asset, contractAddress string) *StateChangeBuilder {
-	if asset != nil {
-		if asset.GetNative() {
-			b.base.Token = sql.NullString{String: "native"}
-		} else if issuedAsset := asset.GetIssuedAsset(); issuedAsset != nil {
-			b.base.Token = sql.NullString{String: fmt.Sprintf("%s:%s", issuedAsset.GetAssetCode(), issuedAsset.GetIssuer())}
-		}
-	} else {
-		b.base.ContractID = sql.NullString{String: contractAddress}
-	}
-	return b
-}
-
-// WithClaimableBalance sets the claimable balance ID
-func (b *StateChangeBuilder) WithClaimableBalance(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = sql.NullString{String: balanceID}
-	return b
-}
-
-// WithLiquidityPool sets the liquidity pool ID
-func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilder {
-	b.base.LiquidityPoolID = sql.NullString{String: poolID}
-	return b
-}
-
-// Build returns the constructed state change
-func (b *StateChangeBuilder) Build() types.StateChange {
-	return b.base
 }
 
 func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor {
@@ -148,23 +78,14 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	}
 
 	operationType := &op.Body.Type
-	opSourceAccount := operationSourceAccount(tx, op)
+	opSourceAccount := OperationSourceAccount(tx, op)
 	opID := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
 
 	return opID, operationType, opSourceAccount, nil
 }
 
-func operationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) string {
-	acc := op.SourceAccount
-	if acc != nil {
-		return acc.ToAccountId().Address()
-	}
-	res := tx.Envelope.SourceAccount()
-	return res.ToAccountId().Address()
-}
-
 func (p *TokenTransferProcessor) processEvent(event any, contractAddress string, ledgerNumber uint32, ledgerCloseTime int64, txHash, opID string, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
-	builder := p.newStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, opID)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, opID)
 
 	switch event := event.(type) {
 	case *ttp.TokenTransferEvent_Transfer:
@@ -255,8 +176,8 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 	amount := transfer.GetAmount()
 	asset := transfer.GetAsset()
 
-	fromIsLP := isLiquidityPool(from)
-	toIsLP := isLiquidityPool(to)
+	fromIsLP := IsLiquidityPool(from)
+	toIsLP := IsLiquidityPool(to)
 
 	// Handle liquidity pool interactions
 	if fromIsLP || toIsLP {
@@ -275,7 +196,7 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 }
 
 func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
-	if isLiquidityPool(mint.GetTo()) {
+	if IsLiquidityPool(mint.GetTo()) {
 		return nil, nil
 	}
 
@@ -370,15 +291,4 @@ func (p *TokenTransferProcessor) handleFee(fee *ttp.Fee, contractAddress string,
 		Build()
 
 	return []types.StateChange{change}, nil
-}
-
-// isLiquidityPool checks if the given account ID is a liquidity pool
-func isLiquidityPool(accountID string) bool {
-	// Try to decode the account ID as a strkey
-	versionByte, _, err := strkey.DecodeAny(accountID)
-	if err != nil {
-		return false
-	}
-	// Check if it's a liquidity pool strkey
-	return versionByte == strkey.VersionByteLiquidityPool
 }
