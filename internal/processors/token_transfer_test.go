@@ -132,7 +132,7 @@ func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.
 	resp.UnsafeMeta = xdr.TransactionMeta{
 		V: 3,
 		V3: &xdr.TransactionMetaV3{
-			Operations: []xdr.OperationMeta{{}},
+			Operations:     []xdr.OperationMeta{{}},
 			TxChangesAfter: txApplyAfterChanges,
 		},
 	}
@@ -1041,13 +1041,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
 
-		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[1].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[1].StateChangeCategory)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
 
-		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[2].StateChangeCategory)
-		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[2].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
 		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[2].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[2].Token)
 	})
@@ -1386,7 +1386,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[4].AccountID)
 		require.Equal(t, sql.NullString{String: "60000000"}, stateChanges[4].Amount) // 6 USDC
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[4].Token)
-		
+
 		// Event 5: Burn USDC from BTC issuer to USDC issuer (Burn event since destination is USDC issuer)
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[5].StateChangeCategory)
 		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[5].AccountID)
