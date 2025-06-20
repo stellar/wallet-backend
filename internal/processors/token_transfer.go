@@ -300,12 +300,7 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		// If an asset issuer is withdrawing from the LP, it will be a burn state change for the issuer (operation source account)
-		change := builder.WithCategory(types.StateChangeCategoryBurn).
-			WithAccount(opSourceAccount).
-			WithAmount(amount).
-			WithAsset(asset, contractAddress).
-			WithLiquidityPool(burn.GetFrom()).
-			Build()
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBurn, opSourceAccount, burn.GetFrom(), amount, asset, contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:
