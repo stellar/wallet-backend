@@ -310,7 +310,7 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 
 	default:
 		// The asset issuer has a burn change for their account while the other account has the asset debited
-		return p.handleDefaultBurnOrClawback(burn.GetFrom(),amount, asset, contractAddress, builder)
+		return p.handleDefaultBurnOrClawback(burn.GetFrom(), amount, asset, contractAddress, builder)
 	}
 }
 
