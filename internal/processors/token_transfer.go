@@ -204,12 +204,6 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 }
 
 func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {
-	// We skip events involving only LP accounts
-	toIsLP := isLiquidityPool(mint.GetTo())
-	if toIsLP {
-		return nil, nil
-	}
-
 	baseChange.StateChangeCategory = types.StateChangeCategoryMint
 	baseChange.AccountID = mint.GetTo()
 	baseChange.Amount = sql.NullString{String: mint.GetAmount()}
@@ -218,17 +212,15 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 }
 
 func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
-	// We skip events involving only LP accounts
-	fromIsLP := isLiquidityPool(burn.GetFrom())
-	if fromIsLP {
-		return nil, nil
-	}
-
 	switch *operationType {
 	// If the claimable balance is claimed by the issuer, it will be a burn state change for the issuer (operation source account).
 	case xdr.OperationTypeClaimClaimableBalance:
 		baseChange.AccountID = opSourceAccount
 		baseChange.ClaimableBalanceID = sql.NullString{String: burn.GetFrom()}
+	// If an asset issuer is withdrawing from the LP, it will be a burn state change for the issuer (operation source account).
+	case xdr.OperationTypeLiquidityPoolWithdraw:
+		baseChange.AccountID = opSourceAccount
+		baseChange.LiquidityPoolID = sql.NullString{String: burn.GetFrom()}
 	default:
 		baseChange.AccountID = burn.GetFrom()
 	}

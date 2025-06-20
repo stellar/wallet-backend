@@ -633,7 +633,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	})
 
 	// Payment Operations Tests
-	t.Run("Payment - extracts state changes for native XLM payment", func(t *testing.T) {
+	t.Run("Payment - G to G XLM transfer", func(t *testing.T) {
 		paymentOp := xdr.Operation{
 			SourceAccount: &accountA,
 			Body: xdr.OperationBody{
@@ -666,7 +666,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "500000000"}, changes[2].Amount)
 	})
 
-	t.Run("Payment - extracts state changes for custom asset payment", func(t *testing.T) {
+	t.Run("Payment - G to G USDC transfer", func(t *testing.T) {
 		paymentOp := xdr.Operation{
 			SourceAccount: &accountA,
 			Body: xdr.OperationBody{
@@ -699,7 +699,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	})
 
 	// Mint Events - Payments FROM issuer accounts
-	t.Run("Payment - extracts state changes for USDC mint (issuer to account)", func(t *testing.T) {
+	t.Run("Payment - G (issuer) to G mints USDC", func(t *testing.T) {
 		mintPaymentOp := xdr.Operation{
 			SourceAccount: &usdcAccount,
 			Body: xdr.OperationBody{
@@ -731,7 +731,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	})
 
 	// Burn Events - Payments TO issuer accounts
-	t.Run("Payment - extracts state changes for USDC burn (account to issuer)", func(t *testing.T) {
+	t.Run("Payment - G to G (issuer) burns USDC", func(t *testing.T) {
 		burnPaymentOp := xdr.Operation{
 			SourceAccount: &accountA,
 			Body: xdr.OperationBody{
@@ -1013,7 +1013,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	})
 
 	// Clawback Events Tests
-	t.Run("Clawback - extracts state changes for USDC clawback", func(t *testing.T) {
+	t.Run("Clawback - USDC clawback generates debit event", func(t *testing.T) {
 		clawbackOperation := clawbackOp(usdcAsset, 50*oneUnit, accountA, &usdcAccount)
 		clawbackResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
@@ -1123,8 +1123,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
 		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[2].LiquidityPoolID.String)
 	})
-
-	t.Run("LiquidityPoolWithdraw - extracts state changes for LP removal with transfer events", func(t *testing.T) {
+	t.Run("LiquidityPoolWithdraw - LP removal generates transfer events", func(t *testing.T) {
 		lpWithdrawOperation := lpWithdrawOp(lpBtcEthID, 100*oneUnit, 2*oneUnit, 5*oneUnit, &accountA)
 		lpWithdrawResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
@@ -1166,9 +1165,53 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
 		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[2].LiquidityPoolID.String)
 	})
+	t.Run("LiquidityPoolWithdraw - LP removal by asset issuer generates burn event", func(t *testing.T) {
+		lpWithdrawOperation := lpWithdrawOp(lpBtcEthID, 100*oneUnit, 2*oneUnit, 5*oneUnit, &btcAccount)
+		lpWithdrawResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypeLiquidityPoolWithdraw,
+				LiquidityPoolWithdrawResult: &xdr.LiquidityPoolWithdrawResult{
+					Code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawSuccess,
+				},
+			},
+		}
+
+		// Create LP entry state changes showing removal
+		lpEntry := lpLedgerEntry(lpBtcEthID, btcAsset, ethAsset, 5*oneUnit, 12*oneUnit)
+		changes := xdr.LedgerEntryChanges{
+			generateLpEntryChangeState(lpEntry),
+			generateLpEntryRemovedChange(lpBtcEthID),
+		}
+
+		tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges, err := processor.Process(context.Background(), tx)
+		require.NoError(t, err)
+		// Fee event + burn event for the LP removal
+		require.Len(t, stateChanges, 3)
+
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
+		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
+
+		// Burn event for the LP removal since the asset issuer is withdrawing from the LP.
+		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[1].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[1].Amount)
+		require.Equal(t, sql.NullString{String: "BTC:" + btcIssuer}, stateChanges[1].Token)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[1].LiquidityPoolID.String)
+
+		// Credit event for the other asset.
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[2].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "120000000"}, stateChanges[2].Amount)
+		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[2].Token)
+		require.Equal(t, lpIDToStrkey(lpBtcEthID), stateChanges[2].LiquidityPoolID.String)
+	})
 
 	// Path Payment Events Tests
-	t.Run("PathPaymentStrictSend - BTC Issuer sends BTC to B as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint and Transfer events", func(t *testing.T) {
+	t.Run("PathPaymentStrictSend - A (BTC Issuer) sends BTC to B as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint and Transfer events", func(t *testing.T) {
 		// Path: BTC -> ETH -> USDC (using ETH as intermediary)
 		path := []xdr.Asset{ethAsset}
 
@@ -1254,7 +1297,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[5].Token)
 	})
 
-	t.Run("PathPaymentStrictReceive - BTC Issuer sends BTC to USDC Issuer as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint, Transfer and Burn events", func(t *testing.T) {
+	t.Run("PathPaymentStrictReceive - A (BTC Issuer) sends BTC to B (USDC Issuer) as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint, Transfer and Burn events", func(t *testing.T) {
 		// Path: BTC -> ETH -> USDC (using ETH as intermediary)
 		path := []xdr.Asset{ethAsset}
 
@@ -1370,7 +1413,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
 
-		// Event 1: BURN USDC to accountA (1 USDC acquired from first trade - BURN because destination is USDC from issuer)
+		// Event 1: BURN USDC from accountA
 		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[1].StateChangeCategory)
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "10000000"}, stateChanges[1].Amount) // 1 USDC
@@ -1388,7 +1431,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[3].Amount) // 5 XLM
 		require.Equal(t, sql.NullString{String: "native"}, stateChanges[3].Token)
 
-		// Event 4: BURN USDC to accountB (2 USDC acquired from second trade - BURN because destination is USDC from issuer)
+		// Event 4: BURN USDC from accountB
 		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[4].StateChangeCategory)
 		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[4].AccountID)
 		require.Equal(t, sql.NullString{String: "20000000"}, stateChanges[4].Amount) // 2 USDC
