@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/stellar/go/asset"
@@ -33,6 +34,7 @@ func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTr
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Hash.HexString()
+	txIdx := tx.Index
 
 	// Get events from this specific transaction
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
@@ -47,13 +49,14 @@ func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTr
 	for _, e := range allEvents {
 		meta := e.GetMeta()
 		contractAddress := meta.GetContractAddress()
+		opIdx := meta.GetOperationIndex()
 		event := e.GetEvent()
 
 		var opID, opSourceAccount string
 		var opType *xdr.OperationType
 		var err error
 		if _, isFeeEvent := event.(*ttp.TokenTransferEvent_Fee); !isFeeEvent {
-			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, meta.GetTransactionIndex(), meta.GetOperationIndex())
+			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, txIdx, opIdx)
 			if err != nil {
 				if errors.Is(err, ErrOperationNotFound) {
 					continue
@@ -98,7 +101,7 @@ func (p *TokenTransferProcessor) processEvent(event any, contractAddress string,
 	case *ttp.TokenTransferEvent_Mint:
 		return p.handleMint(event.Mint, contractAddress, baseChange)
 	case *ttp.TokenTransferEvent_Burn:
-		return p.handleBurn(event.Burn, contractAddress, baseChange)
+		return p.handleBurn(event.Burn, contractAddress, baseChange, operationType, opSourceAccount)
 	case *ttp.TokenTransferEvent_Clawback:
 		return p.handleClawback(event.Clawback, contractAddress, baseChange, operationType, opSourceAccount)
 	case *ttp.TokenTransferEvent_Fee:
@@ -214,15 +217,23 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 	return []types.StateChange{baseChange}, nil
 }
 
-func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {
+func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
 	// We skip events involving only LP accounts
 	fromIsLP := isLiquidityPool(burn.GetFrom())
 	if fromIsLP {
 		return nil, nil
 	}
 
+	switch *operationType {
+	// If the claimable balance is claimed by the issuer, it will be a burn state change for the issuer (operation source account).
+	case xdr.OperationTypeClaimClaimableBalance:
+		baseChange.AccountID = opSourceAccount
+		baseChange.ClaimableBalanceID = sql.NullString{String: burn.GetFrom()}
+	default:
+		baseChange.AccountID = burn.GetFrom()
+	}
+
 	baseChange.StateChangeCategory = types.StateChangeCategoryBurn
-	baseChange.AccountID = burn.GetFrom()
 	baseChange.Amount = sql.NullString{String: burn.GetAmount()}
 	p.setAssetOrContract(&baseChange, burn.GetAsset(), contractAddress)
 	return []types.StateChange{baseChange}, nil
@@ -248,9 +259,18 @@ func (p *TokenTransferProcessor) handleClawback(clawback *ttp.Clawback, contract
 }
 
 func (p *TokenTransferProcessor) handleFee(fee *ttp.Fee, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {
-	baseChange.StateChangeCategory = types.StateChangeCategoryDebit
+	amount := fee.GetAmount()
+	switch {
+		// If a fee event is negative, it represents a refund. By default, a "fee" represents a debit but a negative fee represents a credit.
+	case strings.HasPrefix(amount, "-"):
+		baseChange.StateChangeCategory = types.StateChangeCategoryCredit
+		// We are storing the fee as a credit refund so we dont need to store it as negative.
+		baseChange.Amount = sql.NullString{String: strings.TrimPrefix(amount, "-")}
+	default:
+		baseChange.StateChangeCategory = types.StateChangeCategoryDebit
+		baseChange.Amount = sql.NullString{String: amount}
+	}
 	baseChange.AccountID = fee.GetFrom()
-	baseChange.Amount = sql.NullString{String: fee.GetAmount()}
 	p.setAssetOrContract(&baseChange, fee.GetAsset(), contractAddress)
 	return []types.StateChange{baseChange}, nil
 }
