@@ -83,15 +83,19 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	}
 
 	operationType := &op.Body.Type
-	var opSourceAccount string
-	if op.SourceAccount != nil {
-		opSourceAccount = op.SourceAccount.ToAccountId().Address()
-	} else {
-		opSourceAccount = tx.Envelope.SourceAccount().ToAccountId().Address()
-	}
+	opSourceAccount := operationSourceAccount(tx, op)
 	opID := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
 
 	return opID, operationType, opSourceAccount, nil
+}
+
+func operationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) string {
+	acc := op.SourceAccount
+	if acc != nil {
+		return acc.ToAccountId().Address()
+	}
+	res := tx.Envelope.SourceAccount()
+	return res.ToAccountId().Address()
 }
 
 func (p *TokenTransferProcessor) processEvent(event any, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
@@ -204,6 +208,11 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 }
 
 func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {
+	toIsLP := isLiquidityPool(mint.GetTo())
+	if toIsLP {
+		return nil, nil
+	}
+
 	baseChange.StateChangeCategory = types.StateChangeCategoryMint
 	baseChange.AccountID = mint.GetTo()
 	baseChange.Amount = sql.NullString{String: mint.GetAmount()}
@@ -215,39 +224,67 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 	switch *operationType {
 	// If the claimable balance is claimed by the issuer, it will be a burn state change for the issuer (operation source account).
 	case xdr.OperationTypeClaimClaimableBalance:
+		baseChange.StateChangeCategory = types.StateChangeCategoryBurn
 		baseChange.AccountID = opSourceAccount
 		baseChange.ClaimableBalanceID = sql.NullString{String: burn.GetFrom()}
+		baseChange.Amount = sql.NullString{String: burn.GetAmount()}
+		p.setAssetOrContract(&baseChange, burn.GetAsset(), contractAddress)
+		return []types.StateChange{baseChange}, nil
 	// If an asset issuer is withdrawing from the LP, it will be a burn state change for the issuer (operation source account).
 	case xdr.OperationTypeLiquidityPoolWithdraw:
+		baseChange.StateChangeCategory = types.StateChangeCategoryBurn
 		baseChange.AccountID = opSourceAccount
 		baseChange.LiquidityPoolID = sql.NullString{String: burn.GetFrom()}
+		baseChange.Amount = sql.NullString{String: burn.GetAmount()}
+		p.setAssetOrContract(&baseChange, burn.GetAsset(), contractAddress)
+		return []types.StateChange{baseChange}, nil
 	default:
-		baseChange.AccountID = burn.GetFrom()
-	}
+		// The asset issuer has a burn change for their account while the other account has the asset debited.
+		changes := make([]types.StateChange, 0, 2)
+		if !burn.GetAsset().GetNative() {
+			burnChange := baseChange
+			burnChange.StateChangeCategory = types.StateChangeCategoryBurn
+			burnChange.AccountID = burn.GetAsset().GetIssuedAsset().GetIssuer()
+			burnChange.Amount = sql.NullString{String: burn.GetAmount()}
+			p.setAssetOrContract(&burnChange, burn.GetAsset(), contractAddress)
+			changes = append(changes, burnChange)
+		}
 
-	baseChange.StateChangeCategory = types.StateChangeCategoryBurn
-	baseChange.Amount = sql.NullString{String: burn.GetAmount()}
-	p.setAssetOrContract(&baseChange, burn.GetAsset(), contractAddress)
-	return []types.StateChange{baseChange}, nil
+		debitChange := baseChange
+		debitChange.StateChangeCategory = types.StateChangeCategoryDebit
+		debitChange.AccountID = burn.GetFrom()
+		debitChange.Amount = sql.NullString{String: burn.GetAmount()}
+		p.setAssetOrContract(&debitChange, burn.GetAsset(), contractAddress)
+		changes = append(changes, debitChange)
+		return changes, nil
+	}
 }
 
 func (p *TokenTransferProcessor) handleClawback(clawback *ttp.Clawback, contractAddress string, baseChange types.StateChange, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
 	switch *operationType {
-	case xdr.OperationTypeClawback:
-		baseChange.StateChangeCategory = types.StateChangeCategoryDebit
-		baseChange.AccountID = clawback.GetFrom()
 	case xdr.OperationTypeClawbackClaimableBalance:
 		baseChange.StateChangeCategory = types.StateChangeCategoryBurn
 		baseChange.AccountID = opSourceAccount
 		baseChange.ClaimableBalanceID = sql.NullString{String: clawback.GetFrom()}
+		baseChange.Amount = sql.NullString{String: clawback.GetAmount()}
+		p.setAssetOrContract(&baseChange, clawback.GetAsset(), contractAddress)
+		return []types.StateChange{baseChange}, nil
 	default:
-		baseChange.AccountID = clawback.GetFrom()
-		baseChange.StateChangeCategory = types.StateChangeCategoryBurn
-	}
+		// The asset issuer has a burn change for their account while the other account has the asset debited.
+		burnChange := baseChange
+		burnChange.StateChangeCategory = types.StateChangeCategoryBurn
+		burnChange.AccountID = opSourceAccount
+		burnChange.Amount = sql.NullString{String: clawback.GetAmount()}
 
-	baseChange.Amount = sql.NullString{String: clawback.GetAmount()}
-	p.setAssetOrContract(&baseChange, clawback.GetAsset(), contractAddress)
-	return []types.StateChange{baseChange}, nil
+		debitChange := baseChange
+		debitChange.StateChangeCategory = types.StateChangeCategoryDebit
+		debitChange.AccountID = clawback.GetFrom()
+		debitChange.Amount = sql.NullString{String: clawback.GetAmount()}
+
+		p.setAssetOrContract(&debitChange, clawback.GetAsset(), contractAddress)
+		p.setAssetOrContract(&burnChange, clawback.GetAsset(), contractAddress)
+		return []types.StateChange{debitChange, burnChange}, nil
+	}
 }
 
 func (p *TokenTransferProcessor) handleFee(fee *ttp.Fee, contractAddress string, baseChange types.StateChange) ([]types.StateChange, error) {

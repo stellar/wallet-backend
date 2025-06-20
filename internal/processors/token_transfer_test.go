@@ -749,17 +749,22 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
-		// Fee event + burn event
-		require.Len(t, changes, 2)
+		// Fee event + burn event + debit event
+		require.Len(t, changes, 3)
 
 		require.Equal(t, types.StateChangeCategoryDebit, changes[0].StateChangeCategory)
 		require.Equal(t, someTxAccount.ToAccountId().Address(), changes[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, changes[0].Amount)
 
 		require.Equal(t, types.StateChangeCategoryBurn, changes[1].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), changes[1].AccountID)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), changes[1].AccountID)
 		require.Equal(t, sql.NullString{String: "750000000"}, changes[1].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, changes[1].Token)
+
+		require.Equal(t, types.StateChangeCategoryDebit, changes[2].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), changes[2].AccountID)
+		require.Equal(t, sql.NullString{String: "750000000"}, changes[2].Amount)
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, changes[2].Token)
 	})
 
 	// Claim Claimable Balance Tests
@@ -1013,7 +1018,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	})
 
 	// Clawback Events Tests
-	t.Run("Clawback - USDC clawback generates debit event", func(t *testing.T) {
+	t.Run("Clawback - USDC clawback generates debit and burn events", func(t *testing.T) {
 		clawbackOperation := clawbackOp(usdcAsset, 50*oneUnit, accountA, &usdcAccount)
 		clawbackResult := &xdr.OperationResult{
 			Code: xdr.OperationResultCodeOpInner,
@@ -1029,8 +1034,8 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
-		// Fee event + debit event for the clawback
-		require.Len(t, stateChanges, 2)
+		// Fee event + debit and burn events for the clawback
+		require.Len(t, stateChanges, 3)
 
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
 		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
@@ -1040,6 +1045,11 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[1].Amount)
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
+
+		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[2].StateChangeCategory)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "500000000"}, stateChanges[2].Amount)
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[2].Token)
 	})
 
 	t.Run("ClawbackClaimableBalance - extracts state changes for USDC claimable balance clawback", func(t *testing.T) {
@@ -1340,10 +1350,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		stateChanges, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
 
-		// Fee state change + 4 operation state changes = 5 total state changes
+		// Fee state change + 5 operation state changes = 5 total state changes
 		// Since both source and destination are issuers, LP transfers generate single state changes
 		// and final transfer is a burn event (to USDC issuer)
-		require.Len(t, stateChanges, 5)
+		require.Len(t, stateChanges, 6)
 
 		// Event 0: Fee event
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
@@ -1371,11 +1381,17 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		require.Equal(t, sql.NullString{String: "ETH:" + ethIssuer}, stateChanges[3].Token)
 		require.Equal(t, lpIDToStrkey(lpEthUsdcID), stateChanges[3].LiquidityPoolID.String)
 
-		// Event 4: Burn USDC from BTC issuer to USDC issuer (Burn event since destination is USDC issuer)
+		// Event 4: Burn event for USD Issuer
 		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[4].StateChangeCategory)
-		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[4].AccountID)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[4].AccountID)
 		require.Equal(t, sql.NullString{String: "60000000"}, stateChanges[4].Amount) // 6 USDC
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[4].Token)
+		
+		// Event 5: Burn USDC from BTC issuer to USDC issuer (Burn event since destination is USDC issuer)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[5].StateChangeCategory)
+		require.Equal(t, btcAccount.ToAccountId().Address(), stateChanges[5].AccountID)
+		require.Equal(t, sql.NullString{String: "60000000"}, stateChanges[5].Amount) // 6 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[5].Token)
 	})
 
 	// Manage Offer Operations Tests
@@ -1405,49 +1421,61 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		stateChanges, err := processor.Process(context.Background(), tx)
 		require.NoError(t, err)
 
-		// Fee event + 6 transfer events (2 trades × 3 transfers each: BURN + DEBIT + CREDIT)
-		require.Len(t, stateChanges, 7)
+		// Fee event + 8 transfer events (2 trades × 4 transfers each: BURN + DEBIT + CREDIT)
+		require.Len(t, stateChanges, 9)
 
 		// Event 0: Fee event
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[0].StateChangeCategory)
 		require.Equal(t, someTxAccount.ToAccountId().Address(), stateChanges[0].AccountID)
 		require.Equal(t, sql.NullString{String: "100"}, stateChanges[0].Amount)
 
-		// Event 1: BURN USDC from accountA
+		// Event 1: BURN USDC from USDC issuer
 		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[1].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[1].AccountID)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[1].AccountID)
 		require.Equal(t, sql.NullString{String: "10000000"}, stateChanges[1].Amount) // 1 USDC
 		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[1].Token)
 
-		// Event 2: DEBIT XLM from USDC issuer (5 XLM paid in first trade)
+		// Event 2: DEBIT USDC from accountA
 		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[2].StateChangeCategory)
-		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[2].AccountID)
-		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[2].Amount) // 5 XLM
-		require.Equal(t, sql.NullString{String: "native"}, stateChanges[2].Token)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[2].AccountID)
+		require.Equal(t, sql.NullString{String: "10000000"}, stateChanges[2].Amount) // 1 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[2].Token)
 
-		// Event 3: CREDIT XLM to accountA (5 XLM received from first trade)
-		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[3].StateChangeCategory)
-		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[3].AccountID)
+		// Event 3: DEBIT XLM from USDC issuer (5 XLM paid in first trade)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[3].StateChangeCategory)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[3].AccountID)
 		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[3].Amount) // 5 XLM
 		require.Equal(t, sql.NullString{String: "native"}, stateChanges[3].Token)
 
-		// Event 4: BURN USDC from accountB
-		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[4].StateChangeCategory)
-		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[4].AccountID)
-		require.Equal(t, sql.NullString{String: "20000000"}, stateChanges[4].Amount) // 2 USDC
-		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[4].Token)
+		// Event 4: CREDIT XLM to accountA (5 XLM received from first trade)
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[4].StateChangeCategory)
+		require.Equal(t, accountA.ToAccountId().Address(), stateChanges[4].AccountID)
+		require.Equal(t, sql.NullString{String: "50000000"}, stateChanges[4].Amount) // 5 XLM
+		require.Equal(t, sql.NullString{String: "native"}, stateChanges[4].Token)
 
-		// Event 5: DEBIT XLM from USDC issuer (10 XLM paid in second trade)
-		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[5].StateChangeCategory)
+		// Event 5: BURN USDC from USDC issuer
+		require.Equal(t, types.StateChangeCategoryBurn, stateChanges[5].StateChangeCategory)
 		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[5].AccountID)
-		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[5].Amount) // 10 XLM
-		require.Equal(t, sql.NullString{String: "native"}, stateChanges[5].Token)
+		require.Equal(t, sql.NullString{String: "20000000"}, stateChanges[5].Amount) // 2 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[5].Token)
 
-		// Event 6: CREDIT XLM to accountB (10 XLM received from second trade)
-		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[6].StateChangeCategory)
+		// Event 6: DEBIT USDC from accountB
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[6].StateChangeCategory)
 		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[6].AccountID)
-		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[6].Amount) // 10 XLM
-		require.Equal(t, sql.NullString{String: "native"}, stateChanges[6].Token)
+		require.Equal(t, sql.NullString{String: "20000000"}, stateChanges[6].Amount) // 2 USDC
+		require.Equal(t, sql.NullString{String: "USDC:" + usdcIssuer}, stateChanges[6].Token)
+
+		// Event 7: DEBIT XLM from USDC issuer (10 XLM paid in second trade)
+		require.Equal(t, types.StateChangeCategoryDebit, stateChanges[7].StateChangeCategory)
+		require.Equal(t, usdcAccount.ToAccountId().Address(), stateChanges[7].AccountID)
+		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[7].Amount) // 10 XLM
+		require.Equal(t, sql.NullString{String: "native"}, stateChanges[7].Token)
+
+		// Event 8: CREDIT XLM to accountB (10 XLM received from second trade)
+		require.Equal(t, types.StateChangeCategoryCredit, stateChanges[8].StateChangeCategory)
+		require.Equal(t, accountB.ToAccountId().Address(), stateChanges[8].AccountID)
+		require.Equal(t, sql.NullString{String: "100000000"}, stateChanges[8].Amount) // 10 XLM
+		require.Equal(t, sql.NullString{String: "native"}, stateChanges[8].Token)
 	})
 
 	t.Run("ManageSellOffer - Sell USDC for XLM (Source is USDC issuer)", func(t *testing.T) {
