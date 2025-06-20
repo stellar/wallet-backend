@@ -27,7 +27,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	cache "github.com/stellar/wallet-backend/internal/store"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -74,8 +73,6 @@ type handlerDeps struct {
 	MetricsService            metrics.MetricsService
 	TransactionService        txservices.TransactionService
 
-	// Cache
-	ContractStore cache.ContractStore
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -187,11 +184,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
 	}
 
-	contractStore, err := cache.NewContractStore(models.Contract)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating contract store: %w", err)
-	}
-
 	return handlerDeps{
 		Models:                    models,
 		ServerHostname:            serverHostname.Hostname(),
@@ -204,7 +196,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		TransactionService:        txService,
-		ContractStore:             contractStore,
 	}, nil
 }
 
