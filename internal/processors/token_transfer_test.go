@@ -104,25 +104,37 @@ var (
 
 func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.LedgerEntryChanges, isFailed bool) ingest.LedgerTransaction {
 	resp := someTx
-	resp.UnsafeMeta.V = 3
 	resp.FeeChanges = feeChanges
-	resp.Envelope.V1.Tx.Ext = xdr.TransactionExt{
-		V: 1,
-		SorobanData: &xdr.SorobanTransactionData{
-			Ext: xdr.ExtensionPoint{
-				V: 0,
-			},
-			Resources: xdr.SorobanResources{
-				Footprint: xdr.LedgerFootprint{
-					ReadOnly:  []xdr.LedgerKey{},
-					ReadWrite: []xdr.LedgerKey{},
+	resp.Envelope = xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+		V1: &xdr.TransactionV1Envelope{
+			Tx: xdr.Transaction{
+				SourceAccount: someTxAccount,
+				SeqNum:        xdr.SequenceNumber(54321),
+				Ext: xdr.TransactionExt{
+					V: 1,
+					SorobanData: &xdr.SorobanTransactionData{
+						Ext: xdr.ExtensionPoint{
+							V: 0,
+						},
+						Resources: xdr.SorobanResources{
+							Footprint: xdr.LedgerFootprint{
+								ReadOnly:  []xdr.LedgerKey{},
+								ReadWrite: []xdr.LedgerKey{},
+							},
+						},
+						ResourceFee: 100,
+					},
 				},
 			},
-			ResourceFee: 100,
 		},
 	}
-	resp.UnsafeMeta.V3 = &xdr.TransactionMetaV3{
-		TxChangesAfter: txApplyAfterChanges,
+	resp.UnsafeMeta = xdr.TransactionMeta{
+		V: 3,
+		V3: &xdr.TransactionMetaV3{
+			Operations: []xdr.OperationMeta{{}},
+			TxChangesAfter: txApplyAfterChanges,
+		},
 	}
 
 	if isFailed {
