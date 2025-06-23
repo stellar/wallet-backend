@@ -223,21 +223,33 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 }
 
 // handleMint processes mint events that occur when asset issuers create new tokens.
-// This happens when an issuer sends their own asset to another account (e.g., payment from USDC issuer).
+// This happens when an issuer sends their own asset to another account (e.g., USDC payment from USDC issuer).
 func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
-	// Skip mints to liquidity pools since we dont track LP accounts
-	if IsLiquidityPool(mint.GetTo()) {
-		return nil, nil
+	amount := mint.GetAmount()
+	asset := mint.GetAsset()
+	var changes []types.StateChange
+
+	// For issued assets, record mint for the issuer account
+	if !asset.GetNative() {
+		mintChange := builder.WithCategory(types.StateChangeCategoryMint).
+			WithAccount(asset.GetIssuedAsset().GetIssuer()).
+			WithAmount(amount).
+			WithAsset(asset, contractAddress).
+			Build()
+		changes = append(changes, mintChange)
 	}
 
-	// Create mint state change for the receiving account
-	change := builder.WithCategory(types.StateChangeCategoryMint).
-		WithAccount(mint.GetTo()).
-		WithAmount(mint.GetAmount()).
-		WithAsset(mint.GetAsset(), contractAddress).
-		Build()
+	// Create credit state change for the receiving account. Skip mints to liquidity pools since we dont track LP accounts
+	if !IsLiquidityPool(mint.GetTo()) {
+		change := builder.WithCategory(types.StateChangeCategoryCredit).
+			WithAccount(mint.GetTo()).
+			WithAmount(amount).
+			WithAsset(asset, contractAddress).
+			Build()
+		changes = append(changes, change)
+	}
 
-	return []types.StateChange{change}, nil
+	return changes, nil
 }
 
 // handleBurn processes burn events that occur when tokens are destroyed.

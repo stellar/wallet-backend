@@ -200,10 +200,11 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes := processTransaction(t, processor, tx)
-		requireEventCount(t, changes, 2)
+		requireEventCount(t, changes, 3)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertMintEvent(t, changes[1], accountB.ToAccountId().Address(), "1000000000", "USDC:"+usdcIssuer)
+		assertMintEvent(t, changes[1], usdcIssuer, "1000000000", "USDC:"+usdcIssuer)
+		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", "USDC:"+usdcIssuer)
 	})
 
 	t.Run("Payment - G to G (issuer) burns USDC for the issuer and creates a debit for the sender", func(t *testing.T) {
@@ -607,20 +608,21 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges := processTransaction(t, processor, tx)
-		requireEventCount(t, stateChanges, 6)
+		requireEventCount(t, stateChanges, 7)
 
 		assertFeeEvent(t, stateChanges[0], "100")
 		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
 			btcAccount.ToAccountId().Address(), "50000000", "ETH:"+ethIssuer,
 			lpIDToStrkey(lpBtcEthID))
-		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryCredit,
+		assertMintEvent(t, stateChanges[2], btcIssuer, "10000000", "BTC:"+btcIssuer)
+		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryCredit,
 			btcAccount.ToAccountId().Address(), "100000000", "USDC:"+usdcIssuer,
 			lpIDToStrkey(lpEthUsdcID))
-		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryDebit,
 			btcAccount.ToAccountId().Address(), "30000000", "ETH:"+ethIssuer,
 			lpIDToStrkey(lpEthUsdcID))
-		assertDebitEvent(t, stateChanges[4], btcAccount.ToAccountId().Address(), "100000000", "USDC:"+usdcIssuer)
-		assertCreditEvent(t, stateChanges[5], accountB.ToAccountId().Address(), "100000000", "USDC:"+usdcIssuer)
+		assertDebitEvent(t, stateChanges[5], btcAccount.ToAccountId().Address(), "100000000", "USDC:"+usdcIssuer)
+		assertCreditEvent(t, stateChanges[6], accountB.ToAccountId().Address(), "100000000", "USDC:"+usdcIssuer)
 	})
 
 	t.Run("PathPaymentStrictReceive - A (BTC Issuer) sends BTC to B (USDC Issuer) as USDC - 2 LP sweeps (BTC/ETH, ETH/USDC) - Mint, Transfer and Burn events", func(t *testing.T) {
@@ -655,20 +657,21 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges := processTransaction(t, processor, tx)
-		requireEventCount(t, stateChanges, 6)
+		requireEventCount(t, stateChanges, 7)
 
 		assertFeeEvent(t, stateChanges[0], "100")
 		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
 			btcAccount.ToAccountId().Address(), "20000000", "ETH:"+ethIssuer,
 			lpIDToStrkey(lpBtcEthID))
-		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryCredit,
+		assertMintEvent(t, stateChanges[2], btcIssuer, "10000000", "BTC:"+btcIssuer)
+		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryCredit,
 			btcAccount.ToAccountId().Address(), "60000000", "USDC:"+usdcIssuer,
 			lpIDToStrkey(lpEthUsdcID))
-		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryDebit,
 			btcAccount.ToAccountId().Address(), "20000000", "ETH:"+ethIssuer,
 			lpIDToStrkey(lpEthUsdcID))
-		assertBurnEvent(t, stateChanges[4], usdcAccount.ToAccountId().Address(), "60000000", "USDC:"+usdcIssuer)
-		assertDebitEvent(t, stateChanges[5], btcAccount.ToAccountId().Address(), "60000000", "USDC:"+usdcIssuer)
+		assertBurnEvent(t, stateChanges[5], usdcAccount.ToAccountId().Address(), "60000000", "USDC:"+usdcIssuer)
+		assertDebitEvent(t, stateChanges[6], btcAccount.ToAccountId().Address(), "60000000", "USDC:"+usdcIssuer)
 	})
 
 	t.Run("ManageBuyOffer - Buy USDC for XLM (Source is USDC issuer)", func(t *testing.T) {
@@ -730,15 +733,18 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		stateChanges := processTransaction(t, processor, tx)
-		requireEventCount(t, stateChanges, 7)
+		requireEventCount(t, stateChanges, 9)
 
 		assertFeeEvent(t, stateChanges[0], "100")
 		assertDebitEvent(t, stateChanges[1], accountA.ToAccountId().Address(), "50000000", "native")
 		assertCreditEvent(t, stateChanges[2], usdcAccount.ToAccountId().Address(), "50000000", "native")
-		assertMintEvent(t, stateChanges[3], accountA.ToAccountId().Address(), "10000000", "USDC:"+usdcIssuer)
-		assertDebitEvent(t, stateChanges[4], accountC.ToAccountId().Address(), "100000000", "native")
-		assertCreditEvent(t, stateChanges[5], usdcAccount.ToAccountId().Address(), "100000000", "native")
-		assertMintEvent(t, stateChanges[6], accountC.ToAccountId().Address(), "20000000", "USDC:"+usdcIssuer)
+		assertMintEvent(t, stateChanges[3], usdcIssuer, "10000000", "USDC:"+usdcIssuer)
+		assertCreditEvent(t, stateChanges[4], accountA.ToAccountId().Address(), "10000000", "USDC:"+usdcIssuer)
+
+		assertDebitEvent(t, stateChanges[5], accountC.ToAccountId().Address(), "100000000", "native")
+		assertCreditEvent(t, stateChanges[6], usdcAccount.ToAccountId().Address(), "100000000", "native")
+		assertMintEvent(t, stateChanges[7], usdcIssuer, "20000000", "USDC:"+usdcIssuer)
+		assertCreditEvent(t, stateChanges[8], accountC.ToAccountId().Address(), "20000000", "USDC:"+usdcIssuer)
 	})
 
 	t.Run("Contract events - state changes generated by SEP-41 transfers", func(t *testing.T) {
