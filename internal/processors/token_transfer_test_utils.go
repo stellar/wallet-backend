@@ -6,10 +6,12 @@ package processors
 import (
 	"context"
 	"database/sql"
+	"math/big"
 	"testing"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/require"
 
@@ -148,6 +150,76 @@ func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.
 		resp.Result.Result.Result.Code = xdr.TransactionResultCodeTxSuccess
 	}
 
+	return resp
+}
+
+// makeInvocationTransaction returns a single transaction containing a single
+// invokeHostFunction operation that generates the specified Stellar Asset
+// Contract events in its txmeta.
+func createInvocationTx(
+	from, to, admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+	opResult *xdr.OperationResult,
+	types ...contractevents.EventType,
+) ingest.LedgerTransaction {
+	meta := xdr.TransactionMetaV3{
+		// irrelevant for contract invocations: only events are inspected
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: make([]xdr.ContractEvent, len(types)),
+		},
+	}
+
+	for idx, type_ := range types {
+		event := contractevents.GenerateEvent(
+			type_,
+			from, to, admin,
+			asset,
+			amount,
+			networkPassphrase,
+		)
+		meta.SorobanMeta.Events[idx] = event
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	resp := ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &meta},
+	}
+	if opResult != nil {
+		resp.Result.Result.Result.Results = &[]xdr.OperationResult{*opResult}
+	}
 	return resp
 }
 
@@ -538,4 +610,13 @@ func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, categor
 	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
 	require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
 	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
+}
+
+func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedContractID string) {
+	t.Helper()
+	require.Equal(t, category, change.StateChangeCategory)
+	require.Equal(t, expectedAccount, change.AccountID)
+	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
+	require.Equal(t, sql.NullString{String: ""}, change.Token)
+	require.Equal(t, expectedContractID, change.ContractID.String)
 }
