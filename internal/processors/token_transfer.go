@@ -309,13 +309,15 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 		changes = append(changes, burnChange)
 	}
 
-	// Always record debit from the account losing the tokens
-	debitChange := builder.WithCategory(types.StateChangeCategoryDebit).
-		WithAccount(from).
-		WithAmount(amount).
-		WithAsset(asset, contractAddress).
-		Build()
-	changes = append(changes, debitChange)
+	// Always record debit from the account losing the tokens. Skip burns from LP accounts since we dont track LP accounts
+	if !IsLiquidityPool(from) {
+		debitChange := builder.WithCategory(types.StateChangeCategoryDebit).
+			WithAccount(from).
+			WithAmount(amount).
+			WithAsset(asset, contractAddress).
+			Build()
+		changes = append(changes, debitChange)
+	}
 
 	return changes, nil
 }
