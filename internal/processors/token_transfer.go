@@ -30,10 +30,10 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 	}
 }
 
-// Process extracts token transfer events from a Stellar transaction and converts them into state changes.
+// ProcessTransaction extracts token transfer events from a Stellar transaction and converts them into state changes.
 // It handles fee events (transaction costs/refunds) and operation events (payments, mints, burns, etc.).
 // Returns a slice of state changes representing debits, credits, mints, and burns.
-func (p *TokenTransferProcessor) Process(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
+func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Hash.HexString()
@@ -309,7 +309,7 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 }
 
 // handleFee processes transaction fee events.
-// Positive amounts are debits (fee charged), negative amounts are credits (fee refunds in Soroban).
+// Positive amounts are debits (fee charged), negative amounts are credits (fee refunds).
 func (p *TokenTransferProcessor) handleFee(fee *ttp.Fee, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
 	amount := fee.GetAmount()
 	var category types.StateChangeCategory
