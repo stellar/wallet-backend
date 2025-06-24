@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	cache "github.com/stellar/wallet-backend/internal/store"
 	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -40,6 +41,7 @@ type ingestService struct {
 	appTracker       apptracker.AppTracker
 	rpcService       RPCService
 	chAccStore       store.ChannelAccountStore
+	contractStore    cache.TokenContractStore
 	metricsService   metrics.MetricsService
 }
 
@@ -49,6 +51,7 @@ func NewIngestService(
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
+	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
@@ -66,6 +69,9 @@ func NewIngestService(
 	if chAccStore == nil {
 		return nil, errors.New("chAccStore cannot be nil")
 	}
+	if contractStore == nil {
+		return nil, errors.New("contractStore cannot be nil")
+	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
@@ -76,6 +82,7 @@ func NewIngestService(
 		appTracker:       appTracker,
 		rpcService:       rpcService,
 		chAccStore:       chAccStore,
+		contractStore:    contractStore,
 		metricsService:   metricsService,
 	}, nil
 }

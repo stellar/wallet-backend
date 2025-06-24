@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
+	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
 type Configs struct {
@@ -64,9 +65,13 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
+	contractStore, err := cache.NewTokenContractStore(models.Contract)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating contract store: %w", err)
+	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

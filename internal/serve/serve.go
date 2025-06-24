@@ -72,6 +72,7 @@ type handlerDeps struct {
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
 	TransactionService        txservices.TransactionService
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
