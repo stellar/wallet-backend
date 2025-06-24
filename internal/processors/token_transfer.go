@@ -42,7 +42,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
 	if err != nil {
-		return nil, fmt.Errorf("processing token transfer events from transaction: %w", err)
+		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", txHash, err)
 	}
 
 	// Process both fee events (transaction costs) and operation events (transfers, mints, etc.)
@@ -65,7 +65,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 					// Skip events for operations that couldn't be found
 					continue
 				}
-				return nil, fmt.Errorf("parsing operation details: %w", err)
+				return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation index: %d, err: %w", txHash, opIdx, err)
 			}
 		}
 
