@@ -102,6 +102,9 @@ func TestContractModel_GetByID(t *testing.T) {
 		defer dbConnectionPool.Close()
 
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
 			DB:             dbConnectionPool,
