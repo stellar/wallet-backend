@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -233,8 +233,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
 		}
 
-		totalIngestionStart := time.Now()
 		// process ledgers
+		totalIngestionStart := time.Now()
 		err = m.processLedgerResponse(ctx, getLedgersResponse)
 		if err != nil {
 			return fmt.Errorf("processing ledger response: %w", err)
@@ -295,23 +295,15 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// Create a worker pool
 	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
-	// Create a slice of errors
-	mu := sync.Mutex{}
-	var allTxHashes []string
 	var errs []error
+	ledgerParticipantsProcessor := indexer.NewParticipantsProcessor()
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {
-		ledger := ledger // Create a new variable to avoid closure issues
 		pool.Submit(func() {
-			txHashes, err := m.processLedger(ctx, ledger)
-			mu.Lock()
-			if err != nil {
+			if err := m.processLedger(ctx, ledger, ledgerParticipantsProcessor); err != nil {
 				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
-			} else {
-				allTxHashes = append(allTxHashes, txHashes...)
 			}
-			mu.Unlock()
 		})
 	}
 
@@ -325,30 +317,29 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// TODO: ingest processed data
 	// TODO: unlock channel accounts
 
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers", len(getLedgersResponse.Ledgers))
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers: %+v", len(getLedgersResponse.Ledgers), ledgerParticipantsProcessor.IngestionBuffer)
 
 	return nil
 }
 
-func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) ([]string, error) {
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, ledgerParticipantsProcessor *indexer.ParticipantsProcessor) error {
 	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
-		return nil, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+		return fmt.Errorf("unmarshalling ledger close meta: %w", err)
 	}
 
 	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
 	if err != nil {
-		return nil, fmt.Errorf("getting ledger transactions: %w", err)
+		return fmt.Errorf("getting ledger transactions: %w", err)
 	}
 
-	// TODO: process transactions
-	log.Ctx(ctx).Debugf("🚧 Got %d transactions for ledger %d", len(transactions), xdrLedgerCloseMeta.LedgerSequence())
-	txHashes := make([]string, 0, len(transactions))
 	for _, tx := range transactions {
-		txHashes = append(txHashes, tx.Hash.HexString())
+		if err := ledgerParticipantsProcessor.ProcessTransactionData(tx); err != nil {
+			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
+		}
 	}
 
-	return txHashes, nil
+	return nil
 }
 
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {

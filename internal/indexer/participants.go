@@ -149,3 +149,11 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 
 	return nil
 }
+
+func (p *ParticipantsProcessor) ProcessTransactionData(transaction ingest.LedgerTransaction) error {
+	if err := p.addTransactionParticipants(transaction); err != nil {
+		return fmt.Errorf("adding transaction participants: %w", err)
+	}
+
+	return nil
+}
