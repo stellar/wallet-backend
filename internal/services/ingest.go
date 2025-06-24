@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -298,12 +299,15 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
 	var errs []error
+	errMu := sync.Mutex{}
 	ledgerParticipantsProcessor := indexer.NewParticipantsProcessor()
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {
 		pool.Submit(func() {
 			if err := m.processLedger(ctx, ledger, ledgerParticipantsProcessor); err != nil {
+				errMu.Lock()
+				defer errMu.Unlock()
 				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
 			}
 		})
