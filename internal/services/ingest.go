@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -315,8 +316,10 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
-	// TODO: ingest processed data
-	// TODO: unlock channel accounts
+	err := m.ingestProcessedData(ctx, ledgerParticipantsProcessor)
+	if err != nil {
+		return fmt.Errorf("ingesting processed data: %w", err)
+	}
 
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
@@ -369,6 +372,53 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	}
 
 	return transactions, nil
+}
+
+func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *indexer.ParticipantsProcessor) error {
+	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		dataBundle := &dataProcessor.IngestionBuffer
+
+		// 1. Filter participants that are not in the watchlist.
+		// TODO: cache the existing accounts in memory and use the cache while processing the ledger.
+		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, dataBundle.Participants.ToSlice())
+		if err != nil {
+			return fmt.Errorf("getting existing accounts: %w", err)
+		}
+
+		if len(existingAccounts) == 0 {
+			log.Ctx(ctx).Debug("🟡 no existing accounts found, skipping ingestion")
+			return nil
+		}
+
+		// 2. Identify which data should be ingested.
+		txHashesToInsert := set.NewSet[string]()
+		for _, participant := range existingAccounts {
+			if !dataBundle.Participants.Contains(participant) {
+				continue
+			}
+
+			// 2.1. Identify which transactions should be ingested.
+			participantTxHashes := dataBundle.GetParticipantTransactionHashes(participant)
+			for _, txHash := range participantTxHashes.ToSlice() {
+				txHashesToInsert.Add(txHash)
+			}
+
+			// 2.2. TODO: Identify which operations should be ingested.
+			// 2.3. TODO: Identify which channel accounts should be unlocked.
+		}
+
+		// 4. TODO: insert transactions and transactions_accounts into the database
+		log.Ctx(ctx).Infof("🚧 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
+
+		// 5. TODO: Unlock channel accounts.
+
+		return nil
+	})
+	if dbTxErr != nil {
+		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
+	}
+
+	return nil
 }
 
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {

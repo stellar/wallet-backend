@@ -88,7 +88,7 @@ func participantsForMeta(meta xdr.TransactionMeta) ([]xdr.AccountId, error) {
 func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.LedgerTransaction) error {
 	// 1. Get direct participants involved in the transaction
 	participants := []xdr.AccountId{
-		transaction.Envelope.SourceAccount().ToAccountId(),
+		transaction.Envelope.SourceAccount().ToAccountId(), // in case of a fee bump, this is the innerTx source account
 	}
 	if transaction.Envelope.IsFeeBump() {
 		participants = append(participants, transaction.Envelope.FeeBumpAccount().ToAccountId())
@@ -143,9 +143,6 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 	for _, xdrParticipant := range participants {
 		p.IngestionBuffer.PushParticipantTransaction(xdrParticipant.Address(), dbTx)
 	}
-
-	// TODO: verify if we should inject multiple transactions in case of a fee bump transaction.
-	// I believe not because it'd be covered when we support operations ingestion.
 
 	return nil
 }
