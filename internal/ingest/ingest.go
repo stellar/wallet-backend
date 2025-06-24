@@ -65,7 +65,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-	contractStore, err := cache.NewContractStore(models.Contract)
+	contractStore, err := cache.NewTokenContractStore(models.Contract)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating contract store: %w", err)
 	}

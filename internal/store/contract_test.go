@@ -33,7 +33,7 @@ func TestContractStore_UpsertWithTx(t *testing.T) {
 	}
 
 	t.Run("successfully inserts a new contract in DB and cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT123"
@@ -63,7 +63,7 @@ func TestContractStore_UpsertWithTx(t *testing.T) {
 	})
 
 	t.Run("updates an existing contract in the DB and cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT123"
@@ -110,7 +110,7 @@ func TestContractStore_Name(t *testing.T) {
 	}
 
 	t.Run("success - from cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT123"
@@ -130,7 +130,7 @@ func TestContractStore_Name(t *testing.T) {
 	})
 
 	t.Run("not found in cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "NONEXISTENT"
@@ -161,7 +161,7 @@ func TestContractStore_Symbol(t *testing.T) {
 	}
 
 	t.Run("success - from cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT123"
@@ -181,7 +181,7 @@ func TestContractStore_Symbol(t *testing.T) {
 	})
 
 	t.Run("not found in cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "NONEXISTENT"
@@ -212,7 +212,7 @@ func TestContractStore_Exists(t *testing.T) {
 	}
 
 	t.Run("exists in cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT123"
@@ -230,7 +230,7 @@ func TestContractStore_Exists(t *testing.T) {
 	})
 
 	t.Run("does not exist in cache", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "NONEXISTENT"
@@ -240,7 +240,7 @@ func TestContractStore_Exists(t *testing.T) {
 	})
 
 	t.Run("cache expiration triggers refresh workflow", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT_EXPIRY_TEST"
@@ -260,7 +260,7 @@ func TestContractStore_Exists(t *testing.T) {
 		assert.Equal(t, name, storedName)
 
 		// Simulate cache expiration by manually deleting from cache
-		store.(*contractStore).cache.Delete(contractID)
+		store.(*tokenContractStore).cache.Delete(contractID)
 
 		// Now Exists should return false (cache miss)
 		exists = store.Exists(ctx, contractID)
@@ -305,7 +305,7 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	store, err := NewContractStore(models.Contract)
+	store, err := NewTokenContractStore(models.Contract)
 	require.NoError(t, err)
 
 	// Insert multiple contracts
@@ -390,7 +390,7 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	}
 
 	// Now create a new store - it should populate cache from database
-	store, err := NewContractStore(models.Contract)
+	store, err := NewTokenContractStore(models.Contract)
 	require.NoError(t, err)
 
 	// Verify all contracts are in cache
@@ -428,7 +428,7 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("concurrent reads and writes on same contracts", func(t *testing.T) {
-		store, err := NewContractStore(models.Contract)
+		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
 		// Pre-populate some contracts

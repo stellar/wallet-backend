@@ -41,7 +41,7 @@ type ingestService struct {
 	appTracker       apptracker.AppTracker
 	rpcService       RPCService
 	chAccStore       store.ChannelAccountStore
-	contractStore    cache.ContractStore
+	contractStore    cache.TokenContractStore
 	metricsService   metrics.MetricsService
 }
 
@@ -51,7 +51,7 @@ func NewIngestService(
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
-	contractStore cache.ContractStore,
+	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
 ) (*ingestService, error) {
 	if models == nil {
