@@ -33,6 +33,13 @@ func (b *IngestionBuffer) PushParticipantTransaction(participant string, transac
 	b.participantTxHashBimap.Add(participant, transaction.Hash)
 }
 
+func (b *IngestionBuffer) GetNumberOfTransactions() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.txByHash)
+}
+
 func (b *IngestionBuffer) GetParticipantTransactionHashes(participant string) set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

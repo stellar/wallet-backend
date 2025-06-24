@@ -27,15 +27,15 @@ func (b *BiMap[K, V]) Add(k K, v V) {
 }
 
 func (b *BiMap[K, V]) GetForward(k K) set.Set[V] {
-	if set, ok := b.forward[k]; ok {
-		return set
+	if s, ok := b.forward[k]; ok {
+		return s
 	}
 	return set.NewSet[V]()
 }
 
 func (b *BiMap[K, V]) GetBackward(v V) set.Set[K] {
-	if set, ok := b.backward[v]; ok {
-		return set
+	if s, ok := b.backward[v]; ok {
+		return s
 	}
 	return set.NewSet[K]()
 }

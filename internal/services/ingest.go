@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -317,7 +318,12 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// TODO: ingest processed data
 	// TODO: unlock channel accounts
 
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers: %+v", len(getLedgersResponse.Ledgers), ledgerParticipantsProcessor.IngestionBuffer)
+	memStats := new(runtime.MemStats)
+	runtime.ReadMemStats(memStats)
+
+	numberOfTransactions := ledgerParticipantsProcessor.IngestionBuffer.GetNumberOfTransactions()
+
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
 
 	return nil
 }
