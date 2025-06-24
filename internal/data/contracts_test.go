@@ -16,7 +16,7 @@ func TestContractModel_Insert(t *testing.T) {
 	t.Run("returns success for new contract", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -34,13 +34,13 @@ func TestContractModel_Insert(t *testing.T) {
 		}
 
 		contract := &Contract{
-			ID:        "1",
-			Name:      "Test Contract",
-			Symbol:    "TEST",
+			ID:     "1",
+			Name:   "Test Contract",
+			Symbol: "TEST",
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Insert(context.Background(), tx, contract)
+			err = m.Insert(context.Background(), tx, contract)
 			require.NoError(t, err)
 			return nil
 		})
@@ -56,7 +56,7 @@ func TestContractModel_Insert(t *testing.T) {
 	t.Run("returns error for duplicate contract", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -72,19 +72,19 @@ func TestContractModel_Insert(t *testing.T) {
 		}
 
 		contract := &Contract{
-			ID:        "1",
-			Name:      "Test Contract",
-			Symbol:    "TEST",
+			ID:     "1",
+			Name:   "Test Contract",
+			Symbol: "TEST",
 		}
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Insert(context.Background(), tx, contract)
+			err = m.Insert(context.Background(), tx, contract)
 			require.NoError(t, err)
 			return nil
 		})
 		require.NoError(t, dbErr)
 
 		dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Insert(context.Background(), tx, contract)
+			err = m.Insert(context.Background(), tx, contract)
 			require.ErrorContains(t, err, "duplicate key value violates unique constraint \"token_contracts_pkey\"")
 			return nil
 		})
@@ -96,7 +96,7 @@ func TestContractModel_GetByID(t *testing.T) {
 	t.Run("returns error when contract not found", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -119,7 +119,7 @@ func TestContractModel_Update(t *testing.T) {
 	t.Run("updates existing contract successfully", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -149,7 +149,7 @@ func TestContractModel_Update(t *testing.T) {
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Insert(context.Background(), tx, contract)
+			err = m.Insert(context.Background(), tx, contract)
 			require.NoError(t, err)
 			return nil
 		})
@@ -160,7 +160,7 @@ func TestContractModel_Update(t *testing.T) {
 		contract.Symbol = "UPDATED"
 
 		dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Update(context.Background(), tx, contract)
+			err = m.Update(context.Background(), tx, contract)
 			require.NoError(t, err)
 			return nil
 		})
@@ -176,7 +176,7 @@ func TestContractModel_Update(t *testing.T) {
 	t.Run("returns no error for non-existent contract", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -198,7 +198,7 @@ func TestContractModel_Update(t *testing.T) {
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Update(context.Background(), tx, contract)
+			err = m.Update(context.Background(), tx, contract)
 			require.NoError(t, err)
 			return nil
 		})
@@ -210,7 +210,7 @@ func TestContractModel_GetAll(t *testing.T) {
 	t.Run("returns empty slice when no contracts exist", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -233,7 +233,7 @@ func TestContractModel_GetAll(t *testing.T) {
 	t.Run("returns all contracts when multiple exist", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
-		
+
 		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 		require.NoError(t, err)
 		defer dbConnectionPool.Close()
@@ -265,7 +265,7 @@ func TestContractModel_GetAll(t *testing.T) {
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-			err := m.Insert(context.Background(), tx, contract1)
+			err = m.Insert(context.Background(), tx, contract1)
 			require.NoError(t, err)
 			err = m.Insert(context.Background(), tx, contract2)
 			require.NoError(t, err)
@@ -283,7 +283,7 @@ func TestContractModel_GetAll(t *testing.T) {
 		for _, c := range contracts {
 			contractMap[c.ID] = c
 		}
-		
+
 		require.Contains(t, contractMap, "1")
 		require.Contains(t, contractMap, "2")
 		require.Equal(t, "Contract One", contractMap["1"].Name)
