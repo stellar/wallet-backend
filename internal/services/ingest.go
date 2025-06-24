@@ -35,6 +35,7 @@ const (
 	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	getLedgersLimit                         = 200 // NOTE: cannot be larger than 200
+	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
@@ -299,9 +300,8 @@ func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint
 }
 
 func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
-	// Create a worker pool with
-	const poolSize = 16
-	pool := pond.New(poolSize, len(getLedgersResponse.Ledgers), pond.Context(ctx))
+	// Create a worker pool
+	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
 	// Create a slice of errors
 	mu := sync.Mutex{}
