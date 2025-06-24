@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -15,24 +16,30 @@ import (
 )
 
 func TestContractStore_UpsertWithTx(t *testing.T) {
+	ctx := context.Background()
+
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
-
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
-	ctx := context.Background()
-
 	cleanUpDB := func() {
-		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
 	}
 
 	t.Run("successfully inserts a new contract in DB and cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -63,6 +70,18 @@ func TestContractStore_UpsertWithTx(t *testing.T) {
 	})
 
 	t.Run("updates an existing contract in the DB and cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(3)
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(3)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -99,17 +118,24 @@ func TestContractStore_Name(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
 	ctx := context.Background()
 
 	cleanUpDB := func() {
-		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
 	}
 
 	t.Run("success - from cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -130,6 +156,14 @@ func TestContractStore_Name(t *testing.T) {
 	})
 
 	t.Run("not found in cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -150,17 +184,24 @@ func TestContractStore_Symbol(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
 	ctx := context.Background()
 
 	cleanUpDB := func() {
-		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
 	}
 
 	t.Run("success - from cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -181,6 +222,14 @@ func TestContractStore_Symbol(t *testing.T) {
 	})
 
 	t.Run("not found in cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -201,17 +250,24 @@ func TestContractStore_Exists(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
-	require.NoError(t, err)
-
 	ctx := context.Background()
 
 	cleanUpDB := func() {
-		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+		_, err := dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
 	}
 
 	t.Run("exists in cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -230,6 +286,14 @@ func TestContractStore_Exists(t *testing.T) {
 	})
 
 	t.Run("does not exist in cache", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -240,6 +304,18 @@ func TestContractStore_Exists(t *testing.T) {
 	})
 
 	t.Run("cache expiration triggers refresh workflow", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(3) // GetAll + 2 UpsertWithTx
+		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(3)
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+
 		store, err := NewTokenContractStore(models.Contract)
 		require.NoError(t, err)
 
@@ -301,7 +377,15 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
+	mockMetricsService := metrics.NewMockMetricsService()
+	// This test calls UpsertWithTx 3 times + 1 GetAll + 3 GetByID calls to verify = 7 total SELECT operations
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(3)
+	mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Times(3)
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(7)
+	mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(7)
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -350,7 +434,7 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	}
 
 	// Clean up
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 	require.NoError(t, err)
 }
 
@@ -362,7 +446,16 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
+	mockMetricsService := metrics.NewMockMetricsService()
+	// This test inserts 2 contracts directly to DB and then creates store
+	// 2 INSERT calls + 1 GetAll call during store initialization
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Twice()
+	mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Twice()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once()
+	mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -410,7 +503,7 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	}
 
 	// Clean up
-	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contracts`)
+	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 	require.NoError(t, err)
 }
 
@@ -422,7 +515,18 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	models, err := data.NewModels(dbConnectionPool, metrics.NewMockMetricsService())
+	mockMetricsService := metrics.NewMockMetricsService()
+	// This test has lots of concurrent operations, we need to be generous with expectations
+	// 1 GetAll + 3 initial inserts + 10 writers * 50 operations each = 504 total SELECT operations
+	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(3)
+	mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Times(3)
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(504)
+	mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(504)
+	mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return().Times(500)
+	mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return().Times(500)
+	defer mockMetricsService.AssertExpectations(t)
+
+	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()

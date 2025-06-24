@@ -13,14 +13,20 @@ import (
 )
 
 func TestContractModel_Insert(t *testing.T) {
-	t.Run("returns success for new contract", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
+	ctx := context.Background()
 
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
-		defer dbConnectionPool.Close()
+	}
 
+	t.Run("returns success for new contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
@@ -51,16 +57,11 @@ func TestContractModel_Insert(t *testing.T) {
 		require.Equal(t, contract.ID, "1")
 		require.Equal(t, contract.Name, "Test Contract")
 		require.Equal(t, contract.Symbol, "TEST")
+
+		cleanUpDB()
 	})
 
 	t.Run("returns error for duplicate contract", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
@@ -89,18 +90,26 @@ func TestContractModel_Insert(t *testing.T) {
 			return nil
 		})
 		require.Error(t, dbErr)
+
+		cleanUpDB()
 	})
 }
 
 func TestContractModel_GetByID(t *testing.T) {
-	t.Run("returns error when contract not found", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
+	ctx := context.Background()
 
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
-		defer dbConnectionPool.Close()
+	}
 
+	t.Run("returns error when contract not found", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
@@ -115,18 +124,26 @@ func TestContractModel_GetByID(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, contract)
 		require.Contains(t, err.Error(), "getting contract by ID nonexistent")
+
+		cleanUpDB()
 	})
 }
 
 func TestContractModel_Update(t *testing.T) {
-	t.Run("updates existing contract successfully", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
+	ctx := context.Background()
 
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
-		defer dbConnectionPool.Close()
+	}
 
+	t.Run("updates existing contract successfully", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		// Expectations for Insert
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
@@ -170,20 +187,16 @@ func TestContractModel_Update(t *testing.T) {
 		require.NoError(t, dbErr)
 
 		// Verify the update
-		updatedContract, err := m.GetByID(context.Background(), "1")
+		var updatedContract *Contract
+		updatedContract, err = m.GetByID(context.Background(), "1")
 		require.NoError(t, err)
 		require.Equal(t, "Updated Contract", updatedContract.Name)
 		require.Equal(t, "UPDATED", updatedContract.Symbol)
+
+		cleanUpDB()
 	})
 
 	t.Run("returns no error for non-existent contract", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return()
@@ -206,18 +219,26 @@ func TestContractModel_Update(t *testing.T) {
 			return nil
 		})
 		require.NoError(t, dbErr)
+
+		cleanUpDB()
 	})
 }
 
 func TestContractModel_GetAll(t *testing.T) {
-	t.Run("returns empty slice when no contracts exist", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
+	ctx := context.Background()
 
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
 		require.NoError(t, err)
-		defer dbConnectionPool.Close()
+	}
 
+	t.Run("returns empty slice when no contracts exist", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
@@ -228,19 +249,15 @@ func TestContractModel_GetAll(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
-		contracts, err := m.GetAll(context.Background())
+		var contracts []*Contract
+		contracts, err = m.GetAll(context.Background())
 		require.NoError(t, err)
 		require.Empty(t, contracts)
+
+		cleanUpDB()
 	})
 
 	t.Run("returns all contracts when multiple exist", func(t *testing.T) {
-		dbt := dbtest.Open(t)
-		defer dbt.Close()
-
-		dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-		require.NoError(t, err)
-		defer dbConnectionPool.Close()
-
 		mockMetricsService := metrics.NewMockMetricsService()
 		// Expectations for Insert operations
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(2)
@@ -293,5 +310,7 @@ func TestContractModel_GetAll(t *testing.T) {
 		require.Equal(t, "ONE", contractMap["1"].Symbol)
 		require.Equal(t, "Contract Two", contractMap["2"].Name)
 		require.Equal(t, "TWO", contractMap["2"].Symbol)
+
+		cleanUpDB()
 	})
 }
