@@ -200,34 +200,31 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	const tickerDuration = time.Second * 6
-	ticker := time.NewTicker(tickerDuration)
-	defer ticker.Stop()
+	// Prepare the health check:
+	manualTriggerChan := make(chan any, 1)
+	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	ingestHeartbeatChannel := make(chan any, 1)
+	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
+	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
+	var rpcHealth entities.RPCGetHealthResult
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 
-	manualTriggerChan := make(chan any, 1)
-	defer close(manualTriggerChan)
-
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
 		select {
 		case sig := <-signalChan:
-			log.Ctx(ctx).Info("Signal received")
-			return fmt.Errorf("received signal %s while waiting for RPC service to become healthy", sig)
+			return fmt.Errorf("ingestor stopped due to signal %q", sig)
 		case <-ctx.Done():
-			log.Ctx(ctx).Info("Context cancelled")
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
-		case <-manualTriggerChan:
-			log.Ctx(ctx).Info("Manual trigger received")
-		case <-ticker.C:
-			log.Ctx(ctx).Info("Ticker ticked")
+			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
+		case rpcHealth = <-rpcHeartbeatChannel:
+			// this will fallthrough to execute the code below ⬇️
 		}
 
 		// fetch ledgers
-		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, startLedger)
+		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
 		if err != nil {
 			if errors.Is(err, ErrAlreadyInSync) {
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
@@ -252,18 +249,13 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
 		if len(getLedgersResponse.Ledgers) == getLedgersLimit {
-			ticker.Reset(tickerDuration)
 			manualTriggerChan <- nil
 		}
 	}
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
-func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, startLedger uint32) (GetLedgersResponse, error) {
-	rpcHealth, err := m.rpcService.GetHealth()
-	if err != nil {
-		return GetLedgersResponse{}, fmt.Errorf("getting rpc health: %w", err)
-	}
+func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) (GetLedgersResponse, error) {
 	ledgerSeqRange, inSync := getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
 	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
 	if inSync {
