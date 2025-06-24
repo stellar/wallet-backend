@@ -23,8 +23,11 @@ type Contract struct {
 }
 
 func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contract, error) {
+	start := time.Now()
 	contract := &Contract{}
-	err := m.DB.GetContext(ctx, contract, "SELECT * FROM contracts WHERE id = $1", contractID)
+	err := m.DB.GetContext(ctx, contract, "SELECT * FROM token_contracts WHERE id = $1", contractID)
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
 	if err != nil {
 		return nil, fmt.Errorf("getting contract by ID %s: %w", contractID, err)
 	}
@@ -32,11 +35,14 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 }
 
 func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract *Contract) error {
+	start := time.Now()
 	query := `
-		INSERT INTO contracts (id, name, symbol)
+		INSERT INTO token_contracts (id, name, symbol)
 		VALUES (:id, :name, :symbol)
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
+	m.MetricsService.ObserveDBQueryDuration("INSERT", "token_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("INSERT", "token_contracts")
 	if err != nil {
 		return fmt.Errorf("inserting contract %s: %w", contract.ID, err)
 	}
@@ -44,12 +50,15 @@ func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract 
 }
 
 func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract *Contract) error {
+	start := time.Now()
 	query := `
-		UPDATE contracts
+		UPDATE token_contracts
 		SET name = :name, symbol = :symbol
 		WHERE id = :id
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
+	m.MetricsService.ObserveDBQueryDuration("UPDATE", "token_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("UPDATE", "token_contracts")
 	if err != nil {
 		return fmt.Errorf("updating contract %s: %w", contract.ID, err)
 	}
@@ -57,8 +66,11 @@ func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract 
 }
 
 func (m *ContractModel) GetAll(ctx context.Context) ([]*Contract, error) {
+	start := time.Now()
 	contracts := []*Contract{}
-	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contracts")
+	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM token_contracts")
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", time.Since(start).Seconds())
+	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
 	if err != nil {
 		return nil, fmt.Errorf("getting all contracts: %w", err)
 	}

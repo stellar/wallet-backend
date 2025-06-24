@@ -1,7 +1,7 @@
 -- +migrate Up
 
--- Table: contracts
-CREATE TABLE contracts (
+-- Table: token_contracts
+CREATE TABLE token_contracts (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -9,10 +9,9 @@ CREATE TABLE contracts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TRIGGER contracts_set_updated_at BEFORE UPDATE ON contracts FOR EACH ROW EXECUTE PROCEDURE
+CREATE TRIGGER token_contracts_set_updated_at BEFORE UPDATE ON token_contracts FOR EACH ROW EXECUTE PROCEDURE
   refresh_updated_at_column();
 
 -- +migrate Down
 
-DROP TRIGGER contracts_set_updated_at ON contracts;
-DROP TABLE contracts;
+DROP TABLE token_contracts CASCADE;
