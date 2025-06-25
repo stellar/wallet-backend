@@ -44,7 +44,7 @@ func (b *IngestionBuffer) GetParticipantTransactionHashes(participant string) se
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantTxHashBimap.GetForward(participant)
+	return b.participantTxHashBimap.GetForward(participant).Clone()
 }
 
 func (b *IngestionBuffer) GetParticipantTransactions(participant string) []types.Transaction {
@@ -52,7 +52,7 @@ func (b *IngestionBuffer) GetParticipantTransactions(participant string) []types
 	defer b.mu.RUnlock()
 
 	txs := []types.Transaction{}
-	it := b.GetParticipantTransactionHashes(participant).Iterator()
+	it := b.participantTxHashBimap.GetForward(participant).Iterator()
 	for txHash := range it.C {
 		txs = append(txs, b.txByHash[txHash])
 	}
@@ -64,7 +64,7 @@ func (b *IngestionBuffer) GetTransactionParticipants(transactionHash string) set
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return b.participantTxHashBimap.GetBackward(transactionHash)
+	return b.participantTxHashBimap.GetBackward(transactionHash).Clone()
 }
 
 func (b *IngestionBuffer) GetTransaction(transactionHash string) types.Transaction {
