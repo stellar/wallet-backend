@@ -103,14 +103,14 @@ func TestWatchedAccountsCache_largeAccountSet_concurrentAccess_falsePositiveRati
 	wg.Add(testCount)
 	for i := range make([]int, testCount) {
 		// Test accounts >=1000 (not in the bloom filter)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
 			if cache.IsWatched(fmt.Sprintf("account_%d", i+1000)) {
 				mu.Lock()
 				defer mu.Unlock()
 				falsePositives++
 			}
-		}()
+		}(i)
 	}
 	wg.Wait()
 
@@ -119,36 +119,42 @@ func TestWatchedAccountsCache_largeAccountSet_concurrentAccess_falsePositiveRati
 	assert.InDelta(t, 0.01, falsePositiveRatio, 0.005) // Should be between [0.005, 0.015]
 }
 
-func Test_WatchedAccountsCache_periodicRebuild_exitting(t *testing.T) {
+func Test_WatchedAccountsCache_periodicRebuild_exiting(t *testing.T) {
 	testCases := []struct {
-		name       string
-		exittingFn func(cancel context.CancelFunc)
+		name      string
+		exitingFn func(cancel context.CancelFunc, cache *WatchedAccountsCache)
 	}{
 		{
 			name: "context_cancellation",
-			exittingFn: func(cancel context.CancelFunc) {
+			exitingFn: func(cancel context.CancelFunc, cache *WatchedAccountsCache) {
 				cancel()
 			},
 		},
 		{
 			name: "SIGTERM",
-			exittingFn: func(cancel context.CancelFunc) {
+			exitingFn: func(cancel context.CancelFunc, cache *WatchedAccountsCache) {
 				err := syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "SIGINT",
-			exittingFn: func(cancel context.CancelFunc) {
+			exitingFn: func(cancel context.CancelFunc, cache *WatchedAccountsCache) {
 				err := syscall.Kill(syscall.Getpid(), syscall.SIGINT)
 				require.NoError(t, err)
 			},
 		},
 		{
 			name: "SIGQUIT",
-			exittingFn: func(cancel context.CancelFunc) {
+			exitingFn: func(cancel context.CancelFunc, cache *WatchedAccountsCache) {
 				err := syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
 				require.NoError(t, err)
+			},
+		},
+		{
+			name: "Close",
+			exitingFn: func(cancel context.CancelFunc, cache *WatchedAccountsCache) {
+				cache.Close()
 			},
 		},
 	}
@@ -169,7 +175,7 @@ func Test_WatchedAccountsCache_periodicRebuild_exitting(t *testing.T) {
 
 			go func() {
 				time.Sleep(100 * time.Millisecond)
-				tc.exittingFn(cancel)
+				tc.exitingFn(cancel, cache)
 			}()
 			cache.periodicRebuild(ctx)
 

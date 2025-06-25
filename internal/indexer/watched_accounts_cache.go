@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ type WatchedAccountsCache struct {
 	reloadInterval time.Duration
 	reloadFn       ReloadFn
 	quit           chan struct{}
+	closeOnce      sync.Once
 }
 
 func NewWatchedAccountsCache(ctx context.Context, reloadInterval time.Duration, reloadFn ReloadFn) *WatchedAccountsCache {
@@ -68,6 +70,7 @@ func (wc *WatchedAccountsCache) periodicRebuild(ctx context.Context) {
 func (wc *WatchedAccountsCache) DoRebuild(ctx context.Context) {
 	accounts, err := wc.reloadFn(ctx)
 	if err != nil {
+		// If the rebuild fails, we cannot rely on the cache anymore, so we panic to avoid a situation where the cache is in an inconsistent state.
 		panic(fmt.Errorf("failed to reload watched accounts: %w", err))
 	}
 
@@ -90,5 +93,7 @@ func (wc *WatchedAccountsCache) IsWatched(account string) bool {
 
 // Close stops the periodicRebuild goroutine.
 func (wc *WatchedAccountsCache) Close() {
-	close(wc.quit)
+	wc.closeOnce.Do(func() { // ensure that if Close is called multiple times, the quit channel is closed only once to prevent a panic
+		close(wc.quit)
+	})
 }
