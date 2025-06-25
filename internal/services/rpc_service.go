@@ -288,7 +288,7 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthC
 	for {
 		select {
 		case <-ctx.Done():
-			log.Ctx(ctx).Info("RPC health tracking stopped due to context cancellation")
+			log.Ctx(ctx).Infof("RPC health tracking stopped due to context cancellation: %v", ctx.Err())
 			return
 
 		case sig := <-signalChan:
