@@ -302,7 +302,6 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {
-		ledger := ledger // Create a new variable to avoid closure issues
 		pool.Submit(func() {
 			txHashes, err := m.processLedger(ctx, ledger)
 			mu.Lock()
