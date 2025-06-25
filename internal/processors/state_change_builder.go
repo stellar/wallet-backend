@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/asset"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // StateChangeBuilder provides a fluent interface for creating state changes
@@ -36,9 +37,46 @@ func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *S
 	return b
 }
 
+// WithReason sets the state change reason
+func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
+	b.base.StateChangeReason = &reason
+	return b
+}
+
+// WithThresholds sets the thresholds
+func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateChangeBuilder {
+	b.base.Thresholds = types.NullableJSONB(thresholds)
+	return b
+}
+
+// WithFlags sets the flags
+func (b *StateChangeBuilder) WithFlags(flags map[string]any) *StateChangeBuilder {
+	b.base.Flags = types.NullableJSONB(flags)
+	return b
+}
+
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 	b.base.AccountID = accountID
+	return b
+}
+
+// WithSigner sets the signer
+func (b *StateChangeBuilder) WithSigner(signer string, weight int64) *StateChangeBuilder {
+	b.base.SignerAccountID = utils.SQLNullString(signer)
+	b.base.SignerWeight = utils.SQLNullInt64(weight)
+	return b
+}
+
+// WithSponsor sets the sponsor
+func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
+	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	return b
+}
+
+// WithKeyValue sets the key value
+func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
+	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
 }
 
