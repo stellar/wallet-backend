@@ -878,7 +878,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	}
 
 	// Mock the HTTP response for GetHealth
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), rpcService.HealthCheckTickInterval()*2)
 	defer cancel()
 	mockResponse := &http.Response{
 		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
