@@ -6,6 +6,7 @@ require (
 	github.com/alitto/pond v1.9.2
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/aws/aws-sdk-go v1.55.7
+	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/getsentry/sentry-go v0.32.0
 	github.com/go-chi/chi v4.1.2+incompatible
@@ -46,6 +47,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.10.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
