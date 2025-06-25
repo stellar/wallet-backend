@@ -113,7 +113,7 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 		var err error
 		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
-			return fmt.Errorf("erorr getting start ledger: %w", err)
+			return fmt.Errorf("getting start ledger: %w", err)
 		}
 	}
 
