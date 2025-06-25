@@ -45,6 +45,43 @@ func TestAccountModelInsert(t *testing.T) {
 	assert.Equal(t, address, dbAddress.String)
 }
 
+func TestAccountModelGetAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Twice()
+	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Twice()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &AccountModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	// Intitially, there are no accounts in the database.
+	addresses, err := m.GetAll(ctx)
+	require.NoError(t, err)
+	require.Empty(t, addresses)
+
+	// Insert three accounts into the database.
+	address1 := keypair.MustRandom().Address()
+	address2 := keypair.MustRandom().Address()
+	address3 := keypair.MustRandom().Address()
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2), ($3)", address1, address2, address3)
+	require.NoError(t, err)
+
+	// Get all accounts from the database.
+	addresses, err = m.GetAll(ctx)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{address1, address2, address3}, addresses)
+}
+
 func TestAccountModelDelete(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

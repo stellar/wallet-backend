@@ -28,6 +28,20 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	return nil
 }
 
+func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
+	const query = `SELECT stellar_address FROM accounts`
+	start := time.Now()
+	var addresses []string
+	err := m.DB.SelectContext(ctx, &addresses, query)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting all addresses: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return addresses, nil
+}
+
 func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
 	start := time.Now()
