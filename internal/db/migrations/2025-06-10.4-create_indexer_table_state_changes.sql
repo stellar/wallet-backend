@@ -23,6 +23,7 @@ CREATE TABLE state_changes (
     signer_weight INTEGER,
     spender_account_id TEXT,
     target_account_id TEXT,
+    sponsor_account_id TEXT,
     thresholds JSONB
 );
 
