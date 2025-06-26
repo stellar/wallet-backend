@@ -23,7 +23,6 @@ func (m *TransactionModel) BatchInsert(
 	txs []types.Transaction,
 	stellarAddressesByTxHash map[string][]string,
 ) error {
-	now := time.Now()
 	var sqlExecuter db.SQLExecuter = dbTx
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
@@ -37,7 +36,6 @@ func (m *TransactionModel) BatchInsert(
 	metaXDRs := make([]string, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
-	ingestedAts := make([]time.Time, len(txs))
 
 	for i, t := range txs {
 		hashes[i] = t.Hash
@@ -47,27 +45,80 @@ func (m *TransactionModel) BatchInsert(
 		metaXDRs[i] = t.MetaXDR
 		ledgerNumbers[i] = int(t.LedgerNumber)
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
-		ingestedAts[i] = now
 	}
 
-	// 2. Batch insert the transactions into the database
-	const insertTxsQuery = `
-    INSERT INTO transactions
-      (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at, ingested_at)
+	// 2. Flatten the stellarAddressesByTxHash into parallel slices
+	var txHashes, stellarAddresses []string
+	for txHash, addresses := range stellarAddressesByTxHash {
+		for _, address := range addresses {
+			txHashes = append(txHashes, txHash)
+			stellarAddresses = append(stellarAddresses, address)
+		}
+	}
+
+	// 3. Single query that inserts only transactions that are connected to at least one existing account.
+	// It also inserts the transactions_accounts links.
+	const insertQuery = `
+	-- STEP 1: Get existing accounts
+	WITH existing_accounts AS (
+		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($9)
+	),
+
+	-- STEP 2: Get transaction hashes to insert (connected to at least one existing account)
+    valid_transactions AS (
+        SELECT DISTINCT tx_hash
+        FROM (
+			SELECT
+				UNNEST($8::text[]) AS tx_hash,
+				UNNEST($9::text[]) AS account_id
+		) ta
+		WHERE ta.account_id IN (SELECT stellar_address FROM existing_accounts)
+    ),
+
+	-- STEP 3: Insert those transactions
+    inserted_transactions AS (
+        INSERT INTO transactions
+          	(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+        SELECT
+            vt.tx_hash,
+            t.to_id,
+            t.envelope_xdr,
+            t.result_xdr,
+            t.meta_xdr,
+            t.ledger_number,
+            t.ledger_created_at
+        FROM valid_transactions vt
+        JOIN (
+            SELECT
+                UNNEST($1::text[]) AS hash,
+                UNNEST($2::bigint[]) AS to_id,
+                UNNEST($3::text[]) AS envelope_xdr,
+                UNNEST($4::text[]) AS result_xdr,
+                UNNEST($5::text[]) AS meta_xdr,
+                UNNEST($6::bigint[]) AS ledger_number,
+                UNNEST($7::timestamptz[]) AS ledger_created_at
+        ) t ON t.hash = vt.tx_hash
+        ON CONFLICT (hash) DO NOTHING
+        RETURNING hash
+    )
+
+	-- STEP 4: Insert transactions_accounts links
+    INSERT INTO transactions_accounts
+		(tx_hash, account_id)
     SELECT
-      UNNEST($1::text[]),
-      UNNEST($2::bigint[]),
-      UNNEST($3::text[]),
-      UNNEST($4::text[]),
-      UNNEST($5::text[]),
-      UNNEST($6::bigint[]),
-      UNNEST($7::timestamptz[]),
-      UNNEST($8::timestamptz[])
-    ON CONFLICT (hash) DO NOTHING;
+        ta.tx_hash, ta.account_id
+    FROM (
+        SELECT
+            UNNEST($8::text[]) AS tx_hash,
+            UNNEST($9::text[]) AS account_id
+    ) ta
+    INNER JOIN existing_accounts ea ON ea.stellar_address = ta.account_id
+    INNER JOIN inserted_transactions it ON it.hash = ta.tx_hash
+    ON CONFLICT DO NOTHING;
     `
 
 	start := time.Now()
-	_, err := sqlExecuter.ExecContext(ctx, insertTxsQuery,
+	_, err := sqlExecuter.ExecContext(ctx, insertQuery,
 		pq.Array(hashes),
 		pq.Array(toIDs),
 		pq.Array(envelopeXDRs),
@@ -75,45 +126,16 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(metaXDRs),
 		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
-		pq.Array(ingestedAts),
+		pq.Array(txHashes),
+		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions", duration)
-	if err != nil {
-		return fmt.Errorf("batch inserting transactions: %w", err)
-	}
-	m.MetricsService.IncDBQuery("INSERT", "transactions")
-
-	// 3. Flatten the stellarAddressesByTxHash into parallel slices
-	var (
-		txHashes   []string
-		accountIDs []string
-	)
-	for txHash, addrs := range stellarAddressesByTxHash {
-		for _, acct := range addrs {
-			txHashes = append(txHashes, txHash)
-			accountIDs = append(accountIDs, acct)
-		}
-	}
-
-	// 4. Batch insert the transactions_accounts into the database
-	const insertLinks = `
-    INSERT INTO transactions_accounts (tx_hash, account_id)
-    SELECT
-      UNNEST($1::text[]),
-      UNNEST($2::text[])
-    ON CONFLICT DO NOTHING;
-    `
-	start = time.Now()
-	_, err = sqlExecuter.ExecContext(ctx, insertLinks,
-		pq.Array(txHashes),
-		pq.Array(accountIDs),
-	)
-	duration = time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions_accounts", duration)
 	if err != nil {
-		return fmt.Errorf("batch insert transactions_accounts: %w", err)
+		return fmt.Errorf("batch inserting transactions and accounts: %w", err)
 	}
+	m.MetricsService.IncDBQuery("INSERT", "transactions")
 	m.MetricsService.IncDBQuery("INSERT", "transactions_accounts")
 
 	return nil

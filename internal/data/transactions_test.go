@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -32,9 +33,11 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
+	nonExistingAccount := keypair.MustRandom()
 
 	tx1 := types.Transaction{
 		Hash:            "tx1",
+		ToID:            1,
 		EnvelopeXDR:     "envelope1",
 		ResultXDR:       "result1",
 		MetaXDR:         "meta1",
@@ -43,6 +46,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	}
 	tx2 := types.Transaction{
 		Hash:            "tx2",
+		ToID:            2,
 		EnvelopeXDR:     "envelope2",
 		ResultXDR:       "result2",
 		MetaXDR:         "meta2",
@@ -55,40 +59,63 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		useDBTx                bool
 		txs                    []types.Transaction
 		stellarAddressesByHash map[string][]string
+		wantAccountLinks       map[string]set.Set[string]
 		wantErrContains        string
-		wantResults            []string
+		wantHashes             []string
 	}{
 		{
 			name:                   "🟢successful_insert_without_transaction",
 			useDBTx:                false,
 			txs:                    []types.Transaction{tx1, tx2},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address()}, tx2.Hash: {kp2.Address()}},
+			wantAccountLinks:       map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address()), tx2.Hash: set.NewSet(kp2.Address())},
 			wantErrContains:        "",
-			wantResults:            []string{tx1.Hash, tx2.Hash},
+			wantHashes:             []string{tx1.Hash, tx2.Hash},
 		},
 		{
 			name:                   "🟢successful_insert_with_transaction",
 			useDBTx:                true,
 			txs:                    []types.Transaction{tx1},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address()}},
+			wantAccountLinks:       map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address())},
 			wantErrContains:        "",
-			wantResults:            []string{tx1.Hash},
+			wantHashes:             []string{tx1.Hash},
 		},
 		{
 			name:                   "🟢empty_input",
 			useDBTx:                false,
 			txs:                    []types.Transaction{},
 			stellarAddressesByHash: map[string][]string{},
+			wantAccountLinks:       map[string]set.Set[string]{},
 			wantErrContains:        "",
-			wantResults:            nil,
+			wantHashes:             nil,
 		},
 		{
 			name:                   "🟡duplicate_transaction",
 			useDBTx:                false,
 			txs:                    []types.Transaction{tx1, tx1},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address()}},
+			wantAccountLinks:       map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address())},
 			wantErrContains:        "",
-			wantResults:            []string{tx1.Hash},
+			wantHashes:             []string{tx1.Hash},
+		},
+		{
+			name:                   "🟡tx_with_all_non_existing_accounts_is_ignored",
+			useDBTx:                false,
+			txs:                    []types.Transaction{tx1},
+			stellarAddressesByHash: map[string][]string{tx1.Hash: {nonExistingAccount.Address()}},
+			wantAccountLinks:       map[string]set.Set[string]{},
+			wantErrContains:        "",
+			wantHashes:             nil,
+		},
+		{
+			name:                   "🟡non_existing_account_is_ignored_but_tx_and_other_accounts_are_inserted",
+			useDBTx:                false,
+			txs:                    []types.Transaction{tx1},
+			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address(), kp2.Address(), nonExistingAccount.Address()}},
+			wantAccountLinks:       map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address(), kp2.Address())},
+			wantErrContains:        "",
+			wantHashes:             []string{tx1.Hash},
 		},
 	}
 
@@ -133,7 +160,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			var insertedHashes []string
 			err = sqlExecuter.SelectContext(ctx, &insertedHashes, "SELECT hash FROM transactions ORDER BY hash")
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantResults, insertedHashes)
+			assert.Equal(t, tc.wantHashes, insertedHashes)
 
 			// Verify the account links
 			if len(tc.stellarAddressesByHash) > 0 {
@@ -145,23 +172,16 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 				require.NoError(t, err)
 
 				// Create a map of tx_hash -> set of account_ids for O(1) lookups
-				accountLinksMap := make(map[string]map[string]struct{})
+				accountLinksMap := make(map[string]set.Set[string])
 				for _, link := range accountLinks {
 					if _, exists := accountLinksMap[link.TxHash]; !exists {
-						accountLinksMap[link.TxHash] = make(map[string]struct{})
+						accountLinksMap[link.TxHash] = set.NewSet[string]()
 					}
-					accountLinksMap[link.TxHash][link.AccountID] = struct{}{}
+					accountLinksMap[link.TxHash].Add(link.AccountID)
 				}
 
 				// Verify each transaction has its expected account links
-				for txHash, expectedAccounts := range tc.stellarAddressesByHash {
-					accounts, exists := accountLinksMap[txHash]
-					require.True(t, exists, "Transaction %s not found in account links", txHash)
-					for _, expectedAccount := range expectedAccounts {
-						_, found := accounts[expectedAccount]
-						assert.True(t, found, "Expected account link not found: tx=%s, account=%s", txHash, expectedAccount)
-					}
-				}
+				require.Equal(t, tc.wantAccountLinks, accountLinksMap)
 			}
 		})
 	}
