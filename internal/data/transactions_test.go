@@ -147,7 +147,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 				sqlExecuter = tx
 			}
 
-			err := m.BatchInsert(ctx, sqlExecuter, tc.txs, tc.stellarAddressesByHash)
+			gotInsertedHashes, err := m.BatchInsert(ctx, sqlExecuter, tc.txs, tc.stellarAddressesByHash)
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -157,10 +157,11 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 
 			// Verify the results
 			require.NoError(t, err)
-			var insertedHashes []string
-			err = sqlExecuter.SelectContext(ctx, &insertedHashes, "SELECT hash FROM transactions ORDER BY hash")
+			var dbInsertedHashes []string
+			err = sqlExecuter.SelectContext(ctx, &dbInsertedHashes, "SELECT hash FROM transactions")
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantHashes, insertedHashes)
+			assert.ElementsMatch(t, tc.wantHashes, dbInsertedHashes)
+			assert.ElementsMatch(t, tc.wantHashes, gotInsertedHashes)
 
 			// Verify the account links
 			if len(tc.stellarAddressesByHash) > 0 {
