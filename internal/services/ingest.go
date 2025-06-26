@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -25,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -393,23 +393,36 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		}
 
 		// 2. Identify which data should be ingested.
-		txHashesToInsert := set.NewSet[string]()
+		txByHash := make(map[string]types.Transaction)
+		stellarAddressesByTxHash := make(map[string][]string)
 		for _, participant := range existingAccounts {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
 			// 2.1. Identify which transactions should be ingested.
-			for _, tx := range indexerBuffer.GetParticipantTransactions(participant) {
-				txHashesToInsert.Add(tx.Hash)
+			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
+			for _, tx := range participantTransactions {
+				txByHash[tx.Hash] = tx
+				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
 			}
 
 			// 2.2. TODO: Identify which operations should be ingested.
 			// 2.3. TODO: Identify which channel accounts should be unlocked.
 		}
 
-		// 4. TODO: insert transactions and transactions_accounts into the database
-		log.Ctx(ctx).Infof("🚧🟢 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
+		// 4. Insert queries
+		// 4.1. Insert transactions
+		txs := make([]types.Transaction, 0, len(txByHash))
+		for _, tx := range txByHash {
+			txs = append(txs, tx)
+		}
+		insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
+		if err != nil {
+			return fmt.Errorf("batch inserting transactions: %w", err)
+		}
+
+		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 
 		// 5. TODO: Unlock channel accounts.
 
