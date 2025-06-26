@@ -108,6 +108,10 @@ var (
 			},
 		},
 	}
+
+	trustor = xdr.MustAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY")
+	setFlags = xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	clearFlags = xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag | xdr.TrustLineFlagsAuthorizedFlag)
 )
 
 type testTransaction struct {
@@ -325,6 +329,23 @@ func claimCBOp(balanceID xdr.ClaimableBalanceId, source *xdr.MuxedAccount) xdr.O
 			Type: xdr.OperationTypeClaimClaimableBalance,
 			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{
 				BalanceId: balanceID,
+			},
+		},
+	}
+}
+
+func setTrustlineFlagsOp() xdr.Operation {
+	aid := xdr.MustAddress("GDRW375MAYR46ODGF2WGANQC2RRZL7O246DYHHCGWTV2RE7IHE2QUQLD")
+	source := aid.ToMuxedAccount()
+	return xdr.Operation{
+		SourceAccount: &source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeSetTrustLineFlags,
+			SetTrustLineFlagsOp: &xdr.SetTrustLineFlagsOp{
+				Trustor:    trustor,
+				Asset:      xdr.MustNewCreditAsset("USD", "GDRW375MAYR46ODGF2WGANQC2RRZL7O246DYHHCGWTV2RE7IHE2QUQLD"),
+				ClearFlags: clearFlags,
+				SetFlags:   setFlags,
 			},
 		},
 	}

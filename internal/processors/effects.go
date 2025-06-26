@@ -85,12 +85,12 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 				Build())
 
 		case effects.EffectAccountThresholdsUpdated:
-			c := changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
-			stateChanges = append(stateChanges, p.parseThresholds(c, &effect)...)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
+			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect)...)
 
 		case effects.EffectAccountFlagsUpdated:
-			c := changeBuilder.WithCategory(types.StateChangeCategoryFlags)
-			stateChanges = append(stateChanges, p.parseFlags(accountFlags, c, &effect)...)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryFlags)
+			stateChanges = append(stateChanges, p.parseFlags(accountFlags, changeBuilder, &effect)...)
 
 		case effects.EffectAccountHomeDomainUpdated:
 			keyValueMap := p.parseKeyValue([]string{"home_domain"}, &effect)
@@ -101,8 +101,8 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 				Build())
 
 		case effects.EffectTrustlineFlagsUpdated:
-			c := changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
-			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, c, &effect)...)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
+			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
 			keyValueMap := p.parseKeyValue([]string{"value", "name"}, &effect)
@@ -113,7 +113,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 				Build())
 
 		case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
-			c := changeBuilder.
+			changeBuilder = changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonSet).
 				WithSponsor(effect.Details["sponsor"].(string))
@@ -121,13 +121,13 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			//exhaustive:ignore
 			switch effectType {
 			case effects.EffectSignerSponsorshipCreated:
-				c.WithSigner(effect.Details["signer"].(string), 0)
+				changeBuilder = changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
 			}
 
-			stateChanges = append(stateChanges, c.Build())
+			stateChanges = append(stateChanges, changeBuilder.Build())
 
 		case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved, effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
-			c := changeBuilder.
+			changeBuilder = changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonRemove).
 				WithSponsor(effect.Details["sponsor"].(string))
@@ -135,13 +135,13 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			//exhaustive:ignore
 			switch effectType {
 			case effects.EffectSignerSponsorshipRemoved:
-				c.WithSigner(effect.Details["signer"].(string), 0)
+				changeBuilder = changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
 			}
 
-			stateChanges = append(stateChanges, c.Build())
+			stateChanges = append(stateChanges, changeBuilder.Build())
 
 		case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
-			c := changeBuilder.
+			changeBuilder = changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonUpdate).
 				WithSponsor(effect.Details["new_sponsor"].(string)).
@@ -150,10 +150,10 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			//exhaustive:ignore
 			switch effectType {
 			case effects.EffectSignerSponsorshipUpdated:
-				c.WithSigner(effect.Details["signer"].(string), 0)
+				changeBuilder = changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
 			}
 
-			stateChanges = append(stateChanges, c.Build())
+			stateChanges = append(stateChanges, changeBuilder.Build())
 
 		default:
 			continue

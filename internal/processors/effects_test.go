@@ -12,7 +12,7 @@ import (
 )
 
 func TestEffects_ProcessTransaction(t *testing.T) {
-	t.Run("SetOption - signer added/removed/updated", func(t *testing.T) {
+	t.Run("SetOption", func(t *testing.T) {
 		envelopeXDR := "AAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAZAAIGHoAAAAHAAAAAQAAAAAAAAAAAAAAAF4FFtcAAAAAAAAAAQAAAAAAAAAFAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAEAAAACAAAAAQAAAAEAAAABAAAAAwAAAAEAAAABAAAAAQAAAAIAAAABAAAAAwAAAAEAAAAVaHR0cHM6Ly93d3cuaG9tZS5vcmcvAAAAAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAIAAAAAAAAAAaJsK1MAAABAiQjCxE53GjInjJtvNr6gdhztRi0GWOZKlUS2KZBLjX3n2N/y7RRNt7B1ZuFcZAxrnxWHD/fF2XcrEwFAuf4TDA=="
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAFAAAAAAAAAAA="
 		metaXDR := "AAAAAQAAAAIAAAADAA3iDQAAAAAAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAXSHblRAAIGHoAAAAGAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAA3iDQAAAAAAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAXSHblRAAIGHoAAAAHAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAgAAAAMADeINAAAAAAAAAAC5cv4k3Hj//Njt2mQJnfIcqlI2AADX3OUXzdP4omwrUwAAABdIduVEAAgYegAAAAcAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEADeINAAAAAAAAAAC5cv4k3Hj//Njt2mQJnfIcqlI2AADX3OUXzdP4omwrUwAAABdIduVEAAgYegAAAAcAAAABAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAEAAAAVaHR0cHM6Ly93d3cuaG9tZS5vcmcvAAAAAwECAwAAAAEAAAAAIHtDAQ21/TnXbBjFiB22NXBl7hmD+G5dcpSL1JJTu9wAAAACAAAAAAAAAAA="
@@ -38,10 +38,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 8)
 
 		for _, change := range changes {
-			assert.Equal(t, change.OperationID, "0")
-			assert.Equal(t, change.LedgerNumber, int64(12345))
-			assert.Equal(t, change.LedgerCreatedAt, time.Unix(12345*100, 0))
-			assert.Equal(t, change.TxHash, hash)
+			assert.Equal(t, "0", change.OperationID)
+			assert.Equal(t, int64(12345), change.LedgerNumber)
+			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
+			assert.Equal(t, hash, change.TxHash)
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
@@ -82,5 +82,28 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				}
 			}
 		}
+	})
+
+	t.Run("SetTrustlineFlags", func(t *testing.T) {
+		setTrustlineFlagsOp := setTrustlineFlagsOp()
+		transaction := createTx(setTrustlineFlagsOp, nil, nil, false)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		require.NoError(t, err)
+		require.Len(t, changes, 2)
+
+		assert.Equal(t, "0", changes[0].OperationID)
+		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, transaction.Result.TransactionHash.HexString(), changes[0].TxHash)
+		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{"authorized_to_maintain_liabilites": true}, changes[0].Flags)
+
+		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[1].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{"clawback_enabled_flag": false, "authorized_flag": false}, changes[1].Flags)
 	})
 }
