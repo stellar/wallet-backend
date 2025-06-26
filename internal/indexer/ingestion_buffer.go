@@ -8,8 +8,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func NewIngestionBuffer() *IngestionBuffer {
-	return &IngestionBuffer{
+func NewIngestionBuffer() IngestionBuffer {
+	return IngestionBuffer{
 		Participants:           set.NewSet[string](),
 		txByHash:               make(map[string]types.Transaction),
 		participantTxHashBimap: NewBiMap[string, string](),

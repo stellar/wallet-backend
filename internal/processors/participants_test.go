@@ -1,9 +1,10 @@
-package indexer
+package processors
 
 import (
 	"testing"
 
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/network"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -381,7 +382,7 @@ func Test_participantsForMeta(t *testing.T) {
 	}
 }
 
-func TestParticipantsProcessor_addTransactionParticipants(t *testing.T) {
+func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 	const innerTxSourceAccount = "GAE5OQ6ICDENTKOAGTMAC6MMCQYJ22TCZ7OZXGQ34QUATIAESDOXRTIA"
 	const feeBumpSourceAccount = "GCR4GZM7T6EKITZ4GQ2A5UZMMQYZYR6DZRAVUIPN2HJXJ5MXM3DJDXV3"
 	const destinationAccount = "GDYHYQXJU47ULPGEYFILGJD53ZPNOBS5CSD435TFBBQPCL7SORZPETVM"
@@ -545,36 +546,20 @@ func TestParticipantsProcessor_addTransactionParticipants(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			processor := NewParticipantsProcessor()
+			processor := NewParticipantsProcessor(network.TestNetworkPassphrase)
 			transaction := tc.getTransaction(t)
 
-			err := processor.addTransactionParticipants(transaction)
+			participants, err := processor.GetTransactionParticipants(transaction)
 
 			if tc.wantErrContains != "" {
 				assert.Error(t, err)
 				assert.ErrorContains(t, err, tc.wantErrContains)
-				// When there's an error, the ingestion buffer should be empty
-				assert.Empty(t, processor.IngestionBuffer.Participants.ToSlice())
+				assert.Nil(t, participants)
 			} else {
-				assert.NoError(t, err)
-
-				// Verify participants
-				participants := processor.IngestionBuffer.Participants.ToSlice()
-				assert.Len(t, participants, len(tc.expectedParticipants))
+				require.NoError(t, err)
+				assert.Equal(t, len(tc.expectedParticipants), participants.Cardinality())
 				for _, expectedParticipant := range tc.expectedParticipants {
-					assert.Contains(t, participants, expectedParticipant)
-				}
-
-				// Verify transactions
-				transactionHash := transaction.Hash.HexString()
-				storedTx := processor.IngestionBuffer.GetTransaction(transactionHash)
-				assert.Equal(t, transactionHash, storedTx.Hash)
-				assert.Equal(t, uint32(12345), storedTx.LedgerNumber)
-
-				// Verify participant-transaction mappings
-				for _, participant := range tc.expectedParticipants {
-					txHashes := processor.IngestionBuffer.GetParticipantTransactionHashes(participant)
-					assert.True(t, txHashes.Contains(transactionHash))
+					assert.True(t, participants.Contains(expectedParticipant))
 				}
 			}
 		})

@@ -37,7 +37,7 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 const (
 	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
-	getLedgersLimit                         = 200 // NOTE: cannot be larger than 200
+	getLedgersLimit                         = 50 // NOTE: cannot be larger than 200
 	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
@@ -300,12 +300,12 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 
 	var errs []error
 	errMu := sync.Mutex{}
-	ledgerParticipantsProcessor := indexer.NewParticipantsProcessor()
+	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase)
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {
 		pool.Submit(func() {
-			if err := m.processLedger(ctx, ledger, ledgerParticipantsProcessor); err != nil {
+			if err := m.processLedger(ctx, ledger, ledgerIndexer); err != nil {
 				errMu.Lock()
 				defer errMu.Unlock()
 				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
@@ -320,7 +320,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
-	err := m.ingestProcessedData(ctx, ledgerParticipantsProcessor)
+	err := m.ingestProcessedData(ctx, ledgerIndexer)
 	if err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
@@ -328,14 +328,14 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
 
-	numberOfTransactions := ledgerParticipantsProcessor.IngestionBuffer.GetNumberOfTransactions()
+	numberOfTransactions := ledgerIndexer.GetNumberOfTransactions()
 
 	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
 
 	return nil
 }
 
-func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, ledgerParticipantsProcessor *indexer.ParticipantsProcessor) error {
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, ledgerIndexer *indexer.Indexer) error {
 	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
 		return fmt.Errorf("unmarshalling ledger close meta: %w", err)
@@ -347,7 +347,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 
 	for _, tx := range transactions {
-		if err := ledgerParticipantsProcessor.ProcessTransactionData(tx); err != nil {
+		if err := ledgerIndexer.ProcessTransaction(tx); err != nil {
 			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
 		}
 	}
@@ -378,13 +378,13 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	return transactions, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *indexer.ParticipantsProcessor) error {
+func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		dataBundle := &dataProcessor.IngestionBuffer
+		ingestionBuffer := &ledgerIndexer.IngestionBuffer
 
 		// 1. Filter participants that are not in the watchlist.
 		// TODO: cache the existing accounts in memory and use the cache while processing the ledger.
-		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, dataBundle.Participants.ToSlice())
+		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, ingestionBuffer.Participants.ToSlice())
 		if err != nil {
 			return fmt.Errorf("getting existing accounts: %w", err)
 		}
@@ -397,13 +397,13 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *
 		// 2. Identify which data should be ingested.
 		txHashesToInsert := set.NewSet[string]()
 		for _, participant := range existingAccounts {
-			if !dataBundle.Participants.Contains(participant) {
+			if !ingestionBuffer.Participants.Contains(participant) {
 				continue
 			}
 
 			// 2.1. Identify which transactions should be ingested.
-			participantTxHashes := dataBundle.GetParticipantTransactionHashes(participant)
-			for _, txHash := range participantTxHashes.ToSlice() {
+			participantTxHashes := ingestionBuffer.GetParticipantTransactionHashes(participant)
+			for txHash := range participantTxHashes.Iterator().C {
 				txHashesToInsert.Add(txHash)
 			}
 
@@ -412,7 +412,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, dataProcessor *
 		}
 
 		// 4. TODO: insert transactions and transactions_accounts into the database
-		log.Ctx(ctx).Infof("🚧 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
+		log.Ctx(ctx).Infof("🚧🟢 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
 
 		// 5. TODO: Unlock channel accounts.
 

@@ -1,25 +1,20 @@
-package indexer
+package processors
 
 import (
 	"fmt"
-	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
-
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// ParticipantsProcessor is a processor which ingests various participants
-// from different sources (transactions, operations, etc).
 type ParticipantsProcessor struct {
-	IngestionBuffer IngestionBuffer
+	networkPassphrase string
 }
 
-func NewParticipantsProcessor() *ParticipantsProcessor {
-	return &ParticipantsProcessor{
-		IngestionBuffer: *NewIngestionBuffer(),
+func NewParticipantsProcessor(networkPassphrase string) ParticipantsProcessor {
+	return ParticipantsProcessor{
+		networkPassphrase: networkPassphrase,
 	}
 }
 
@@ -66,6 +61,7 @@ func participantsForLedgerKey(lk xdr.LedgerKey) *xdr.AccountId {
 	return &aid
 }
 
+// participantsForMeta identifies the participants involved in a transaction meta by looping through the operations' changes.
 func participantsForMeta(meta xdr.TransactionMeta) ([]xdr.AccountId, error) {
 	var participants []xdr.AccountId
 	if meta.Operations == nil {
@@ -85,7 +81,7 @@ func participantsForMeta(meta xdr.TransactionMeta) ([]xdr.AccountId, error) {
 	return participants, nil
 }
 
-func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.LedgerTransaction) error {
+func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
 	// 1. Get direct participants involved in the transaction
 	participants := []xdr.AccountId{
 		transaction.Envelope.SourceAccount().ToAccountId(), // in case of a fee bump, this is the innerTx source account
@@ -96,7 +92,7 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 
 	feeParticipants, err := participantsForChanges(transaction.FeeChanges)
 	if err != nil {
-		return fmt.Errorf("identifying participants for changes: %w", err)
+		return nil, fmt.Errorf("identifying participants for changes: %w", err)
 	}
 	participants = append(participants, feeParticipants...)
 
@@ -104,53 +100,21 @@ func (p *ParticipantsProcessor) addTransactionParticipants(transaction ingest.Le
 	if transaction.Result.Successful() {
 		metaParticipants, metaErr := participantsForMeta(transaction.UnsafeMeta)
 		if metaErr != nil {
-			return fmt.Errorf("identifying participants for meta: %w", metaErr)
+			return nil, fmt.Errorf("identifying participants for meta: %w", metaErr)
 		}
 		participants = append(participants, metaParticipants...)
 	}
 
-	// 2. Build database transaction object
-	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
-	if err != nil {
-		return fmt.Errorf("marshalling transaction envelope: %w", err)
-	}
-
-	resultXDR, err := xdr.MarshalBase64(transaction.Result)
-	if err != nil {
-		return fmt.Errorf("marshalling transaction result: %w", err)
-	}
-
-	metaXDR, err := xdr.MarshalBase64(transaction.UnsafeMeta)
-	if err != nil {
-		return fmt.Errorf("marshalling transaction meta: %w", err)
-	}
-
-	ledgerSequence := transaction.Ledger.LedgerSequence()
-	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
-
-	dbTx := types.Transaction{
-		ToID:            transactionID,
-		Hash:            transaction.Hash.HexString(),
-		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
-		IngestedAt:      time.Now(),
-		EnvelopeXDR:     envelopeXDR,
-		ResultXDR:       resultXDR,
-		MetaXDR:         metaXDR,
-		LedgerNumber:    ledgerSequence,
-	}
-
-	// 3. Push transaction and participants to data bundle
+	// 2. Push transaction and participants to data bundle
+	participantsSet := set.NewSet[string]()
 	for _, xdrParticipant := range participants {
-		p.IngestionBuffer.PushParticipantTransaction(xdrParticipant.Address(), dbTx)
+		participantsSet.Add(xdrParticipant.Address())
 	}
 
-	return nil
+	return participantsSet, nil
 }
 
-func (p *ParticipantsProcessor) ProcessTransactionData(transaction ingest.LedgerTransaction) error {
-	if err := p.addTransactionParticipants(transaction); err != nil {
-		return fmt.Errorf("adding transaction participants: %w", err)
-	}
-
-	return nil
+type OperationParticipants struct {
+	Operation    xdr.Operation
+	Participants set.Set[string]
 }
