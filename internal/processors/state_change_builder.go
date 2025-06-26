@@ -62,9 +62,9 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 }
 
 // WithSigner sets the signer
-func (b *StateChangeBuilder) WithSigner(signer string, weight int64) *StateChangeBuilder {
+func (b *StateChangeBuilder) WithSigner(signer string, weight int32) *StateChangeBuilder {
 	b.base.SignerAccountID = utils.SQLNullString(signer)
-	b.base.SignerWeight = utils.SQLNullInt64(weight)
+	b.base.SignerWeight = utils.SQLNullInt64(int64(weight))
 	return b
 }
 
@@ -115,4 +115,11 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
 	return b.base
+}
+
+// Clone creates a new builder with the same base state change fields
+func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
+	return &StateChangeBuilder{
+		base: b.base,
+	}
 }

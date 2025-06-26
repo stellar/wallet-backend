@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
 	"github.com/stellar/go/ingest"
-	operation "github.com/stellar/go/processors/operation"
 	effects "github.com/stellar/go/processors/effects"
+	operation "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 var (
 	thresholdToReasonMap = map[string]types.StateChangeReason{
-		"low_threshold": types.StateChangeReasonLow,
-		"med_threshold": types.StateChangeReasonMedium,
+		"low_threshold":  types.StateChangeReasonLow,
+		"med_threshold":  types.StateChangeReasonMedium,
 		"high_threshold": types.StateChangeReasonHigh,
 	}
 	signerEffectToReasonMap = map[int32]types.StateChangeReason{
@@ -49,7 +51,7 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Hash.HexString()
+	txHash := tx.Result.TransactionHash.HexString()
 
 	opWrapper := operation.TransactionOperationWrapper{
 		Index:          opIdx,
@@ -68,93 +70,97 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	stateChanges := make([]types.StateChange, 0)
 	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, strconv.FormatUint(uint64(opIdx), 10))
 	for _, effect := range effectOutputs {
-		changeBuilder := masterBuilder.WithAccount(effect.Address)
+		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
 
 		effectType := effects.EffectType(effect.Type)
+		//exhaustive:ignore
 		switch effectType {
-			case effects.EffectSignerCreated, effects.EffectSignerRemoved, effects.EffectSignerUpdated:
-				signerWeight := effect.Details["weight"]
-				signerPublicKey := effect.Details["public_key"]
-				stateChanges = append(stateChanges, changeBuilder.
-					WithCategory(types.StateChangeCategorySigner).
-					WithReason(signerEffectToReasonMap[effect.Type]).
-					WithSigner(signerPublicKey.(string), signerWeight.(int64)).
-					Build())
-			
-			case effects.EffectAccountThresholdsUpdated:
-				changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
-				stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect)...)
-				
-			case effects.EffectAccountFlagsUpdated:
-				changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryFlags)
-				stateChanges = append(stateChanges, p.parseFlags(accountFlags, changeBuilder, &effect)...)
-			
-			case effects.EffectAccountHomeDomainUpdated:
-				keyValueMap := p.parseKeyValue([]string{"home_domain"}, &effect)
-				stateChanges = append(stateChanges, changeBuilder.
-					WithCategory(types.StateChangeCategoryMetadata).
-					WithReason(types.StateChangeReasonHomeDomain).
-					WithKeyValue(keyValueMap).
-					Build())
-			
-			case effects.EffectTrustlineFlagsUpdated:
-				changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
-				stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
-			
-			case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
-				keyValueMap := p.parseKeyValue([]string{"value", "name"}, &effect)
-				stateChanges = append(stateChanges, changeBuilder.
-					WithCategory(types.StateChangeCategoryMetadata).
-					WithReason(types.StateChangeReasonDataEntry).
-					WithKeyValue(keyValueMap).
-					Build())
-			
-			case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
-				changeBuilder = changeBuilder.
+		case effects.EffectSignerCreated, effects.EffectSignerRemoved, effects.EffectSignerUpdated:
+			signerWeight := effect.Details["weight"]
+			signerPublicKey := effect.Details["public_key"]
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategorySigner).
+				WithReason(signerEffectToReasonMap[effect.Type]).
+				WithSigner(signerPublicKey.(string), signerWeight.(int32)).
+				Build())
+
+		case effects.EffectAccountThresholdsUpdated:
+			c := changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
+			stateChanges = append(stateChanges, p.parseThresholds(c, &effect)...)
+
+		case effects.EffectAccountFlagsUpdated:
+			c := changeBuilder.WithCategory(types.StateChangeCategoryFlags)
+			stateChanges = append(stateChanges, p.parseFlags(accountFlags, c, &effect)...)
+
+		case effects.EffectAccountHomeDomainUpdated:
+			keyValueMap := p.parseKeyValue([]string{"home_domain"}, &effect)
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategoryMetadata).
+				WithReason(types.StateChangeReasonHomeDomain).
+				WithKeyValue(keyValueMap).
+				Build())
+
+		case effects.EffectTrustlineFlagsUpdated:
+			c := changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
+			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, c, &effect)...)
+
+		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
+			keyValueMap := p.parseKeyValue([]string{"value", "name"}, &effect)
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategoryMetadata).
+				WithReason(types.StateChangeReasonDataEntry).
+				WithKeyValue(keyValueMap).
+				Build())
+
+		case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
+			c := changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonSet).
 				WithSponsor(effect.Details["sponsor"].(string))
 
-				switch effectType {
-				case effects.EffectSignerSponsorshipCreated:
-					changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
-				}
+			//exhaustive:ignore
+			switch effectType {
+			case effects.EffectSignerSponsorshipCreated:
+				c.WithSigner(effect.Details["signer"].(string), 0)
+			}
 
-				stateChanges = append(stateChanges, changeBuilder.Build())
-			
-			case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved, effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
-				changeBuilder = changeBuilder.
+			stateChanges = append(stateChanges, c.Build())
+
+		case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved, effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
+			c := changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonRemove).
 				WithSponsor(effect.Details["sponsor"].(string))
-				
-				switch effectType {
-				case effects.EffectSignerSponsorshipRemoved:
-					changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
-				}
-				
-				stateChanges = append(stateChanges, changeBuilder.Build())
-			
-			case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
-				changeBuilder = changeBuilder.
+
+			//exhaustive:ignore
+			switch effectType {
+			case effects.EffectSignerSponsorshipRemoved:
+				c.WithSigner(effect.Details["signer"].(string), 0)
+			}
+
+			stateChanges = append(stateChanges, c.Build())
+
+		case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
+			c := changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(types.StateChangeReasonUpdate).
 				WithSponsor(effect.Details["new_sponsor"].(string)).
 				WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
 
-				switch effectType {
-				case effects.EffectSignerSponsorshipUpdated:
-					changeBuilder.WithSigner(effect.Details["signer"].(string), 0)
-				}
+			//exhaustive:ignore
+			switch effectType {
+			case effects.EffectSignerSponsorshipUpdated:
+				c.WithSigner(effect.Details["signer"].(string), 0)
+			}
 
-				stateChanges = append(stateChanges, changeBuilder.Build())
+			stateChanges = append(stateChanges, c.Build())
 
-			default:
-				continue
+		default:
+			continue
 		}
 	}
 
-	return nil, nil
+	return stateChanges, nil
 }
 
 func (p *EffectsProcessor) parseKeyValue(keys []string, effect *effects.EffectOutput) map[string]any {
@@ -175,20 +181,22 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 			if value == true {
 				setFlags[flag] = true
 			} else {
-				clearFlags[flag] = true
+				clearFlags[flag] = false
 			}
 		}
 	}
-	
+
 	changes := make([]types.StateChange, 0)
 	if len(setFlags) > 0 {
 		changes = append(changes, changeBuilder.
+			Clone().
 			WithReason(types.StateChangeReasonSet).
 			WithFlags(setFlags).
 			Build())
 	}
 	if len(clearFlags) > 0 {
 		changes = append(changes, changeBuilder.
+			Clone().
 			WithReason(types.StateChangeReasonClear).
 			WithFlags(clearFlags).
 			Build())
@@ -201,8 +209,9 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	changes := make([]types.StateChange, 0)
 	for threshold, reason := range thresholdToReasonMap {
 		if value, ok := effect.Details[threshold]; ok {
-			thresholdValue := strconv.FormatInt(value.(int64), 10)
+			thresholdValue := strconv.FormatInt(int64(value.(xdr.Uint32)), 10)
 			changes = append(changes, changeBuilder.
+				Clone().
 				WithReason(reason).
 				WithThresholds(map[string]any{
 					threshold: thresholdValue,
