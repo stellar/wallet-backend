@@ -120,7 +120,7 @@ type StateChange struct {
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	LedgerNumber        int64               `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	// Nullable fields:
 	Token              sql.NullString `json:"token,omitempty" db:"token"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`

@@ -3,7 +3,7 @@
 -- Table: transactions
 CREATE TABLE transactions (
     hash TEXT PRIMARY KEY,
-    to_id INTEGER NOT NULL,
+    to_id BIGINT NOT NULL,
     envelope_xdr TEXT,
     result_xdr TEXT,
     meta_xdr TEXT,
