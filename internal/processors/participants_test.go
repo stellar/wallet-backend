@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	stelarAddress1 = "GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY"
-	stelarAddress2 = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"
-	stelarAddress3 = "GAXI33UCLQTCKM2NMRBS7XYBR535LLEVAHL5YBN4FTCB4HZHT7ZA5CVK"
-	stelarAddress4 = "GA5WBPYA5Y4WAEHXWR2UKO2UO4BUGHUQ74EUPKON2QHV4WRHOIRNKKH2"
+	stellarAddress1 = "GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY"
+	stellarAddress2 = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"
+	stellarAddress3 = "GAXI33UCLQTCKM2NMRBS7XYBR535LLEVAHL5YBN4FTCB4HZHT7ZA5CVK"
+	stellarAddress4 = "GA5WBPYA5Y4WAEHXWR2UKO2UO4BUGHUQ74EUPKON2QHV4WRHOIRNKKH2"
 )
 
 // createTestAccount creates a test account with the given address
@@ -91,22 +91,22 @@ func Test_participantsForChanges(t *testing.T) {
 			name: "🟢single_account_created",
 			getChanges: func(t *testing.T) xdr.LedgerEntryChanges {
 				return xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stelarAddress1),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
 				}
 			},
-			expectedParticipants: []string{stelarAddress1},
+			expectedParticipants: []string{stellarAddress1},
 		},
 		{
 			name: "🟢multiple_changes_with_accounts",
 			getChanges: func(t *testing.T) xdr.LedgerEntryChanges {
 				return xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stelarAddress1),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, stelarAddress2),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stelarAddress3),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stelarAddress4),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, stellarAddress2),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress3),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress4),
 				}
 			},
-			expectedParticipants: []string{stelarAddress1, stelarAddress2, stelarAddress3, stelarAddress4},
+			expectedParticipants: []string{stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
 		},
 		{
 			name: "🟢non_account_ledger_entry_should_be_ignored",
@@ -118,12 +118,12 @@ func Test_participantsForChanges(t *testing.T) {
 							Data: xdr.LedgerEntryData{
 								Type: xdr.LedgerEntryTypeTrustline,
 								TrustLine: &xdr.TrustLineEntry{
-									AccountId: xdr.MustAddress(stelarAddress1),
+									AccountId: xdr.MustAddress(stellarAddress1),
 									Asset: xdr.TrustLineAsset{
 										Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
 										AlphaNum4: &xdr.AlphaNum4{
 											AssetCode: [4]byte{'T', 'E', 'S', 'T'},
-											Issuer:    xdr.MustAddress(stelarAddress1),
+											Issuer:    xdr.MustAddress(stellarAddress1),
 										},
 									},
 								},
@@ -276,13 +276,13 @@ func Test_participantsForMeta(t *testing.T) {
 					Operations: &[]xdr.OperationMeta{
 						{
 							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stelarAddress1),
+								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
 							},
 						},
 					},
 				}
 			},
-			expected: []string{stelarAddress1},
+			expected: []string{stellarAddress1},
 		},
 		{
 			name: "🟢multiple_operations_with_multiple_account_changes",
@@ -291,20 +291,20 @@ func Test_participantsForMeta(t *testing.T) {
 					Operations: &[]xdr.OperationMeta{
 						{
 							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stelarAddress1),
+								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
 							},
 						},
 						{
 							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, stelarAddress2),
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stelarAddress3),
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stelarAddress4),
+								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, stellarAddress2),
+								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress3),
+								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress4),
 							},
 						},
 					},
 				}
 			},
-			expected: []string{stelarAddress1, stelarAddress2, stelarAddress3, stelarAddress4},
+			expected: []string{stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
 		},
 		{
 			name: "🟢operations_with_non_account_changes_should_be_ignored",
@@ -452,12 +452,12 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 		unsafeMeta := xdr.TransactionMeta{
 			Operations: &[]xdr.OperationMeta{
 				{Changes: xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stelarAddress1),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stelarAddress2),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress2),
 				}},
 				{Changes: xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stelarAddress3),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stelarAddress4),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress3),
+					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress4),
 				}},
 			},
 		}
@@ -501,7 +501,7 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			getTransaction: func(t *testing.T) ingest.LedgerTransaction {
 				return createTestTransaction(t, true, false)
 			},
-			expectedParticipants: []string{innerTxSourceAccount, stelarAddress1, stelarAddress2, stelarAddress3, stelarAddress4},
+			expectedParticipants: []string{innerTxSourceAccount, stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
 		},
 		{
 			name: "🟡failed_inner_transaction_only_considers_fee_account",
@@ -515,7 +515,7 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			getTransaction: func(t *testing.T) ingest.LedgerTransaction {
 				return createTestTransaction(t, true, true)
 			},
-			expectedParticipants: []string{feeBumpSourceAccount, innerTxSourceAccount, stelarAddress1, stelarAddress2, stelarAddress3, stelarAddress4},
+			expectedParticipants: []string{feeBumpSourceAccount, innerTxSourceAccount, stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
 		},
 		{
 			name: "🟡failed_fee_bump_transaction_only_considers_fee_account",
