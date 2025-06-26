@@ -6,6 +6,7 @@ package processors
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -107,6 +109,42 @@ var (
 		},
 	}
 )
+
+type testTransaction struct {
+	Index         uint32
+	EnvelopeXDR   string
+	ResultXDR     string
+	FeeChangesXDR string
+	MetaXDR       string
+	Hash          string
+}
+
+func buildTransactionFromXDR(t *testing.T, txn testTransaction) ingest.LedgerTransaction {
+	transaction := ingest.LedgerTransaction{
+		Index:      txn.Index,
+		Ledger:     someLcm,
+		Envelope:   xdr.TransactionEnvelope{},
+		Result:     xdr.TransactionResultPair{},
+		FeeChanges: xdr.LedgerEntryChanges{},
+		UnsafeMeta: xdr.TransactionMeta{},
+	}
+
+	tt := assert.New(t)
+
+	err := xdr.SafeUnmarshalBase64(txn.EnvelopeXDR, &transaction.Envelope)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.ResultXDR, &transaction.Result.Result)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.MetaXDR, &transaction.UnsafeMeta)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.FeeChangesXDR, &transaction.FeeChanges)
+	tt.NoError(err)
+
+	_, err = hex.Decode(transaction.Result.TransactionHash[:], []byte(txn.Hash))
+	tt.NoError(err)
+
+	return transaction
+}
 
 // Transaction creation helpers
 func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.LedgerEntryChanges, isFailed bool) ingest.LedgerTransaction {
