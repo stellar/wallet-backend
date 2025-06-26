@@ -17,13 +17,15 @@ type TransactionModel struct {
 	MetricsService metrics.MetricsService
 }
 
+// BatchInsert inserts the transactions and the transactions_accounts links.
+// It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
 	dbTx db.SQLExecuter,
 	txs []types.Transaction,
 	stellarAddressesByTxHash map[string][]string,
-) error {
-	var sqlExecuter db.SQLExecuter = dbTx
+) ([]string, error) {
+	sqlExecuter := dbTx
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
 	}
@@ -100,25 +102,31 @@ func (m *TransactionModel) BatchInsert(
         ) t ON t.hash = vt.tx_hash
         ON CONFLICT (hash) DO NOTHING
         RETURNING hash
-    )
+    ),
 
 	-- STEP 4: Insert transactions_accounts links
-    INSERT INTO transactions_accounts
-		(tx_hash, account_id)
-    SELECT
-        ta.tx_hash, ta.account_id
-    FROM (
-        SELECT
-            UNNEST($8::text[]) AS tx_hash,
-            UNNEST($9::text[]) AS account_id
-    ) ta
-    INNER JOIN existing_accounts ea ON ea.stellar_address = ta.account_id
-    INNER JOIN inserted_transactions it ON it.hash = ta.tx_hash
-    ON CONFLICT DO NOTHING;
+	inserted_transactions_accounts AS (
+		INSERT INTO transactions_accounts
+			(tx_hash, account_id)
+		SELECT
+			ta.tx_hash, ta.account_id
+		FROM (
+			SELECT
+				UNNEST($8::text[]) AS tx_hash,
+				UNNEST($9::text[]) AS account_id
+		) ta
+		INNER JOIN existing_accounts ea ON ea.stellar_address = ta.account_id
+		INNER JOIN inserted_transactions it ON it.hash = ta.tx_hash
+		ON CONFLICT DO NOTHING
+	)
+
+	-- STEP 5: Return the hashes of successfully inserted transactions
+	SELECT hash FROM inserted_transactions;
     `
 
 	start := time.Now()
-	_, err := sqlExecuter.ExecContext(ctx, insertQuery,
+	var insertedHashes []string
+	err := sqlExecuter.SelectContext(ctx, &insertedHashes, insertQuery,
 		pq.Array(hashes),
 		pq.Array(toIDs),
 		pq.Array(envelopeXDRs),
@@ -133,10 +141,10 @@ func (m *TransactionModel) BatchInsert(
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions", duration)
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions_accounts", duration)
 	if err != nil {
-		return fmt.Errorf("batch inserting transactions and accounts: %w", err)
+		return nil, fmt.Errorf("batch inserting transactions and accounts: %w", err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "transactions")
 	m.MetricsService.IncDBQuery("INSERT", "transactions_accounts")
 
-	return nil
+	return insertedHashes, nil
 }
