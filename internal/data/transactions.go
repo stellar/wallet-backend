@@ -138,13 +138,11 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions", duration)
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions_accounts", duration)
+	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions,transactions_accounts", duration)
 	if err != nil {
 		return nil, fmt.Errorf("batch inserting transactions and accounts: %w", err)
 	}
-	m.MetricsService.IncDBQuery("INSERT", "transactions")
-	m.MetricsService.IncDBQuery("INSERT", "transactions_accounts")
+	m.MetricsService.IncDBQuery("INSERT", "transactions,transactions_accounts")
 
 	return insertedHashes, nil
 }

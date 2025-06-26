@@ -128,10 +128,8 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			// Create fresh mock for each test case
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "INSERT", "transactions", mock.Anything).Return().
-				On("IncDBQuery", "INSERT", "transactions").Return().
-				On("ObserveDBQueryDuration", "INSERT", "transactions_accounts", mock.Anything).Return().
-				On("IncDBQuery", "INSERT", "transactions_accounts").Return()
+				On("ObserveDBQueryDuration", "INSERT", "transactions,transactions_accounts", mock.Anything).Return().Once().
+				On("IncDBQuery", "INSERT", "transactions,transactions_accounts").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &TransactionModel{
