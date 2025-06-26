@@ -206,7 +206,7 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
 }
 
-// prepareAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
+// preparedAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
 func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
