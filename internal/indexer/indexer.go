@@ -10,13 +10,13 @@ import (
 )
 
 type Indexer struct {
-	IngestionBuffer
+	IndexerBuffer
 	participantsProcessor processors.ParticipantsProcessor
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
 	return &Indexer{
-		IngestionBuffer:       NewIngestionBuffer(),
+		IndexerBuffer:         NewIndexerBuffer(),
 		participantsProcessor: processors.NewParticipantsProcessor(networkPassphrase),
 	}
 }
@@ -35,7 +35,7 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		}
 
 		for participant := range participants.Iterator().C {
-			i.IngestionBuffer.PushParticipantTransaction(participant, *dataTx)
+			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
 		}
 	}
 

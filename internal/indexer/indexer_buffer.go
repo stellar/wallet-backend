@@ -8,22 +8,22 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func NewIngestionBuffer() IngestionBuffer {
-	return IngestionBuffer{
+func NewIndexerBuffer() IndexerBuffer {
+	return IndexerBuffer{
 		Participants:           set.NewSet[string](),
 		txByHash:               make(map[string]types.Transaction),
 		participantTxHashBimap: NewBiMap[string, string](),
 	}
 }
 
-type IngestionBuffer struct {
+type IndexerBuffer struct {
 	mu                     sync.RWMutex
 	Participants           set.Set[string]
 	txByHash               map[string]types.Transaction
 	participantTxHashBimap *BiMap[string, string]
 }
 
-func (b *IngestionBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
+func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -33,21 +33,21 @@ func (b *IngestionBuffer) PushParticipantTransaction(participant string, transac
 	b.participantTxHashBimap.Add(participant, transaction.Hash)
 }
 
-func (b *IngestionBuffer) GetNumberOfTransactions() int {
+func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	return len(b.txByHash)
 }
 
-func (b *IngestionBuffer) GetParticipantTransactionHashes(participant string) set.Set[string] {
+func (b *IndexerBuffer) GetParticipantTransactionHashes(participant string) set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	return b.participantTxHashBimap.GetForward(participant).Clone()
 }
 
-func (b *IngestionBuffer) GetParticipantTransactions(participant string) []types.Transaction {
+func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -60,14 +60,14 @@ func (b *IngestionBuffer) GetParticipantTransactions(participant string) []types
 	return txs
 }
 
-func (b *IngestionBuffer) GetTransactionParticipants(transactionHash string) set.Set[string] {
+func (b *IndexerBuffer) GetTransactionParticipants(transactionHash string) set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	return b.participantTxHashBimap.GetBackward(transactionHash).Clone()
 }
 
-func (b *IngestionBuffer) GetTransaction(transactionHash string) types.Transaction {
+func (b *IndexerBuffer) GetTransaction(transactionHash string) types.Transaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

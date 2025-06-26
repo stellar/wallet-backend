@@ -380,11 +380,11 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		ingestionBuffer := &ledgerIndexer.IngestionBuffer
+		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
 		// 1. Filter participants that are not in the watchlist.
 		// TODO: cache the existing accounts in memory and use the cache while processing the ledger.
-		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, ingestionBuffer.Participants.ToSlice())
+		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, indexerBuffer.Participants.ToSlice())
 		if err != nil {
 			return fmt.Errorf("getting existing accounts: %w", err)
 		}
@@ -397,12 +397,12 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		// 2. Identify which data should be ingested.
 		txHashesToInsert := set.NewSet[string]()
 		for _, participant := range existingAccounts {
-			if !ingestionBuffer.Participants.Contains(participant) {
+			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
 			// 2.1. Identify which transactions should be ingested.
-			participantTxHashes := ingestionBuffer.GetParticipantTransactionHashes(participant)
+			participantTxHashes := indexerBuffer.GetParticipantTransactionHashes(participant)
 			for txHash := range participantTxHashes.Iterator().C {
 				txHashesToInsert.Add(txHash)
 			}
