@@ -207,7 +207,7 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 }
 
 // handleTransfersWithLiquidityPool handles transfers between liquidity pools and accounts.
-// This is a special case where a liquidity pool is the source or destination account.
+// This is a special case where a liquidity pool is the source or destination account which could occur when path payments go through liquidity pools.
 func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
 	from := transfer.GetFrom()
 	to := transfer.GetTo()
