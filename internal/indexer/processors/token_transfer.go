@@ -198,27 +198,31 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 // handleDefaultTransfer handles normal transfers and liquidity pool interactions.
 // For LP interactions, creates single state change with LP ID. For regular transfers, creates debit/credit pair.
 func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
+	if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
+		return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
+	}
+
+	// Normal transfer between two accounts (payments, account merge)
+	return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), transfer.GetAsset(), contractAddress, builder), nil
+}
+
+// handleTransfersWithLiquidityPool handles transfers between liquidity pools and accounts.
+// This is a special case where a liquidity pool is the source or destination account.
+func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
 	from := transfer.GetFrom()
 	to := transfer.GetTo()
 	amount := transfer.GetAmount()
 	asset := transfer.GetAsset()
 
-	fromIsLP := IsLiquidityPool(from)
-	toIsLP := IsLiquidityPool(to)
-
-	// Handle liquidity pool interactions (from path payments, manual LP operations)
-	if fromIsLP {
-		// LP is sending tokens to account (e.g., path payment buying from LP)
+	// LP is sending tokens to account (e.g., path payment buying from LP)
+	if IsLiquidityPool(from) {
 		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
-		return []types.StateChange{change}, nil
-	} else if toIsLP {
-		// LP is receiving tokens from account (e.g., path payment selling to LP)
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
 
-	// Normal transfer between two accounts (payments, account merge)
-	return p.createDebitCreditPair(from, to, amount, asset, contractAddress, builder), nil
+	// LP is receiving tokens from account (e.g., path payment selling to LP)
+	change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
+	return []types.StateChange{change}, nil
 }
 
 // handleMint processes mint events that occur when asset issuers create new tokens.
