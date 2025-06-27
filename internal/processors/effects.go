@@ -118,18 +118,18 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			effects.EffectDataSponsorshipCreated, effects.EffectDataSponsorshipRemoved, effects.EffectDataSponsorshipUpdated,
 			effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipRemoved, effects.EffectSignerSponsorshipUpdated,
 			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
-		
+
 			reason, sponsorField, includeFormerSponsor := p.getSponsorshipOperation(effect.TypeString)
-		
+
 			changeBuilder = changeBuilder.
 				WithCategory(types.StateChangeCategorySponsorship).
 				WithReason(reason).
 				WithSponsor(effect.Details[sponsorField].(string))
-		
+
 			if includeFormerSponsor {
 				changeBuilder = changeBuilder.WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
 			}
-		
+
 			stateChanges = append(stateChanges, p.parseSponsorshipDetails(effect, changeBuilder).Build())
 
 		default:
@@ -142,7 +142,8 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 
 // Add this helper function
 func (p *EffectsProcessor) getSponsorshipOperation(effectType string) (reason types.StateChangeReason, sponsorField string,
-	includeFormerSponsor bool) {
+	includeFormerSponsor bool,
+) {
 	switch {
 	case strings.HasSuffix(string(effectType), "sponsorship_created"):
 		return types.StateChangeReasonSet, "sponsor", false
@@ -163,14 +164,13 @@ func (p *EffectsProcessor) parseSponsorshipDetails(effect effects.EffectOutput, 
 	case effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipRemoved:
 		builder = builder.WithClaimableBalance(effect.Details["balance_id"].(string))
 	case effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipUpdated, effects.EffectTrustlineSponsorshipRemoved:
-		if lpId, ok := effect.Details["liquidity_pool_id"]; ok {
-			builder = builder.WithLiquidityPool(lpId.(string))
+		if lpID, ok := effect.Details["liquidity_pool_id"]; ok {
+			builder = builder.WithLiquidityPool(lpID.(string))
 		}
 	case effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipUpdated, effects.EffectSignerSponsorshipRemoved:
 		builder = builder.WithSigner(effect.Details["signer"].(string), 0)
 	}
 	return builder
-
 }
 
 func (p *EffectsProcessor) parseKeyValue(keys []string, effect *effects.EffectOutput) map[string]any {
