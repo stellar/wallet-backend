@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -20,24 +21,29 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		indexerBuffer.PushParticipantTransaction("bob", tx2)
 		indexerBuffer.PushParticipantTransaction("bob", tx2) // <--- duplicate is a no-op because we use a Set internally
 
-		// GetParticipantTransactionHashes
-		assert.ElementsMatch(t, []string{"tx_hash_1", "tx_hash_2"}, indexerBuffer.GetParticipantTransactionHashes("alice").ToSlice())
-		assert.ElementsMatch(t, []string{"tx_hash_2"}, indexerBuffer.GetParticipantTransactionHashes("bob").ToSlice())
+		// Assert participants txHashes
+		wantTxHashesByParticipant := map[string]set.Set[string]{
+			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
+			"bob":   set.NewSet("tx_hash_2"),
+		}
+		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
 
-		// GetParticipantTransactions
+		// Assert GetParticipantTransactions
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
 		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
 
-		// GetTransactionParticipants
-		assert.ElementsMatch(t, []string{"alice"}, indexerBuffer.GetTransactionParticipants("tx_hash_1").ToSlice())
-		assert.ElementsMatch(t, []string{"alice", "bob"}, indexerBuffer.GetTransactionParticipants("tx_hash_2").ToSlice())
+		// Assert txByHash
+		wantTxByHash := map[string]types.Transaction{
+			"tx_hash_1": tx1,
+			"tx_hash_2": tx2,
+		}
+		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
 
-		// GetTransaction
-		assert.Equal(t, tx1, indexerBuffer.GetTransaction("tx_hash_1"))
-		assert.Equal(t, tx2, indexerBuffer.GetTransaction("tx_hash_2"))
+		// Assert Participants
+		assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.Participants)
 
-		// Get Participants
-		assert.ElementsMatch(t, []string{"alice", "bob"}, indexerBuffer.Participants.ToSlice())
+		// Assert GetNumberOfTransactions
+		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 	})
 
 	t.Run("🟢concurrent_operations", func(t *testing.T) {
@@ -69,17 +75,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Concurrent getter operations
 		wg = sync.WaitGroup{}
-		wg.Add(8)
-
-		// GetParticipantTransactionHashes
-		go func() {
-			assert.ElementsMatch(t, []string{"tx_hash_1", "tx_hash_2"}, indexerBuffer.GetParticipantTransactionHashes("alice").ToSlice())
-			wg.Done()
-		}()
-		go func() {
-			assert.ElementsMatch(t, []string{"tx_hash_2"}, indexerBuffer.GetParticipantTransactionHashes("bob").ToSlice())
-			wg.Done()
-		}()
+		wg.Add(4)
 
 		// GetParticipantTransactions
 		go func() {
@@ -91,30 +87,33 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 			wg.Done()
 		}()
 
-		// GetTransactionParticipants
+		// Assert GetNumberOfTransactions
 		go func() {
-			assert.ElementsMatch(t, []string{"alice"}, indexerBuffer.GetTransactionParticipants("tx_hash_1").ToSlice())
-			wg.Done()
-		}()
-		go func() {
-			assert.ElementsMatch(t, []string{"alice", "bob"}, indexerBuffer.GetTransactionParticipants("tx_hash_2").ToSlice())
+			assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 			wg.Done()
 		}()
 
-		// GetTransaction
+		// Assert Participants
 		go func() {
-			assert.Equal(t, tx1, indexerBuffer.GetTransaction("tx_hash_1"))
-			wg.Done()
-		}()
-		go func() {
-			assert.Equal(t, tx2, indexerBuffer.GetTransaction("tx_hash_2"))
+			assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.Participants)
 			wg.Done()
 		}()
 
 		// Wait for all getter operations to complete
 		wg.Wait()
 
-		// Final verification of Participants set
-		assert.ElementsMatch(t, []string{"alice", "bob"}, indexerBuffer.Participants.ToSlice())
+		// Assert txByHash
+		wantTxByHash := map[string]types.Transaction{
+			"tx_hash_1": tx1,
+			"tx_hash_2": tx2,
+		}
+		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
+
+		// Assert participants txHashes
+		wantTxHashesByParticipant := map[string]set.Set[string]{
+			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
+			"bob":   set.NewSet("tx_hash_2"),
+		}
+		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
 	})
 }

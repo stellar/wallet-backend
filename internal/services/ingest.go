@@ -402,9 +402,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			}
 
 			// 2.1. Identify which transactions should be ingested.
-			participantTxHashes := indexerBuffer.GetParticipantTransactionHashes(participant)
-			for txHash := range participantTxHashes.Iterator().C {
-				txHashesToInsert.Add(txHash)
+			for _, tx := range indexerBuffer.GetParticipantTransactions(participant) {
+				txHashesToInsert.Add(tx.Hash)
 			}
 
 			// 2.2. TODO: Identify which operations should be ingested.

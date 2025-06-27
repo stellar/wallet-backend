@@ -10,17 +10,17 @@ import (
 
 func NewIndexerBuffer() IndexerBuffer {
 	return IndexerBuffer{
-		Participants:           set.NewSet[string](),
-		txByHash:               make(map[string]types.Transaction),
-		participantTxHashBimap: NewBiMap[string, string](),
+		Participants:          set.NewSet[string](),
+		txByHash:              make(map[string]types.Transaction),
+		txHashesByParticipant: make(map[string]set.Set[string]),
 	}
 }
 
 type IndexerBuffer struct {
-	mu                     sync.RWMutex
-	Participants           set.Set[string]
-	txByHash               map[string]types.Transaction
-	participantTxHashBimap *BiMap[string, string]
+	mu                    sync.RWMutex
+	Participants          set.Set[string]
+	txByHash              map[string]types.Transaction
+	txHashesByParticipant map[string]set.Set[string]
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
@@ -30,7 +30,10 @@ func (b *IndexerBuffer) PushParticipantTransaction(participant string, transacti
 	b.txByHash[transaction.Hash] = transaction
 	b.Participants.Add(participant)
 
-	b.participantTxHashBimap.Add(participant, transaction.Hash)
+	if _, ok := b.txHashesByParticipant[participant]; !ok {
+		b.txHashesByParticipant[participant] = set.NewSet[string]()
+	}
+	b.txHashesByParticipant[participant].Add(transaction.Hash)
 }
 
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
@@ -40,36 +43,19 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	return len(b.txByHash)
 }
 
-func (b *IndexerBuffer) GetParticipantTransactionHashes(participant string) set.Set[string] {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return b.participantTxHashBimap.GetForward(participant).Clone()
-}
-
 func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	txs := []types.Transaction{}
-	it := b.participantTxHashBimap.GetForward(participant).Iterator()
-	for txHash := range it.C {
+	txHashes, ok := b.txHashesByParticipant[participant]
+	if !ok {
+		return nil
+	}
+
+	txs := make([]types.Transaction, 0, txHashes.Cardinality())
+	for txHash := range txHashes.Iterator().C {
 		txs = append(txs, b.txByHash[txHash])
 	}
 
 	return txs
-}
-
-func (b *IndexerBuffer) GetTransactionParticipants(transactionHash string) set.Set[string] {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return b.participantTxHashBimap.GetBackward(transactionHash).Clone()
-}
-
-func (b *IndexerBuffer) GetTransaction(transactionHash string) types.Transaction {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return b.txByHash[transactionHash]
 }
