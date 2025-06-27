@@ -325,11 +325,10 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
 
+	// Log a summary
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
-
 	numberOfTransactions := ledgerIndexer.GetNumberOfTransactions()
-
 	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
 
 	return nil
@@ -383,7 +382,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
 		// 1. Filter participants that are not in the watchlist.
-		// TODO: cache the existing accounts in memory and use the cache while processing the ledger.
 		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, indexerBuffer.Participants.ToSlice())
 		if err != nil {
 			return fmt.Errorf("getting existing accounts: %w", err)

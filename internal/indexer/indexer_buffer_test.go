@@ -11,7 +11,7 @@ import (
 )
 
 func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
-	t.Run("🟢sequential_operations", func(t *testing.T) {
+	t.Run("🟢sequential_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
@@ -46,7 +46,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 	})
 
-	t.Run("🟢concurrent_operations", func(t *testing.T) {
+	t.Run("🟢concurrent_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
