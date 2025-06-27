@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/asset"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // StateChangeBuilder provides a fluent interface for creating state changes
@@ -36,9 +37,55 @@ func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *S
 	return b
 }
 
+// WithReason sets the state change reason
+func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
+	b.base.StateChangeReason = &reason
+	return b
+}
+
+// WithThresholds sets the thresholds
+func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateChangeBuilder {
+	b.base.Thresholds = types.NullableJSONB(thresholds)
+	return b
+}
+
+// WithFlags sets the flags
+func (b *StateChangeBuilder) WithFlags(flags map[string]any) *StateChangeBuilder {
+	b.base.Flags = types.NullableJSONB(flags)
+	return b
+}
+
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 	b.base.AccountID = accountID
+	return b
+}
+
+// WithSigner sets the signer
+func (b *StateChangeBuilder) WithSigner(signer string, weight any) *StateChangeBuilder {
+	b.base.SignerAccountID = utils.SQLNullString(signer)
+
+	if weightInt, ok := weight.(int); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(int64(weightInt))
+	} else if weightInt32, ok := weight.(int32); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(int64(weightInt32))
+	} else if weightInt64, ok := weight.(int64); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(weightInt64)
+	} else {
+		b.base.SignerWeight = utils.SQLNullInt64(0)
+	}
+	return b
+}
+
+// WithSponsor sets the sponsor
+func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
+	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	return b
+}
+
+// WithKeyValue sets the key value
+func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
+	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
 }
 
@@ -77,4 +124,11 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
 	return b.base
+}
+
+// Clone creates a new builder with the same base state change fields
+func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
+	return &StateChangeBuilder{
+		base: b.base,
+	}
 }

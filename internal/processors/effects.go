@@ -1,0 +1,233 @@
+package processors
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/stellar/go/ingest"
+	effects "github.com/stellar/go/processors/effects"
+	operation "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/xdr"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+)
+
+var (
+	thresholdToReasonMap = map[string]types.StateChangeReason{
+		"low_threshold":  types.StateChangeReasonLow,
+		"med_threshold":  types.StateChangeReasonMedium,
+		"high_threshold": types.StateChangeReasonHigh,
+	}
+	signerEffectToReasonMap = map[int32]types.StateChangeReason{
+		int32(effects.EffectSignerCreated): types.StateChangeReasonAdd,
+		int32(effects.EffectSignerRemoved): types.StateChangeReasonRemove,
+		int32(effects.EffectSignerUpdated): types.StateChangeReasonUpdate,
+	}
+	accountFlags = []string{
+		"auth_required_flag",
+		"auth_revocable_flag",
+		"auth_immutable_flag",
+		"auth_clawback_enabled_flag",
+	}
+	trustlineFlags = []string{
+		"authorized_flag",
+		"authorized_to_maintain_liabilites",
+		"clawback_enabled_flag",
+	}
+)
+
+type EffectsProcessor struct {
+	networkPassphrase string
+}
+
+func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
+	return &EffectsProcessor{
+		networkPassphrase: networkPassphrase,
+	}
+}
+
+func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
+	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
+	ledgerNumber := tx.Ledger.LedgerSequence()
+	txHash := tx.Result.TransactionHash.HexString()
+
+	opWrapper := operation.TransactionOperationWrapper{
+		Index:          opIdx,
+		LedgerSequence: tx.Ledger.LedgerSequence(),
+		LedgerClosed:   time.Unix(tx.Ledger.LedgerCloseTime(), 0),
+		Transaction:    tx,
+		Operation:      op,
+		Network:        p.networkPassphrase,
+	}
+
+	effectOutputs, err := effects.Effects(&opWrapper)
+	if err != nil {
+		return nil, fmt.Errorf("processing effects: %w", err)
+	}
+
+	stateChanges := make([]types.StateChange, 0)
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, strconv.FormatUint(uint64(opIdx), 10))
+	for _, effect := range effectOutputs {
+		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
+
+		effectType := effects.EffectType(effect.Type)
+		//exhaustive:ignore
+		switch effectType {
+		case effects.EffectSignerCreated, effects.EffectSignerRemoved, effects.EffectSignerUpdated:
+			signerWeight := effect.Details["weight"]
+			signerPublicKey := effect.Details["public_key"]
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategorySigner).
+				WithReason(signerEffectToReasonMap[effect.Type]).
+				WithSigner(signerPublicKey.(string), signerWeight).
+				Build())
+
+		case effects.EffectAccountThresholdsUpdated:
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
+			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect)...)
+
+		case effects.EffectAccountFlagsUpdated:
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryFlags)
+			stateChanges = append(stateChanges, p.parseFlags(accountFlags, changeBuilder, &effect)...)
+
+		case effects.EffectAccountHomeDomainUpdated:
+			keyValueMap := p.parseKeyValue([]string{"home_domain"}, &effect)
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategoryMetadata).
+				WithReason(types.StateChangeReasonHomeDomain).
+				WithKeyValue(keyValueMap).
+				Build())
+
+		case effects.EffectTrustlineFlagsUpdated:
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
+			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
+
+		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
+			keyValueMap := p.parseKeyValue([]string{"name", "value"}, &effect)
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategoryMetadata).
+				WithReason(types.StateChangeReasonDataEntry).
+				WithKeyValue(keyValueMap).
+				Build())
+
+		case effects.EffectAccountSponsorshipCreated, effects.EffectAccountSponsorshipRemoved, effects.EffectAccountSponsorshipUpdated,
+			effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipUpdated,
+			effects.EffectDataSponsorshipCreated, effects.EffectDataSponsorshipRemoved, effects.EffectDataSponsorshipUpdated,
+			effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipRemoved, effects.EffectSignerSponsorshipUpdated,
+			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
+
+			reason, sponsorField, includeFormerSponsor := p.getSponsorshipOperation(effect.TypeString)
+
+			changeBuilder = changeBuilder.
+				WithCategory(types.StateChangeCategorySponsorship).
+				WithReason(reason).
+				WithSponsor(effect.Details[sponsorField].(string))
+
+			if includeFormerSponsor {
+				changeBuilder = changeBuilder.WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
+			}
+
+			stateChanges = append(stateChanges, p.parseSponsorshipDetails(effect, changeBuilder).Build())
+
+		default:
+			continue
+		}
+	}
+
+	return stateChanges, nil
+}
+
+// Add this helper function
+func (p *EffectsProcessor) getSponsorshipOperation(effectType string) (reason types.StateChangeReason, sponsorField string,
+	includeFormerSponsor bool,
+) {
+	switch {
+	case strings.HasSuffix(string(effectType), "sponsorship_created"):
+		return types.StateChangeReasonSet, "sponsor", false
+	case strings.HasSuffix(string(effectType), "sponsorship_removed"):
+		return types.StateChangeReasonRevoke, "former_sponsor", false
+	case strings.HasSuffix(string(effectType), "sponsorship_updated"):
+		return types.StateChangeReasonUpdate, "new_sponsor", true
+	default:
+		return "", "", false
+	}
+}
+
+func (p *EffectsProcessor) parseSponsorshipDetails(effect effects.EffectOutput, builder *StateChangeBuilder) *StateChangeBuilder {
+	effectType := effects.EffectType(effect.Type)
+
+	//exhaustive:ignore
+	switch effectType {
+	case effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipRemoved:
+		builder = builder.WithClaimableBalance(effect.Details["balance_id"].(string))
+	case effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipUpdated, effects.EffectTrustlineSponsorshipRemoved:
+		if lpID, ok := effect.Details["liquidity_pool_id"]; ok {
+			builder = builder.WithLiquidityPool(lpID.(string))
+		}
+	case effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipUpdated, effects.EffectSignerSponsorshipRemoved:
+		builder = builder.WithSigner(effect.Details["signer"].(string), 0)
+	}
+	return builder
+}
+
+func (p *EffectsProcessor) parseKeyValue(keys []string, effect *effects.EffectOutput) map[string]any {
+	keyValueMap := map[string]any{}
+	for _, key := range keys {
+		if value, ok := effect.Details[key]; ok {
+			keyValueMap[key] = value
+		}
+	}
+	return keyValueMap
+}
+
+func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChangeBuilder, effect *effects.EffectOutput) []types.StateChange {
+	setFlags := make(map[string]any)
+	clearFlags := make(map[string]any)
+	for _, flag := range flags {
+		if value, ok := effect.Details[flag]; ok {
+			if value == true {
+				setFlags[flag] = true
+			} else {
+				clearFlags[flag] = false
+			}
+		}
+	}
+
+	changes := make([]types.StateChange, 0)
+	if len(setFlags) > 0 {
+		changes = append(changes, changeBuilder.
+			Clone().
+			WithReason(types.StateChangeReasonSet).
+			WithFlags(setFlags).
+			Build())
+	}
+	if len(clearFlags) > 0 {
+		changes = append(changes, changeBuilder.
+			Clone().
+			WithReason(types.StateChangeReasonClear).
+			WithFlags(clearFlags).
+			Build())
+	}
+
+	return changes
+}
+
+func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput) []types.StateChange {
+	changes := make([]types.StateChange, 0)
+	for threshold, reason := range thresholdToReasonMap {
+		if value, ok := effect.Details[threshold]; ok {
+			thresholdValue := strconv.FormatInt(int64(value.(xdr.Uint32)), 10)
+			changes = append(changes, changeBuilder.
+				Clone().
+				WithReason(reason).
+				WithThresholds(map[string]any{
+					threshold: thresholdValue,
+				}).
+				Build())
+		}
+	}
+	return changes
+}
