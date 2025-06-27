@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,5 +106,73 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"clawback_enabled_flag": false, "authorized_flag": false}, changes[1].Flags)
+	})
+
+	t.Run("ManageData - data created", func(t *testing.T) {
+		envelopeXDR := "AAAAADEhMVDHiYXdz5z8l73XGyrQ2RN85ZRW1uLsCNQumfsZAAAAZAAAADAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAoAAAAFbmFtZTIAAAAAAAABAAAABDU2NzgAAAAAAAAAAS6Z+xkAAABAjxgnTRBCa0n1efZocxpEjXeITQ5sEYTVd9fowuto2kPw5eFwgVnz6OrKJwCRt5L8ylmWiATXVI3Zyfi3yTKqBA=="
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
+		metaXDR := "AAAAAQAAAAIAAAADAAAAMQAAAAAAAAAAMSExUMeJhd3PnPyXvdcbKtDZE3zllFbW4uwI1C6Z+xkAAAACVAvi1AAAADAAAAABAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAMQAAAAAAAAAAMSExUMeJhd3PnPyXvdcbKtDZE3zllFbW4uwI1C6Z+xkAAAACVAvi1AAAADAAAAACAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAMAAAAxAAAAAAAAAAAxITFQx4mF3c+c/Je91xsq0NkTfOWUVtbi7AjULpn7GQAAAAJUC+LUAAAAMAAAAAIAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAxAAAAAAAAAAAxITFQx4mF3c+c/Je91xsq0NkTfOWUVtbi7AjULpn7GQAAAAJUC+LUAAAAMAAAAAIAAAACAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxAAAAAwAAAAAxITFQx4mF3c+c/Je91xsq0NkTfOWUVtbi7AjULpn7GQAAAAVuYW1lMgAAAAAAAAQ1Njc4AAAAAAAAAAA="
+		feeChangesXDR := "AAAAAgAAAAMAAAAxAAAAAAAAAAAxITFQx4mF3c+c/Je91xsq0NkTfOWUVtbi7AjULpn7GQAAAAJUC+OcAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAxAAAAAAAAAAAxITFQx4mF3c+c/Je91xsq0NkTfOWUVtbi7AjULpn7GQAAAAJUC+M4AAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "e4609180751e7702466a8845857df43e4d154ec84b6bad62ce507fe12f1daf99"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		assert.Equal(t, "0", changes[0].OperationID)
+		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, hash, changes[0].TxHash)
+		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("name2"), "value": "NTY3OA=="}, changes[0].KeyValue)
+	})
+
+	t.Run("ManageData - data removed", func(t *testing.T) {
+		envelopeXDR :=   "AAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAZAAIGHoAAAAKAAAAAQAAAAAAAAAAAAAAAF4XaMIAAAAAAAAAAQAAAAAAAAAKAAAABWhlbGxvAAAAAAAAAAAAAAAAAAABomwrUwAAAEDyu3HI9bdkzNBs4UgTjVmYt3LQ0CC/6a8yWBmz8OiKeY/RJ9wJvV9/m0JWGtFWbPOXWBg/Pj3ttgKMiHh9TKoF"
+		resultXDR :=     "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
+		metaXDR :=       "AAAAAQAAAAIAAAADABE92wAAAAAAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAXSHbkGAAIGHoAAAAJAAAAAgAAAAEAAAAAIHtDAQ21/TnXbBjFiB22NXBl7hmD+G5dcpSL1JJTu9wAAAABAAAAFWh0dHBzOi8vd3d3LmhvbWUub3JnLwAAAAMBAgMAAAABAAAAACB7QwENtf0512wYxYgdtjVwZe4Zg/huXXKUi9SSU7vcAAAAAgAAAAAAAAAAAAAAAQARPdsAAAAAAAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAF0h25BgACBh6AAAACgAAAAIAAAABAAAAACB7QwENtf0512wYxYgdtjVwZe4Zg/huXXKUi9SSU7vcAAAAAQAAABVodHRwczovL3d3dy5ob21lLm9yZy8AAAADAQIDAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAIAAAAAAAAAAAAAAAEAAAAEAAAAAwARPcsAAAADAAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAABWhlbGxvAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAMAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAFaGVsbG8AAAAAAAADABE92wAAAAAAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAXSHbkGAAIGHoAAAAKAAAAAgAAAAEAAAAAIHtDAQ21/TnXbBjFiB22NXBl7hmD+G5dcpSL1JJTu9wAAAABAAAAFWh0dHBzOi8vd3d3LmhvbWUub3JnLwAAAAMBAgMAAAABAAAAACB7QwENtf0512wYxYgdtjVwZe4Zg/huXXKUi9SSU7vcAAAAAgAAAAAAAAAAAAAAAQARPdsAAAAAAAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAF0h25BgACBh6AAAACgAAAAEAAAABAAAAACB7QwENtf0512wYxYgdtjVwZe4Zg/huXXKUi9SSU7vcAAAAAQAAABVodHRwczovL3d3dy5ob21lLm9yZy8AAAADAQIDAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAIAAAAAAAAAAA=="
+		feeChangesXDR := "AAAAAgAAAAMAET3LAAAAAAAAAAC5cv4k3Hj//Njt2mQJnfIcqlI2AADX3OUXzdP4omwrUwAAABdIduR8AAgYegAAAAkAAAACAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAEAAAAVaHR0cHM6Ly93d3cuaG9tZS5vcmcvAAAAAwECAwAAAAEAAAAAIHtDAQ21/TnXbBjFiB22NXBl7hmD+G5dcpSL1JJTu9wAAAACAAAAAAAAAAAAAAABABE92wAAAAAAAAAAuXL+JNx4//zY7dpkCZ3yHKpSNgAA19zlF83T+KJsK1MAAAAXSHbkGAAIGHoAAAAJAAAAAgAAAAEAAAAAIHtDAQ21/TnXbBjFiB22NXBl7hmD+G5dcpSL1JJTu9wAAAABAAAAFWh0dHBzOi8vd3d3LmhvbWUub3JnLwAAAAMBAgMAAAABAAAAACB7QwENtf0512wYxYgdtjVwZe4Zg/huXXKUi9SSU7vcAAAAAgAAAAAAAAAA"
+		hash := "397b208adb3d484d14ddd3237422baae0b6bd1e8feb3c970147bc6bcc493d112"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		assert.Equal(t, "0", changes[0].OperationID)
+		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, hash, changes[0].TxHash)
+		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("hello")}, changes[0].KeyValue)
 	})
 }

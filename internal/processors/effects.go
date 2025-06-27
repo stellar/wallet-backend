@@ -105,7 +105,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
-			keyValueMap := p.parseKeyValue([]string{"value", "name"}, &effect)
+			keyValueMap := p.parseKeyValue([]string{"name", "value"}, &effect)
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonDataEntry).
