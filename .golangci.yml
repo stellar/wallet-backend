@@ -42,7 +42,7 @@ linters:
 
       - path: (_test\.go|dbtest\.go)$
         linters: [errcheck]
-        text: '\.Close'
+        text: '\.Close()|\.Rollback()'
 
       # Exclude some `staticcheck` messages.
       - linters: [staticcheck]

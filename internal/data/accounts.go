@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
@@ -39,6 +41,26 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	}
 	m.MetricsService.IncDBQuery("DELETE", "accounts")
 	return nil
+}
+
+// GetExisting returns only the addresses from the input list that exist in the database.
+func (m *AccountModel) GetExisting(ctx context.Context, dbTx db.Transaction, stellarAddresses []string) ([]string, error) {
+	var sqlExecuter db.SQLExecuter = dbTx
+	if sqlExecuter == nil {
+		sqlExecuter = m.DB
+	}
+
+	const query = "SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1) FOR UPDATE"
+	var existingAddresses []string
+	start := time.Now()
+	err := sqlExecuter.SelectContext(ctx, &existingAddresses, query, pq.Array(stellarAddresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting existing addresses: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return existingAddresses, nil
 }
 
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
