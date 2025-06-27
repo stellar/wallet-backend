@@ -93,7 +93,11 @@ func (ca *ChannelAccountModel) AssignTxToChannelAccount(ctx context.Context, pub
 	return nil
 }
 
-func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, txHashes ...string) (int64, error) {
+func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Context, sqlExec db.SQLExecuter, txHashes ...string) (int64, error) {
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
 	if len(txHashes) == 0 {
 		return 0, errors.New("txHashes cannot be empty")
 	}
@@ -107,7 +111,7 @@ func (ca *ChannelAccountModel) UnassignTxAndUnlockChannelAccounts(ctx context.Co
 		WHERE
 			locked_tx_hash = ANY($1)
 	`
-	res, err := ca.DB.ExecContext(ctx, query, pq.Array(txHashes))
+	res, err := sqlExec.ExecContext(ctx, query, pq.Array(txHashes))
 	if err != nil {
 		return 0, fmt.Errorf("unlocking channel accounts %v: %w", txHashes, err)
 	}

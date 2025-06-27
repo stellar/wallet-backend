@@ -535,7 +535,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerTransac
 		}
 	}
 
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHashes...); err != nil {
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
 		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
 	} else if affectedRows > 0 {
 		log.Ctx(ctx).Infof("unlocked %d channel accounts", affectedRows)
