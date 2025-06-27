@@ -113,8 +113,3 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 
 	return participantsSet, nil
 }
-
-type OperationParticipants struct {
-	Operation    xdr.Operation
-	Participants set.Set[string]
-}
