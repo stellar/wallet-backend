@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
 	ttp "github.com/stellar/go/processors/token_transfer"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -62,7 +63,9 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, txIdx, opIdx)
 			if err != nil {
 				if errors.Is(err, ErrOperationNotFound) {
-					// Skip events for operations that couldn't be found
+					// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
+					// the indexer doesn't crash. We still log it to help debug issues.
+					log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opIdx: %d", txHash, opIdx)
 					continue
 				}
 				return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation index: %d, err: %w", txHash, opIdx, err)
