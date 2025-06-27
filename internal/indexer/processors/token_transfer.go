@@ -18,7 +18,7 @@ import (
 var ErrOperationNotFound = errors.New("operation not found")
 
 // TokenTransferProcessor processes Stellar transactions and extracts token transfer events.
-// It converts Stellar operations (payments, account merges, etc.) into standardized state changes.
+// It converts Stellar operations (payments, account merges, etc.) into our internal (synthetic) state changes representation.
 type TokenTransferProcessor struct {
 	eventsProcessor *ttp.EventsProcessor
 }
