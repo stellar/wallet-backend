@@ -207,12 +207,11 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 	toIsLP := IsLiquidityPool(to)
 
 	// Handle liquidity pool interactions (from path payments, manual LP operations)
-	if fromIsLP || toIsLP {
-		if fromIsLP {
-			// LP is sending tokens to account (e.g., path payment buying from LP)
-			change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
-			return []types.StateChange{change}, nil
-		}
+	if fromIsLP {
+		// LP is sending tokens to account (e.g., path payment buying from LP)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
+		return []types.StateChange{change}, nil
+	} else if toIsLP {
 		// LP is receiving tokens from account (e.g., path payment selling to LP)
 		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
 		return []types.StateChange{change}, nil
