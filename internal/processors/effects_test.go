@@ -175,4 +175,51 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("hello")}, changes[0].KeyValue)
 	})
+
+	t.Run("Sponsorship - account sponsorship created/updated/revoked", func(t *testing.T) {
+		envelopeXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAAAAAAAAAaAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvkAAAAAAAAAAABVvwF9wAAAEDHU95E9wxgETD8TqxUrkgC0/7XHyNDts6Q5huRHfDRyRcoHdv7aMp/sPvC3RPkXjOMjgbKJUX7SgExUeYB5f8F"
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
+		metaXDR := createAccountMetaB64
+		feeChangesXDR := "AAAAAgAAAAMAAAA3AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nHQAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA5AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nFsAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "0e5bd332291e3098e49886df2cdb9b5369a5f9e0a9973f0d9e1a9489c6581ba2"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		require.NoError(t, err)
+		require.Len(t, changes, 4)
+
+		for _, change := range changes {
+			assert.Equal(t, "0", change.OperationID)
+			assert.Equal(t, int64(12345), change.LedgerNumber)
+			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
+			assert.Equal(t, hash, change.TxHash)
+
+			switch change.StateChangeCategory {
+			case types.StateChangeCategorySponsorship:
+				//exhaustive:ignore
+				switch *change.StateChangeReason {
+				case types.StateChangeReasonSet:
+					assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", change.SponsorAccountID.String)
+				case types.StateChangeReasonUpdate:
+					assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", change.SponsorAccountID.String)
+					assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", change.KeyValue["former_sponsor"])
+				case types.StateChangeReasonRevoke:
+					assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", change.SponsorAccountID.String)
+				}
+			}
+		}
+		
+	})
 }

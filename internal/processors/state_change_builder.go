@@ -62,9 +62,18 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 }
 
 // WithSigner sets the signer
-func (b *StateChangeBuilder) WithSigner(signer string, weight int32) *StateChangeBuilder {
+func (b *StateChangeBuilder) WithSigner(signer string, weight any) *StateChangeBuilder {
 	b.base.SignerAccountID = utils.SQLNullString(signer)
-	b.base.SignerWeight = utils.SQLNullInt64(int64(weight))
+	
+	if weightInt, ok := weight.(int); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(int64(weightInt))
+	} else if weightInt32, ok := weight.(int32); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(int64(weightInt32))
+	} else if weightInt64, ok := weight.(int64); ok {
+		b.base.SignerWeight = utils.SQLNullInt64(weightInt64)
+	} else {
+		b.base.SignerWeight = utils.SQLNullInt64(0)
+	}
 	return b
 }
 
