@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/stellar/go/xdr"
 )
 
 type Account struct {
@@ -26,6 +28,44 @@ type Transaction struct {
 	Operations   []Operation   `json:"operations,omitempty" db:"operations"`
 	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
 	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
+}
+
+// xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
+var xdrToOperationTypeMap = map[xdr.OperationType]OperationType{
+	xdr.OperationTypeCreateAccount:                 OperationTypeCreateAccount,
+	xdr.OperationTypePayment:                       OperationTypePayment,
+	xdr.OperationTypePathPaymentStrictReceive:      OperationTypePathPaymentStrictReceive,
+	xdr.OperationTypeManageSellOffer:               OperationTypeManageSellOffer,
+	xdr.OperationTypeCreatePassiveSellOffer:        OperationTypeCreatePassiveSellOffer,
+	xdr.OperationTypeSetOptions:                    OperationTypeSetOptions,
+	xdr.OperationTypeChangeTrust:                   OperationTypeChangeTrust,
+	xdr.OperationTypeAllowTrust:                    OperationTypeAllowTrust,
+	xdr.OperationTypeAccountMerge:                  OperationTypeAccountMerge,
+	xdr.OperationTypeInflation:                     OperationTypeInflation,
+	xdr.OperationTypeManageData:                    OperationTypeManageData,
+	xdr.OperationTypeBumpSequence:                  OperationTypeBumpSequence,
+	xdr.OperationTypeManageBuyOffer:                OperationTypeManageBuyOffer,
+	xdr.OperationTypePathPaymentStrictSend:         OperationTypePathPaymentStrictSend,
+	xdr.OperationTypeCreateClaimableBalance:        OperationTypeCreateClaimableBalance,
+	xdr.OperationTypeClaimClaimableBalance:         OperationTypeClaimClaimableBalance,
+	xdr.OperationTypeBeginSponsoringFutureReserves: OperationTypeBeginSponsoringFutureReserves,
+	xdr.OperationTypeEndSponsoringFutureReserves:   OperationTypeEndSponsoringFutureReserves,
+	xdr.OperationTypeRevokeSponsorship:             OperationTypeRevokeSponsorship,
+	xdr.OperationTypeClawback:                      OperationTypeClawback,
+	xdr.OperationTypeClawbackClaimableBalance:      OperationTypeClawbackClaimableBalance,
+	xdr.OperationTypeSetTrustLineFlags:             OperationTypeSetTrustLineFlags,
+	xdr.OperationTypeLiquidityPoolDeposit:          OperationTypeLiquidityPoolDeposit,
+	xdr.OperationTypeLiquidityPoolWithdraw:         OperationTypeLiquidityPoolWithdraw,
+	xdr.OperationTypeInvokeHostFunction:            OperationTypeInvokeHostFunction,
+	xdr.OperationTypeExtendFootprintTtl:            OperationTypeExtendFootprintTTL,
+	xdr.OperationTypeRestoreFootprint:              OperationTypeRestoreFootprint,
+}
+
+func OperationTypeFromXDR(xdrOpType xdr.OperationType) OperationType {
+	if mappedType, exists := xdrToOperationTypeMap[xdrOpType]; exists {
+		return mappedType
+	}
+	return ""
 }
 
 type OperationType string

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,4 +45,31 @@ func Test_ConvertTransaction(t *testing.T) {
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 	}
 	assert.Equal(t, wantDataTx, gotDataTx)
+}
+
+func Test_ConvertOperation(t *testing.T) {
+	var lcm xdr.LedgerCloseMeta
+	err := xdr.SafeUnmarshalBase64(ledgerCloseMetaXDR, &lcm)
+	require.NoError(t, err)
+
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(network.TestNetworkPassphrase, lcm)
+	require.NoError(t, err)
+	ingestTx, err := ledgerTxReader.Read()
+	require.NoError(t, err)
+
+	opIndex := 0
+	op := ingestTx.Envelope.Operations()[opIndex]
+	opID := toid.New(int32(ingestTx.Ledger.LedgerSequence()), int32(ingestTx.Index), int32(opIndex+1)).ToInt64()
+
+	gotDataOp, err := ConvertOperation(&ingestTx, &op, opID)
+	require.NoError(t, err)
+
+	wantDataOp := &types.Operation{
+		ID:              opID,
+		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
+		OperationXDR:    opXDRStr,
+		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
+		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
+	}
+	assert.Equal(t, wantDataOp, gotDataOp)
 }
