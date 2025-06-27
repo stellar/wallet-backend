@@ -223,6 +223,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		case <-ctx.Done():
 			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
 		case rpcHealth = <-rpcHeartbeatChannel:
+			ingestHeartbeatChannel <- true // ⬅️ indicate that it's still running
 			// this will fallthrough to execute the code below ⬇️
 		}
 
