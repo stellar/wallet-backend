@@ -59,3 +59,15 @@ func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.T
 
 	return txs
 }
+
+func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	txs := make([]types.Transaction, 0, len(b.txByHash))
+	for _, tx := range b.txByHash {
+		txs = append(txs, tx)
+	}
+
+	return txs
+}
