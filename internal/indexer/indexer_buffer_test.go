@@ -44,6 +44,9 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
+
+		// Assert GetAllTransactions
+		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
 	})
 
 	t.Run("🟢concurrent_calls", func(t *testing.T) {
@@ -75,7 +78,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Concurrent getter operations
 		wg = sync.WaitGroup{}
-		wg.Add(4)
+		wg.Add(5)
 
 		// GetParticipantTransactions
 		go func() {
@@ -96,6 +99,12 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		// Assert Participants
 		go func() {
 			assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.Participants)
+			wg.Done()
+		}()
+
+		// Assert GetAllTransactions
+		go func() {
+			assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
 			wg.Done()
 		}()
 
