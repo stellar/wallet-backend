@@ -564,7 +564,7 @@ func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount st
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.Token)
+		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
 }
 
@@ -574,7 +574,7 @@ func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount s
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.Token)
+		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
 }
 
@@ -583,7 +583,7 @@ func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount str
 	require.Equal(t, types.StateChangeCategoryMint, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, utils.SQLNullString(expectedToken), change.Token)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
@@ -591,7 +591,7 @@ func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount str
 	require.Equal(t, types.StateChangeCategoryBurn, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, utils.SQLNullString(expectedToken), change.Token)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedLPID string) {
@@ -599,7 +599,7 @@ func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category t
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, utils.SQLNullString(expectedToken), change.Token)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedLPID, change.LiquidityPoolID.String)
 }
 
@@ -616,6 +616,5 @@ func assertContractEvent(t *testing.T, change types.StateChange, category types.
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, utils.SQLNullString(""), change.Token)
-	require.Equal(t, expectedContractID, change.ContractID.String)
+	require.Equal(t, expectedContractID, change.TokenID.String)
 }

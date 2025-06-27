@@ -121,11 +121,10 @@ type StateChange struct {
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	LedgerNumber        int64               `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	// Nullable fields:
-	Token              sql.NullString `json:"token,omitempty" db:"token"`
+	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
 	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
-	ContractID         sql.NullString `json:"contractId,omitempty" db:"contract_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SignerWeight       sql.NullInt64  `json:"signerWeight,omitempty" db:"signer_weight"`

@@ -3,7 +3,6 @@
 package processors
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/stellar/go/asset"
@@ -50,15 +49,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 
 // WithAsset sets the asset or contract
 func (b *StateChangeBuilder) WithAsset(asset *asset.Asset, contractAddress string) *StateChangeBuilder {
-	if asset != nil {
-		if asset.GetNative() {
-			b.base.Token = utils.SQLNullString("native")
-		} else if issuedAsset := asset.GetIssuedAsset(); issuedAsset != nil {
-			b.base.Token = utils.SQLNullString(fmt.Sprintf("%s:%s", issuedAsset.GetAssetCode(), issuedAsset.GetIssuer()))
-		}
-	} else {
-		b.base.ContractID = utils.SQLNullString(contractAddress)
-	}
+	b.base.TokenID = utils.SQLNullString(contractAddress)
 	return b
 }
 
