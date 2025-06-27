@@ -33,6 +33,75 @@ const (
 	testFeeBumpTxXDR  = "AAAABQAAAACRDhlb19H9O6EVQnLPSBX5kH4+ycO03nl6OOK1drSinwAAAAAAAAGQAAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQsAAAAAAAAAAXa0op8AAABADjCsmF/xr9jXwNStUM7YqXEd49qfbvGZPJPplANW7aiErkHWxEj6C2RVOyPyK8KBr1fjCleBSmDZjD1X0kkJCQ=="
 )
 
+func Test_getLedgerSeqRange(t *testing.T) {
+	testCases := []struct {
+		name               string
+		latestLedgerSynced uint32
+		rpcOldestLedger    uint32
+		rpcNewestLedger    uint32
+		wantInSync         bool
+		wantResult         LedgerSeqRange
+	}{
+		{
+			name:               "latest_synced_behind_rpc_oldest",
+			latestLedgerSynced: 5,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				StartLedger: 10,
+				Limit:       getLedgersLimit,
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_oldest",
+			latestLedgerSynced: 10,
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				StartLedger: 11,
+				Limit:       getLedgersLimit,
+			},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_oldest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 15,
+			wantInSync:         false,
+			wantResult: LedgerSeqRange{
+				StartLedger: 16,
+				Limit:       getLedgersLimit,
+			},
+		},
+		{
+			name:               "latest_synced_equals_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 20,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+		{
+			name:               "latest_synced_ahead_of_rpc_newest",
+			rpcOldestLedger:    10,
+			rpcNewestLedger:    20,
+			latestLedgerSynced: 25,
+			wantInSync:         true,
+			wantResult:         LedgerSeqRange{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ledgerRange, inSync := getLedgerSeqRange(tc.rpcOldestLedger, tc.rpcNewestLedger, tc.latestLedgerSynced)
+			assert.Equal(t, tc.wantResult, ledgerRange)
+			assert.Equal(t, tc.wantInSync, inSync)
+		})
+	}
+}
+
 func TestGetLedgerTransactions(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -46,6 +115,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService)
@@ -145,6 +215,7 @@ func TestIngestPayments(t *testing.T) {
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
+	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
 	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService)
@@ -454,13 +525,13 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}
 	mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
 
-	err = ingestService.Run(ctx, uint32(49), uint32(50))
+	err = ingestService.DeprecatedRun(ctx, uint32(49), uint32(50))
 	require.NoError(t, err)
 
 	mockRPCService.AssertNotCalled(t, "GetTransactions", int64(49), "", int64(50))
 	mockRPCService.AssertExpectations(t)
 
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(50), ledger)
 }
@@ -556,7 +627,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockAppTracker.On("CaptureMessage", mock.Anything).Maybe().Return(nil)
 
 	// Start ingestion at ledger 100 (ahead of RPC's initial position at 50)
-	err = ingestService.Run(ctx, uint32(100), uint32(100))
+	err = ingestService.DeprecatedRun(ctx, uint32(100), uint32(100))
 	require.NoError(t, err)
 
 	// Verify the debug log message was written
@@ -565,7 +636,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	assert.Contains(t, logOutput, expectedLog)
 
 	// Verify the ledger was eventually processed
-	ledger, err := models.Payments.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
+	ledger, err := models.IngestStore.GetLatestLedgerSynced(context.Background(), "ingestionLedger")
 	require.NoError(t, err)
 	assert.Equal(t, uint32(100), ledger)
 
@@ -626,4 +697,73 @@ func Test_ingestService_extractInnerTxHash(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, innerTxHash, gotTxHash)
 	})
+}
+
+func Test_ingestService_getLedgerTransactions(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	const ledgerMetadataWith0Tx = "AAAAAQAAAACB7Zh2o0NTFwl1nvs7xr3SJ7w8PpwnSRb8QyG9k6acEwAAABaeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLYjyoO5BI41g1PFT+iHW68giP49Koo+q3VmH8I4GdtW2AAAAAGhTTB8AAAAAAAAAAQAAAAC1XRCyu30oTtXAOkel4bWQyQ9Xg1VHHMRQe76CBNI8iwAAAEDSH4sE7cL7UJyOqUo9ZZeNqPT7pt7su8iijHjWYg4MbeFUh/gkGf6N40bZjP/dlIuGXmuEhWoEX0VTV58xOB4C3z9hmASpL9tAVxktxD3XSOp3itxSvEmM6AUkwBS4ERm+pITz+1V1m+3/v6eaEKglCnon3a5xkn02sLltJ9CSzwAAEYIN4Lazp2QAAAAAAAMtYtQzAAAAAAAAAAAAAAAMAAAAZABMS0AAAADIXukLfWC53MCmzxKd/+LBbaYxQkgxATFDLI3hWj7EqWgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGeASPlzu/ZFxwyyWsxtGoj3KCrybm2yN7WOweR0BWdLQAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9yHMAAAAAAAAAAA=="
+	const ledgerMetadataWith1Tx = "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"
+
+	testCases := []struct {
+		name                    string
+		inputLedgerCloseMetaStr string
+		wantErrContains         string
+		wantResultTxHashes      []string
+	}{
+		{
+			name:                    "🟢successful_transaction_reading_0_tx",
+			inputLedgerCloseMetaStr: ledgerMetadataWith0Tx,
+		},
+		{
+			name:                    "🟢successful_transaction_reading_1_tx",
+			inputLedgerCloseMetaStr: ledgerMetadataWith1Tx,
+			wantErrContains:         "",
+			wantResultTxHashes:      []string{"5c54a259cc690d16bc7eb06cd706c468c530e2131eedcb45b5dc370a2ef7204c"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockMetricsService := metrics.NewMockMetricsService()
+			defer mockMetricsService.AssertExpectations(t)
+			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+			require.NoError(t, err)
+
+			mockAppTracker := apptracker.MockAppTracker{}
+			mockRPCService := RPCServiceMock{}
+			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
+			mockChAccStore := &store.ChannelAccountStoreMock{}
+			mockContractStore := &cache.MockTokenContractStore{}
+			ingestService, err := NewIngestService(models, "testCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService)
+			require.NoError(t, err)
+
+			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
+			err = xdr.SafeUnmarshalBase64(tc.inputLedgerCloseMetaStr, &xdrLedgerCloseMeta)
+			require.NoError(t, err)
+			transactions, err := ingestService.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+
+			// Verify results
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, transactions, len(tc.wantResultTxHashes))
+
+				// Verify transaction hashes if we have expected results
+				if len(tc.wantResultTxHashes) > 0 {
+					for i, expectedHash := range tc.wantResultTxHashes {
+						assert.Equal(t, expectedHash, transactions[i].Hash.HexString())
+					}
+				}
+			}
+		})
+	}
 }

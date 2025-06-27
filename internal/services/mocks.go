@@ -3,9 +3,8 @@ package services
 import (
 	"context"
 
-	"github.com/stretchr/testify/mock"
-
 	"github.com/stellar/go/txnbuild"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 )
@@ -43,6 +42,11 @@ func (r *RPCServiceMock) GetTransactions(startLedger int64, startCursor string, 
 func (r *RPCServiceMock) GetHealth() (entities.RPCGetHealthResult, error) {
 	args := r.Called()
 	return args.Get(0).(entities.RPCGetHealthResult), args.Error(1)
+}
+
+func (r *RPCServiceMock) GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error) {
+	args := r.Called(startLedger, limit)
+	return args.Get(0).(GetLedgersResponse), args.Error(1)
 }
 
 func (r *RPCServiceMock) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {

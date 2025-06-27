@@ -4,11 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
+	"github.com/alitto/pond"
+	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -21,8 +29,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+var ErrAlreadyInSync = errors.New("ingestion is already in sync")
+
 const (
+	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
+	getLedgersLimit                         = 200 // NOTE: cannot be larger than 200
+	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
@@ -36,13 +49,14 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models           *data.Models
-	ledgerCursorName string
-	appTracker       apptracker.AppTracker
-	rpcService       RPCService
-	chAccStore       store.ChannelAccountStore
-	contractStore    cache.TokenContractStore
-	metricsService   metrics.MetricsService
+	models            *data.Models
+	ledgerCursorName  string
+	appTracker        apptracker.AppTracker
+	rpcService        RPCService
+	chAccStore        store.ChannelAccountStore
+	contractStore     cache.TokenContractStore
+	metricsService    metrics.MetricsService
+	networkPassphrase string
 }
 
 func NewIngestService(
@@ -77,17 +91,18 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:           models,
-		ledgerCursorName: ledgerCursorName,
-		appTracker:       appTracker,
-		rpcService:       rpcService,
-		chAccStore:       chAccStore,
-		contractStore:    contractStore,
-		metricsService:   metricsService,
+		models:            models,
+		ledgerCursorName:  ledgerCursorName,
+		appTracker:        appTracker,
+		rpcService:        rpcService,
+		chAccStore:        chAccStore,
+		contractStore:     contractStore,
+		metricsService:    metricsService,
+		networkPassphrase: rpcService.NetworkPassphrase(),
 	}, nil
 }
 
-func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
 	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
 	ingestHeartbeatChannel := make(chan any, 1)
@@ -96,9 +111,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	if startLedger == 0 {
 		var err error
-		startLedger, err = m.models.Payments.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
+		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
-			return fmt.Errorf("erorr getting start ledger: %w", err)
+			return fmt.Errorf("getting start ledger: %w", err)
 		}
 	}
 
@@ -144,7 +159,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 
 			// update cursor
-			err = m.models.Payments.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
+			err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
 			if err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
@@ -160,6 +175,203 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 	return nil
+}
+
+func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
+		return fmt.Errorf("acquiring advisory lock: %w", err)
+	} else if !lockAcquired {
+		return errors.New("advisory lock not acquired")
+	}
+	defer func() {
+		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
+			err = fmt.Errorf("releasing advisory lock: %w", err)
+			log.Ctx(ctx).Error(err)
+		}
+	}()
+
+	// get latest ledger synced, to use as a cursor
+	if startLedger == 0 {
+		var err error
+		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
+		if err != nil {
+			return fmt.Errorf("getting latest ledger synced: %w", err)
+		}
+	}
+
+	// Prepare the health check:
+	manualTriggerChan := make(chan any, 1)
+	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	ingestHeartbeatChannel := make(chan any, 1)
+	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
+	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
+	var rpcHealth entities.RPCGetHealthResult
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer signal.Stop(signalChan)
+
+	log.Ctx(ctx).Info("Starting ingestion loop")
+	for {
+		select {
+		case sig := <-signalChan:
+			return fmt.Errorf("ingestor stopped due to signal %q", sig)
+		case <-ctx.Done():
+			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
+		case rpcHealth = <-rpcHeartbeatChannel:
+			// this will fallthrough to execute the code below ⬇️
+		}
+
+		// fetch ledgers
+		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
+		if err != nil {
+			if errors.Is(err, ErrAlreadyInSync) {
+				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
+				continue
+			}
+			return fmt.Errorf("fetching next ledgers batch: %w", err)
+		}
+
+		totalIngestionStart := time.Now()
+		// process ledgers
+		err = m.processLedgerResponse(ctx, getLedgersResponse)
+		if err != nil {
+			return fmt.Errorf("processing ledger response: %w", err)
+		}
+
+		// update cursor
+		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+		if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
+			return fmt.Errorf("updating latest synced ledger: %w", err)
+		}
+		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
+		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
+
+		if len(getLedgersResponse.Ledgers) == getLedgersLimit {
+			manualTriggerChan <- nil
+		}
+	}
+}
+
+// fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
+func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) (GetLedgersResponse, error) {
+	ledgerSeqRange, inSync := getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
+	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
+	if inSync {
+		return GetLedgersResponse{}, ErrAlreadyInSync
+	}
+
+	getLedgersResponse, err := m.rpcService.GetLedgers(ledgerSeqRange.StartLedger, ledgerSeqRange.Limit)
+	if err != nil {
+		return GetLedgersResponse{}, fmt.Errorf("getting ledgers: %w", err)
+	}
+
+	return getLedgersResponse, nil
+}
+
+type LedgerSeqRange struct {
+	StartLedger uint32
+	Limit       uint32
+}
+
+// getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
+// - the ledgers available in the RPC,
+// - the latest ledger synced by the ingestion service,
+// - the max ledger window to ingest.
+//
+// The returned ledger sequence range is inclusive of the start and end ledgers.
+func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (ledgerRange LedgerSeqRange, inSync bool) {
+	if latestLedgerSynced >= rpcNewestLedger {
+		return LedgerSeqRange{}, true
+	}
+	ledgerRange.StartLedger = max(latestLedgerSynced+1, rpcOldestLedger)
+	ledgerRange.Limit = getLedgersLimit
+
+	return ledgerRange, false
+}
+
+func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
+	// Create a worker pool
+	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
+
+	// Create a slice of errors
+	mu := sync.Mutex{}
+	var allTxHashes []string
+	var errs []error
+
+	// Submit tasks to the pool
+	for _, ledger := range getLedgersResponse.Ledgers {
+		ledger := ledger // Create a new variable to avoid closure issues
+		pool.Submit(func() {
+			txHashes, err := m.processLedger(ctx, ledger)
+			mu.Lock()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
+			} else {
+				allTxHashes = append(allTxHashes, txHashes...)
+			}
+			mu.Unlock()
+		})
+	}
+
+	// Wait for all tasks to complete
+	pool.StopAndWait()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
+	}
+
+	// TODO: ingest processed data
+	// TODO: unlock channel accounts
+
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers", len(getLedgersResponse.Ledgers))
+
+	return nil
+}
+
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) ([]string, error) {
+	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
+	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
+		return nil, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+	}
+
+	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting ledger transactions: %w", err)
+	}
+
+	// TODO: process transactions
+	log.Ctx(ctx).Debugf("🚧 Got %d transactions for ledger %d", len(transactions), xdrLedgerCloseMeta.LedgerSequence())
+	txHashes := make([]string, 0, len(transactions))
+	for _, tx := range transactions {
+		txHashes = append(txHashes, tx.Hash.HexString())
+	}
+
+	return txHashes, nil
+}
+
+func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
+	}
+	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
+
+	transactions := make([]ingest.LedgerTransaction, 0)
+	for {
+		tx, err := ledgerTxReader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("reading ledger: %w", err)
+		}
+
+		transactions = append(transactions, tx)
+	}
+
+	return transactions, nil
 }
 
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {
