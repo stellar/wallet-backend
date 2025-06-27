@@ -64,7 +64,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		wantHashes             []string
 	}{
 		{
-			name:                   "🟢successful_insert_without_transaction",
+			name:                   "🟢successful_insert_without_dbTx",
 			useDBTx:                false,
 			txs:                    []types.Transaction{tx1, tx2},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address()}, tx2.Hash: {kp2.Address()}},
@@ -73,7 +73,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			wantHashes:             []string{tx1.Hash, tx2.Hash},
 		},
 		{
-			name:                   "🟢successful_insert_with_transaction",
+			name:                   "🟢successful_insert_with_dbTx",
 			useDBTx:                true,
 			txs:                    []types.Transaction{tx1},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address()}},
@@ -109,7 +109,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			wantHashes:             nil,
 		},
 		{
-			name:                   "🟡non_existing_account_is_ignored_but_tx_and_other_accounts_are_inserted",
+			name:                   "🟡non_existing_account_is_ignored_but_tx_and_other_accounts_links_are_inserted",
 			useDBTx:                false,
 			txs:                    []types.Transaction{tx1},
 			stellarAddressesByHash: map[string][]string{tx1.Hash: {kp1.Address(), kp2.Address(), nonExistingAccount.Address()}},
@@ -162,7 +162,7 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			assert.ElementsMatch(t, tc.wantHashes, gotInsertedHashes)
 
 			// Verify the account links
-			if len(tc.stellarAddressesByHash) > 0 {
+			if len(tc.wantAccountLinks) > 0 {
 				var accountLinks []struct {
 					TxHash    string `db:"tx_hash"`
 					AccountID string `db:"account_id"`
