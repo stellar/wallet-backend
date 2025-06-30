@@ -32,23 +32,23 @@ var (
 
 	nativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 
-	usdcIssuer  = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	usdcIssuer          = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	usdcContractAddress = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
-	usdcAccount = xdr.MustMuxedAddress(usdcIssuer)
-	usdcAsset   = xdr.MustNewCreditAsset("USDC", usdcIssuer)
+	usdcAccount         = xdr.MustMuxedAddress(usdcIssuer)
+	usdcAsset           = xdr.MustNewCreditAsset("USDC", usdcIssuer)
 
 	xlmAsset = xdr.Asset{
 		Type: xdr.AssetTypeAssetTypeNative,
 	}
 
-	ethIssuer = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
+	ethIssuer          = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
 	ethContractAddress = "CALRGFTIOIMM5475GTIAIX24SKD5HIVQV6CA2LWBESXTFZREDIP7WBB3"
-	ethAsset  = xdr.MustNewCreditAsset("ETH", ethIssuer)
+	ethAsset           = xdr.MustNewCreditAsset("ETH", ethIssuer)
 
-	btcIssuer  = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
+	btcIssuer          = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
 	btcContractAddress = "CBJLNMRJL7B5E2OZXZTRI3XIYLFCT4BKQNOIF4X4HZ3A3PZCB4XFV2CV"
-	btcAccount = xdr.MustMuxedAddress(btcIssuer)
-	btcAsset   = xdr.MustNewCreditAsset("BTC", btcIssuer)
+	btcAccount         = xdr.MustMuxedAddress(btcIssuer)
+	btcAsset           = xdr.MustNewCreditAsset("BTC", btcIssuer)
 
 	lpBtcEthID, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
 	lpEthUsdcID, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
