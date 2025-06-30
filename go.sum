@@ -322,8 +322,8 @@ github.com/stellar/go v0.0.0-20250613214159-65b2d613a208 h1:gfTuX5bfx+HaZbA3aDJI
 github.com/stellar/go v0.0.0-20250613214159-65b2d613a208/go.mod h1:SbWsnxzU24xq4gh3v1f5HZ2W3EDdZkPYJOZu9TxNG7c=
 github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 h1:OzCVd0SV5qE3ZcDeSFCmOWLZfEWZ3Oe8KtmSOYKEVWE=
 github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2/go.mod h1:yoxyU/M8nl9LKeWIoBrbDPQ7Cy+4jxRcWcOayZ4BMps=
-github.com/stellar/stellar-rpc v0.9.6-0.20250130160539-be7702aa01ba h1:fCKETMnEBI2CDo2cUDoZsJUpTnpK5H2aDFoCfozyzIM=
-github.com/stellar/stellar-rpc v0.9.6-0.20250130160539-be7702aa01ba/go.mod h1:V5NPV4kvf2VGU8iRm8l6cAP3kWA/9B2NGKRkrbKBmpA=
+github.com/stellar/stellar-rpc v0.9.6-0.20250523162628-6bb9d7a387d5 h1:V+XezRLVHuk6c1nMkXkWjCwtoHN7F+DK86dK2kkNSZo=
+github.com/stellar/stellar-rpc v0.9.6-0.20250523162628-6bb9d7a387d5/go.mod h1:21zn7aUjDQZih77MDIFfsVN5Cjdiv1sMh+V51xgZwRw=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=

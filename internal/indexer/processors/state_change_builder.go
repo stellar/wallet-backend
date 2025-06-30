@@ -3,8 +3,6 @@
 package processors
 
 import (
-	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/stellar/go/asset"
@@ -91,33 +89,25 @@ func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeB
 
 // WithAmount sets the amount
 func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
-	b.base.Amount = sql.NullString{String: amount}
+	b.base.Amount = utils.SQLNullString(amount)
 	return b
 }
 
 // WithAsset sets the asset or contract
 func (b *StateChangeBuilder) WithAsset(asset *asset.Asset, contractAddress string) *StateChangeBuilder {
-	if asset != nil {
-		if asset.GetNative() {
-			b.base.Token = sql.NullString{String: "native"}
-		} else if issuedAsset := asset.GetIssuedAsset(); issuedAsset != nil {
-			b.base.Token = sql.NullString{String: fmt.Sprintf("%s:%s", issuedAsset.GetAssetCode(), issuedAsset.GetIssuer())}
-		}
-	} else {
-		b.base.ContractID = sql.NullString{String: contractAddress}
-	}
+	b.base.TokenID = utils.SQLNullString(contractAddress)
 	return b
 }
 
 // WithClaimableBalance sets the claimable balance ID
 func (b *StateChangeBuilder) WithClaimableBalance(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = sql.NullString{String: balanceID, Valid: true}
+	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
 	return b
 }
 
 // WithLiquidityPool sets the liquidity pool ID
 func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilder {
-	b.base.LiquidityPoolID = sql.NullString{String: poolID, Valid: true}
+	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
 	return b
 }
 

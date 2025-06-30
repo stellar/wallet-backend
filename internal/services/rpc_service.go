@@ -7,10 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -28,15 +32,16 @@ type RPCService interface {
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
 	SendTransaction(transactionXDR string) (entities.RPCSendTransactionResult, error)
 	GetHealth() (entities.RPCGetHealthResult, error)
+	GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
 	// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
-	// It runs health checks at regular intervals and can be triggered on-demand via healthCheckTrigger.
+	// It runs health checks at regular intervals and can be triggered on-demand via immediateHealthCheckTrigger.
 	//
-	// The healthCheckTrigger channel allows external components to request an immediate health check,
+	// The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
 	// which is particularly useful when the ingestor needs to catch up with the RPC service.
-	TrackRPCServiceHealth(ctx context.Context, healthCheckTrigger chan any)
+	TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger chan any)
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 	NetworkPassphrase() string
 }
@@ -139,6 +144,28 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 	return result, nil
 }
 
+type GetLedgersResponse protocol.GetLedgersResponse
+
+func (r *rpcService) GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error) {
+	resultBytes, err := r.sendRPCRequest("getLedgers", entities.RPCParams{
+		StartLedger: int64(startLedger),
+		Pagination: entities.RPCPagination{
+			Limit: int(limit),
+		},
+	})
+	if err != nil {
+		return GetLedgersResponse{}, fmt.Errorf("sending getLedgers request: %w", err)
+	}
+
+	var result GetLedgersResponse
+	err = json.Unmarshal(resultBytes, &result)
+	if err != nil {
+		return GetLedgersResponse{}, fmt.Errorf("parsing getLedgers result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
 func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
 	resultBytes, err := r.sendRPCRequest("getLedgerEntries", entities.RPCParams{
 		LedgerKeys: keys,
@@ -226,44 +253,56 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 }
 
 // TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
-// It runs health checks at regular intervals and can be triggered on-demand via healthCheckTrigger.
+// It runs health checks at regular intervals and can be triggered on-demand via immediateHealthCheckTrigger.
 //
-// The healthCheckTrigger channel allows external components to request an immediate health check,
+// The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
 // which is particularly useful when the ingestor needs to catch up with the RPC service.
-func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, healthCheckTrigger chan any) {
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger chan any) {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
 	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
-	warningTicker := time.NewTicker(r.HealthCheckWarningInterval())
+	unhealthyWarningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
+		signal.Stop(signalChan)
 		healthCheckTicker.Stop()
-		warningTicker.Stop()
+		unhealthyWarningTicker.Stop()
 		close(r.heartbeatChannel)
 	}()
 
+	// performHealthCheck is a function that performs a health check and updates the metrics.
 	performHealthCheck := func() {
-		result, err := r.GetHealth()
+		health, err := r.GetHealth()
 		if err != nil {
-			log.Warnf("RPC health check failed: %v", err)
+			log.Ctx(ctx).Warnf("RPC health check failed: %v", err)
 			r.metricsService.SetRPCServiceHealth(false)
 			return
 		}
 
-		r.heartbeatChannel <- result
+		unhealthyWarningTicker.Reset(r.HealthCheckWarningInterval())
+		r.heartbeatChannel <- health
 		r.metricsService.SetRPCServiceHealth(true)
-		r.metricsService.SetRPCLatestLedger(int64(result.LatestLedger))
-		warningTicker.Reset(r.HealthCheckWarningInterval())
+		r.metricsService.SetRPCLatestLedger(int64(health.LatestLedger))
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Ctx(ctx).Infof("RPC health tracking stopped due to context cancellation: %v", ctx.Err())
 			return
-		case <-warningTicker.C:
-			log.Warnf("RPC service unhealthy for over %s", r.HealthCheckWarningInterval())
+
+		case sig := <-signalChan:
+			log.Ctx(ctx).Warnf("RPC health tracking stopped due to signal %s", sig)
+			return
+
+		case <-unhealthyWarningTicker.C:
+			log.Ctx(ctx).Warnf("RPC service unhealthy for over %s", r.HealthCheckWarningInterval())
 			r.metricsService.SetRPCServiceHealth(false)
-			warningTicker.Reset(r.HealthCheckWarningInterval())
+
 		case <-healthCheckTicker.C:
 			performHealthCheck()
-		case <-healthCheckTrigger:
+
+		case <-immediateHealthCheckTrigger:
 			healthCheckTicker.Reset(r.HealthCheckTickInterval())
 			performHealthCheck()
 		}
@@ -311,7 +350,7 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 	err = json.Unmarshal(body, &res)
 	if err != nil {
 		r.metricsService.IncRPCEndpointFailure(method)
-		return nil, fmt.Errorf("parsing RPC response JSON: %w", err)
+		return nil, fmt.Errorf("parsing RPC response JSON body %v: %w", string(body), err)
 	}
 
 	if res.Result == nil {

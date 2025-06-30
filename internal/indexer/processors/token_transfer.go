@@ -9,6 +9,7 @@ import (
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
 	ttp "github.com/stellar/go/processors/token_transfer"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -18,7 +19,7 @@ import (
 var ErrOperationNotFound = errors.New("operation not found")
 
 // TokenTransferProcessor processes Stellar transactions and extracts token transfer events.
-// It converts Stellar operations (payments, account merges, etc.) into standardized state changes.
+// It converts Stellar operations (payments, account merges, etc.) into our internal (synthetic) state changes representation.
 type TokenTransferProcessor struct {
 	eventsProcessor *ttp.EventsProcessor
 }
@@ -62,7 +63,9 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, txIdx, opIdx)
 			if err != nil {
 				if errors.Is(err, ErrOperationNotFound) {
-					// Skip events for operations that couldn't be found
+					// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
+					// the indexer doesn't crash. We still log it to help debug issues.
+					log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opIdx: %d", txHash, opIdx)
 					continue
 				}
 				return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation index: %d, err: %w", txHash, opIdx, err)
@@ -198,28 +201,31 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 // handleDefaultTransfer handles normal transfers and liquidity pool interactions.
 // For LP interactions, creates single state change with LP ID. For regular transfers, creates debit/credit pair.
 func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
+	if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
+		return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
+	}
+
+	// Normal transfer between two accounts (payments, account merge)
+	return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), transfer.GetAsset(), contractAddress, builder), nil
+}
+
+// handleTransfersWithLiquidityPool handles transfers between liquidity pools and accounts.
+// This is a special case where a liquidity pool is the source or destination account which could occur when path payments go through liquidity pools.
+func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
 	from := transfer.GetFrom()
 	to := transfer.GetTo()
 	amount := transfer.GetAmount()
 	asset := transfer.GetAsset()
 
-	fromIsLP := IsLiquidityPool(from)
-	toIsLP := IsLiquidityPool(to)
-
-	// Handle liquidity pool interactions (from path payments, manual LP operations)
-	if fromIsLP || toIsLP {
-		if fromIsLP {
-			// LP is sending tokens to account (e.g., path payment buying from LP)
-			change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
-			return []types.StateChange{change}, nil
-		}
-		// LP is receiving tokens from account (e.g., path payment selling to LP)
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
+	// LP is sending tokens to account (e.g., path payment buying from LP)
+	if IsLiquidityPool(from) {
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
 
-	// Normal transfer between two accounts (payments, account merge)
-	return p.createDebitCreditPair(from, to, amount, asset, contractAddress, builder), nil
+	// LP is receiving tokens from account (e.g., path payment selling to LP)
+	change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
+	return []types.StateChange{change}, nil
 }
 
 // handleMint processes mint events that occur when asset issuers create new tokens.

@@ -5,7 +5,6 @@ package processors
 
 import (
 	"context"
-	"database/sql"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -16,8 +15,9 @@ import (
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
+	
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // Test constants and shared data
@@ -32,20 +32,25 @@ var (
 
 	oneUnit = xdr.Int64(1e7)
 
-	usdcIssuer  = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-	usdcAccount = xdr.MustMuxedAddress(usdcIssuer)
-	usdcAsset   = xdr.MustNewCreditAsset("USDC", usdcIssuer)
+	nativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	usdcIssuer          = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	usdcContractAddress = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+	usdcAccount         = xdr.MustMuxedAddress(usdcIssuer)
+	usdcAsset           = xdr.MustNewCreditAsset("USDC", usdcIssuer)
 
 	xlmAsset = xdr.Asset{
 		Type: xdr.AssetTypeAssetTypeNative,
 	}
 
-	ethIssuer = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
-	ethAsset  = xdr.MustNewCreditAsset("ETH", ethIssuer)
+	ethIssuer          = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
+	ethContractAddress = "CALRGFTIOIMM5475GTIAIX24SKD5HIVQV6CA2LWBESXTFZREDIP7WBB3"
+	ethAsset           = xdr.MustNewCreditAsset("ETH", ethIssuer)
 
-	btcIssuer  = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
-	btcAccount = xdr.MustMuxedAddress(btcIssuer)
-	btcAsset   = xdr.MustNewCreditAsset("BTC", btcIssuer)
+	btcIssuer          = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
+	btcContractAddress = "CBJLNMRJL7B5E2OZXZTRI3XIYLFCT4BKQNOIF4X4HZ3A3PZCB4XFV2CV"
+	btcAccount         = xdr.MustMuxedAddress(btcIssuer)
+	btcAsset           = xdr.MustNewCreditAsset("BTC", btcIssuer)
 
 	lpBtcEthID, _  = xdr.NewPoolId(btcAsset, ethAsset, xdr.LiquidityPoolFeeV18)  //nolint:errcheck
 	lpEthUsdcID, _ = xdr.NewPoolId(ethAsset, usdcAsset, xdr.LiquidityPoolFeeV18) //nolint:errcheck
@@ -806,16 +811,16 @@ func assertFeeEvent(t *testing.T, change types.StateChange, expectedAmount strin
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryDebit, change.StateChangeCategory)
 	require.Equal(t, someTxAccount.ToAccountId().Address(), change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 }
 
 func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryDebit, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	if expectedToken != "" {
-		require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
 }
 
@@ -823,9 +828,9 @@ func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount s
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryCredit, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	if expectedToken != "" {
-		require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
 }
 
@@ -833,24 +838,24 @@ func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount str
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryMint, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
-	require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryBurn, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
-	require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedLPID string) {
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
-	require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedLPID, change.LiquidityPoolID.String)
 }
 
@@ -858,8 +863,8 @@ func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, categor
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
-	require.Equal(t, sql.NullString{String: expectedToken}, change.Token)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
 }
 
@@ -867,7 +872,6 @@ func assertContractEvent(t *testing.T, change types.StateChange, category types.
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, sql.NullString{String: expectedAmount}, change.Amount)
-	require.Equal(t, sql.NullString{String: ""}, change.Token)
-	require.Equal(t, expectedContractID, change.ContractID.String)
+	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, expectedContractID, change.TokenID.String)
 }
