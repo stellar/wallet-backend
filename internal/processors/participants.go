@@ -121,6 +121,7 @@ type OperationParticipants struct {
 	Participants set.Set[string]
 }
 
+// GetOperationsParticipants returns a map of operation ID to its participants.
 func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]OperationParticipants, error) {
 	if !transaction.Successful() {
 		return nil, nil

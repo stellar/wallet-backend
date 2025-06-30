@@ -22,20 +22,37 @@ func NewIndexer(networkPassphrase string) *Indexer {
 }
 
 func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error {
-	participants, err := i.participantsProcessor.GetTransactionParticipants(transaction)
+	// 1. Index transaction txParticipants
+	txParticipants, err := i.participantsProcessor.GetTransactionParticipants(transaction)
 	if err != nil {
 		return fmt.Errorf("getting transaction participants: %w", err)
 	}
 
 	var dataTx *types.Transaction
-	if participants.Cardinality() != 0 {
+	if txParticipants.Cardinality() != 0 {
 		dataTx, err = processors.ConvertTransaction(&transaction)
 		if err != nil {
 			return fmt.Errorf("creating data transaction: %w", err)
 		}
 
-		for participant := range participants.Iterator().C {
+		for participant := range txParticipants.Iterator().C {
 			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
+		}
+	}
+
+	// 2. Index tx.Operations() participants
+	opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(transaction)
+	if err != nil {
+		return fmt.Errorf("getting operations participants: %w", err)
+	}
+	for opID, opParticipants := range opsParticipants {
+		dataOp, err := processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
+		if err != nil {
+			return fmt.Errorf("creating data operation: %w", err)
+		}
+
+		for participant := range opParticipants.Participants.Iterator().C {
+			i.IndexerBuffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 	}
 
