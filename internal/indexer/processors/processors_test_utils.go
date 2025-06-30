@@ -613,6 +613,7 @@ func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, categor
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
 }
 
