@@ -398,7 +398,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			}
 
 			// 1.2. TODO: Identify which operations should be ingested.
-			// 1.3. TODO: Identify which channel accounts should be unlocked.
+			// 1.3. TODO: Identify which state changes should be ingested.
 		}
 
 		// 2. Insert queries
