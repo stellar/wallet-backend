@@ -381,38 +381,27 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
-		// 1. Filter participants that are not in the watchlist.
-		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, indexerBuffer.Participants.ToSlice())
-		if err != nil {
-			return fmt.Errorf("getting existing accounts: %w", err)
-		}
-
-		if len(existingAccounts) == 0 {
-			log.Ctx(ctx).Debug("🟡 no existing accounts found, skipping ingestion")
-			return nil
-		}
-
-		// 2. Identify which data should be ingested.
+		// 1. Identify which data should be ingested.
 		txByHash := make(map[string]types.Transaction)
 		stellarAddressesByTxHash := make(map[string][]string)
-		for _, participant := range existingAccounts {
+		for _, participant := range indexerBuffer.Participants.ToSlice() {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
-			// 2.1. Identify which transactions should be ingested.
+			// 1.1. Identify which transactions should be ingested.
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
 				txByHash[tx.Hash] = tx
 				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
 			}
 
-			// 2.2. TODO: Identify which operations should be ingested.
-			// 2.3. TODO: Identify which channel accounts should be unlocked.
+			// 1.2. TODO: Identify which operations should be ingested.
+			// 1.3. TODO: Identify which channel accounts should be unlocked.
 		}
 
-		// 4. Insert queries
-		// 4.1. Insert transactions
+		// 2. Insert queries
+		// 2.1. Insert transactions
 		txs := make([]types.Transaction, 0, len(txByHash))
 		for _, tx := range txByHash {
 			txs = append(txs, tx)
@@ -424,7 +413,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 
 		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 
-		// 5. TODO: Unlock channel accounts.
+		// 3. TODO: Unlock channel accounts.
 
 		return nil
 	})
