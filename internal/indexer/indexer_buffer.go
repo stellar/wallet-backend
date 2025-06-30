@@ -13,6 +13,8 @@ func NewIndexerBuffer() IndexerBuffer {
 		Participants:          set.NewSet[string](),
 		txByHash:              make(map[string]types.Transaction),
 		txHashesByParticipant: make(map[string]set.Set[string]),
+		opByID:                make(map[int64]types.Operation),
+		opIDsByParticipant:    make(map[string]set.Set[int64]),
 	}
 }
 
@@ -91,4 +93,21 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 	b.opIDsByParticipant[participant].Add(operation.ID)
 
 	b.pushParticipantTransactionUnsafe(participant, transaction)
+}
+
+func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	opIDs, ok := b.opIDsByParticipant[participant]
+	if !ok {
+		return nil
+	}
+
+	ops := make(map[int64]types.Operation, opIDs.Cardinality())
+	for opID := range opIDs.Iterator().C {
+		ops[opID] = b.opByID[opID]
+	}
+
+	return ops
 }

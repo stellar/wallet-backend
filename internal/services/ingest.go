@@ -382,9 +382,13 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
-		// 1. Identify which data should be ingested.
 		txByHash := make(map[string]types.Transaction)
 		stellarAddressesByTxHash := make(map[string][]string)
+
+		opByID := make(map[int64]types.Operation)
+		stellarAddressesByOpID := make(map[int64][]string)
+
+		// 1. Identify which data should be ingested.
 		for _, participant := range indexerBuffer.Participants.ToSlice() {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
@@ -397,7 +401,13 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
 			}
 
-			// 1.2. TODO: Identify which operations should be ingested.
+			// 1.2. Identify which operations should be ingested.
+			participantOperations := indexerBuffer.GetParticipantOperations(participant)
+			for opID, op := range participantOperations {
+				opByID[opID] = op
+				stellarAddressesByOpID[opID] = append(stellarAddressesByOpID[opID], participant)
+			}
+
 			// 1.3. TODO: Identify which state changes should be ingested.
 		}
 
@@ -411,8 +421,18 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		if err != nil {
 			return fmt.Errorf("batch inserting transactions: %w", err)
 		}
-
 		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
+
+		// 2.2. Insert operations
+		ops := make([]types.Operation, 0, len(opByID))
+		for _, op := range opByID {
+			ops = append(ops, op)
+		}
+		insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
+		if err != nil {
+			return fmt.Errorf("batch inserting operations: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
 		// 3. Unlock channel accounts.
 		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
