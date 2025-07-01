@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/stellar/go/ingest"
@@ -121,19 +120,8 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipRemoved, effects.EffectSignerSponsorshipUpdated,
 			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
 
-			reason, sponsorField, includeFormerSponsor := p.getSponsorshipOperation(effect.TypeString)
-			sponsor := effect.Details[sponsorField].(string)
-			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySponsorship)
-
-			// Add state changes for sponsors
-			stateChanges = append(stateChanges, p.addStateChangesForSponsors(reason, sponsor, changeBuilder.Clone(), effect, includeFormerSponsor)...)
-
-			// Add state change for target account whose sponsorship is affected
-			changeBuilder = changeBuilder.WithReason(reason).WithSponsor(sponsor)
-			if includeFormerSponsor {
-				changeBuilder = changeBuilder.WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
-			}
-			stateChanges = append(stateChanges, p.parseSponsorshipDetails(effect, changeBuilder).Build())
+			sponsorshipChanges := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone())
+			stateChanges = append(stateChanges, sponsorshipChanges...)
 
 		default:
 			continue
@@ -143,17 +131,42 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	return stateChanges, nil
 }
 
-func (p *EffectsProcessor) addStateChangesForSponsors(reason types.StateChangeReason, sponsor string, changeBuilder *StateChangeBuilder, effect effects.EffectOutput, includeFormerSponsor bool) []types.StateChange {
-	if includeFormerSponsor {
-		return []types.StateChange{
-			// When sponsorship is updated, the reason for the new sponsor will be STATE_CHANGE_REASON_SET
-			// and the reason for the former sponsor will be STATE_CHANGE_REASON_REMOVE
-			p.createSponsorChange(types.StateChangeReasonSet, changeBuilder.Clone(), sponsor, effect.Address),
-			p.createSponsorChange(types.StateChangeReasonRemove, changeBuilder.Clone(), effect.Details["former_sponsor"].(string), effect.Address),
-		}
+func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder) []types.StateChange {
+	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategorySponsorship)
+	
+	var sponsorChanges []types.StateChange
+	var targetChange types.StateChange
+	
+	//exhaustive:ignore
+	switch effectType {
+	// Created cases
+	case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated, 
+		effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
+		sponsor := effect.Details["sponsor"].(string)
+		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonSet, baseBuilder.Clone(), sponsor, effect.Address))
+		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonSet, sponsor, effectType, effect, baseBuilder.Clone())
+		
+	// Removed cases  
+	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
+		effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
+		formerSponsor := effect.Details["former_sponsor"].(string)
+		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonRevoke, baseBuilder.Clone(), formerSponsor, effect.Address))
+		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonRevoke, formerSponsor, effectType, effect, baseBuilder.Clone())
+		
+	// Updated cases
+	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,
+		effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
+		newSponsor := effect.Details["new_sponsor"].(string)
+		formerSponsor := effect.Details["former_sponsor"].(string)
+		sponsorChanges = append(sponsorChanges, 
+			p.createSponsorChange(types.StateChangeReasonSet, baseBuilder.Clone(), newSponsor, effect.Address),
+			p.createSponsorChange(types.StateChangeReasonRemove, baseBuilder.Clone(), formerSponsor, effect.Address),
+		)
+		targetBuilder := baseBuilder.Clone().WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
+		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonUpdate, newSponsor, effectType, effect, targetBuilder)
 	}
-
-	return []types.StateChange{p.createSponsorChange(reason, changeBuilder, sponsor, effect.Address)}
+	
+	return append(sponsorChanges, targetChange)
 }
 
 func (p *EffectsProcessor) createSponsorChange(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string, targetAccountID string) types.StateChange {
@@ -164,25 +177,9 @@ func (p *EffectsProcessor) createSponsorChange(reason types.StateChangeReason, b
 		Build()
 }
 
-// Add this helper function
-func (p *EffectsProcessor) getSponsorshipOperation(effectType string) (reason types.StateChangeReason, sponsorField string,
-	includeFormerSponsor bool,
-) {
-	switch {
-	case strings.HasSuffix(string(effectType), "sponsorship_created"):
-		return types.StateChangeReasonSet, "sponsor", false
-	case strings.HasSuffix(string(effectType), "sponsorship_removed"):
-		return types.StateChangeReasonRevoke, "former_sponsor", false
-	case strings.HasSuffix(string(effectType), "sponsorship_updated"):
-		return types.StateChangeReasonUpdate, "new_sponsor", true
-	default:
-		return "", "", false
-	}
-}
-
-func (p *EffectsProcessor) parseSponsorshipDetails(effect effects.EffectOutput, builder *StateChangeBuilder) *StateChangeBuilder {
-	effectType := effects.EffectType(effect.Type)
-
+func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChangeReason, sponsor string, effectType effects.EffectType, effect effects.EffectOutput, builder *StateChangeBuilder) types.StateChange {
+	builder = builder.WithReason(reason).WithSponsor(sponsor)
+	
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipRemoved:
@@ -194,8 +191,10 @@ func (p *EffectsProcessor) parseSponsorshipDetails(effect effects.EffectOutput, 
 	case effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipUpdated, effects.EffectSignerSponsorshipRemoved:
 		builder = builder.WithSigner(effect.Details["signer"].(string), 0)
 	}
-	return builder
+	
+	return builder.Build()
 }
+
 
 func (p *EffectsProcessor) parseKeyValue(keys []string, effect *effects.EffectOutput) map[string]any {
 	keyValueMap := map[string]any{}
