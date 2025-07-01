@@ -37,21 +37,21 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txID := toid.New(int32(ledgerNumber), int32(tx.Index), 0).ToInt64()
+	txHash := tx.Hash.HexString()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
 	if err != nil {
-		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
+		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", txHash, err)
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash)
 
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)
 	if err != nil {
-		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
+		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", txHash, err)
 	}
 	stateChanges = append(stateChanges, feeChange)
 
@@ -67,10 +67,10 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 			if errors.Is(err, ErrOperationNotFound) {
 				// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
 				// the indexer doesn't crash. We still log it to help debug issues.
-				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", tx.Hash.HexString(), opID)
+				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", txHash, opID)
 				continue
 			}
-			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation ID: %d, err: %w", tx.Hash.HexString(), opID, err)
+			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation ID: %d, err: %w", txHash, opID, err)
 		}
 
 		changes, err := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
