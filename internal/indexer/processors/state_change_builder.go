@@ -83,5 +83,5 @@ func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 }
 
 func (b *StateChangeBuilder) generateID() string {
-	return fmt.Sprintf("%s-%d", b.base.AccountID, b.base.OperationID)
+	return fmt.Sprintf("%d-%s", b.base.OperationID, b.base.AccountID)
 }
