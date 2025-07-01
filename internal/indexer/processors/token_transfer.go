@@ -8,12 +8,12 @@ import (
 
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/toid"
 	ttp "github.com/stellar/go/processors/token_transfer"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var ErrOperationNotFound = errors.New("operation not found")
@@ -37,22 +37,21 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Hash.HexString()
-	txIdx := tx.Index
+	txID := toid.New(int32(ledgerNumber), int32(tx.Index), 0).ToInt64()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
 	if err != nil {
-		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", txHash, err)
+		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID)
 
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)
 	if err != nil {
-		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", txHash, err)
+		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
 	}
 	stateChanges = append(stateChanges, feeChange)
 
@@ -63,17 +62,15 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		event := e.GetEvent()
 
 		// For non-fee events, we need operation details to determine the correct state change type
-		var opID, opSourceAccount string
-		var opType *xdr.OperationType
-		opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, txIdx, opIdx)
+		opID, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, tx.Index, opIdx)
 		if err != nil {
 			if errors.Is(err, ErrOperationNotFound) {
 				// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
 				// the indexer doesn't crash. We still log it to help debug issues.
-				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opIdx: %d", txHash, opIdx)
+				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", tx.Hash.HexString(), opID)
 				continue
 			}
-			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation index: %d, err: %w", txHash, opIdx, err)
+			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation ID: %d, err: %w", tx.Hash.HexString(), opID, err)
 		}
 
 		changes, err := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
@@ -88,22 +85,22 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.
 // Returns operation ID, type, and source account which determine how events should be categorized.
-func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (string, *xdr.OperationType, string, error) {
+func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string, error) {
 	op, found := tx.GetOperation(opIdx - 1)
 	if !found {
-		return "", nil, "", ErrOperationNotFound
+		return 0, nil, "", ErrOperationNotFound
 	}
 
 	operationType := &op.Body.Type
 	opSourceAccount := OperationSourceAccount(tx, op)
-	opID := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
+	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx)).ToInt64()
 
 	return opID, operationType, opSourceAccount, nil
 }
 
 // processNonFeeEvent routes different types of non-fee token transfer events to their specific handlers.
 // Each event type (transfer, mint, burn, clawback) requires different business logic.
-func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress string, builder *StateChangeBuilder, opID string, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
+func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress string, builder *StateChangeBuilder, opID int64, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
 	builder = builder.WithOperationID(opID)
 
 	switch event := event.(type) {

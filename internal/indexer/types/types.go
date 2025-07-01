@@ -140,7 +140,7 @@ type StateChange struct {
 	Account     *Account     `json:"account,omitempty" db:"account"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
-	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
+	TransactionID int64        `json:"transactionId,omitempty" db:"transaction_id"`
 	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
 }
 

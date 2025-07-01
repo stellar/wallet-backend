@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -15,13 +16,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
-			LedgerNumber:    int64(ledgerNumber),
+			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TxHash:          txHash,
+			TransactionID:   txID,
 		},
 	}
 }
@@ -63,13 +64,14 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 }
 
 // WithOperationID sets the operation ID
-func (b *StateChangeBuilder) WithOperationID(operationID string) *StateChangeBuilder {
+func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
 	b.base.OperationID = operationID
 	return b
 }
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
+	b.base.ID = b.generateID()
 	return b.base
 }
 
@@ -78,4 +80,8 @@ func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: b.base,
 	}
+}
+
+func (b *StateChangeBuilder) generateID() string {
+	return fmt.Sprintf("%s-%d-%d-%d", b.base.AccountID, b.base.LedgerNumber, b.base.TransactionID, b.base.OperationID)
 }
