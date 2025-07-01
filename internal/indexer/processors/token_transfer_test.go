@@ -40,11 +40,11 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 	t.Run("Fees - processes both fee and refunds and creates a single state change with the net fee deducted", func(t *testing.T) {
 		tx := createSorobanTx(
 			xdr.LedgerEntryChanges{
-				generateAccountEntryChangState(accountEntry(someTxAccount, 1000*oneUnit)),
+				generateAccountEntryChangeState(accountEntry(someTxAccount, 1000*oneUnit)),
 				generateAccountEntryUpdatedChange(accountEntry(someTxAccount, 1000*oneUnit), 700*oneUnit),
 			},
 			xdr.LedgerEntryChanges{
-				generateAccountEntryChangState(accountEntry(someTxAccount, 700*oneUnit)),
+				generateAccountEntryChangeState(accountEntry(someTxAccount, 700*oneUnit)),
 				generateAccountEntryUpdatedChange(accountEntry(someTxAccount, 700*oneUnit), 730*oneUnit),
 			}, true)
 
