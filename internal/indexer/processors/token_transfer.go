@@ -223,20 +223,13 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		return nil, nil
 
 	default:
-		// Handle regular transfers, path payments, and other operations
-		return p.handleDefaultTransfer(transfer, contractAddress, builder)
+		if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
+			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
+		}
+	
+		// Normal transfer between two accounts (payments, account merge)
+		return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
 	}
-}
-
-// handleDefaultTransfer handles normal transfers and liquidity pool interactions.
-// For LP interactions, creates single state change with LP ID. For regular transfers, creates debit/credit pair.
-func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
-	if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
-		return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
-	}
-
-	// Normal transfer between two accounts (payments, account merge)
-	return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
 }
 
 // handleTransfersWithLiquidityPool handles transfers between liquidity pools and accounts.
