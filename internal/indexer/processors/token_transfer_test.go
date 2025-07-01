@@ -17,7 +17,7 @@ import (
 )
 
 func TestTokenTransferProcessor_Process(t *testing.T) {
-	t.Run("Fee - extracts only fee event for failed txn", func(t *testing.T) {
+	t.Run("Fees - extracts only fee event for failed txn", func(t *testing.T) {
 		createAccountOp := xdr.Operation{
 			SourceAccount: &accountA,
 			Body: xdr.OperationBody{
@@ -37,7 +37,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		assertFeeEvent(t, changes[0], "100")
 	})
 
-	t.Run("Fee - extracts credit state change for fee refund", func(t *testing.T) {
+	t.Run("Fees - processes both fee and refunds and creates a single state change with the net fee deducted", func(t *testing.T) {
 		tx := createSorobanTx(
 			xdr.LedgerEntryChanges{
 				generateAccountEntryChangState(accountEntry(someTxAccount, 1000*oneUnit)),
@@ -50,10 +50,8 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes := processTransaction(t, processor, tx)
-		requireEventCount(t, changes, 2)
-
-		assertDebitEvent(t, changes[0], someTxAccount.ToAccountId().Address(), "3000000000", "")
-		assertCreditEvent(t, changes[1], someTxAccount.ToAccountId().Address(), "300000000", "")
+		requireEventCount(t, changes, 1)
+		assertFeeEvent(t, changes[0], "2700000000")
 	})
 
 	t.Run("CreateAccount - extracts state changes for successful account creation", func(t *testing.T) {

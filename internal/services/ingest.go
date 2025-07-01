@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/alitto/pond"
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -22,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -34,7 +37,7 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 const (
 	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
-	getLedgersLimit                         = 200 // NOTE: cannot be larger than 200
+	getLedgersLimit                         = 50 // NOTE: cannot be larger than 200
 	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
@@ -233,8 +236,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
 		}
 
-		totalIngestionStart := time.Now()
 		// process ledgers
+		totalIngestionStart := time.Now()
 		err = m.processLedgerResponse(ctx, getLedgersResponse)
 		if err != nil {
 			return fmt.Errorf("processing ledger response: %w", err)
@@ -295,23 +298,18 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// Create a worker pool
 	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
-	// Create a slice of errors
-	mu := sync.Mutex{}
-	var allTxHashes []string
 	var errs []error
+	errMu := sync.Mutex{}
+	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase)
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {
-		ledger := ledger // Create a new variable to avoid closure issues
 		pool.Submit(func() {
-			txHashes, err := m.processLedger(ctx, ledger)
-			mu.Lock()
-			if err != nil {
+			if err := m.processLedger(ctx, ledger, ledgerIndexer); err != nil {
+				errMu.Lock()
+				defer errMu.Unlock()
 				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
-			} else {
-				allTxHashes = append(allTxHashes, txHashes...)
 			}
-			mu.Unlock()
 		})
 	}
 
@@ -322,33 +320,38 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
-	// TODO: ingest processed data
-	// TODO: unlock channel accounts
+	err := m.ingestProcessedData(ctx, ledgerIndexer)
+	if err != nil {
+		return fmt.Errorf("ingesting processed data: %w", err)
+	}
 
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers", len(getLedgersResponse.Ledgers))
+	// Log a summary
+	memStats := new(runtime.MemStats)
+	runtime.ReadMemStats(memStats)
+	numberOfTransactions := ledgerIndexer.GetNumberOfTransactions()
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
 
 	return nil
 }
 
-func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo) ([]string, error) {
+func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, ledgerIndexer *indexer.Indexer) error {
 	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
-		return nil, fmt.Errorf("unmarshalling ledger close meta: %w", err)
+		return fmt.Errorf("unmarshalling ledger close meta: %w", err)
 	}
 
 	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
 	if err != nil {
-		return nil, fmt.Errorf("getting ledger transactions: %w", err)
+		return fmt.Errorf("getting ledger transactions: %w", err)
 	}
 
-	// TODO: process transactions
-	log.Ctx(ctx).Debugf("🚧 Got %d transactions for ledger %d", len(transactions), xdrLedgerCloseMeta.LedgerSequence())
-	txHashes := make([]string, 0, len(transactions))
 	for _, tx := range transactions {
-		txHashes = append(txHashes, tx.Hash.HexString())
+		if err := ledgerIndexer.ProcessTransaction(tx); err != nil {
+			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
+		}
 	}
 
-	return txHashes, nil
+	return nil
 }
 
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
@@ -372,6 +375,51 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	}
 
 	return transactions, nil
+}
+
+func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
+	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		indexerBuffer := &ledgerIndexer.IndexerBuffer
+
+		// 1. Filter participants that are not in the watchlist.
+		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, indexerBuffer.Participants.ToSlice())
+		if err != nil {
+			return fmt.Errorf("getting existing accounts: %w", err)
+		}
+
+		if len(existingAccounts) == 0 {
+			log.Ctx(ctx).Debug("🟡 no existing accounts found, skipping ingestion")
+			return nil
+		}
+
+		// 2. Identify which data should be ingested.
+		txHashesToInsert := set.NewSet[string]()
+		for _, participant := range existingAccounts {
+			if !indexerBuffer.Participants.Contains(participant) {
+				continue
+			}
+
+			// 2.1. Identify which transactions should be ingested.
+			for _, tx := range indexerBuffer.GetParticipantTransactions(participant) {
+				txHashesToInsert.Add(tx.Hash)
+			}
+
+			// 2.2. TODO: Identify which operations should be ingested.
+			// 2.3. TODO: Identify which channel accounts should be unlocked.
+		}
+
+		// 4. TODO: insert transactions and transactions_accounts into the database
+		log.Ctx(ctx).Infof("🚧🟢 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
+
+		// 5. TODO: Unlock channel accounts.
+
+		return nil
+	})
+	if dbTxErr != nil {
+		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
+	}
+
+	return nil
 }
 
 func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transaction, error) {

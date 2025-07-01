@@ -3,9 +3,8 @@
 package processors
 
 import (
+	"fmt"
 	"time"
-
-	"github.com/stellar/go/asset"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -17,14 +16,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash, opID string) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
-			LedgerNumber:    int64(ledgerNumber),
+			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TxHash:          txHash,
-			OperationID:     opID,
+			TransactionID:   txID,
 		},
 	}
 }
@@ -93,8 +91,8 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 	return b
 }
 
-// WithAsset sets the asset or contract
-func (b *StateChangeBuilder) WithAsset(asset *asset.Asset, contractAddress string) *StateChangeBuilder {
+// WithToken sets the token ID using the contract address
+func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
 	b.base.TokenID = utils.SQLNullString(contractAddress)
 	return b
 }
@@ -111,8 +109,15 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 	return b
 }
 
+// WithOperationID sets the operation ID
+func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
+	b.base.OperationID = operationID
+	return b
+}
+
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
+	b.base.ID = b.generateID()
 	return b.base
 }
 
@@ -121,4 +126,8 @@ func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: b.base,
 	}
+}
+
+func (b *StateChangeBuilder) generateID() string {
+	return fmt.Sprintf("%s-%d-%d-%d", b.base.AccountID, b.base.LedgerNumber, b.base.TransactionID, b.base.OperationID)
 }

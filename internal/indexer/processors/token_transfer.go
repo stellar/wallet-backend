@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"strconv"
 
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
 	ttp "github.com/stellar/go/processors/token_transfer"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var ErrOperationNotFound = errors.New("operation not found")
@@ -37,42 +37,43 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Hash.HexString()
-	txIdx := tx.Index
+	txID := toid.New(int32(ledgerNumber), int32(tx.Index), 0).ToInt64()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
 	if err != nil {
-		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", txHash, err)
+		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
 	}
 
-	// Process both fee events (transaction costs) and operation events (transfers, mints, etc.)
-	allEvents := append(txEvents.FeeEvents, txEvents.OperationEvents...)
+	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID)
 
-	stateChanges := make([]types.StateChange, 0, len(allEvents))
-	for _, e := range allEvents {
+	// Process fee events
+	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)
+	if err != nil {
+		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", tx.Hash.HexString(), err)
+	}
+	stateChanges = append(stateChanges, feeChange)
+
+	for _, e := range txEvents.OperationEvents {
 		meta := e.GetMeta()
 		contractAddress := meta.GetContractAddress()
 		opIdx := meta.GetOperationIndex()
 		event := e.GetEvent()
 
 		// For non-fee events, we need operation details to determine the correct state change type
-		var opID, opSourceAccount string
-		var opType *xdr.OperationType
-		if _, isFeeEvent := event.(*ttp.TokenTransferEvent_Fee); !isFeeEvent {
-			opID, opType, opSourceAccount, err = p.parseOperationDetails(tx, ledgerNumber, txIdx, opIdx)
-			if err != nil {
-				if errors.Is(err, ErrOperationNotFound) {
-					// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
-					// the indexer doesn't crash. We still log it to help debug issues.
-					log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opIdx: %d", txHash, opIdx)
-					continue
-				}
-				return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation index: %d, err: %w", txHash, opIdx, err)
+		opID, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, tx.Index, opIdx)
+		if err != nil {
+			if errors.Is(err, ErrOperationNotFound) {
+				// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
+				// the indexer doesn't crash. We still log it to help debug issues.
+				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", tx.Hash.HexString(), opID)
+				continue
 			}
+			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation ID: %d, err: %w", tx.Hash.HexString(), opID, err)
 		}
 
-		changes, err := p.processEvent(event, contractAddress, ledgerNumber, ledgerCloseTime, txHash, opID, opType, opSourceAccount)
+		changes, err := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
 		if err != nil {
 			return nil, err
 		}
@@ -84,23 +85,23 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.
 // Returns operation ID, type, and source account which determine how events should be categorized.
-func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (string, *xdr.OperationType, string, error) {
+func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string, error) {
 	op, found := tx.GetOperation(opIdx - 1)
 	if !found {
-		return "", nil, "", ErrOperationNotFound
+		return 0, nil, "", ErrOperationNotFound
 	}
 
 	operationType := &op.Body.Type
 	opSourceAccount := OperationSourceAccount(tx, op)
-	opID := utils.OperationID(int32(ledgerIdx), int32(txIdx), int32(opIdx))
+	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx)).ToInt64()
 
 	return opID, operationType, opSourceAccount, nil
 }
 
-// processEvent routes different types of token transfer events to their specific handlers.
-// Each event type (transfer, mint, burn, clawback, fee) requires different business logic.
-func (p *TokenTransferProcessor) processEvent(event any, contractAddress string, ledgerNumber uint32, ledgerCloseTime int64, txHash, opID string, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, opID)
+// processNonFeeEvent routes different types of non-fee token transfer events to their specific handlers.
+// Each event type (transfer, mint, burn, clawback) requires different business logic.
+func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress string, builder *StateChangeBuilder, opID int64, operationType *xdr.OperationType, opSourceAccount string) ([]types.StateChange, error) {
+	builder = builder.WithOperationID(opID)
 
 	switch event := event.(type) {
 	case *ttp.TokenTransferEvent_Transfer:
@@ -111,38 +112,68 @@ func (p *TokenTransferProcessor) processEvent(event any, contractAddress string,
 		return p.handleBurn(event.Burn, contractAddress, builder, operationType, opSourceAccount)
 	case *ttp.TokenTransferEvent_Clawback:
 		return p.handleClawback(event.Clawback, contractAddress, builder, operationType, opSourceAccount)
-	case *ttp.TokenTransferEvent_Fee:
-		return p.handleFee(event.Fee, contractAddress, builder)
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", event)
 	}
 }
 
+// processFeeEvents processes both fee and refund events and calculates a state change with the net fee per transaction.
+func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, feeEvents []*ttp.TokenTransferEvent) (types.StateChange, error) {
+	if len(feeEvents) == 0 {
+		return types.StateChange{}, nil
+	}
+
+	assetContractID := feeEvents[0].GetMeta().GetContractAddress()
+	netFee, err := strconv.ParseInt(feeEvents[0].GetFee().GetAmount(), 10, 64)
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("parsing fee amount for fee event: %w", err)
+	}
+
+	builder = builder.
+		WithAccount(feeEvents[0].GetFee().GetFrom()).
+		WithToken(assetContractID)
+
+	// If there is a refund, add it to the net fee. We are adding it because the refund value is a negative fee.
+	if len(feeEvents) > 1 {
+		refundAmount, err := strconv.ParseInt(feeEvents[1].GetFee().GetAmount(), 10, 64)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("parsing refund amount for fee event: %w", err)
+		}
+		netFee += refundAmount
+	}
+
+	// There is no fee to process
+	if netFee == 0 {
+		return types.StateChange{}, nil
+	}
+
+	builder = builder.WithAmount(strconv.FormatInt(netFee, 10))
+	if netFee > 0 {
+		return builder.WithCategory(types.StateChangeCategoryDebit).Build(), nil
+	}
+	return builder.WithCategory(types.StateChangeCategoryCredit).Build(), nil
+}
+
 // createDebitCreditPair creates a pair of debit and credit state changes for normal transfers.
 // Used for regular payments between two accounts (e.g., Alice sends 100 USDC to Bob).
-func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, asset *asset.Asset, contractAddress string, builder *StateChangeBuilder) []types.StateChange {
-	debitChange := builder.WithCategory(types.StateChangeCategoryDebit).
-		WithAccount(from).
-		WithAmount(amount).
-		WithAsset(asset, contractAddress).
-		Build()
+func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, contractAddress string, builder *StateChangeBuilder) []types.StateChange {
+	change := builder.
+		WithToken(contractAddress).
+		WithAmount(amount)
 
-	creditChange := builder.WithCategory(types.StateChangeCategoryCredit).
-		WithAccount(to).
-		WithAmount(amount).
-		WithAsset(asset, contractAddress).
-		Build()
+	debitChange := change.Clone().WithCategory(types.StateChangeCategoryDebit).WithAccount(from).Build()
+	creditChange := change.Clone().WithCategory(types.StateChangeCategoryCredit).WithAccount(to).Build()
 
 	return []types.StateChange{debitChange, creditChange}
 }
 
 // createLiquidityPoolChange creates a state change for liquidity pool interactions.
 // Includes the liquidity pool ID to track which pool the tokens moved to/from.
-func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateChangeCategory, accountID, poolID, amount string, asset *asset.Asset, contractAddress string, builder *StateChangeBuilder) types.StateChange {
+func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateChangeCategory, accountID, poolID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
 	return builder.WithCategory(category).
 		WithAccount(accountID).
 		WithAmount(amount).
-		WithAsset(asset, contractAddress).
+		WithToken(contractAddress).
 		WithLiquidityPool(poolID).
 		Build()
 }
@@ -153,7 +184,7 @@ func (p *TokenTransferProcessor) createClaimableBalanceChange(category types.Sta
 	return builder.WithCategory(category).
 		WithAccount(accountID).
 		WithAmount(amount).
-		WithAsset(asset, contractAddress).
+		WithToken(contractAddress).
 		WithClaimableBalance(claimableBalanceID).
 		Build()
 }
@@ -180,12 +211,12 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 
 	case xdr.OperationTypeLiquidityPoolDeposit:
 		// When depositing to LP, record debit from depositor with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, transfer.GetFrom(), transfer.GetTo(), amount, asset, contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, transfer.GetFrom(), transfer.GetTo(), amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		// When withdrawing from LP, record credit to withdrawer with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, transfer.GetTo(), transfer.GetFrom(), amount, asset, contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, transfer.GetTo(), transfer.GetFrom(), amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeSetTrustLineFlags, xdr.OperationTypeAllowTrust:
@@ -206,7 +237,7 @@ func (p *TokenTransferProcessor) handleDefaultTransfer(transfer *ttp.Transfer, c
 	}
 
 	// Normal transfer between two accounts (payments, account merge)
-	return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), transfer.GetAsset(), contractAddress, builder), nil
+	return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
 }
 
 // handleTransfersWithLiquidityPool handles transfers between liquidity pools and accounts.
@@ -215,16 +246,15 @@ func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.
 	from := transfer.GetFrom()
 	to := transfer.GetTo()
 	amount := transfer.GetAmount()
-	asset := transfer.GetAsset()
 
 	// LP is sending tokens to account (e.g., path payment buying from LP)
 	if IsLiquidityPool(from) {
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, asset, contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
 
 	// LP is receiving tokens from account (e.g., path payment selling to LP)
-	change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, asset, contractAddress, builder)
+	change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, contractAddress, builder)
 	return []types.StateChange{change}, nil
 }
 
@@ -240,7 +270,7 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 		mintChange := builder.WithCategory(types.StateChangeCategoryMint).
 			WithAccount(asset.GetIssuedAsset().GetIssuer()).
 			WithAmount(amount).
-			WithAsset(asset, contractAddress).
+			WithToken(contractAddress).
 			Build()
 		changes = append(changes, mintChange)
 	}
@@ -250,7 +280,7 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 		change := builder.WithCategory(types.StateChangeCategoryCredit).
 			WithAccount(mint.GetTo()).
 			WithAmount(amount).
-			WithAsset(asset, contractAddress).
+			WithToken(contractAddress).
 			Build()
 		changes = append(changes, change)
 	}
@@ -272,7 +302,7 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		// When issuer withdraws their own asset from LP, it's burned with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBurn, opSourceAccount, burn.GetFrom(), amount, asset, contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBurn, opSourceAccount, burn.GetFrom(), amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:
@@ -310,7 +340,7 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 		burnChange := builder.WithCategory(types.StateChangeCategoryBurn).
 			WithAccount(asset.GetIssuedAsset().GetIssuer()).
 			WithAmount(amount).
-			WithAsset(asset, contractAddress).
+			WithToken(contractAddress).
 			Build()
 		changes = append(changes, burnChange)
 	}
@@ -320,37 +350,10 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 		debitChange := builder.WithCategory(types.StateChangeCategoryDebit).
 			WithAccount(from).
 			WithAmount(amount).
-			WithAsset(asset, contractAddress).
+			WithToken(contractAddress).
 			Build()
 		changes = append(changes, debitChange)
 	}
 
 	return changes, nil
-}
-
-// handleFee processes transaction fee events.
-// Positive amounts are debits (fee charged), negative amounts are credits (fee refunds).
-func (p *TokenTransferProcessor) handleFee(fee *ttp.Fee, contractAddress string, builder *StateChangeBuilder) ([]types.StateChange, error) {
-	amount := fee.GetAmount()
-	var category types.StateChangeCategory
-	var finalAmount string
-
-	// Negative fee amounts represent refunds (common in Soroban transactions)
-	if strings.HasPrefix(amount, "-") {
-		category = types.StateChangeCategoryCredit
-		// Store the refund as positive credit amount
-		finalAmount = strings.TrimPrefix(amount, "-")
-	} else {
-		// Positive fee amounts are normal transaction costs
-		category = types.StateChangeCategoryDebit
-		finalAmount = amount
-	}
-
-	change := builder.WithCategory(category).
-		WithAccount(fee.GetFrom()).
-		WithAmount(finalAmount).
-		WithAsset(fee.GetAsset(), contractAddress).
-		Build()
-
-	return []types.StateChange{change}, nil
 }
