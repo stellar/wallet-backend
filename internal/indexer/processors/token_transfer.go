@@ -120,6 +120,7 @@ func (p *TokenTransferProcessor) processNonFeeEvent(event any, contractAddress s
 	}
 }
 
+// processFeeEvents processes both fee and refund events and calculates a state change with the net fee per transaction.
 func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, feeEvents []*ttp.TokenTransferEvent) (types.StateChange, error) {
 	if len(feeEvents) == 0 {
 		return types.StateChange{}, nil
