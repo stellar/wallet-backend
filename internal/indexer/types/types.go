@@ -15,6 +15,7 @@ type Account struct {
 
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
+	ToID            int64     `json:"to_id,omitempty" db:"to_id"`
 	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
@@ -60,7 +61,7 @@ const (
 )
 
 type Operation struct {
-	ID              string        `json:"id,omitempty" db:"id"`
+	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
@@ -119,7 +120,7 @@ type StateChange struct {
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
 	LedgerCreatedAt     time.Time           `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
-	LedgerNumber        int64               `json:"ledgerNumber,omitempty" db:"ledger_number"`
+	LedgerNumber        uint32              `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	// Nullable fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
@@ -137,7 +138,7 @@ type StateChange struct {
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty" db:"account"`
-	OperationID string       `json:"operationId,omitempty" db:"operation_id"`
+	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
