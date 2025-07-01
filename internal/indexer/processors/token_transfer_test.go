@@ -51,8 +51,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 1)
-
-		assertDebitEvent(t, changes[0], someTxAccount.ToAccountId().Address(), "2700000000", "")
+		assertFeeEvent(t, changes[0], "2700000000")
 	})
 
 	t.Run("CreateAccount - extracts state changes for successful account creation", func(t *testing.T) {
