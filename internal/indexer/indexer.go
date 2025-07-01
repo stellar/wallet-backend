@@ -5,7 +5,6 @@ import (
 
 	"github.com/stellar/go/ingest"
 
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/processors"
 )
 
@@ -28,13 +27,11 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		return fmt.Errorf("getting transaction participants: %w", err)
 	}
 
-	var dataTx *types.Transaction
+	dataTx, err := processors.ConvertTransaction(&transaction)
+	if err != nil {
+		return fmt.Errorf("creating data transaction: %w", err)
+	}
 	if txParticipants.Cardinality() != 0 {
-		dataTx, err = processors.ConvertTransaction(&transaction)
-		if err != nil {
-			return fmt.Errorf("creating data transaction: %w", err)
-		}
-
 		for participant := range txParticipants.Iterator().C {
 			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
 		}
