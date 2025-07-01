@@ -21,6 +21,10 @@ tidy: ## Tidy modfiles and format source files
 	go mod tidy -v
 	@echo "==> Formatting code..."
 	go fmt ./...
+	$(shell go env GOPATH)/bin/gofumpt -l -w .
+	@echo "==> Fixing imports..."
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
 
 fmt: ## Check if code is formatted with gofmt
 	@echo "==> Checking formatting..."
@@ -42,7 +46,7 @@ generate: ## Run go generate
 
 shadow: ## Run shadow analysis to find shadowed variables
 	@echo "==> Running shadow analyzer..."
-	@if ! command -v shadow >/dev/null 2>&1; then \
+	@if ! command -v $(shell go env GOPATH)/bin/shadow >/dev/null 2>&1; then \
 		echo "Installing shadow..."; \
 		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0; \
 	fi
@@ -55,7 +59,7 @@ exhaustive: ## Check exhaustiveness of switch statements
 
 deadcode: ## Find unused code
 	@echo "==> Checking for deadcode..."
-	@if ! command -v deadcode >/dev/null 2>&1; then \
+	@if ! command -v $(shell go env GOPATH)/bin/deadcode >/dev/null 2>&1; then \
 		echo "Installing deadcode..."; \
 		go install golang.org/x/tools/cmd/deadcode@v0.31.0; \
 	fi
@@ -68,9 +72,15 @@ deadcode: ## Find unused code
 		echo "✅ No deadcode found"; \
 	fi
 
+fix-imports: ## Fix import formatting and organization
+	@echo "==> Fixing imports..."
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -w
+	@echo "✅ Imports fixed."
+
 goimports: ## Check import formatting and organization
 	@echo "==> Checking imports..."
-	@command -v goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
+	@command -v $(shell go env GOPATH)/bin/goimports >/dev/null 2>&1 || { go install golang.org/x/tools/cmd/goimports@v0.31.0; }
 	@non_compliant_files=$$(find . -type f -name "*.go" ! -path "*mock*" | xargs $(shell go env GOPATH)/bin/goimports -local "github.com/stellar/wallet-backend" -l); \
 	if [ -n "$$non_compliant_files" ]; then \
 		echo "🚨 The following files are not compliant with goimports:"; \
