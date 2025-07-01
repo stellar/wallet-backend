@@ -252,7 +252,7 @@ func createTx(op xdr.Operation, changes xdr.LedgerEntryChanges, opResult *xdr.Op
 }
 
 // Account entry helpers
-func generateAccountEntryChangState(accountEntry *xdr.AccountEntry) xdr.LedgerEntryChange {
+func generateAccountEntryChangeState(accountEntry *xdr.AccountEntry) xdr.LedgerEntryChange {
 	return xdr.LedgerEntryChange{
 		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
 		State: &xdr.LedgerEntry{
