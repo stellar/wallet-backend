@@ -199,28 +199,38 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		processor := NewEffectsProcessor(networkPassphrase)
 		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
-		require.Len(t, changes, 4)
+		require.Len(t, changes, 8)
 
-		for _, change := range changes {
-			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.OperationID)
-			assert.Equal(t, uint32(12345), change.LedgerNumber)
-			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
-			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.TransactionID)
+		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[1].OperationID)
+		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[1].TransactionID)
+		assert.Equal(t, types.StateChangeCategorySponsorship, changes[1].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRevoke, *changes[1].StateChangeReason)
+		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].TargetAccountID.String)
 
-			//exhaustive:ignore
-			switch change.StateChangeCategory {
-			case types.StateChangeCategorySponsorship:
-				//exhaustive:ignore
-				switch *change.StateChangeReason {
-				case types.StateChangeReasonSet:
-					assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", change.SponsorAccountID.String)
-				case types.StateChangeReasonUpdate:
-					assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", change.SponsorAccountID.String)
-					assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", change.KeyValue["former_sponsor"])
-				case types.StateChangeReasonRevoke:
-					assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", change.SponsorAccountID.String)
-				}
-			}
-		}
+		assert.Equal(t, types.StateChangeCategorySponsorship, changes[2].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRevoke, *changes[2].StateChangeReason)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[2].AccountID)
+		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[2].SponsorAccountID.String)
+
+		// Updating sponsorship creates 3 state changes - one for the new sponsor, one for the former sponsor, and one for the target account
+		assert.Equal(t, types.StateChangeCategorySponsorship, changes[3].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSet, *changes[3].StateChangeReason)
+		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[3].AccountID)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].TargetAccountID.String)
+
+		assert.Equal(t, types.StateChangeCategorySponsorship, changes[4].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRemove, *changes[4].StateChangeReason)
+		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[4].AccountID)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].TargetAccountID.String)
+
+		assert.Equal(t, types.StateChangeCategorySponsorship, changes[5].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonUpdate, *changes[5].StateChangeReason)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[5].AccountID)
+		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[5].SponsorAccountID.String)
+		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[5].KeyValue["former_sponsor"])
 	})
 }

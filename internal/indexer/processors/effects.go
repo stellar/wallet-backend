@@ -122,16 +122,17 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
 
 			reason, sponsorField, includeFormerSponsor := p.getSponsorshipOperation(effect.TypeString)
+			sponsor := effect.Details[sponsorField].(string)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySponsorship)
 
-			changeBuilder = changeBuilder.
-				WithCategory(types.StateChangeCategorySponsorship).
-				WithReason(reason).
-				WithSponsor(effect.Details[sponsorField].(string))
+			// Add state changes for sponsors
+			stateChanges = append(stateChanges, p.addStateChangesForSponsors(reason, sponsor, changeBuilder.Clone(), effect, includeFormerSponsor)...)
 
+			// Add state change for target account whose sponsorship is affected
+			changeBuilder = changeBuilder.WithReason(reason).WithSponsor(sponsor)
 			if includeFormerSponsor {
 				changeBuilder = changeBuilder.WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
 			}
-
 			stateChanges = append(stateChanges, p.parseSponsorshipDetails(effect, changeBuilder).Build())
 
 		default:
@@ -140,6 +141,27 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	}
 
 	return stateChanges, nil
+}
+
+func (p *EffectsProcessor) addStateChangesForSponsors(reason types.StateChangeReason, sponsor string, changeBuilder *StateChangeBuilder, effect effects.EffectOutput, includeFormerSponsor bool) []types.StateChange {
+	if includeFormerSponsor {
+		return []types.StateChange{
+			// When sponsorship is updated, the reason for the new sponsor will be STATE_CHANGE_REASON_SET
+			// and the reason for the former sponsor will be STATE_CHANGE_REASON_REMOVE
+			p.createSponsorChange(types.StateChangeReasonSet, changeBuilder.Clone(), sponsor, effect.Address),
+			p.createSponsorChange(types.StateChangeReasonRemove, changeBuilder.Clone(), effect.Details["former_sponsor"].(string), effect.Address),
+		}
+	}
+
+	return []types.StateChange{p.createSponsorChange(reason, changeBuilder, sponsor, effect.Address)}
+}
+
+func (p *EffectsProcessor) createSponsorChange(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string, targetAccountID string) types.StateChange {
+	return builder.
+		WithReason(reason).
+		WithAccount(sponsor).
+		WithTargetAccountID(targetAccountID).
+		Build()
 }
 
 // Add this helper function
