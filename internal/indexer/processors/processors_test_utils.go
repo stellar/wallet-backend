@@ -598,7 +598,7 @@ func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount str
 
 func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
-	require.Equal(t, types.StateChangeCategoryBurn, change.StateChangeCategory)	
+	require.Equal(t, types.StateChangeCategoryBurn, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
