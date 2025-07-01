@@ -547,8 +547,8 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 		done := make(chan bool, numReaders+numWriters)
 
 		// Start reader goroutines
-		for i := range numReaders {
-			go func(readerID int) {
+		for range numReaders {
+			go func() {
 				defer func() { done <- true }()
 
 				// Repeatedly read random contracts
@@ -559,7 +559,7 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 					_, _ = store.Symbol(ctx, contractID) //nolint:errcheck
 					_ = store.Exists(ctx, contractID)    //nolint:errcheck
 				}
-			}(i)
+			}()
 		}
 
 		// Start writer goroutines

@@ -132,7 +132,7 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 			Sequence:  channelAccountSeq,
 		},
 		Operations: operations,
-		BaseFee:    int64(t.BaseFee),
+		BaseFee:    t.BaseFee,
 		Preconditions: txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
 		},
@@ -217,7 +217,7 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 	// Adjust the base fee to ensure the total fee computed by `txnbuild.NewTransaction` (baseFee+sorobanFee) will stay
 	// within the limits configured by the host.
 	sorobanFee := int64(transactionExt.SorobanData.ResourceFee)
-	adjustedBaseFee := int64(buildTxParams.BaseFee) - sorobanFee
+	adjustedBaseFee := buildTxParams.BaseFee - sorobanFee
 	buildTxParams.BaseFee = int64(math.Max(float64(adjustedBaseFee), float64(txnbuild.MinBaseFee)))
 
 	return buildTxParams, nil
