@@ -44,7 +44,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 	return b
 }
 
-// WithAsset sets the asset or contract
+// WithToken sets the token ID using the contract address
 func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
 	b.base.TokenID = utils.SQLNullString(contractAddress)
 	return b
