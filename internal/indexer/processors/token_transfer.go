@@ -123,23 +123,21 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 		return types.StateChange{}, nil
 	}
 
-	assetContractID := feeEvents[0].GetMeta().GetContractAddress()
-	netFee, err := strconv.ParseInt(feeEvents[0].GetFee().GetAmount(), 10, 64)
-	if err != nil {
-		return types.StateChange{}, fmt.Errorf("parsing fee amount for fee event: %w", err)
-	}
-
+	// Use the first event for metadata (account, token)
+	firstEvent := feeEvents[0]
+	assetContractID := firstEvent.GetMeta().GetContractAddress()
 	builder = builder.
-		WithAccount(feeEvents[0].GetFee().GetFrom()).
+		WithAccount(firstEvent.GetFee().GetFrom()).
 		WithToken(assetContractID)
 
-	// If there is a refund, add it to the net fee. We are adding it because the refund value is a negative fee.
-	if len(feeEvents) > 1 {
-		refundAmount, err := strconv.ParseInt(feeEvents[1].GetFee().GetAmount(), 10, 64)
+	// Calculate net fee by summing all fee events
+	var netFee int64
+	for _, feeEvent := range feeEvents {
+		amount, err := strconv.ParseInt(feeEvent.GetFee().GetAmount(), 10, 64)
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("parsing refund amount for fee event: %w", err)
+			return types.StateChange{}, fmt.Errorf("parsing fee amount for fee event: %w", err)
 		}
-		netFee += refundAmount
+		netFee += amount
 	}
 
 	// There is no fee to process
@@ -226,7 +224,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
 		}
-	
+
 		// Normal transfer between two accounts (payments, account merge)
 		return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
 	}
