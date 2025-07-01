@@ -85,7 +85,7 @@ func buildURL(baseURL string, address string, beforeID, afterID string, sort dat
 	values.Add("sort", string(sort))
 	values.Add("limit", strconv.Itoa(limit))
 	if address != "" {
-		values.Add("address", string(address))
+		values.Add("address", address)
 	}
 	if beforeID != "" {
 		values.Add("beforeId", beforeID)

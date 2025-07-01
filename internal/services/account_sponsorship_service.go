@@ -191,7 +191,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		}
 	}
 
-	if tx.BaseFee() > int64(s.BaseFee) {
+	if tx.BaseFee() > s.BaseFee {
 		return "", "", ErrFeeExceedsMaximumBaseFee
 	}
 
@@ -209,7 +209,7 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		txnbuild.FeeBumpTransactionParams{
 			Inner:      tx,
 			FeeAccount: distributionAccountPublicKey,
-			BaseFee:    int64(s.BaseFee),
+			BaseFee:    s.BaseFee,
 		},
 	)
 	if err != nil {

@@ -19,6 +19,7 @@ linters:
     - errorlint
     - errcheck
     - wrapcheck
+    - unconvert
 
   settings:
     staticcheck:
