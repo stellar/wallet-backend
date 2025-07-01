@@ -813,7 +813,7 @@ func assertFeeEvent(t *testing.T, change types.StateChange, expectedAmount strin
 	require.Equal(t, types.StateChangeCategoryDebit, change.StateChangeCategory)
 	require.Equal(t, someTxAccount.ToAccountId().Address(), change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", someTxAccount.ToAccountId().Address(), change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", someTxAccount.ToAccountId().Address(), change.OperationID), change.ID)
 }
 
 func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
@@ -821,7 +821,7 @@ func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount st
 	require.Equal(t, types.StateChangeCategoryDebit, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 	if expectedToken != "" {
 		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
@@ -832,7 +832,7 @@ func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount s
 	require.Equal(t, types.StateChangeCategoryCredit, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 	if expectedToken != "" {
 		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	}
@@ -844,7 +844,7 @@ func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount str
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 }
 
 func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
@@ -853,7 +853,7 @@ func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount str
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 }
 
 func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedLPID string) {
@@ -863,7 +863,7 @@ func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category t
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedLPID, change.LiquidityPoolID.String)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 }
 
 func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedCBID string) {
@@ -873,7 +873,7 @@ func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, categor
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 }
 
 func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedContractID string) {
@@ -882,5 +882,5 @@ func assertContractEvent(t *testing.T, change types.StateChange, category types.
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, expectedContractID, change.TokenID.String)
-	require.Equal(t, fmt.Sprintf("%s-%d-%d-%d", expectedAccount, change.LedgerNumber, change.TransactionID, change.OperationID), change.ID)
+	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
 }
