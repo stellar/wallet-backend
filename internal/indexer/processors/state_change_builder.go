@@ -5,8 +5,6 @@ package processors
 import (
 	"time"
 
-	"github.com/stellar/go/asset"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -17,14 +15,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash, opID string) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    int64(ledgerNumber),
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
 			TxHash:          txHash,
-			OperationID:     opID,
 		},
 	}
 }
@@ -48,7 +45,7 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 }
 
 // WithAsset sets the asset or contract
-func (b *StateChangeBuilder) WithAsset(asset *asset.Asset, contractAddress string) *StateChangeBuilder {
+func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
 	b.base.TokenID = utils.SQLNullString(contractAddress)
 	return b
 }
@@ -65,7 +62,20 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 	return b
 }
 
+// WithOperationID sets the operation ID
+func (b *StateChangeBuilder) WithOperationID(operationID string) *StateChangeBuilder {
+	b.base.OperationID = operationID
+	return b
+}
+
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
 	return b.base
+}
+
+// Clone creates a new builder with the same base state change fields
+func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
+	return &StateChangeBuilder{
+		base: b.base,
+	}
 }
