@@ -8,9 +8,9 @@ import (
 
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/toid"
 	ttp "github.com/stellar/go/processors/token_transfer"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
