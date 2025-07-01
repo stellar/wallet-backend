@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
 	operation "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -52,7 +53,8 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Result.TransactionHash.HexString()
+	opID := toid.New(int32(ledgerNumber), int32(tx.Index), int32(opIdx)).ToInt64()
+	txID := toid.New(int32(ledgerNumber), int32(tx.Index), 0).ToInt64()
 
 	opWrapper := operation.TransactionOperationWrapper{
 		Index:          opIdx,
@@ -69,7 +71,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, strconv.FormatUint(uint64(opIdx), 10))
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opID)
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
 

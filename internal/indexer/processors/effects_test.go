@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,10 +40,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 8)
 
 		for _, change := range changes {
-			assert.Equal(t, "0", change.OperationID)
-			assert.Equal(t, int64(12345), change.LedgerNumber)
+			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.OperationID)
+			assert.Equal(t, uint32(12345), change.LedgerNumber)
 			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
-			assert.Equal(t, hash, change.TxHash)
+			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.TransactionID)
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
@@ -95,10 +96,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
-		assert.Equal(t, "0", changes[0].OperationID)
-		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, transaction.Result.TransactionHash.HexString(), changes[0].TxHash)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].TransactionID)
 		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"authorized_to_maintain_liabilites": true}, changes[0].Flags)
@@ -133,10 +134,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, "0", changes[0].OperationID)
-		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[0].TxHash)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].TransactionID)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("name2"), "value": "NTY3OA=="}, changes[0].KeyValue)
@@ -167,10 +168,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, "0", changes[0].OperationID)
-		assert.Equal(t, int64(12345), changes[0].LedgerNumber)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, hash, changes[0].TxHash)
+		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].TransactionID)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("hello")}, changes[0].KeyValue)
@@ -201,10 +202,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 4)
 
 		for _, change := range changes {
-			assert.Equal(t, "0", change.OperationID)
-			assert.Equal(t, int64(12345), change.LedgerNumber)
+			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.OperationID)
+			assert.Equal(t, uint32(12345), change.LedgerNumber)
 			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
-			assert.Equal(t, hash, change.TxHash)
+			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.TransactionID)
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {

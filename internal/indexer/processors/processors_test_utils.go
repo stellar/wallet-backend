@@ -5,8 +5,8 @@ package processors
 
 import (
 	"context"
-	"fmt"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 
