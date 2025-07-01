@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -40,6 +41,7 @@ func TestAdvisoryLockAndRelease(t *testing.T) {
 		// Close the original connection which releases the lock
 		err = dbConnectionPool1.Close()
 		require.NoError(t, err)
+		time.Sleep(500 * time.Millisecond)
 
 		// try to acquire the lock again
 		lockAcquired2, err = AcquireAdvisoryLock(ctx, dbConnectionPool2, lockKey)
