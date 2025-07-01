@@ -571,9 +571,7 @@ func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount st
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
-	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
-	}
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
@@ -582,9 +580,7 @@ func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount s
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
 	require.Equal(t, fmt.Sprintf("%s-%d", expectedAccount, change.OperationID), change.ID)
-	if expectedToken != "" {
-		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
-	}
+	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 
 func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {

@@ -73,8 +73,8 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, changes, 3)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", "")
-		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", "")
+		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
+		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
 	})
 
 	t.Run("AccountMerge - extracts state changes for successful account merge with balance", func(t *testing.T) {
@@ -153,8 +153,8 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, changes, 3)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "500000000", "")
-		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "500000000", "")
+		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "500000000", nativeContractAddress)
+		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "500000000", nativeContractAddress)
 	})
 
 	t.Run("Payment - G to G USDC transfer", func(t *testing.T) {
