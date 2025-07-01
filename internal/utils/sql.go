@@ -22,6 +22,6 @@ func SQLNullTime(t time.Time) sql.NullTime {
 func SQLNullInt64(i int64) sql.NullInt64 {
 	return sql.NullInt64{
 		Int64: i,
-		Valid: i != 0,
+		Valid: true,
 	}
 }
