@@ -16,13 +16,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
-			TransactionID:   txID,
+			TxHash:          txHash,
 		},
 	}
 }
@@ -135,5 +135,5 @@ func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 }
 
 func (b *StateChangeBuilder) generateID() string {
-	return fmt.Sprintf("%s-%d", b.base.AccountID, b.base.OperationID)
+	return fmt.Sprintf("%d-%s", b.base.OperationID, b.base.AccountID)
 }

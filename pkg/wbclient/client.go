@@ -28,7 +28,7 @@ type Client struct {
 
 func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	return &Client{
-		HTTPClient:    &http.Client{Timeout: time.Duration(30 * time.Second)},
+		HTTPClient:    &http.Client{Timeout: 30 * time.Second},
 		BaseURL:       baseURL,
 		RequestSigner: requestSigner,
 	}
@@ -106,7 +106,7 @@ func (c *Client) request(ctx context.Context, method, path string, bodyObj any) 
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	err = c.RequestSigner.SignHTTPRequest(request, time.Duration(5*time.Second))
+	err = c.RequestSigner.SignHTTPRequest(request, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("signing request: %w", err)
 	}

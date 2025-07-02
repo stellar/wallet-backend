@@ -28,7 +28,7 @@ func (e *DefaultPrivateKeyEncrypter) Encrypt(ctx context.Context, message, passp
 	key := make([]byte, keyBytes)
 	copy(key, passHash.Sum(nil))
 
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("creating aes cipher: %w", err)
 	}
@@ -58,7 +58,7 @@ func (e *DefaultPrivateKeyEncrypter) Decrypt(ctx context.Context, encryptedMessa
 	key := make([]byte, keyBytes)
 	copy(key, passHash.Sum(nil))
 
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", fmt.Errorf("creating aes cipher: %w", err)
 	}

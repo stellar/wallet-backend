@@ -41,7 +41,7 @@ func OperationXDRFromBase64(opXDRBase64 string) (xdr.Operation, error) {
 func OperationXDRToTxnBuildOp(opXDR xdr.Operation) (txnbuild.Operation, error) {
 	var operation txnbuild.Operation
 
-	switch xdr.OperationType(opXDR.Body.Type) {
+	switch opXDR.Body.Type {
 	case xdr.OperationTypeCreateAccount:
 		operation = &txnbuild.CreateAccount{}
 	case xdr.OperationTypePayment:

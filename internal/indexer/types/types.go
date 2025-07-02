@@ -137,12 +137,12 @@ type StateChange struct {
 	Flags      NullableJSONB `json:"flags,omitempty" db:"flags"`
 	KeyValue   NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
-	AccountID     string       `json:"accountId,omitempty" db:"account_id"`
-	Account       *Account     `json:"account,omitempty" db:"account"`
-	OperationID   int64        `json:"operationId,omitempty" db:"operation_id"`
-	Operation     *Operation   `json:"operation,omitempty" db:"operation"`
-	TransactionID int64        `json:"transactionId,omitempty" db:"transaction_id"`
-	Transaction   *Transaction `json:"transaction,omitempty" db:"transaction"`
+	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
+	Account     *Account     `json:"account,omitempty" db:"account"`
+	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
+	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
+	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
+	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
 }
 
 type NullableJSONB map[string]any

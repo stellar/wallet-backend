@@ -691,6 +691,32 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:    "🟢successful_RestoreFootprint_minBaseFee_signedByContractAuthEntry",
+			baseFee: txnbuild.MinBaseFee,
+			incomingOps: []txnbuild.Operation{
+				&txnbuild.RestoreFootprint{},
+			},
+			simulationResponse: buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
+			wantBuildTxParamsFn: func(t *testing.T, initialBuildTxParams txnbuild.TransactionParams) txnbuild.TransactionParams {
+				newRestoreFootprintOp := &txnbuild.RestoreFootprint{}
+				var err error
+				newRestoreFootprintOp.Ext, err = xdr.NewTransactionExt(1, sorobanTxData)
+				require.NoError(t, err)
+
+				return txnbuild.TransactionParams{
+					Operations: []txnbuild.Operation{newRestoreFootprintOp},
+					BaseFee:    initialBuildTxParams.BaseFee,
+					SourceAccount: &txnbuild.SimpleAccount{
+						AccountID: txSourceAccount,
+						Sequence:  1,
+					},
+					Preconditions: txnbuild.Preconditions{
+						TimeBounds: txnbuild.NewTimeout(300),
+					},
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
