@@ -65,7 +65,7 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 // It processes account state changes like signer modifications, threshold updates, flag changes,
 // home domain updates, data entry changes, and sponsorship relationship modifications.
 // Returns a slice of state changes representing various account state changes.
-func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
+func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Result.TransactionHash.HexString()

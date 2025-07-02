@@ -35,7 +35,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
 		require.Len(t, changes, 8)
 
@@ -93,7 +93,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -130,7 +130,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -164,7 +164,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -197,7 +197,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessTransaction(context.Background(), transaction, op, 0)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
 		require.NoError(t, err)
 		require.Len(t, changes, 8)
 
