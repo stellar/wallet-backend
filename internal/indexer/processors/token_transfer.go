@@ -37,7 +37,7 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Hash.HexString()
+	txHash := tx.Result.TransactionHash.HexString()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
