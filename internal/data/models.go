@@ -8,11 +8,12 @@ import (
 )
 
 type Models struct {
-	DB          db.ConnectionPool
-	Account     *AccountModel
-	Contract    *ContractModel
-	IngestStore *IngestStoreModel
-	Payments    *PaymentModel
+	DB           db.ConnectionPool
+	Account      *AccountModel
+	Contract     *ContractModel
+	IngestStore  *IngestStoreModel
+	Payments     *PaymentModel
+	Transactions *TransactionModel
 }
 
 func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Models, error) {
@@ -21,10 +22,11 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 	}
 
 	return &Models{
-		DB:          db,
-		Account:     &AccountModel{DB: db, MetricsService: metricsService},
-		Contract:    &ContractModel{DB: db, MetricsService: metricsService},
-		IngestStore: &IngestStoreModel{DB: db, MetricsService: metricsService},
-		Payments:    &PaymentModel{DB: db, MetricsService: metricsService},
+		DB:           db,
+		Account:      &AccountModel{DB: db, MetricsService: metricsService},
+		Contract:     &ContractModel{DB: db, MetricsService: metricsService},
+		IngestStore:  &IngestStoreModel{DB: db, MetricsService: metricsService},
+		Payments:     &PaymentModel{DB: db, MetricsService: metricsService},
+		Transactions: &TransactionModel{DB: db, MetricsService: metricsService},
 	}, nil
 }
