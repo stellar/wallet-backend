@@ -68,7 +68,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	opID := toid.New(int32(ledgerNumber), int32(tx.Index), int32(opIdx)).ToInt64()
-	txID := toid.New(int32(ledgerNumber), int32(tx.Index), 0).ToInt64()
+	txHash := tx.Result.TransactionHash.HexString()
 
 	opWrapper := operation.TransactionOperationWrapper{
 		Index:          opIdx,
@@ -86,7 +86,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opID)
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opID)
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
