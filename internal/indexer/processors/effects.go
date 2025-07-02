@@ -85,6 +85,12 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 		return nil, fmt.Errorf("processing effects: %w", err)
 	}
 
+	// Get operation changes to access old values when needed
+	changes, err := tx.GetOperationChanges(opIdx)
+	if err != nil {
+		return nil, fmt.Errorf("getting operation changes: %w", err)
+	}
+
 	stateChanges := make([]types.StateChange, 0)
 	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opID)
 	// Process each effect and convert to our internal state change representation
@@ -108,7 +114,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 		// Threshold effects: track changes to account signature thresholds (low/medium/high)
 		case effects.EffectAccountThresholdsUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
-			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect)...)
+			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect, changes)...)
 
 		// Flag effects: track changes to account authorization flags
 		case effects.EffectAccountFlagsUpdated:
@@ -283,21 +289,55 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.
 // Stellar accounts have low, medium, and high signature thresholds that control what operations require how many signatures.
-func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput) []types.StateChange {
+// It extracts both old and new threshold values from the ledger changes to provide complete context.
+func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) []types.StateChange {
+	// Find the account entry change to get old threshold values
+	var oldThresholds *xdr.Thresholds
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeAccount {
+			continue
+		}
+
+		// Extract old thresholds if available
+		if change.Pre != nil {
+			beforeAccount := change.Pre.Data.MustAccount()
+			oldThresholds = &beforeAccount.Thresholds
+			break
+		}
+	}
+
 	// Create a separate state change for each threshold that was modified
-	changes := make([]types.StateChange, 0)
+	thresholdChanges := make([]types.StateChange, 0)
 	for threshold, reason := range thresholdToReasonMap {
 		if value, ok := effect.Details[threshold]; ok {
 			// Convert XDR threshold value to string for storage
 			thresholdValue := strconv.FormatInt(int64(value.(xdr.Uint32)), 10)
-			changes = append(changes, changeBuilder.
+
+			// Create threshold details with both old and new values
+			thresholdDetails := map[string]any{
+				"new": thresholdValue,
+			}
+
+			// Add old threshold value if available
+			if oldThresholds != nil {
+				var oldValue string
+				switch threshold {
+				case "low_threshold":
+					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdLow()), 10) // Index 1: Low threshold
+				case "med_threshold":
+					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdMedium()), 10) // Index 2: Medium threshold
+				case "high_threshold":
+					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdHigh()), 10) // Index 3: High threshold
+				}
+				thresholdDetails["old"] = oldValue
+			}
+
+			thresholdChanges = append(thresholdChanges, changeBuilder.
 				Clone().
 				WithReason(reason).
-				WithThresholds(map[string]any{
-					threshold: thresholdValue,
-				}).
+				WithThresholds(thresholdDetails).
 				Build())
 		}
 	}
-	return changes
+	return thresholdChanges
 }

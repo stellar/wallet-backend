@@ -54,11 +54,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				//exhaustive:ignore
 				switch *change.StateChangeReason {
 				case types.StateChangeReasonLow:
-					assert.Equal(t, types.NullableJSONB{"low_threshold": "1"}, change.Thresholds)
+					assert.Equal(t, "0", change.Thresholds["old"])
+					assert.Equal(t, "1", change.Thresholds["new"])
 				case types.StateChangeReasonMedium:
-					assert.Equal(t, types.NullableJSONB{"med_threshold": "2"}, change.Thresholds)
+					assert.Equal(t, "0", change.Thresholds["old"])
+					assert.Equal(t, "2", change.Thresholds["new"])
 				case types.StateChangeReasonHigh:
-					assert.Equal(t, types.NullableJSONB{"high_threshold": "3"}, change.Thresholds)
+					assert.Equal(t, "0", change.Thresholds["old"])
+					assert.Equal(t, "3", change.Thresholds["new"])
 				}
 			case types.StateChangeCategoryFlags:
 				//exhaustive:ignore
