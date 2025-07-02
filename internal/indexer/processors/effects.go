@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
 	operation "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -69,7 +68,6 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	opID := toid.New(int32(ledgerNumber), int32(tx.Index), int32(opIdx)).ToInt64()
 	txHash := tx.Result.TransactionHash.HexString()
 
 	opWrapper := operation.TransactionOperationWrapper{
@@ -94,7 +92,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opID)
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)

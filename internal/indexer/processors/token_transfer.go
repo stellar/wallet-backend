@@ -93,7 +93,7 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 
 	operationType := &op.Body.Type
 	opSourceAccount := OperationSourceAccount(tx, op)
-	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx)).ToInt64()
+	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx+1)).ToInt64()
 
 	return opID, operationType, opSourceAccount, nil
 }
