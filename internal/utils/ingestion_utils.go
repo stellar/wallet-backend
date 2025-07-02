@@ -18,7 +18,7 @@ func OperationResult(txResult xdr.TransactionResult, opNumber int) *xdr.Operatio
 }
 
 func TransactionID(ledgerNumber, txNumber int32) string {
-	return toid.New(int32(ledgerNumber), int32(txNumber), 0).String()
+	return toid.New(ledgerNumber, txNumber, 0).String()
 }
 
 // Memo returns the memo value parsed to string and its type.

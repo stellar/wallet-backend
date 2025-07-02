@@ -120,7 +120,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 
-	httpClient := http.Client{Timeout: time.Duration(30 * time.Second)}
+	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
@@ -164,7 +164,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating transaction service: %w", err)
 	}
 
-	httpClient = http.Client{Timeout: time.Duration(30 * time.Second)}
+	httpClient = http.Client{Timeout: 30 * time.Second}
 	channelAccountService, err := services.NewChannelAccountService(ctx, services.ChannelAccountServiceOptions{
 		DB:                                 dbConnectionPool,
 		RPCService:                         rpcService,
