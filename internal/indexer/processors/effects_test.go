@@ -77,13 +77,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				case types.StateChangeReasonUpdate:
 					assert.True(t, change.SignerAccountID.Valid)
 					assert.Equal(t, "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH", change.SignerAccountID.String)
-					assert.True(t, change.SignerWeight.Valid)
-					assert.Equal(t, int64(3), change.SignerWeight.Int64)
+					assert.Equal(t, types.NullableJSONB{"new": int32(3), "old": int32(1)}, change.SignerWeights)
 				case types.StateChangeReasonAdd:
 					assert.True(t, change.SignerAccountID.Valid)
 					assert.Equal(t, "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C", change.SignerAccountID.String)
-					assert.True(t, change.SignerWeight.Valid)
-					assert.Equal(t, int64(2), change.SignerWeight.Int64)
+					assert.Equal(t, types.NullableJSONB{"new": int32(2)}, change.SignerWeights)
 				}
 			}
 		}

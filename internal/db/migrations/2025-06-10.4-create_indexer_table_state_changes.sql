@@ -19,7 +19,7 @@ CREATE TABLE state_changes (
     key_value JSONB,
     offer_id TEXT,
     signer_account_id TEXT,
-    signer_weight INTEGER,
+    signer_weights JSONB,
     spender_account_id TEXT,
     target_account_id TEXT,
     sponsor_account_id TEXT,

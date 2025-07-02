@@ -128,11 +128,11 @@ type StateChange struct {
 	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SignerWeight       sql.NullInt64  `json:"signerWeight,omitempty" db:"signer_weight"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	TargetAccountID    sql.NullString `json:"targetAccountId,omitempty" db:"target_account_id"`
 	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
+	SignerWeights      NullableJSONB  `json:"signerWeights,omitempty" db:"signer_weights"`
 	Thresholds NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
 	Flags      NullableJSONB `json:"flags,omitempty" db:"flags"`
 	KeyValue   NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
