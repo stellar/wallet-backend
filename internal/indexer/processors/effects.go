@@ -128,7 +128,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 
 		// Home domain effects: track changes to account home domain metadata
 		case effects.EffectAccountHomeDomainUpdated:
-			keyValueMap := p.parseKeyValue([]string{"home_domain"}, &effect)
+			keyValueMap := p.parseKeyValue(&effect, "home_domain")
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonHomeDomain).
@@ -142,7 +142,7 @@ func (p *EffectsProcessor) ProcessTransaction(ctx context.Context, tx ingest.Led
 
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
-			keyValueMap := p.parseKeyValue([]string{"name", "value"}, &effect)
+			keyValueMap := p.parseKeyValue(&effect, "name", "value")
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonDataEntry).
@@ -204,7 +204,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 			p.createSponsorChange(types.StateChangeReasonSet, baseBuilder.Clone(), newSponsor, effect.Address),
 			p.createSponsorChange(types.StateChangeReasonRemove, baseBuilder.Clone(), formerSponsor, effect.Address),
 		)
-		targetBuilder := baseBuilder.Clone().WithKeyValue(p.parseKeyValue([]string{"former_sponsor"}, &effect))
+		targetBuilder := baseBuilder.Clone().WithKeyValue(p.parseKeyValue(&effect, "former_sponsor"))
 		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonUpdate, newSponsor, effectType, effect, targetBuilder)
 	}
 
@@ -249,10 +249,10 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 
 // parseKeyValue extracts specified key-value pairs from effect details.
 // This is used to capture metadata like home domain values or data entry names and values.
-func (p *EffectsProcessor) parseKeyValue(keys []string, effect *effects.EffectOutput) map[string]any {
+func (p *EffectsProcessor) parseKeyValue(effect *effects.EffectOutput, keys ...string) map[string]any {
 	keyValueMap := map[string]any{}
 	for _, key := range keys {
-		if value, ok := effect.Details[key]; ok {
+		if value, ok := effect.Details[string(key)]; ok {
 			keyValueMap[key] = value
 		}
 	}

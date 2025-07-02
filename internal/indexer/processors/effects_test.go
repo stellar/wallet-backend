@@ -40,7 +40,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 8)
 
 		for _, change := range changes {
-			assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), change.OperationID)
+			assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), change.OperationID)
 			assert.Equal(t, uint32(12345), change.LedgerNumber)
 			assert.Equal(t, time.Unix(12345*100, 0), change.LedgerCreatedAt)
 			assert.Equal(t, hash, change.TxHash)
@@ -97,7 +97,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
-		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[0].StateChangeCategory)
@@ -134,7 +134,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, hash, changes[0].TxHash)
@@ -168,7 +168,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
-		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, hash, changes[0].TxHash)
@@ -202,7 +202,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 8)
 
 		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
-		assert.Equal(t, toid.New(12345, 1, 0).ToInt64(), changes[1].OperationID)
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
 		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
 		assert.Equal(t, hash, changes[1].TxHash)
