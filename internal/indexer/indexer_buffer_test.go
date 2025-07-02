@@ -16,21 +16,31 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
 		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
+
 		indexerBuffer.PushParticipantTransaction("alice", tx1)
 		indexerBuffer.PushParticipantTransaction("alice", tx2)
 		indexerBuffer.PushParticipantTransaction("bob", tx2)
 		indexerBuffer.PushParticipantTransaction("bob", tx2) // <--- duplicate is a no-op because we use a Set internally
 
+		indexerBuffer.PushParticipantOperation("alice", op1, tx1)
+		indexerBuffer.PushParticipantOperation("bob", op2, tx2)
+		indexerBuffer.PushParticipantOperation("chuck", op2, tx2)
+		indexerBuffer.PushParticipantOperation("chuck", op2, tx2) // <--- duplicate operation ID is a no-op because we use a Set internally
+
 		// Assert participants txHashes
 		wantTxHashesByParticipant := map[string]set.Set[string]{
 			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
 			"bob":   set.NewSet("tx_hash_2"),
+			"chuck": set.NewSet("tx_hash_2"),
 		}
 		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
 
 		// Assert GetParticipantTransactions
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
 		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
+		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
 
 		// Assert txByHash
 		wantTxByHash := map[string]types.Transaction{
@@ -40,13 +50,34 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
 
 		// Assert Participants
-		assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.Participants)
+		assert.Equal(t, set.NewSet("alice", "bob", "chuck"), indexerBuffer.Participants)
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Assert GetAllTransactions
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
+
+		// Assert operations
+		wantOpByID := map[int64]types.Operation{
+			1: op1,
+			2: op2,
+		}
+		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
+
+		// Assert GetParticipantOperations
+		wantAliceOps := map[int64]types.Operation{
+			1: op1,
+		}
+		assert.Equal(t, wantAliceOps, indexerBuffer.GetParticipantOperations("alice"))
+		wantBobOps := map[int64]types.Operation{
+			2: op2,
+		}
+		assert.Equal(t, wantBobOps, indexerBuffer.GetParticipantOperations("bob"))
+		wantChuckOps := map[int64]types.Operation{
+			2: op2,
+		}
+		assert.Equal(t, wantChuckOps, indexerBuffer.GetParticipantOperations("chuck"))
 	})
 
 	t.Run("🟢concurrent_calls", func(t *testing.T) {
@@ -54,10 +85,12 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		tx1 := types.Transaction{Hash: "tx_hash_1"}
 		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
 
 		// Concurrent push operations
 		wg := sync.WaitGroup{}
-		wg.Add(4)
+		wg.Add(8)
 		go func() {
 			indexerBuffer.PushParticipantTransaction("alice", tx1)
 			wg.Done()
@@ -74,11 +107,27 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 			indexerBuffer.PushParticipantTransaction("bob", tx2) // <--- duplicate is a no-op because we use a Set internally
 			wg.Done()
 		}()
+		go func() {
+			indexerBuffer.PushParticipantOperation("alice", op1, tx1)
+			wg.Done()
+		}()
+		go func() {
+			indexerBuffer.PushParticipantOperation("bob", op2, tx2)
+			wg.Done()
+		}()
+		go func() {
+			indexerBuffer.PushParticipantOperation("chuck", op2, tx2)
+			wg.Done()
+		}()
+		go func() {
+			indexerBuffer.PushParticipantOperation("chuck", op2, tx2) // <--- duplicate operation ID is a no-op because we use a Set internally
+			wg.Done()
+		}()
 		wg.Wait()
 
 		// Concurrent getter operations
 		wg = sync.WaitGroup{}
-		wg.Add(5)
+		wg.Add(9)
 
 		// GetParticipantTransactions
 		go func() {
@@ -87,6 +136,33 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		}()
 		go func() {
 			assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
+			wg.Done()
+		}()
+		go func() {
+			assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
+			wg.Done()
+		}()
+
+		// GetParticipantOperations
+		go func() {
+			wantAliceOps := map[int64]types.Operation{
+				1: op1,
+			}
+			assert.Equal(t, wantAliceOps, indexerBuffer.GetParticipantOperations("alice"))
+			wg.Done()
+		}()
+		go func() {
+			wantAliceOps := map[int64]types.Operation{
+				2: op2,
+			}
+			assert.Equal(t, wantAliceOps, indexerBuffer.GetParticipantOperations("bob"))
+			wg.Done()
+		}()
+		go func() {
+			wantAliceOps := map[int64]types.Operation{
+				2: op2,
+			}
+			assert.Equal(t, wantAliceOps, indexerBuffer.GetParticipantOperations("chuck"))
 			wg.Done()
 		}()
 
@@ -98,7 +174,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Assert Participants
 		go func() {
-			assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.Participants)
+			assert.Equal(t, set.NewSet("alice", "bob", "chuck"), indexerBuffer.Participants)
 			wg.Done()
 		}()
 
@@ -122,7 +198,15 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		wantTxHashesByParticipant := map[string]set.Set[string]{
 			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
 			"bob":   set.NewSet("tx_hash_2"),
+			"chuck": set.NewSet("tx_hash_2"),
 		}
 		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
+
+		// Assert operations
+		wantOpByID := map[int64]types.Operation{
+			1: op1,
+			2: op2,
+		}
+		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
 	})
 }

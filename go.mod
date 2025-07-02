@@ -22,7 +22,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stellar/go v0.0.0-20250606230746-ef10cd0a5920
+	github.com/stellar/go v0.0.0-20250627171000-032c5f910271
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2
 	github.com/stellar/stellar-rpc v0.9.6-0.20250523162628-6bb9d7a387d5
 	github.com/stretchr/testify v1.10.0
@@ -54,6 +54,7 @@ require (
 	github.com/creachadair/jrpc2 v1.2.0 // indirect
 	github.com/creachadair/mds v0.13.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
 	github.com/djherbis/fscache v0.10.1 // indirect
 	github.com/envoyproxy/go-control-plane v0.13.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.1.0 // indirect
@@ -73,6 +74,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
+	github.com/guregu/null v4.0.0+incompatible // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect

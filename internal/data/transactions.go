@@ -21,11 +21,10 @@ type TransactionModel struct {
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
-	dbTx db.SQLExecuter,
+	sqlExecuter db.SQLExecuter,
 	txs []types.Transaction,
 	stellarAddressesByTxHash map[string][]string,
 ) ([]string, error) {
-	sqlExecuter := dbTx
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
 	}
@@ -140,7 +139,7 @@ func (m *TransactionModel) BatchInsert(
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions,transactions_accounts", duration)
 	if err != nil {
-		return nil, fmt.Errorf("batch inserting transactions and accounts: %w", err)
+		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "transactions,transactions_accounts")
 
