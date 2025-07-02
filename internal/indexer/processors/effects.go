@@ -13,7 +13,6 @@ import (
 	effects "github.com/stellar/go/processors/effects"
 	operation "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/toid"
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -298,32 +297,36 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 }
 
 func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) ([]types.StateChange, error) {
-	var oldSignerSummary map[string]int32
-	prevAccountState, err := p.getPrevAccountState(effect, changes)
+	signerPublicKey := effect.Details["public_key"].(string)
+	weight, err := ConvertToInt32(effect.Details["weight"])
 	if err != nil {
-		return nil, fmt.Errorf("getting previous changes for account: %s: %w", effect.Address, err)
+		return nil, fmt.Errorf("converting weight for signer created effect: %w", err)
 	}
-	oldSignerSummary = prevAccountState.SignerSummary()
 
+	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectSignerCreated:
 		changeBuilder = changeBuilder.WithSigner(
-			effect.Details["public_key"].(string),
+			signerPublicKey,
 			map[string]any{
-				"new": effect.Details["weight"].(int32),
+				"new": weight,
 			},
 		)
-	case effects.EffectSignerUpdated:
-		signerPublicKey := effect.Details["public_key"].(string)
-		changeBuilder = changeBuilder.WithSigner(signerPublicKey, map[string]any{
-			"new": effect.Details["weight"].(int32),
+	case effects.EffectSignerUpdated, effects.EffectSignerRemoved:
+		var oldSignerSummary map[string]int32
+		prevAccountState, err := p.getPrevAccountState(effect, changes)
+		if err != nil {
+			return nil, fmt.Errorf("getting previous changes for account: %s: %w", effect.Address, err)
+		}
+		oldSignerSummary = prevAccountState.SignerSummary()
+
+		weights := map[string]any{
 			"old": oldSignerSummary[signerPublicKey],
-		})
-	case effects.EffectSignerRemoved:
-		signerPublicKey := effect.Details["public_key"].(string)
-		changeBuilder = changeBuilder.WithSigner(signerPublicKey, map[string]any{
-			"old": oldSignerSummary[signerPublicKey],
-		})
+		}
+		if effectType == effects.EffectSignerUpdated {
+			weights["new"] = weight
+		}
+		changeBuilder = changeBuilder.WithSigner(signerPublicKey, weights)
 	}
 	return []types.StateChange{changeBuilder.Build()}, nil
 }
@@ -333,12 +336,10 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 // It extracts both old and new threshold values from the ledger changes to provide complete context.
 func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
 	// Find the account entry change to get old threshold values
-	var oldThresholds *xdr.Thresholds
 	prevAccountState, err := p.getPrevAccountState(effect, changes)
 	if err != nil {
 		return nil, fmt.Errorf("getting previous changes for account: %s: %w", effect.Address, err)
 	}
-	oldThresholds = &prevAccountState.Thresholds
 
 	// Create a separate state change for each threshold that was modified
 	thresholdChanges := make([]types.StateChange, 0)
@@ -352,21 +353,17 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 				"new": thresholdValue,
 			}
 
-			// Add old threshold value if available
-			if oldThresholds != nil {
-				var oldValue string
-				switch threshold {
-				case "low_threshold":
-					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdLow()), 10) // Index 1: Low threshold
-				case "med_threshold":
-					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdMedium()), 10) // Index 2: Medium threshold
-				case "high_threshold":
-					oldValue = strconv.FormatInt(int64(oldThresholds.ThresholdHigh()), 10) // Index 3: High threshold
-				}
-				thresholdDetails["old"] = oldValue
-			} else{
-				log.Debugf("no old thresholds found for account: %s", effect.Address)
+			// Add old threshold value
+			var oldValue string
+			switch threshold {
+			case "low_threshold":
+				oldValue = strconv.FormatInt(int64(prevAccountState.Thresholds[1]), 10) // Index 1: Low threshold
+			case "med_threshold":
+				oldValue = strconv.FormatInt(int64(prevAccountState.Thresholds[2]), 10) // Index 2: Medium threshold
+			case "high_threshold":
+				oldValue = strconv.FormatInt(int64(prevAccountState.Thresholds[3]), 10) // Index 3: High threshold
 			}
+			thresholdDetails["old"] = oldValue
 
 			thresholdChanges = append(thresholdChanges, changeBuilder.
 				Clone().

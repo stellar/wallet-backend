@@ -3,6 +3,8 @@
 package processors
 
 import (
+	"fmt"
+
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
@@ -28,4 +30,18 @@ func OperationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) strin
 	}
 	res := tx.Envelope.SourceAccount()
 	return res.ToAccountId().Address()
+}
+
+// ConvertToInt32 safely converts values to int32
+func ConvertToInt32(value interface{}) (int32, error) {
+	switch v := value.(type) {
+	case int:
+		return int32(v), nil
+	case int32:
+		return v, nil
+	case int64:
+		return int32(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected weight type: %T", value)
+	}
 }
