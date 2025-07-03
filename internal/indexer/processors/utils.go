@@ -33,7 +33,7 @@ func OperationSourceAccount(tx ingest.LedgerTransaction, op xdr.Operation) strin
 }
 
 // ConvertToInt32 safely converts values to int32
-func ConvertToInt32(value interface{}) (int32, error) {
+func ConvertToInt32(value any) (int32, error) {
 	switch v := value.(type) {
 	case int:
 		return int32(v), nil
