@@ -191,7 +191,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Created cases: when sponsorship relationships are established
 	case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated,
 		effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
-		sponsor, err := safeStringFromDetails(effect.Details, "sponsor")
+		sponsor, err := SafeStringFromDetails(effect.Details, "sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting sponsor from sponsorship created effect: %w", err)
 		}
@@ -201,7 +201,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Removed cases: when sponsorship relationships are terminated
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
 		effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
-		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
+		formerSponsor, err := SafeStringFromDetails(effect.Details, "former_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
@@ -211,11 +211,11 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Updated cases: when sponsorship relationships are transferred from one sponsor to another
 	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,
 		effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
-		newSponsor, err := safeStringFromDetails(effect.Details, "new_sponsor")
+		newSponsor, err := SafeStringFromDetails(effect.Details, "new_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting new sponsor from sponsorship updated effect: %w", err)
 		}
-		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
+		formerSponsor, err := SafeStringFromDetails(effect.Details, "former_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship updated effect: %w", err)
 		}
@@ -264,14 +264,6 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 	}
 
 	return builder.Build()
-}
-
-// safeStringFromDetails safely extracts a string value from effect details
-func safeStringFromDetails(details map[string]any, key string) (string, error) {
-	if value, ok := details[key].(string); ok {
-		return value, nil
-	}
-	return "", fmt.Errorf("invalid %s value", key)
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.

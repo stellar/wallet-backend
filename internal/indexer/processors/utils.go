@@ -45,3 +45,11 @@ func ConvertToInt32(value any) (int32, error) {
 		return 0, fmt.Errorf("unexpected weight type: %T", value)
 	}
 }
+
+// safeStringFromDetails safely extracts a string value from effect details
+func SafeStringFromDetails(details map[string]any, key string) (string, error) {
+	if value, ok := details[key].(string); ok {
+		return value, nil
+	}
+	return "", fmt.Errorf("invalid %s value", key)
+}
