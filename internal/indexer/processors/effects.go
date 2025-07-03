@@ -19,6 +19,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	// Threshold array indices for accessing account thresholds
+	lowThresholdIndex  = 1
+	medThresholdIndex  = 2
+	highThresholdIndex = 3
+)
+
 var (
 	// thresholdToReasonMap maps Stellar effect detail field names to our internal state change reasons
 	// for account signature threshold updates (low, medium, high threshold changes)
@@ -83,16 +90,16 @@ func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.Ledge
 	// Extract effects from the operation using Stellar SDK
 	effectOutputs, err := effects.Effects(&opWrapper)
 	if err != nil {
-		return nil, fmt.Errorf("processing effects: %w", err)
+		return nil, fmt.Errorf("getting effects for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}
 
 	// Get operation changes to access old values when needed
 	changes, err := tx.GetOperationChanges(opIdx)
 	if err != nil {
-		return nil, fmt.Errorf("getting operation changes: %w", err)
+		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}
 
-	stateChanges := make([]types.StateChange, 0)
+	var stateChanges []types.StateChange
 	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
@@ -109,7 +116,7 @@ func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.Ledge
 				WithReason(signerEffectToReasonMap[effect.Type])
 			signerChanges, err := p.parseSigners(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				return nil, fmt.Errorf("processing signer effects: %w", err)
+				return nil, fmt.Errorf("parsing signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 			}
 			stateChanges = append(stateChanges, signerChanges...)
 
@@ -154,7 +161,10 @@ func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.Ledge
 			effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipRemoved, effects.EffectSignerSponsorshipUpdated,
 			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
 
-			sponsorshipChanges := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone(), changes)
+			sponsorshipChanges, err := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone(), changes)
+			if err != nil {
+				return nil, fmt.Errorf("processing sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+			}
 			stateChanges = append(stateChanges, sponsorshipChanges...)
 
 		default:
@@ -169,7 +179,7 @@ func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.Ledge
 // processSponsorshipEffect handles sponsorship-related effects and creates appropriate state changes.
 // Sponsorship in Stellar allows one account to pay the base reserves for another account's ledger entries.
 // This function creates state changes for both the sponsor and the sponsored account/entry.
-func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder, changes []ingest.Change) []types.StateChange {
+func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder, changes []ingest.Change) ([]types.StateChange, error) {
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategorySponsorship)
 
 	var sponsorChanges []types.StateChange
@@ -181,22 +191,34 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Created cases: when sponsorship relationships are established
 	case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated,
 		effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
-		sponsor := effect.Details["sponsor"].(string)
+		sponsor, err := safeStringFromDetails(effect.Details, "sponsor")
+		if err != nil {
+			return nil, fmt.Errorf("extracting sponsor from sponsorship created effect: %w", err)
+		}
 		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonSet, baseBuilder.Clone(), sponsor, effect.Address))
 		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonSet, sponsor, effectType, effect, baseBuilder.Clone())
 
 	// Removed cases: when sponsorship relationships are terminated
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
 		effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
-		formerSponsor := effect.Details["former_sponsor"].(string)
+		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
+		if err != nil {
+			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
+		}
 		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonRevoke, baseBuilder.Clone(), formerSponsor, effect.Address))
 		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonRevoke, formerSponsor, effectType, effect, baseBuilder.Clone())
 
 	// Updated cases: when sponsorship relationships are transferred from one sponsor to another
 	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,
 		effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
-		newSponsor := effect.Details["new_sponsor"].(string)
-		formerSponsor := effect.Details["former_sponsor"].(string)
+		newSponsor, err := safeStringFromDetails(effect.Details, "new_sponsor")
+		if err != nil {
+			return nil, fmt.Errorf("extracting new sponsor from sponsorship updated effect: %w", err)
+		}
+		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
+		if err != nil {
+			return nil, fmt.Errorf("extracting former sponsor from sponsorship updated effect: %w", err)
+		}
 		sponsorChanges = append(sponsorChanges,
 			p.createSponsorChange(types.StateChangeReasonSet, baseBuilder.Clone(), newSponsor, effect.Address),
 			p.createSponsorChange(types.StateChangeReasonRemove, baseBuilder.Clone(), formerSponsor, effect.Address),
@@ -205,7 +227,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonUpdate, newSponsor, effectType, effect, targetBuilder)
 	}
 
-	return append(sponsorChanges, targetChange)
+	return append(sponsorChanges, targetChange), nil
 }
 
 // createSponsorChange creates a state change for the sponsor account in a sponsorship relationship.
@@ -242,6 +264,14 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 	}
 
 	return builder.Build()
+}
+
+// safeStringFromDetails safely extracts a string value from effect details
+func safeStringFromDetails(details map[string]any, key string) (string, error) {
+	if value, ok := details[key].(string); ok {
+		return value, nil
+	}
+	return "", fmt.Errorf("invalid %s value", key)
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.
@@ -287,6 +317,7 @@ func (p *EffectsProcessor) parseKeyValue(effect *effects.EffectOutput, effectTyp
 func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChangeBuilder, effect *effects.EffectOutput) []types.StateChange {
 	setFlags := make(map[string]any)
 	clearFlags := make(map[string]any)
+
 	for _, flag := range flags {
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {
@@ -297,8 +328,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 		}
 	}
 
-	// Create separate state changes for flags being set vs cleared
-	changes := make([]types.StateChange, 0)
+	var changes []types.StateChange
 	if len(setFlags) > 0 {
 		changes = append(changes, changeBuilder.
 			Clone().
@@ -358,7 +388,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
 
 	// Create a separate state change for each threshold that was modified
-	thresholdChanges := make([]types.StateChange, 0)
+	var thresholdChanges []types.StateChange
 	for threshold, reason := range thresholdToReasonMap {
 		if value, ok := effect.Details[threshold]; ok {
 			// Convert XDR threshold value to string for storage
@@ -375,11 +405,11 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 				prevAccount := prevLedgerEntryState.Data.MustAccount()
 				switch threshold {
 				case "low_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[1]), 10) // Index 1: Low threshold
+					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[lowThresholdIndex]), 10)
 				case "med_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[2]), 10) // Index 2: Medium threshold
+					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[medThresholdIndex]), 10)
 				case "high_threshold":
-					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[3]), 10) // Index 3: High threshold
+					oldValue = strconv.FormatInt(int64(prevAccount.Thresholds[highThresholdIndex]), 10)
 				}
 				thresholdDetails["old"] = oldValue
 			} else {
