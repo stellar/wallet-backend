@@ -298,7 +298,7 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 	signerPublicKey := effect.Details["public_key"].(string)
 	weight, err := ConvertToInt32(effect.Details["weight"])
 	if err != nil {
-		return nil, fmt.Errorf("converting weight for signer created effect: %w", err)
+		return nil, fmt.Errorf("converting weight for signer effect: %w", err)
 	}
 
 	//exhaustive:ignore
@@ -330,8 +330,7 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 }
 
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.
-// Stellar accounts have low, medium, and high signature thresholds that control what operations require how many signatures.
-// It extracts both old and new threshold values from the ledger changes to provide complete context.
+// It extracts both old and new threshold values from the ledger entry changes.
 func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
 	// Find the account entry change to get old threshold values
 	prevAccountState, err := p.getPrevAccountState(effect, changes)
@@ -373,6 +372,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	return thresholdChanges, nil
 }
 
+// getPrevAccountState gets the previous account state from the ledger entry changes.
 func (p *EffectsProcessor) getPrevAccountState(effect *effects.EffectOutput, changes []ingest.Change) (xdr.AccountEntry, error) {
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeAccount {
