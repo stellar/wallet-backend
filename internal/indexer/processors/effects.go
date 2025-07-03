@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
