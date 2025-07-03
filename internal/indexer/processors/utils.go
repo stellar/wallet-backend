@@ -46,7 +46,7 @@ func ConvertToInt32(value any) (int32, error) {
 	}
 }
 
-// safeStringFromDetails safely extracts a string value from effect details
+// SafeStringFromDetails safely extracts a string value from effect details
 func SafeStringFromDetails(details map[string]any, key string) (string, error) {
 	if value, ok := details[key].(string); ok {
 		return value, nil
