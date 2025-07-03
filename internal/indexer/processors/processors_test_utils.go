@@ -5,6 +5,7 @@ package processors
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/xdr"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -112,7 +114,239 @@ var (
 			},
 		},
 	}
+
+	trustor    = xdr.MustAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY")
+	setFlags   = xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	clearFlags = xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag | xdr.TrustLineFlagsAuthorizedFlag)
+
+	creator           = xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
+	created           = xdr.MustAddress("GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN")
+	sponsor           = xdr.MustAddress("GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A")
+	sponsor2          = xdr.MustAddress("GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX")
+	createAccountMeta = &xdr.TransactionMeta{
+		V: 1,
+		V1: &xdr.TransactionMetaV1{
+			TxChanges: xdr.LedgerEntryChanges{
+				{
+					Type: 3,
+					State: &xdr.LedgerEntry{
+						LastModifiedLedgerSeq: 0x39,
+						Data: xdr.LedgerEntryData{
+							Type: 0,
+							Account: &xdr.AccountEntry{
+								AccountId:     creator,
+								Balance:       800152377009533292,
+								SeqNum:        25,
+								InflationDest: &creator,
+								Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+							},
+						},
+					},
+				},
+				{
+					Type: 1,
+					Updated: &xdr.LedgerEntry{
+						LastModifiedLedgerSeq: 0x39,
+						Data: xdr.LedgerEntryData{
+							Type: 0,
+							Account: &xdr.AccountEntry{
+								AccountId:     creator,
+								Balance:       800152377009533292,
+								SeqNum:        26,
+								InflationDest: &creator,
+							},
+						},
+						Ext: xdr.LedgerEntryExt{},
+					},
+				},
+			},
+			Operations: []xdr.OperationMeta{
+				{
+					Changes: xdr.LedgerEntryChanges{
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+							State: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:     creator,
+										Balance:       800152367009533292,
+										SeqNum:        26,
+										InflationDest: &creator,
+										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor2,
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved,
+							Removed: &xdr.LedgerKey{
+								Type: xdr.LedgerEntryTypeAccount,
+								Account: &xdr.LedgerKeyAccount{
+									AccountId: created,
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+							State: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:     creator,
+										Balance:       800152367009533292,
+										SeqNum:        26,
+										InflationDest: &creator,
+										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor,
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+							Updated: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:     creator,
+										Balance:       800152367009533292,
+										SeqNum:        26,
+										InflationDest: &creator,
+										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor2,
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+							State: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:     creator,
+										Balance:       800152377009533292,
+										SeqNum:        26,
+										InflationDest: &creator,
+										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor,
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+							Updated: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:     creator,
+										Balance:       800152367009533292,
+										SeqNum:        26,
+										InflationDest: &creator,
+										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor,
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+							Created: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:  created,
+										Balance:    10000000000,
+										SeqNum:     244813135872,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+								Ext: xdr.LedgerEntryExt{
+									V: 1,
+									V1: &xdr.LedgerEntryExtensionV1{
+										SponsoringId: &sponsor,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createAccountMetaB64, _ = xdr.MarshalBase64(createAccountMeta) //nolint:errcheck
 )
+
+type testTransaction struct {
+	Index         uint32
+	EnvelopeXDR   string
+	ResultXDR     string
+	FeeChangesXDR string
+	MetaXDR       string
+	Hash          string
+}
+
+func buildTransactionFromXDR(t *testing.T, txn testTransaction) ingest.LedgerTransaction {
+	transaction := ingest.LedgerTransaction{
+		Index:      txn.Index,
+		Ledger:     someLcm,
+		Envelope:   xdr.TransactionEnvelope{},
+		Result:     xdr.TransactionResultPair{},
+		FeeChanges: xdr.LedgerEntryChanges{},
+		UnsafeMeta: xdr.TransactionMeta{},
+	}
+
+	tt := assert.New(t)
+
+	err := xdr.SafeUnmarshalBase64(txn.EnvelopeXDR, &transaction.Envelope)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.ResultXDR, &transaction.Result.Result)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.MetaXDR, &transaction.UnsafeMeta)
+	tt.NoError(err)
+	err = xdr.SafeUnmarshalBase64(txn.FeeChangesXDR, &transaction.FeeChanges)
+	tt.NoError(err)
+
+	_, err = hex.Decode(transaction.Result.TransactionHash[:], []byte(txn.Hash))
+	tt.NoError(err)
+
+	return transaction
+}
 
 // Transaction creation helpers
 func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.LedgerEntryChanges, isFailed bool) ingest.LedgerTransaction {
@@ -293,6 +527,23 @@ func claimCBOp(balanceID xdr.ClaimableBalanceId, source *xdr.MuxedAccount) xdr.O
 			Type: xdr.OperationTypeClaimClaimableBalance,
 			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{
 				BalanceId: balanceID,
+			},
+		},
+	}
+}
+
+func setTrustlineFlagsOp() xdr.Operation {
+	aid := xdr.MustAddress("GDRW375MAYR46ODGF2WGANQC2RRZL7O246DYHHCGWTV2RE7IHE2QUQLD")
+	source := aid.ToMuxedAccount()
+	return xdr.Operation{
+		SourceAccount: &source,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeSetTrustLineFlags,
+			SetTrustLineFlagsOp: &xdr.SetTrustLineFlagsOp{
+				Trustor:    trustor,
+				Asset:      xdr.MustNewCreditAsset("USD", "GDRW375MAYR46ODGF2WGANQC2RRZL7O246DYHHCGWTV2RE7IHE2QUQLD"),
+				ClearFlags: clearFlags,
+				SetFlags:   setFlags,
 			},
 		},
 	}
