@@ -826,3 +826,165 @@ func Test_getScValParticipants(t *testing.T) {
 		})
 	}
 }
+
+func Test_getAuthEntryParticipants(t *testing.T) {
+	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
+	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+	scAddressAccount1 := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID1,
+	}
+
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+	require.NoError(t, err)
+	contractID1 := xdr.Hash(decodedContractID)
+	scAddressContract1 := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID1,
+	}
+
+	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
+	accountID2 := xdr.MustAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+	scAddressAccount2 := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID2,
+	}
+
+	testCases := []struct {
+		name            string
+		authEntries     []xdr.SorobanAuthorizationEntry
+		expected        []string
+		wantErrContains string
+	}{
+		{
+			name:        "🟢empty_auth_entries",
+			authEntries: []xdr.SorobanAuthorizationEntry{},
+			expected:    []string{},
+		},
+		{
+			name: "🟢single_account_auth_entry",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressAccount1,
+						}),
+					},
+				},
+			},
+			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
+		},
+		{
+			name: "🟢single_contract_auth_entry",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressContract1,
+						}),
+					},
+				},
+			},
+			expected: []string{"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"},
+		},
+		{
+			name: "🟢multiple_auth_entries",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressAccount1,
+						}),
+					},
+				},
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressContract1,
+						}),
+					},
+				},
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressAccount2,
+						}),
+					},
+				},
+			},
+			expected: []string{
+				"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P",
+				"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+				"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
+			},
+		},
+		{
+			name: "🟡unsupported_credentials_type_should_be_ignored",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressContract1,
+						}),
+					},
+				},
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressAccount2,
+						}),
+					},
+				},
+			},
+			expected: []string{"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"},
+		},
+		{
+			name: "🟢duplicate_addresses_should_be_deduplicated",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+							Address: scAddressAccount1,
+						}),
+					},
+				},
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: utils.PointOf(xdr.SorobanAddressCredentials{ // Duplicate
+							Address: scAddressAccount1,
+						}),
+					},
+				},
+			},
+			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			participants, err := getAuthEntryParticipants(tc.authEntries)
+
+			if tc.wantErrContains != "" {
+				assert.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErrContains)
+				assert.Empty(t, participants)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, len(tc.expected), participants.Cardinality())
+				for _, expectedParticipant := range tc.expected {
+					assert.True(t, participants.Contains(expectedParticipant))
+				}
+			}
+		})
+	}
+}
