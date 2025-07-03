@@ -6,6 +6,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/strkey"
 
 	"github.com/stellar/go/xdr"
 )
@@ -165,4 +166,124 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 	}
 
 	return operationsParticipants, nil
+}
+
+// getScValScvAddresses returns all ScAddresses that can be found in a ScVal. If the ScVal is a ScvVec or ScvMap,
+// it recursively iterates over its inner values to find all existing ScAddresses.
+func getScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
+	scAddresses := set.NewSet[xdr.ScAddress]()
+	switch scVal.Type {
+	case xdr.ScValTypeScvAddress:
+		scAddresses.Add(scVal.MustAddress())
+
+	case xdr.ScValTypeScvVec:
+		for _, innerVal := range *scVal.MustVec() {
+			scAddresses = scAddresses.Union(getScValScvAddresses(innerVal))
+		}
+
+	case xdr.ScValTypeScvMap:
+		for _, mapEntry := range *scVal.MustMap() {
+			scAddresses = scAddresses.Union(getScValScvAddresses(mapEntry.Key))
+			scAddresses = scAddresses.Union(getScValScvAddresses(mapEntry.Val))
+		}
+
+	case xdr.ScValTypeScvBytes:
+		// xdr.ScValTypeScvBytes is sometimes used to store either a contractID or a public key:
+		b := scVal.MustBytes()
+		if len(b) != 32 {
+			break
+		}
+
+		if address, err := strkey.Encode(strkey.VersionByteAccountID, b); err == nil {
+			accountID := xdr.MustAddress(address)
+			scAddresses.Add(xdr.ScAddress{
+				Type:      xdr.ScAddressTypeScAddressTypeAccount,
+				AccountId: &accountID,
+			})
+		}
+		if _, err := strkey.Encode(strkey.VersionByteContract, b); err == nil {
+			contractID := xdr.Hash(b)
+			scAddresses.Add(xdr.ScAddress{
+				Type:       xdr.ScAddressTypeScAddressTypeContract,
+				ContractId: &contractID,
+			})
+		}
+
+	default:
+		break
+	}
+
+	return scAddresses
+}
+
+// GetScValParticipants extracts all participant addresses from an ScVal.
+func GetScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
+	scvAddresses := getScValScvAddresses(scVal)
+	participants := set.NewSet[string]()
+
+	for scvAddress := range scvAddresses.Iterator().C {
+		scAddressStr, err := scvAddress.String()
+		if err != nil {
+			return nil, fmt.Errorf("converting ScAddress to string: %w", err)
+		}
+		participants.Add(scAddressStr)
+	}
+
+	return participants, nil
+}
+
+func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([]string, error) {
+	// 1. Source Account
+	participants := set.NewSet[string]()
+	if op.SourceAccount != nil {
+		participants.Add(op.SourceAccount.Address())
+	} else {
+		participants.Add(tx.Envelope.SourceAccount().ToAccountId().Address())
+	}
+
+	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
+
+	// 2. ContractID
+	contractID := invokeHostFunctionOp.HostFunction.InvokeContract.ContractAddress.ContractId
+	contractIDStr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	participants.Add(contractIDStr)
+
+	// 3. Args
+	var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.InvokeContract.Args
+	argsScVal, err := xdr.NewScVal(xdr.ScValTypeScvVec, &argsScVec)
+	if err != nil {
+		return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
+	}
+	argParticipants, err := GetScValParticipants(argsScVal)
+	if err != nil {
+		return nil, fmt.Errorf("getting scVal participants: %w", err)
+	}
+	participants = participants.Union(argParticipants)
+
+	// 4. AuthEntries
+	authEntriesParticipants, err := GetAuthEntryParticipants(invokeHostFunctionOp.Auth)
+	if err != nil {
+		return nil, fmt.Errorf("getting authEntry participants: %w", err)
+	}
+	participants = participants.Union(authEntriesParticipants)
+
+	return participants.ToSlice(), nil
+}
+
+func GetAuthEntryParticipants(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
+	participants := set.NewSet[string]()
+	for _, authEntry := range authEntries {
+		switch authEntry.Credentials.Type {
+		case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+			participant, err := authEntry.Credentials.MustAddress().Address.String()
+			if err != nil {
+				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
+			}
+			participants.Add(participant)
+		default:
+			continue
+		}
+	}
+
+	return participants, nil
 }

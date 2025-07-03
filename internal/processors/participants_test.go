@@ -1,7 +1,6 @@
 package processors
 
 import (
-	"fmt"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -645,97 +644,122 @@ func Test_metaXDR(t *testing.T) {
 	}
 }
 
-func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([]string, error) {
-	// 1. Source Account
-	participants := set.NewSet[string]()
-	if op.SourceAccount != nil {
-		participants.Add(op.SourceAccount.Address())
-	} else {
-		participants.Add(tx.Envelope.SourceAccount().ToAccountId().Address())
+func Test_getScValScvAddresses(t *testing.T) {
+	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
+	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+	scAddressAccount1 := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID1,
 	}
 
-	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
-
-	// 2. ContractID
-	contractID := invokeHostFunctionOp.HostFunction.InvokeContract.ContractAddress.ContractId
-	contractIDStr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-	participants.Add(contractIDStr)
-
-	// 3. Args
-	var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.InvokeContract.Args
-	argsScVal, err := xdr.NewScVal(xdr.ScValTypeScvVec, &argsScVec)
-	if err != nil {
-		return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
+	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
+	accountID2 := xdr.MustAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+	scAddressAccount2 := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID2,
 	}
-	argParticipants, err := GetScValParticipants(argsScVal)
-	if err != nil {
-		return nil, fmt.Errorf("getting scVal participants: %w", err)
-	}
-	participants = participants.Union(argParticipants)
-
-	// 4. AuthEntries
-	authEntriesParticipants, err := GetAuthEntryParticipants(invokeHostFunctionOp.Auth)
-	if err != nil {
-		return nil, fmt.Errorf("getting authEntry participants: %w", err)
-	}
-	participants = participants.Union(authEntriesParticipants)
-
-	return participants.ToSlice(), nil
-}
-
-func GetAuthEntryParticipants(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
-	participants := set.NewSet[string]()
-	for _, authEntry := range authEntries {
-		switch authEntry.Credentials.Type {
-		case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-			participant, err := authEntry.Credentials.MustAddress().Address.String()
-			if err != nil {
-				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
-			}
-			participants.Add(participant)
-		default:
-			continue
-		}
+	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U re-encoded as a C-account
+	accountID2Bytes := strkey.MustDecode(strkey.VersionByteAccountID, accountID2.Address())
+	scAddressContract2AsAccountID := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: utils.PointOf(xdr.Hash(accountID2Bytes)),
 	}
 
-	return participants, nil
-}
-
-func GetScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
-	scvAddresses := GetScValScvAddresses(scVal)
-	participants := set.NewSet[string]()
-
-	for scvAddress := range scvAddresses.Iterator().C {
-		scAddressStr, err := scvAddress.String()
-		if err != nil {
-			return nil, fmt.Errorf("converting ScAddress to string: %w", err)
-		}
-		participants.Add(scAddressStr)
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+	require.NoError(t, err)
+	contractID1 := xdr.Hash(decodedContractID)
+	scAddressContract1 := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID1,
+	}
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC re-encoded as a G-account
+	contractID1AsAccountID, err := strkey.Encode(strkey.VersionByteAccountID, contractID1[:])
+	require.NoError(t, err)
+	scAddressContract1AsAccountID := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: utils.PointOf(xdr.MustAddress(contractID1AsAccountID)),
 	}
 
-	return participants, nil
-}
-
-func GetScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
-	scAddresses := set.NewSet[xdr.ScAddress]()
-	switch scVal.Type {
-	case xdr.ScValTypeScvAddress:
-		scAddresses.Add(scVal.MustAddress())
-
-	case xdr.ScValTypeScvVec:
-		for _, innerVal := range *scVal.MustVec() {
-			scAddresses = scAddresses.Union(GetScValScvAddresses(innerVal))
-		}
-
-	case xdr.ScValTypeScvMap:
-		for _, mapEntry := range *scVal.MustMap() {
-			scAddresses = scAddresses.Union(GetScValScvAddresses(mapEntry.Key))
-			scAddresses = scAddresses.Union(GetScValScvAddresses(mapEntry.Val))
-		}
-
-	default:
-		break
+	// CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR
+	decodedContractID, err = strkey.Decode(strkey.VersionByteContract, "CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR")
+	require.NoError(t, err)
+	contractID2 := xdr.Hash(decodedContractID)
+	scAddressContract2 := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID2,
 	}
 
-	return scAddresses
+	testCases := []struct {
+		name          string
+		scVal         xdr.ScVal
+		wantAddresses set.Set[xdr.ScAddress]
+	}{
+		{
+			name:          "🟡unsupported_scv_type",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvI32, I32: utils.PointOf(xdr.Int32(1))},
+			wantAddresses: set.NewSet[xdr.ScAddress](),
+		},
+		{
+			name: "🟢scv_address",
+			scVal: xdr.ScVal{
+				Type:    xdr.ScValTypeScvAddress,
+				Address: &scAddressAccount1,
+			},
+			wantAddresses: set.NewSet(scAddressAccount1),
+		},
+		{
+			name: "🟢scv_vec_with_addresses",
+			scVal: func() xdr.ScVal {
+				vec := xdr.ScVec{
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount2},
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract2},
+				}
+				vecPtr := &vec
+				return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &vecPtr}
+			}(),
+			wantAddresses: set.NewSet(scAddressAccount1, scAddressAccount2, scAddressContract1, scAddressContract2),
+		},
+		{
+			name: "🟢scv_map_with_addresses",
+			scVal: func() xdr.ScVal {
+				scMap := utils.PointOf(xdr.ScMap{
+					xdr.ScMapEntry{
+						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+						Val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+					},
+				})
+				return xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &scMap}
+			}(),
+			wantAddresses: set.NewSet(scAddressAccount1, scAddressContract1),
+		},
+		{
+			name: "🟢scv_bytes_as_contract_id",
+			scVal: func() xdr.ScVal {
+				scb := xdr.ScBytes(contractID1[:])
+				return xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &scb}
+			}(),
+			wantAddresses: set.NewSet(scAddressContract1, scAddressContract1AsAccountID),
+		},
+		{
+			name: "🟢scv_bytes_as_account_id",
+			scVal: func() xdr.ScVal {
+				decoded, err := strkey.Decode(strkey.VersionByteAccountID, accountID2.Address())
+				require.NoError(t, err)
+				scb := xdr.ScBytes(decoded)
+				return xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &scb}
+			}(),
+			wantAddresses: set.NewSet(scAddressAccount2, scAddressContract2AsAccountID),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getScValScvAddresses(tc.scVal)
+			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
+			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
+		})
+	}
 }
