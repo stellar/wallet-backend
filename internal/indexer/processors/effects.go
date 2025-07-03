@@ -307,15 +307,14 @@ func (p *EffectsProcessor) parseKeyValue(effect *effects.EffectOutput, effectTyp
 // parseFlags processes flag-related effects and creates separate state changes for set and cleared flags.
 // Stellar flags can be either set (true) or cleared (false), and we track each change separately.
 func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChangeBuilder, effect *effects.EffectOutput) []types.StateChange {
-	setFlags := make(map[string]any)
-	clearFlags := make(map[string]any)
+	var setFlags, clearFlags []string
 
 	for _, flag := range flags {
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {
-				setFlags[flag] = true
+				setFlags = append(setFlags, flag)
 			} else {
-				clearFlags[flag] = false
+				clearFlags = append(clearFlags, flag)
 			}
 		}
 	}

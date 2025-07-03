@@ -46,8 +46,8 @@ func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateCha
 }
 
 // WithFlags sets the flags
-func (b *StateChangeBuilder) WithFlags(flags map[string]any) *StateChangeBuilder {
-	b.base.Flags = types.NullableJSONB(flags)
+func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
+	b.base.Flags = types.NullableJSON(flags)
 	return b
 }
 

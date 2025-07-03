@@ -66,9 +66,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				//exhaustive:ignore
 				switch *change.StateChangeReason {
 				case types.StateChangeReasonSet:
-					assert.Equal(t, types.NullableJSONB{"auth_required_flag": true}, change.Flags)
+					assert.Equal(t, types.NullableJSON{"auth_required_flag"}, change.Flags)
 				case types.StateChangeReasonClear:
-					assert.Equal(t, types.NullableJSONB{"auth_revocable_flag": false}, change.Flags)
+					assert.Equal(t, types.NullableJSON{"auth_revocable_flag"}, change.Flags)
 				}
 			case types.StateChangeCategorySigner:
 				//exhaustive:ignore
@@ -101,11 +101,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
 		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"authorized_to_maintain_liabilites": true}, changes[0].Flags)
+		assert.Equal(t, types.NullableJSON{"authorized_to_maintain_liabilites"}, changes[0].Flags)
 
 		assert.Equal(t, types.StateChangeCategoryTrustlineFlags, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"clawback_enabled_flag": false, "authorized_flag": false}, changes[1].Flags)
+		assert.Equal(t, types.NullableJSON{"authorized_flag", "clawback_enabled_flag"}, changes[1].Flags)
 	})
 
 	t.Run("ManageData - data created", func(t *testing.T) {
