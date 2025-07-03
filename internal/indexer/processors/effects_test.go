@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/toid"
-	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,9 +139,46 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, hash, changes[0].TxHash)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("name2"), "value": "NTY3OA=="}, changes[0].KeyValue)
+		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
 	})
+	t.Run("ManageData - data updated", func(t *testing.T) {
+		envelopeXDR := "AAAAAKO5w1Op9wij5oMFtCTUoGO9YgewUKQyeIw1g/L0mMP+AAAAZAAALbYAADNjAAAAAQAAAAAAAAAAAAAAAF4WVfgAAAAAAAAAAQAAAAEAAAAAOO6NdKTWKbGao6zsPag+izHxq3eUPLiwjREobLhQAmQAAAAKAAAAOEdDUjNUUTJUVkgzUVJJN0dRTUMzSUpHVVVCUjMyWVFIV0JJS0lNVFlSUTJZSDRYVVREQjc1VUtFAAAAAQAAABQxNTc4NTIxMjA0XzI5MzI5MDI3OAAAAAAAAAAC0oPafQAAAEAcsS0iq/t8i+p85xwLsRy8JpRNEeqobEC5yuhO9ouVf3PE0VjLqv8sDd0St4qbtXU5fqlHd49R9CR+z7tiRLEB9JjD/gAAAEBmaa9sGxQhEhrakzXcSNpMbR4nox/Ha0p/1sI4tabNEzjgYLwKMn1U9tIdVvKKDwE22jg+CI2FlPJ3+FJPmKUA"
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
+		metaXDR := "AAAAAQAAAAIAAAADABEK2wAAAAAAAAAAo7nDU6n3CKPmgwW0JNSgY71iB7BQpDJ4jDWD8vSYw/4AAAAXSGLVVAAALbYAADNiAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABABEK2wAAAAAAAAAAo7nDU6n3CKPmgwW0JNSgY71iB7BQpDJ4jDWD8vSYw/4AAAAXSGLVVAAALbYAADNjAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAgAAAAMAEQqbAAAAAwAAAAA47o10pNYpsZqjrOw9qD6LMfGrd5Q8uLCNEShsuFACZAAAADhHQ1IzVFEyVFZIM1FSSTdHUU1DM0lKR1VVQlIzMllRSFdCSUtJTVRZUlEyWUg0WFVUREI3NVVLRQAAABQxNTc4NTIwODU4XzI1MjM5MTc2OAAAAAAAAAAAAAAAAQARCtsAAAADAAAAADjujXSk1imxmqOs7D2oPosx8at3lDy4sI0RKGy4UAJkAAAAOEdDUjNUUTJUVkgzUVJJN0dRTUMzSUpHVVVCUjMyWVFIV0JJS0lNVFlSUTJZSDRYVVREQjc1VUtFAAAAFDE1Nzg1MjEyMDRfMjkzMjkwMjc4AAAAAAAAAAA="
+		feeChangesXDR := "AAAAAgAAAAMAEQqbAAAAAAAAAACjucNTqfcIo+aDBbQk1KBjvWIHsFCkMniMNYPy9JjD/gAAABdIYtW4AAAttgAAM2IAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAEQrbAAAAAAAAAACjucNTqfcIo+aDBbQk1KBjvWIHsFCkMniMNYPy9JjD/gAAABdIYtVUAAAttgAAM2IAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "c60b74a14b628d06d3683db8b36ce81344967ac13bc433124bcef44115fbb257"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
 
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, hash, changes[0].TxHash)
+		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{
+			"GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE": map[string]any{
+				"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
+				"old": "MTU3ODUyMDg1OF8yNTIzOTE3Njg=",
+			},
+		}, changes[0].KeyValue)
+	})
 	t.Run("ManageData - data removed", func(t *testing.T) {
 		envelopeXDR := "AAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAZAAIGHoAAAAKAAAAAQAAAAAAAAAAAAAAAF4XaMIAAAAAAAAAAQAAAAAAAAAKAAAABWhlbGxvAAAAAAAAAAAAAAAAAAABomwrUwAAAEDyu3HI9bdkzNBs4UgTjVmYt3LQ0CC/6a8yWBmz8OiKeY/RJ9wJvV9/m0JWGtFWbPOXWBg/Pj3ttgKMiHh9TKoF"
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
@@ -174,7 +210,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, hash, changes[0].TxHash)
 		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"name": xdr.String64("hello")}, changes[0].KeyValue)
+		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
 	})
 
 	t.Run("Sponsorship - account sponsorship created/updated/revoked", func(t *testing.T) {
