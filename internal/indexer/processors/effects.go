@@ -62,7 +62,7 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 	}
 }
 
-// ProcessTransaction extracts effects from a Stellar operation and converts them into state changes.
+// ProcessOperation extracts effects from a Stellar operation and converts them into state changes.
 // It processes account state changes like signer modifications, threshold updates, flag changes,
 // home domain updates, data entry changes, and sponsorship relationship modifications.
 // Returns a slice of state changes representing various account state changes.
@@ -116,11 +116,7 @@ func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.Ledge
 		// Threshold effects: track changes to account signature thresholds (low/medium/high)
 		case effects.EffectAccountThresholdsUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
-			thresholdChanges, err := p.parseThresholds(changeBuilder, &effect, changes)
-			if err != nil {
-				return nil, fmt.Errorf("processing threshold effects: %w", err)
-			}
-			stateChanges = append(stateChanges, thresholdChanges...)
+			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect, changes)...)
 
 		// Flag effects: track changes to account authorization flags
 		case effects.EffectAccountFlagsUpdated:
@@ -256,6 +252,7 @@ func (p *EffectsProcessor) parseKeyValue(effect *effects.EffectOutput, effectTyp
 	if key == "name" {
 		keyName := string(effect.Details[key].(xdr.String64))
 
+		//exhaustive:ignore
 		switch effectType {
 		case effects.EffectDataCreated:
 			if value, ok := effect.Details["value"]; ok {
@@ -356,7 +353,7 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.
 // It extracts both old and new threshold values from the ledger entry changes.
-func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
+func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) []types.StateChange {
 	// Find the account entry change to get old threshold values
 	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
 
@@ -396,7 +393,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 				Build())
 		}
 	}
-	return thresholdChanges, nil
+	return thresholdChanges
 }
 
 // getPrevAccountState gets the previous account state from the ledger entry changes.
