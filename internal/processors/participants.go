@@ -216,8 +216,8 @@ func getScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
 	return scAddresses
 }
 
-// GetScValParticipants extracts all participant addresses from an ScVal.
-func GetScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
+// getScValParticipants extracts all participant addresses from an ScVal.
+func getScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
 	scvAddresses := getScValScvAddresses(scVal)
 	participants := set.NewSet[string]()
 
@@ -254,7 +254,7 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 	if err != nil {
 		return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
 	}
-	argParticipants, err := GetScValParticipants(argsScVal)
+	argParticipants, err := getScValParticipants(argsScVal)
 	if err != nil {
 		return nil, fmt.Errorf("getting scVal participants: %w", err)
 	}

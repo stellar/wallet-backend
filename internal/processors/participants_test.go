@@ -763,3 +763,66 @@ func Test_getScValScvAddresses(t *testing.T) {
 		})
 	}
 }
+
+func Test_getScValParticipants(t *testing.T) {
+	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
+	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+	scAddressAccount1 := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: &accountID1,
+	}
+
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+	require.NoError(t, err)
+	contractID1 := xdr.Hash(decodedContractID)
+	scAddressContract1 := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID1,
+	}
+
+	testCases := []struct {
+		name          string
+		scVal         xdr.ScVal
+		wantAddresses set.Set[string]
+	}{
+		{
+			name:          "🟡unsupported_scv_type",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvI32, I32: utils.PointOf(xdr.Int32(1))},
+			wantAddresses: set.NewSet[string](),
+		},
+		{
+			name: "🟢scv_address",
+			scVal: xdr.ScVal{
+				Type:    xdr.ScValTypeScvAddress,
+				Address: &scAddressAccount1,
+			},
+			wantAddresses: set.NewSet("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"),
+		},
+		{
+			name: "🟢scv_map_with_address_and_vector",
+			scVal: func() xdr.ScVal {
+				vec := &xdr.ScVec{
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+				}
+				scMap := utils.PointOf(xdr.ScMap{
+					xdr.ScMapEntry{
+						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+						Val: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(vec)},
+					},
+				})
+				return xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &scMap}
+			}(),
+			wantAddresses: set.NewSet("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P", "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := getScValParticipants(tc.scVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
+			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
+		})
+	}
+}
