@@ -417,7 +417,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	return thresholdChanges
 }
 
-// getPrevAccountState gets the previous account state from the ledger entry changes.
+// getPrevLedgerEntryState gets the previous ledger entry state for the specified ledger entry type.
 func (p *EffectsProcessor) getPrevLedgerEntryState(effect *effects.EffectOutput, ledgerEntryType xdr.LedgerEntryType, changes []ingest.Change) *xdr.LedgerEntry {
 	for _, change := range changes {
 		if change.Type != ledgerEntryType {
