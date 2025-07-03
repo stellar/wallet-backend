@@ -243,12 +243,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
 		assert.Equal(t, hash, changes[1].TxHash)
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[1].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonRevoke, *changes[1].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonRemove, *changes[1].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].TargetAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[2].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonRevoke, *changes[2].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonRemove, *changes[2].StateChangeReason)
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[2].AccountID)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[2].SponsorAccountID.String)
 

@@ -205,8 +205,8 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
-		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonRevoke, baseBuilder.Clone(), formerSponsor, effect.Address))
-		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonRevoke, formerSponsor, effectType, effect, baseBuilder.Clone())
+		sponsorChanges = append(sponsorChanges, p.createSponsorChange(types.StateChangeReasonRemove, baseBuilder.Clone(), formerSponsor, effect.Address))
+		targetChange = p.createTargetSponsorshipChange(types.StateChangeReasonRemove, formerSponsor, effectType, effect, baseBuilder.Clone())
 
 	// Updated cases: when sponsorship relationships are transferred from one sponsor to another
 	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,

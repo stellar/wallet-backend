@@ -108,7 +108,6 @@ const (
 	StateChangeReasonSell       StateChangeReason = "SELL"
 	StateChangeReasonBuy        StateChangeReason = "BUY"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonRevoke     StateChangeReason = "REVOKE"
 	StateChangeReasonConsume    StateChangeReason = "CONSUME"
 	StateChangeReasonDeploy     StateChangeReason = "DEPLOY"
 	StateChangeReasonInvoke     StateChangeReason = "INVOKE"
