@@ -232,6 +232,25 @@ func getScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
 	return participants, nil
 }
 
+// getAuthEntryParticipants extracts all participant addresses from a SorobanAuthorizationEntry slice.
+func getAuthEntryParticipants(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
+	participants := set.NewSet[string]()
+	for _, authEntry := range authEntries {
+		switch authEntry.Credentials.Type {
+		case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+			participant, err := authEntry.Credentials.MustAddress().Address.String()
+			if err != nil {
+				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
+			}
+			participants.Add(participant)
+		default:
+			continue
+		}
+	}
+
+	return participants, nil
+}
+
 func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([]string, error) {
 	// 1. Source Account
 	participants := set.NewSet[string]()
@@ -261,29 +280,11 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 	participants = participants.Union(argParticipants)
 
 	// 4. AuthEntries
-	authEntriesParticipants, err := GetAuthEntryParticipants(invokeHostFunctionOp.Auth)
+	authEntriesParticipants, err := getAuthEntryParticipants(invokeHostFunctionOp.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("getting authEntry participants: %w", err)
 	}
 	participants = participants.Union(authEntriesParticipants)
 
 	return participants.ToSlice(), nil
-}
-
-func GetAuthEntryParticipants(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
-	participants := set.NewSet[string]()
-	for _, authEntry := range authEntries {
-		switch authEntry.Credentials.Type {
-		case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-			participant, err := authEntry.Credentials.MustAddress().Address.String()
-			if err != nil {
-				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
-			}
-			participants.Add(participant)
-		default:
-			continue
-		}
-	}
-
-	return participants, nil
 }
