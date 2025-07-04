@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -287,4 +288,73 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 	participants = participants.Union(authEntriesParticipants)
 
 	return participants.ToSlice(), nil
+}
+
+func getContractID(networkPassphrase string, op xdr.Operation) (string, error) {
+	if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
+		return "", nil
+	}
+
+	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
+
+	switch invokeHostFunctionOp.HostFunction.Type {
+	case xdr.HostFunctionTypeHostFunctionTypeInvokeContract: // InvokeHostFunction->InvokeContract
+		contractIDHash := invokeHostFunctionOp.HostFunction.MustInvokeContract().ContractAddress.ContractId
+		return strkey.MustEncode(strkey.VersionByteContract, contractIDHash[:]), nil
+
+	case xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+		var preimage xdr.ContractIdPreimage
+		switch invokeHostFunctionOp.HostFunction.Type {
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
+			preimage = invokeHostFunctionOp.HostFunction.MustCreateContract().ContractIdPreimage
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+			preimage = invokeHostFunctionOp.HostFunction.MustCreateContractV2().ContractIdPreimage
+		default:
+			return "", nil
+		}
+
+		if preimage.Type == xdr.ContractIdPreimageTypeContractIdPreimageFromAddress {
+			return calculateContractID(networkPassphrase, preimage.MustFromAddress())
+		}
+
+	default:
+		break
+	}
+
+	return "", nil
+}
+
+// calculateContractID calculates the contract ID for a wallet creation transaction based on the network passphrase, deployer account and salt.
+//
+// More info: https://developers.stellar.org/docs/build/smart-contracts/example-contracts/deployer#how-it-works
+func calculateContractID(
+	networkPassphrase string,
+	fromAddress xdr.ContractIdPreimageFromAddress,
+) (string, error) {
+	// Network
+	networkHash := xdr.Hash(sha256.Sum256([]byte(networkPassphrase)))
+
+	hashIDPreimage := xdr.HashIdPreimage{
+		Type: xdr.EnvelopeTypeEnvelopeTypeContractId,
+		ContractId: &xdr.HashIdPreimageContractId{
+			NetworkId: networkHash,
+			ContractIdPreimage: xdr.ContractIdPreimage{
+				Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+				FromAddress: &fromAddress,
+			},
+		},
+	}
+
+	preimageXDR, err := hashIDPreimage.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("marshaling preimage: %w", err)
+	}
+
+	contractIDHash := sha256.Sum256(preimageXDR)
+	contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDHash[:])
+	if err != nil {
+		return "", fmt.Errorf("encoding contract ID: %w", err)
+	}
+
+	return contractID, nil
 }
