@@ -389,13 +389,13 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		opByID := make(map[int64]types.Operation)
 		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
-		// 1. Identify which data should be ingested.
-		for _, participant := range indexerBuffer.Participants.ToSlice() {
+		// 1. Build the data structures needed for the DB insertions
+		for participant := range indexerBuffer.Participants.Iter() {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
-			// 1.1. Identify which transactions should be ingested.
+			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
 				txByHash[tx.Hash] = tx
@@ -405,7 +405,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				stellarAddressesByTxHash[tx.Hash].Add(participant)
 			}
 
-			// 1.2. Identify which operations should be ingested.
+			// 1.2. operations data for the DB insertions
 			participantOperations := indexerBuffer.GetParticipantOperations(participant)
 			for opID, op := range participantOperations {
 				opByID[opID] = op
@@ -415,7 +415,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				stellarAddressesByOpID[opID].Add(participant)
 			}
 
-			// 1.3. TODO: Identify which state changes should be ingested.
+			// 1.3. TODO: state changes data for the DB insertions
 		}
 
 		// 2. Insert queries

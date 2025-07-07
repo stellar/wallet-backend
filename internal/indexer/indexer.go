@@ -32,7 +32,7 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		return fmt.Errorf("creating data transaction: %w", err)
 	}
 	if txParticipants.Cardinality() != 0 {
-		for participant := range txParticipants.Iterator().C {
+		for participant := range txParticipants.Iter() {
 			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
 		}
 	}
@@ -48,7 +48,7 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 			return fmt.Errorf("creating data operation: %w", err)
 		}
 
-		for participant := range opParticipants.Participants.Iterator().C {
+		for participant := range opParticipants.Participants.Iter() {
 			i.IndexerBuffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 	}

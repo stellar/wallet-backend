@@ -61,7 +61,7 @@ func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.T
 	}
 
 	txs := make([]types.Transaction, 0, txHashes.Cardinality())
-	for txHash := range txHashes.Iterator().C {
+	for txHash := range txHashes.Iter() {
 		txs = append(txs, b.txByHash[txHash])
 	}
 
@@ -105,7 +105,7 @@ func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]t
 	}
 
 	ops := make(map[int64]types.Operation, opIDs.Cardinality())
-	for opID := range opIDs.Iterator().C {
+	for opID := range opIDs.Iter() {
 		ops[opID] = b.opByID[opID]
 	}
 
