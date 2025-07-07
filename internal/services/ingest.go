@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -25,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -156,7 +156,7 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
 			// eagerly unlock channel accounts from txs
-			err = m.unlockChannelAccounts(ctx, ledgerTransactions)
+			err = m.unlockChannelAccountsDeprecated(ctx, ledgerTransactions)
 			if err != nil {
 				return fmt.Errorf("unlocking channel account from tx: %w", err)
 			}
@@ -223,6 +223,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		case <-ctx.Done():
 			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
 		case rpcHealth = <-rpcHeartbeatChannel:
+			ingestHeartbeatChannel <- true // ⬅️ indicate that it's still running
 			// this will fallthrough to execute the code below ⬇️
 		}
 
@@ -381,42 +382,73 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
-		// 1. Filter participants that are not in the watchlist.
-		existingAccounts, err := m.models.Account.GetExisting(ctx, dbTx, indexerBuffer.Participants.ToSlice())
-		if err != nil {
-			return fmt.Errorf("getting existing accounts: %w", err)
-		}
-
-		if len(existingAccounts) == 0 {
-			log.Ctx(ctx).Debug("🟡 no existing accounts found, skipping ingestion")
-			return nil
-		}
-
-		// 2. Identify which data should be ingested.
-		txHashesToInsert := set.NewSet[string]()
-		for _, participant := range existingAccounts {
+		// 1. Identify which data should be ingested.
+		txByHash := make(map[string]types.Transaction)
+		stellarAddressesByTxHash := make(map[string][]string)
+		for _, participant := range indexerBuffer.Participants.ToSlice() {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
-			// 2.1. Identify which transactions should be ingested.
-			for _, tx := range indexerBuffer.GetParticipantTransactions(participant) {
-				txHashesToInsert.Add(tx.Hash)
+			// 1.1. Identify which transactions should be ingested.
+			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
+			for _, tx := range participantTransactions {
+				txByHash[tx.Hash] = tx
+				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
 			}
 
-			// 2.2. TODO: Identify which operations should be ingested.
-			// 2.3. TODO: Identify which channel accounts should be unlocked.
+			// 1.2. TODO: Identify which operations should be ingested.
+			// 1.3. TODO: Identify which state changes should be ingested.
 		}
 
-		// 4. TODO: insert transactions and transactions_accounts into the database
-		log.Ctx(ctx).Infof("🚧🟢 should insert %d transactions with hashes %v", txHashesToInsert.Cardinality(), txHashesToInsert.ToSlice())
+		// 2. Insert queries
+		// 2.1. Insert transactions
+		txs := make([]types.Transaction, 0, len(txByHash))
+		for _, tx := range txByHash {
+			txs = append(txs, tx)
+		}
+		insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
+		if err != nil {
+			return fmt.Errorf("batch inserting transactions: %w", err)
+		}
 
-		// 5. TODO: Unlock channel accounts.
+		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
+
+		// 3. Unlock channel accounts.
+		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
+		if err != nil {
+			return fmt.Errorf("unlocking channel accounts: %w", err)
+		}
 
 		return nil
 	})
 	if dbTxErr != nil {
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
+	}
+
+	return nil
+}
+
+// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
+	txs := ledgerIndexer.GetAllTransactions()
+	if len(txs) == 0 {
+		return nil
+	}
+
+	innerTxHashes := make([]string, 0, len(txs))
+	for _, tx := range txs {
+		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		if err != nil {
+			return fmt.Errorf("extracting inner tx hash: %w", err)
+		}
+		innerTxHashes = append(innerTxHashes, innerTxHash)
+	}
+
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
+		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
+	} else if affectedRows > 0 {
+		log.Ctx(ctx).Infof("🔓 unlocked %d channel accounts", affectedRows)
 	}
 
 	return nil
@@ -516,8 +548,8 @@ func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions [
 	return nil
 }
 
-// unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerTransactions []entities.Transaction) error {
+// unlockChannelAccountsDeprecated unlocks the channel accounts associated with the given transaction XDRs.
+func (m *ingestService) unlockChannelAccountsDeprecated(ctx context.Context, ledgerTransactions []entities.Transaction) error {
 	if len(ledgerTransactions) == 0 {
 		log.Ctx(ctx).Debug("no transactions to unlock channel accounts from")
 		return nil
@@ -532,7 +564,7 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerTransac
 		}
 	}
 
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, innerTxHashes...); err != nil {
+	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
 		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
 	} else if affectedRows > 0 {
 		log.Ctx(ctx).Infof("unlocked %d channel accounts", affectedRows)
@@ -581,12 +613,12 @@ func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker a
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			warn := fmt.Sprintf("ingestion service stale for over %s", ingestHealthCheckMaxWaitTime)
-			log.Warn(warn)
+			warn := fmt.Sprintf("🐌 ingestion service stale for over %s 🐢", ingestHealthCheckMaxWaitTime)
+			log.Ctx(ctx).Warn(warn)
 			if tracker != nil {
 				tracker.CaptureMessage(warn)
 			} else {
-				log.Warn("App Tracker is nil")
+				log.Ctx(ctx).Warnf("[NIL TRACKER] %s", warn)
 			}
 			ticker.Reset(ingestHealthCheckMaxWaitTime)
 		case <-heartbeat:
