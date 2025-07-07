@@ -10,9 +10,9 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
-// getScValScvAddresses returns all ScAddresses that can be found in a ScVal. If the ScVal is a ScvVec or ScvMap,
+// scAddressesForScVal returns all ScAddresses that can be found in a ScVal. If the ScVal is a ScvVec or ScvMap,
 // it recursively iterates over its inner values to find all existing ScAddresses.
-func getScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
+func scAddressesForScVal(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
 	scAddresses := set.NewSet[xdr.ScAddress]()
 	switch scVal.Type {
 	case xdr.ScValTypeScvAddress:
@@ -20,13 +20,13 @@ func getScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
 
 	case xdr.ScValTypeScvVec:
 		for _, innerVal := range *scVal.MustVec() {
-			scAddresses = scAddresses.Union(getScValScvAddresses(innerVal))
+			scAddresses = scAddresses.Union(scAddressesForScVal(innerVal))
 		}
 
 	case xdr.ScValTypeScvMap:
 		for _, mapEntry := range *scVal.MustMap() {
-			scAddresses = scAddresses.Union(getScValScvAddresses(mapEntry.Key))
-			scAddresses = scAddresses.Union(getScValScvAddresses(mapEntry.Val))
+			scAddresses = scAddresses.Union(scAddressesForScVal(mapEntry.Key))
+			scAddresses = scAddresses.Union(scAddressesForScVal(mapEntry.Val))
 		}
 
 	case xdr.ScValTypeScvBytes:
@@ -58,9 +58,9 @@ func getScValScvAddresses(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
 	return scAddresses
 }
 
-// getScValParticipants extracts all participant addresses from an ScVal.
-func getScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
-	scvAddresses := getScValScvAddresses(scVal)
+// participantsForScVal extracts all participant addresses from an ScVal.
+func participantsForScVal(scVal xdr.ScVal) (set.Set[string], error) {
+	scvAddresses := scAddressesForScVal(scVal)
 	participants := set.NewSet[string]()
 
 	for scvAddress := range scvAddresses.Iterator().C {
@@ -74,8 +74,8 @@ func getScValParticipants(scVal xdr.ScVal) (set.Set[string], error) {
 	return participants, nil
 }
 
-// getAuthEntryParticipants extracts all participant addresses from a SorobanAuthorizationEntry slice.
-func getAuthEntryParticipants(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
+// participantsForAuthEntry extracts all participant addresses from a SorobanAuthorizationEntry slice.
+func participantsForAuthEntry(authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
 	participants := set.NewSet[string]()
 	for _, authEntry := range authEntries {
 		switch authEntry.Credentials.Type {
@@ -115,14 +115,14 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 	if err != nil {
 		return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
 	}
-	argParticipants, err := getScValParticipants(argsScVal)
+	argParticipants, err := participantsForScVal(argsScVal)
 	if err != nil {
 		return nil, fmt.Errorf("getting scVal participants: %w", err)
 	}
 	participants = participants.Union(argParticipants)
 
 	// 4. AuthEntries
-	authEntriesParticipants, err := getAuthEntryParticipants(invokeHostFunctionOp.Auth)
+	authEntriesParticipants, err := participantsForAuthEntry(invokeHostFunctionOp.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("getting authEntry participants: %w", err)
 	}
@@ -183,7 +183,7 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 // 		if err != nil {
 // 			return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
 // 		}
-// 		argParticipants, err := getScValParticipants(argsScVal)
+// 		argParticipants, err := participantsForScVal(argsScVal)
 // 		if err != nil {
 // 			return nil, fmt.Errorf("getting scVal participants: %w", err)
 // 		}
@@ -192,7 +192,7 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 
 // 	// 4. AuthEntries
 // 	if op.Body.Type == xdr.OperationTypeInvokeHostFunction {
-// 		authEntriesParticipants, err := getAuthEntryParticipants(invokeHostFunctionOp.Auth)
+// 		authEntriesParticipants, err := participantsForAuthEntry(invokeHostFunctionOp.Auth)
 // 		if err != nil {
 // 			return nil, fmt.Errorf("getting authEntry participants: %w", err)
 // 		}
@@ -202,11 +202,10 @@ func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([
 // 	return participants, nil
 // }
 
-func getContractID(networkPassphrase string, op xdr.Operation) (string, error) {
+func contractIDForOperation(networkPassphrase string, op xdr.Operation) (string, error) {
 	if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
 		return "", nil
 	}
-
 	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
 
 	switch invokeHostFunctionOp.HostFunction.Type {
@@ -243,7 +242,6 @@ func calculateContractID(
 	networkPassphrase string,
 	fromAddress xdr.ContractIdPreimageFromAddress,
 ) (string, error) {
-	// Network
 	networkHash := xdr.Hash(sha256.Sum256([]byte(networkPassphrase)))
 
 	hashIDPreimage := xdr.HashIdPreimage{

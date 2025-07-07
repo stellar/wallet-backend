@@ -43,7 +43,7 @@ func Test_metaXDR(t *testing.T) {
 	}
 }
 
-func Test_getScValScvAddresses(t *testing.T) {
+func Test_scAddressesForScVal(t *testing.T) {
 	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
 	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
 	scAddressAccount1 := xdr.ScAddress{
@@ -156,14 +156,14 @@ func Test_getScValScvAddresses(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := getScValScvAddresses(tc.scVal)
+			result := scAddressesForScVal(tc.scVal)
 			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
 			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
 		})
 	}
 }
 
-func Test_getScValParticipants(t *testing.T) {
+func Test_participantsForScVal(t *testing.T) {
 	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
 	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
 	scAddressAccount1 := xdr.ScAddress{
@@ -218,7 +218,7 @@ func Test_getScValParticipants(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := getScValParticipants(tc.scVal)
+			result, err := participantsForScVal(tc.scVal)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
 			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
@@ -226,7 +226,7 @@ func Test_getScValParticipants(t *testing.T) {
 	}
 }
 
-func Test_getAuthEntryParticipants(t *testing.T) {
+func Test_participantsForAuthEntry(t *testing.T) {
 	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
 	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
 	scAddressAccount1 := xdr.ScAddress{
@@ -371,7 +371,7 @@ func Test_getAuthEntryParticipants(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := getAuthEntryParticipants(tc.authEntries)
+			participants, err := participantsForAuthEntry(tc.authEntries)
 
 			if tc.wantErrContains != "" {
 				assert.Error(t, err)
@@ -388,7 +388,7 @@ func Test_getAuthEntryParticipants(t *testing.T) {
 	}
 }
 
-func Test_getContractID(t *testing.T) {
+func Test_contractIDForOperation(t *testing.T) {
 	testCases := []struct {
 		name              string
 		networkPassphrase string
@@ -409,7 +409,7 @@ func Test_getContractID(t *testing.T) {
 			err := xdr.SafeUnmarshalBase64(opXDRStr, &op)
 			require.NoError(t, err)
 
-			gotContractID, err := getContractID(tc.networkPassphrase, op)
+			gotContractID, err := contractIDForOperation(tc.networkPassphrase, op)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.wantContractID, gotContractID)
