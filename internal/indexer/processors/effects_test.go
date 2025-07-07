@@ -245,7 +245,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonRemove, *changes[1].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].TargetAccountID.String)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[2].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonRemove, *changes[2].StateChangeReason)
@@ -256,12 +256,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[3].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[3].StateChangeReason)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[3].AccountID)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].TargetAccountID.String)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[4].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonRemove, *changes[4].StateChangeReason)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[4].AccountID)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].TargetAccountID.String)
+		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].SponsoredAccountID.String)
 
 		assert.Equal(t, types.StateChangeCategorySponsorship, changes[5].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUpdate, *changes[5].StateChangeReason)

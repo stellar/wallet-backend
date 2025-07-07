@@ -100,7 +100,7 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 	return b
 }
 
-// WithTargetAccountID sets the target account ID for a sponsorship state change
+// WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
 	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
 	return b
