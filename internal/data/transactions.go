@@ -137,11 +137,15 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions,transactions_accounts", duration)
+	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
+		m.MetricsService.ObserveDBQueryDuration("INSERT", dbTableName, duration)
+		if err == nil {
+			m.MetricsService.IncDBQuery("INSERT", dbTableName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
 	}
-	m.MetricsService.IncDBQuery("INSERT", "transactions,transactions_accounts")
 
 	return insertedHashes, nil
 }

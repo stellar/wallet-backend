@@ -129,11 +129,15 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "operations,operations_accounts", duration)
+	for _, dbTableName := range []string{"operations", "operations_accounts"} {
+		m.MetricsService.ObserveDBQueryDuration("INSERT", dbTableName, duration)
+		if err == nil {
+			m.MetricsService.IncDBQuery("INSERT", dbTableName)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("batch inserting operations and operations_accounts: %w", err)
 	}
-	m.MetricsService.IncDBQuery("INSERT", "operations,operations_accounts")
 
 	return insertedIDs, nil
 }
