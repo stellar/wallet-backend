@@ -179,7 +179,12 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 				}
 
 				// Verify each transaction has its expected account links
-				require.Equal(t, tc.wantAccountLinks, accountLinksMap)
+				require.Equal(t, len(tc.wantAccountLinks), len(accountLinksMap), "number of elements in the maps don't match")
+				for key, expectedSlice := range tc.wantAccountLinks {
+					actualSlice, exists := accountLinksMap[key]
+					require.True(t, exists, "key %s not found in actual map", key)
+					assert.ElementsMatch(t, expectedSlice, actualSlice, "slices for key %s don't match", key)
+				}
 			}
 		})
 	}
