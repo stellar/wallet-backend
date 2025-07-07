@@ -21,7 +21,7 @@ CREATE TABLE state_changes (
     signer_account_id TEXT,
     signer_weights JSONB,
     spender_account_id TEXT,
-    target_account_id TEXT,
+    sponsored_account_id TEXT,
     sponsor_account_id TEXT,
     thresholds JSONB
 );

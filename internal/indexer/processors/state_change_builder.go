@@ -101,8 +101,8 @@ func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilde
 }
 
 // WithTargetAccountID sets the target account ID for a sponsorship state change
-func (b *StateChangeBuilder) WithTargetAccountID(targetAccountID string) *StateChangeBuilder {
-	b.base.TargetAccountID = utils.SQLNullString(targetAccountID)
+func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
+	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
 	return b
 }
 

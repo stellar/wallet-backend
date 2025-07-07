@@ -232,11 +232,11 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 
 // createSponsorChange creates a state change for the sponsor account in a sponsorship relationship.
 // This tracks when an account starts, stops, or changes its sponsorship of another account's reserves.
-func (p *EffectsProcessor) createSponsorChange(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string, targetAccountID string) types.StateChange {
+func (p *EffectsProcessor) createSponsorChange(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string, sponsoredAccountID string) types.StateChange {
 	return builder.
 		WithReason(reason).
 		WithAccount(sponsor).
-		WithTargetAccountID(targetAccountID).
+		WithSponsoredAccountID(sponsoredAccountID).
 		Build()
 }
 
