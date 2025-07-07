@@ -13,6 +13,8 @@ func NewIndexerBuffer() IndexerBuffer {
 		Participants:          set.NewSet[string](),
 		txByHash:              make(map[string]types.Transaction),
 		txHashesByParticipant: make(map[string]set.Set[string]),
+		opByID:                make(map[int64]types.Operation),
+		opIDsByParticipant:    make(map[string]set.Set[int64]),
 	}
 }
 
@@ -21,12 +23,18 @@ type IndexerBuffer struct {
 	Participants          set.Set[string]
 	txByHash              map[string]types.Transaction
 	txHashesByParticipant map[string]set.Set[string]
+	opByID                map[int64]types.Operation
+	opIDsByParticipant    map[string]set.Set[int64]
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	b.pushParticipantTransactionUnsafe(participant, transaction)
+}
+
+func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction types.Transaction) {
 	b.txByHash[transaction.Hash] = transaction
 	b.Participants.Add(participant)
 
@@ -53,7 +61,7 @@ func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.T
 	}
 
 	txs := make([]types.Transaction, 0, txHashes.Cardinality())
-	for txHash := range txHashes.Iterator().C {
+	for txHash := range txHashes.Iter() {
 		txs = append(txs, b.txByHash[txHash])
 	}
 
@@ -70,4 +78,36 @@ func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
 	}
 
 	return txs
+}
+
+func (b *IndexerBuffer) PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.opByID[operation.ID] = operation
+	b.Participants.Add(participant)
+
+	if _, ok := b.opIDsByParticipant[participant]; !ok {
+		b.opIDsByParticipant[participant] = set.NewSet[int64]()
+	}
+	b.opIDsByParticipant[participant].Add(operation.ID)
+
+	b.pushParticipantTransactionUnsafe(participant, transaction)
+}
+
+func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	opIDs, ok := b.opIDsByParticipant[participant]
+	if !ok {
+		return nil
+	}
+
+	ops := make(map[int64]types.Operation, opIDs.Cardinality())
+	for opID := range opIDs.Iter() {
+		ops[opID] = b.opByID[opID]
+	}
+
+	return ops
 }
