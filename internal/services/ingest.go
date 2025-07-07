@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -383,10 +384,10 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
 		txByHash := make(map[string]types.Transaction)
-		stellarAddressesByTxHash := make(map[string][]string)
+		stellarAddressesByTxHash := make(map[string]set.Set[string])
 
 		opByID := make(map[int64]types.Operation)
-		stellarAddressesByOpID := make(map[int64][]string)
+		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
 		// 1. Identify which data should be ingested.
 		for _, participant := range indexerBuffer.Participants.ToSlice() {
@@ -398,14 +399,20 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
 				txByHash[tx.Hash] = tx
-				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
+				if _, ok := stellarAddressesByTxHash[tx.Hash]; !ok {
+					stellarAddressesByTxHash[tx.Hash] = set.NewSet[string]()
+				}
+				stellarAddressesByTxHash[tx.Hash].Add(participant)
 			}
 
 			// 1.2. Identify which operations should be ingested.
 			participantOperations := indexerBuffer.GetParticipantOperations(participant)
 			for opID, op := range participantOperations {
 				opByID[opID] = op
-				stellarAddressesByOpID[opID] = append(stellarAddressesByOpID[opID], participant)
+				if _, ok := stellarAddressesByOpID[opID]; !ok {
+					stellarAddressesByOpID[opID] = set.NewSet[string]()
+				}
+				stellarAddressesByOpID[opID].Add(participant)
 			}
 
 			// 1.3. TODO: Identify which state changes should be ingested.

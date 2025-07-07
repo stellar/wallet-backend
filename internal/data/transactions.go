@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -23,7 +24,7 @@ func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
 	txs []types.Transaction,
-	stellarAddressesByTxHash map[string][]string,
+	stellarAddressesByTxHash map[string]set.Set[string],
 ) ([]string, error) {
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
@@ -51,7 +52,7 @@ func (m *TransactionModel) BatchInsert(
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices
 	var txHashes, stellarAddresses []string
 	for txHash, addresses := range stellarAddressesByTxHash {
-		for _, address := range addresses {
+		for address := range addresses.Iter() {
 			txHashes = append(txHashes, txHash)
 			stellarAddresses = append(stellarAddresses, address)
 		}

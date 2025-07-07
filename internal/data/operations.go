@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -23,7 +24,7 @@ func (m *OperationModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
 	operations []types.Operation,
-	stellarAddressesByOpID map[int64][]string,
+	stellarAddressesByOpID map[int64]set.Set[string],
 ) ([]int64, error) {
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
@@ -48,7 +49,7 @@ func (m *OperationModel) BatchInsert(
 	var opIDs []int64
 	var stellarAddresses []string
 	for opID, addresses := range stellarAddressesByOpID {
-		for _, address := range addresses {
+		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
 			stellarAddresses = append(stellarAddresses, address)
 		}
@@ -57,7 +58,7 @@ func (m *OperationModel) BatchInsert(
 	// 3. Single query that inserts only operations that are connected to at least one existing account.
 	// It also inserts the operations_accounts links.
 	const insertQuery = `
-	WITH 
+	WITH
 	-- STEP 1: Get existing accounts
 	existing_accounts AS (
 		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($7)

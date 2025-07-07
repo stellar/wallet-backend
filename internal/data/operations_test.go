@@ -59,9 +59,9 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
 	require.NoError(t, err)
 	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
-	_, err = txModel.BatchInsert(ctx, nil, []types.Transaction{tx1, tx2}, map[string][]string{
-		tx1.Hash: {kp1.Address()},
-		tx2.Hash: {kp2.Address()},
+	_, err = txModel.BatchInsert(ctx, nil, []types.Transaction{tx1, tx2}, map[string]set.Set[string]{
+		tx1.Hash: set.NewSet(kp1.Address()),
+		tx2.Hash: set.NewSet(kp2.Address()),
 	})
 	require.NoError(t, err)
 
@@ -84,8 +84,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		name                   string
 		useDBTx                bool
 		operations             []types.Operation
-		stellarAddressesByOpID map[int64][]string
-		wantAccountLinks       map[int64]set.Set[string]
+		stellarAddressesByOpID map[int64]set.Set[string]
+		wantAccountLinks       map[int64][]string
 		wantErrContains        string
 		wantIDs                []int64
 	}{
@@ -93,8 +93,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟢successful_insert_without_dbTx",
 			useDBTx:                false,
 			operations:             []types.Operation{op1, op2},
-			stellarAddressesByOpID: map[int64][]string{op1.ID: {kp1.Address()}, op2.ID: {kp2.Address()}},
-			wantAccountLinks:       map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address()), op2.ID: set.NewSet(kp2.Address())},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address(), kp1.Address(), kp1.Address(), kp1.Address()), op2.ID: set.NewSet(kp2.Address(), kp2.Address())},
+			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address()}, op2.ID: {kp2.Address()}},
 			wantErrContains:        "",
 			wantIDs:                []int64{op1.ID, op2.ID},
 		},
@@ -102,8 +102,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟢successful_insert_with_dbTx",
 			useDBTx:                true,
 			operations:             []types.Operation{op1},
-			stellarAddressesByOpID: map[int64][]string{op1.ID: {kp1.Address()}},
-			wantAccountLinks:       map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
+			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address()}},
 			wantErrContains:        "",
 			wantIDs:                []int64{op1.ID},
 		},
@@ -111,8 +111,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟢empty_input",
 			useDBTx:                false,
 			operations:             []types.Operation{},
-			stellarAddressesByOpID: map[int64][]string{},
-			wantAccountLinks:       map[int64]set.Set[string]{},
+			stellarAddressesByOpID: map[int64]set.Set[string]{},
+			wantAccountLinks:       map[int64][]string{},
 			wantErrContains:        "",
 			wantIDs:                nil,
 		},
@@ -120,8 +120,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟡duplicate_operation",
 			useDBTx:                false,
 			operations:             []types.Operation{op1, op1},
-			stellarAddressesByOpID: map[int64][]string{op1.ID: {kp1.Address()}},
-			wantAccountLinks:       map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
+			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address()}},
 			wantErrContains:        "",
 			wantIDs:                []int64{op1.ID},
 		},
@@ -129,8 +129,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟡op_with_all_non_existing_accounts_is_ignored",
 			useDBTx:                false,
 			operations:             []types.Operation{op1},
-			stellarAddressesByOpID: map[int64][]string{op1.ID: {nonExistingAccount.Address()}},
-			wantAccountLinks:       map[int64]set.Set[string]{},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(nonExistingAccount.Address())},
+			wantAccountLinks:       map[int64][]string{},
 			wantErrContains:        "",
 			wantIDs:                nil,
 		},
@@ -138,8 +138,8 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			name:                   "🟡non_existing_account_is_ignored_but_op_and_other_accounts_links_are_inserted",
 			useDBTx:                false,
 			operations:             []types.Operation{op1},
-			stellarAddressesByOpID: map[int64][]string{op1.ID: {kp1.Address(), kp2.Address(), nonExistingAccount.Address()}},
-			wantAccountLinks:       map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address(), kp2.Address())},
+			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address(), kp2.Address(), nonExistingAccount.Address())},
+			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address(), kp2.Address()}},
 			wantErrContains:        "",
 			wantIDs:                []int64{op1.ID},
 		},
@@ -199,12 +199,9 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 				require.NoError(t, err)
 
 				// Create a map of operation_id -> set of account_ids for O(1) lookups
-				accountLinksMap := make(map[int64]set.Set[string])
+				accountLinksMap := make(map[int64][]string)
 				for _, link := range accountLinks {
-					if _, exists := accountLinksMap[link.OperationID]; !exists {
-						accountLinksMap[link.OperationID] = set.NewSet[string]()
-					}
-					accountLinksMap[link.OperationID].Add(link.AccountID)
+					accountLinksMap[link.OperationID] = append(accountLinksMap[link.OperationID], link.AccountID)
 				}
 
 				// Verify each operation has its expected account links
