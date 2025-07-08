@@ -1,5 +1,5 @@
 type Operation {
-  id: ID!                      # Maps to int64
+  id: Int64!                   # Maps to int64
   operationType: OperationType!
   operationXdr: String!        # Maps to json:"operationXdr"
   ledgerCreatedAt: Time!

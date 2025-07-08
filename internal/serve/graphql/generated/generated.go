@@ -40,7 +40,6 @@ type Config struct {
 }
 
 type ResolverRoot interface {
-	Operation() OperationResolver
 	Query() QueryResolver
 	StateChange() StateChangeResolver
 	Transaction() TransactionResolver
@@ -116,9 +115,6 @@ type ComplexityRoot struct {
 	}
 }
 
-type OperationResolver interface {
-	ID(ctx context.Context, obj *types.Operation) (int, error)
-}
 type QueryResolver interface {
 	Account(ctx context.Context, address string) (*types.Account, error)
 	Transaction(ctx context.Context, hash string) (*types.Transaction, error)
@@ -691,7 +687,7 @@ enum StateChangeReason {
 }
 `, BuiltIn: false},
 	{Name: "../schema/operation.graphqls", Input: `type Operation {
-  id: ID!                      # Maps to int64
+  id: Int64!                   # Maps to int64
   operationType: OperationType!
   operationXdr: String!        # Maps to json:"operationXdr"
   ledgerCreatedAt: Time!
@@ -1066,7 +1062,7 @@ func (ec *executionContext) _Operation_id(ctx context.Context, field graphql.Col
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Operation().ID(rctx, obj)
+		return obj.ID, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1078,19 +1074,19 @@ func (ec *executionContext) _Operation_id(ctx context.Context, field graphql.Col
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int)
+	res := resTmp.(int64)
 	fc.Result = res
-	return ec.marshalNID2int(ctx, field.Selections, res)
+	return ec.marshalNInt642int64(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Operation_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Operation",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ID does not have child fields")
+			return nil, errors.New("field of type Int64 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5540,77 +5536,46 @@ func (ec *executionContext) _Operation(ctx context.Context, sel ast.SelectionSet
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Operation")
 		case "id":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Operation_id(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
+			out.Values[i] = ec._Operation_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
 			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "operationType":
 			out.Values[i] = ec._Operation_operationType(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "operationXdr":
 			out.Values[i] = ec._Operation_operationXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Operation_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "ingestedAt":
 			out.Values[i] = ec._Operation_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "txHash":
 			out.Values[i] = ec._Operation_txHash(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "transaction":
 			out.Values[i] = ec._Operation_transaction(ctx, field, obj)
 		case "accounts":
 			out.Values[i] = ec._Operation_accounts(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "stateChanges":
 			out.Values[i] = ec._Operation_stateChanges(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
