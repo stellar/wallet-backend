@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -21,11 +22,10 @@ type TransactionModel struct {
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(
 	ctx context.Context,
-	dbTx db.SQLExecuter,
+	sqlExecuter db.SQLExecuter,
 	txs []types.Transaction,
-	stellarAddressesByTxHash map[string][]string,
+	stellarAddressesByTxHash map[string]set.Set[string],
 ) ([]string, error) {
-	sqlExecuter := dbTx
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
 	}
@@ -52,7 +52,7 @@ func (m *TransactionModel) BatchInsert(
 	// 2. Flatten the stellarAddressesByTxHash into parallel slices
 	var txHashes, stellarAddresses []string
 	for txHash, addresses := range stellarAddressesByTxHash {
-		for _, address := range addresses {
+		for address := range addresses.Iter() {
 			txHashes = append(txHashes, txHash)
 			stellarAddresses = append(stellarAddresses, address)
 		}
@@ -138,11 +138,15 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(stellarAddresses),
 	)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "transactions,transactions_accounts", duration)
-	if err != nil {
-		return nil, fmt.Errorf("batch inserting transactions and accounts: %w", err)
+	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
+		m.MetricsService.ObserveDBQueryDuration("INSERT", dbTableName, duration)
+		if err == nil {
+			m.MetricsService.IncDBQuery("INSERT", dbTableName)
+		}
 	}
-	m.MetricsService.IncDBQuery("INSERT", "transactions,transactions_accounts")
+	if err != nil {
+		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
+	}
 
 	return insertedHashes, nil
 }

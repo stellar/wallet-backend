@@ -22,7 +22,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stellar/go v0.0.0-20250613214159-65b2d613a208
+	github.com/stellar/go v0.0.0-20250627171000-032c5f910271
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2
 	github.com/stellar/stellar-rpc v0.9.6-0.20250523162628-6bb9d7a387d5
 	github.com/stretchr/testify v1.10.0
