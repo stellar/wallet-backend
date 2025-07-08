@@ -15,6 +15,30 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+func Test_calculateContractID(t *testing.T) {
+	networkPassphrase := network.TestNetworkPassphrase
+	salt := xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
+
+	rawAddress, err := strkey.Decode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+	require.NoError(t, err)
+	var uint256Val xdr.Uint256
+	copy(uint256Val[:], rawAddress)
+	fromAddress := xdr.ScAddress{
+		Type: xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: utils.PointOf(xdr.AccountId{
+			Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
+			Ed25519: &uint256Val,
+		}),
+	}
+
+	contractID, err := calculateContractID(networkPassphrase, xdr.ContractIdPreimageFromAddress{
+		Address: fromAddress,
+		Salt:    salt,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD", contractID)
+}
+
 func Test_contractIDForSorobanOperation(t *testing.T) {
 	testCases := []struct {
 		name               string
