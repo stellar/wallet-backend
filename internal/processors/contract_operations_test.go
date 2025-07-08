@@ -2,6 +2,7 @@ package processors
 
 import (
 	"testing"
+	"time"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
@@ -468,6 +469,296 @@ func Test_participantsForAuthEntries(t *testing.T) {
 				for _, expectedParticipant := range tc.expected {
 					assert.True(t, participants.Contains(expectedParticipant))
 				}
+			}
+		})
+	}
+}
+
+func Test_participantsForSorobanOp(t *testing.T) {
+	const (
+		accountID1      = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
+		accountID2      = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
+		accountID3      = "GCTNXY3EZFV2BL4CWHIRSBJVBEYFXANMIDJEVITS66YXOQEF3PL7LHXQ"
+		contractID1     = "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"
+		xlmSACContracID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+	)
+
+	// Helper functions
+	makeScAddress := func(accountID string) xdr.ScAddress {
+		return xdr.ScAddress{
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: utils.PointOf(xdr.MustAddress(accountID)),
+		}
+	}
+
+	makeScContract := func(contractID string) xdr.ScAddress {
+		decoded, err := strkey.Decode(strkey.VersionByteContract, contractID)
+		require.NoError(t, err)
+		return xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: utils.PointOf(xdr.Hash(decoded)),
+		}
+	}
+
+	makeBasicSorobanOp := func(opType xdr.OperationType, txSourceAccount string) operation_processor.TransactionOperationWrapper {
+		return operation_processor.TransactionOperationWrapper{
+			Network:      network.TestNetworkPassphrase,
+			LedgerClosed: time.Now(),
+			Operation: xdr.Operation{
+				Body: xdr.OperationBody{Type: opType},
+			},
+			Transaction: ingest.LedgerTransaction{
+				Envelope: xdr.TransactionEnvelope{
+					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+					V1: &xdr.TransactionV1Envelope{
+						Tx: xdr.Transaction{
+							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
+							Ext: xdr.TransactionExt{
+								V:           int32(1),
+								SorobanData: &xdr.SorobanTransactionData{},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	type FootprintType int
+	const (
+		FootprintTypeReadOnly FootprintType = iota
+		FootprintTypeReadWrite
+	)
+
+	makeFootprintOp := func(opType xdr.OperationType, txSourceAccount, opSourceAccount string, contract xdr.ScAddress, footprintType FootprintType) operation_processor.TransactionOperationWrapper {
+		op := makeBasicSorobanOp(opType, txSourceAccount)
+		if opSourceAccount != "" {
+			op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
+		}
+
+		ledgerKeys := []xdr.LedgerKey{{
+			Type:         xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.LedgerKeyContractData{Contract: contract},
+		}}
+
+		switch footprintType {
+		case FootprintTypeReadOnly:
+			op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = ledgerKeys
+		case FootprintTypeReadWrite:
+			op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite = ledgerKeys
+		}
+
+		return op
+	}
+
+	makeFeeBumpOp := func(feeBumpSourceAccount string, baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
+		op := baseOp
+		op.Transaction.Envelope.V1 = &xdr.TransactionV1Envelope{}
+		op.Transaction.Envelope.Type = xdr.EnvelopeTypeEnvelopeTypeTxFeeBump
+		op.Transaction.Envelope.FeeBump = &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: xdr.MustMuxedAddress(feeBumpSourceAccount),
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: baseOp.Transaction.Envelope.Type,
+					V1:   baseOp.Transaction.Envelope.V1,
+				},
+			},
+		}
+		return op
+	}
+
+	makeCreateContractOp := func(contractType xdr.HostFunctionType, txSourceAccount, deployerAccount string, preimageType xdr.ContractIdPreimageType) operation_processor.TransactionOperationWrapper {
+		op := makeBasicSorobanOp(xdr.OperationTypeInvokeHostFunction, txSourceAccount)
+
+		var preimage xdr.ContractIdPreimage
+		switch preimageType {
+		case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
+			preimage = xdr.ContractIdPreimage{
+				Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
+				FromAsset: &xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+			}
+
+		case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
+			rawAddress, err := strkey.Decode(strkey.VersionByteAccountID, deployerAccount)
+			require.NoError(t, err)
+			var uint256Val xdr.Uint256
+			copy(uint256Val[:], rawAddress)
+
+			preimage = xdr.ContractIdPreimage{
+				Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+				FromAddress: &xdr.ContractIdPreimageFromAddress{
+					Address: xdr.ScAddress{
+						Type: xdr.ScAddressTypeScAddressTypeAccount,
+						AccountId: utils.PointOf(xdr.AccountId{
+							Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
+							Ed25519: &uint256Val,
+						}),
+					},
+					Salt: xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252},
+				},
+			}
+		}
+
+		switch contractType {
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
+			op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
+				HostFunction: xdr.HostFunction{
+					Type:           contractType,
+					CreateContract: &xdr.CreateContractArgs{ContractIdPreimage: preimage},
+				},
+			}
+
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+			op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
+				HostFunction: xdr.HostFunction{
+					Type:             contractType,
+					CreateContractV2: &xdr.CreateContractArgsV2{ContractIdPreimage: preimage},
+				},
+			}
+
+		default:
+			require.Fail(t, "unsupported/unimplemented contract type")
+		}
+
+		return op
+	}
+
+	makeInvokeContractOp := func(sourceAccount string, contract xdr.ScAddress, argAddresses []xdr.ScAddress, authAccounts []xdr.ScAddress) operation_processor.TransactionOperationWrapper {
+		op := makeBasicSorobanOp(xdr.OperationTypeInvokeHostFunction, sourceAccount)
+		op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(sourceAccount))
+
+		var args xdr.ScVec
+		for _, arg := range argAddresses {
+			args = append(args, xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &arg})
+		}
+
+		invokeContractArgs := xdr.InvokeContractArgs{
+			ContractAddress: contract,
+			FunctionName:    xdr.ScSymbol("authorized_fn"),
+			Args:            args,
+		}
+
+		authEntries := []xdr.SorobanAuthorizationEntry{}
+		for _, authAccount := range authAccounts {
+			authEntries = append(authEntries, xdr.SorobanAuthorizationEntry{
+				Credentials: xdr.SorobanCredentials{
+					Type:    xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+					Address: utils.PointOf(xdr.SorobanAddressCredentials{Address: authAccount}),
+				},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function: xdr.SorobanAuthorizedFunction{
+						Type:       xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+						ContractFn: &invokeContractArgs,
+					},
+					SubInvocations: []xdr.SorobanAuthorizedInvocation{},
+				},
+			})
+		}
+
+		op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
+			HostFunction: xdr.HostFunction{
+				Type:           xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+				InvokeContract: &invokeContractArgs,
+			},
+			Auth: authEntries,
+		}
+
+		return op
+	}
+
+	makeUploadWasmOp := func(sourceAccount string) operation_processor.TransactionOperationWrapper {
+		op := makeBasicSorobanOp(xdr.OperationTypeInvokeHostFunction, accountID3)
+		op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(sourceAccount))
+		op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
+			HostFunction: xdr.HostFunction{
+				Type: xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm,
+				Wasm: &[]byte{1, 2, 3, 4, 5},
+			},
+		}
+		return op
+	}
+
+	// Test cases
+	testCases := []struct {
+		name             string
+		op               operation_processor.TransactionOperationWrapper
+		wantParticipants set.Set[string]
+		wantErrContains  string
+	}{
+		{
+			name: "🔴non_soroban_operation",
+			op: operation_processor.TransactionOperationWrapper{
+				Network:      network.TestNetworkPassphrase,
+				LedgerClosed: time.Now(),
+				Operation: xdr.Operation{
+					Body: xdr.OperationBody{Type: xdr.OperationTypePayment},
+				},
+				Transaction: ingest.LedgerTransaction{
+					Envelope: xdr.TransactionEnvelope{
+						Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+						V1: &xdr.TransactionV1Envelope{
+							Tx: xdr.Transaction{
+								SourceAccount: xdr.MustMuxedAddress(accountID1),
+								// No SorobanData - this makes it a non-Soroban transaction
+							},
+						},
+					},
+				},
+			},
+			wantErrContains: ErrNotSorobanOperation.Error(),
+		},
+		{
+			name:             "🟢ExtendFootprintTtl/ReadOnly/tx/tx.SourceAccount",
+			op:               makeFootprintOp(xdr.OperationTypeExtendFootprintTtl, accountID1, "", makeScContract(contractID1), FootprintTypeReadOnly),
+			wantParticipants: set.NewSet(accountID1, contractID1),
+		},
+		{
+			name:             "🟢ExtendFootprintTtl/ReadOnly/tx/op.SourceAccount",
+			op:               makeFootprintOp(xdr.OperationTypeExtendFootprintTtl, accountID1, accountID2, makeScContract(contractID1), FootprintTypeReadOnly),
+			wantParticipants: set.NewSet(accountID2, contractID1),
+		},
+		{
+			name:             "🟢RestoreFootprint/ReadWrite/fee_bump_tx/tx.SourceAccount",
+			op:               makeFeeBumpOp(accountID3, makeFootprintOp(xdr.OperationTypeExtendFootprintTtl, accountID1, "", makeScContract(contractID1), FootprintTypeReadWrite)),
+			wantParticipants: set.NewSet(accountID1, contractID1),
+		},
+		{
+			name:             "🟢InvokeHost/CreateContract/fromAddress/tx/tx.SourceAccount",
+			op:               makeCreateContractOp(xdr.HostFunctionTypeHostFunctionTypeCreateContract, accountID3, accountID2, xdr.ContractIdPreimageTypeContractIdPreimageFromAddress),
+			wantParticipants: set.NewSet(accountID3, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED"),
+		},
+		{
+			name:             "🟢InvokeHost/CreateContractV2/fromAddress/tx/tx.SourceAccount",
+			op:               makeCreateContractOp(xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, accountID3, accountID2, xdr.ContractIdPreimageTypeContractIdPreimageFromAddress),
+			wantParticipants: set.NewSet(accountID3, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED"),
+		},
+		{
+			name:             "🟢InvokeHost/CreateContractV2/fromAsset/tx/tx.SourceAccount",
+			op:               makeCreateContractOp(xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, accountID3, "", xdr.ContractIdPreimageTypeContractIdPreimageFromAsset),
+			wantParticipants: set.NewSet(accountID3, xlmSACContracID),
+		},
+		{
+			name:             "🟢InvokeHost/InvokeContract/auth/args",
+			op:               makeInvokeContractOp(accountID3, makeScContract(contractID1), []xdr.ScAddress{makeScAddress(accountID1), makeScAddress(accountID2)}, []xdr.ScAddress{makeScContract(xlmSACContracID)}),
+			wantParticipants: set.NewSet(accountID3, contractID1, accountID1, xlmSACContracID, accountID2),
+		},
+		{
+			name:             "🟢UploadWasm/tx/tx.SourceAccount",
+			op:               makeUploadWasmOp(accountID1),
+			wantParticipants: set.NewSet(accountID1),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			participants, err := participantsForSorobanOp(tc.op)
+
+			if tc.wantErrContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantParticipants, participants)
 			}
 		})
 	}
