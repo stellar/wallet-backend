@@ -1,6 +1,6 @@
 # Where are all the schema files located? globs are supported eg  src/**/*.graphqls
 schema:
-  - internal/serve/graphql/*.graphqls
+  - internal/serve/graphql/schema/*.graphqls
 
 # Where should the generated server code go?
 exec:
@@ -8,10 +8,10 @@ exec:
   layout: single-file # Only other option is "follow-schema," ie multi-file.
 
   # Only for single-file layout:
-  filename: internal/serve/graphql/generated.go
+  filename: internal/serve/graphql/generated/generated.go
 
   # Only for follow-schema layout:
-  # dir: graph
+  # dir: internal/serve/graphql/generated
   # filename_template: "{name}.generated.go"
 
   # Optional: Maximum number of goroutines in concurrency to use per child resolvers(default: unlimited)
@@ -27,7 +27,7 @@ exec:
 
 # Where should any generated models go?
 model:
-  filename: internal/serve/graphql/models_gen.go
+  filename: internal/serve/graphql/generated/models_gen.go
   package: graphql
 
   # Optional: Pass in a path to a new gotpl template to use for generating the models
@@ -42,7 +42,7 @@ resolver:
   # filename: graph/resolver.go
 
   # Only for follow-schema layout:
-  dir: internal/serve/graphql
+  dir: internal/serve/graphql/resolvers
   filename_template: "{name}.resolvers.go"
 
   # Optional: turn on to not generate template comments above resolvers

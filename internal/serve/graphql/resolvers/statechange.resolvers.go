@@ -6,91 +6,138 @@ package graphql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 // LedgerNumber is the resolver for the ledgerNumber field.
 func (r *stateChangeResolver) LedgerNumber(ctx context.Context, obj *types.StateChange) (int32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
+	return int32(obj.LedgerNumber), nil
 }
 
 // TokenID is the resolver for the tokenId field.
 func (r *stateChangeResolver) TokenID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: TokenID - tokenId"))
+	if obj.TokenID.Valid {
+		return &obj.TokenID.String, nil
+	}
+	return nil, nil
 }
 
 // Amount is the resolver for the amount field.
 func (r *stateChangeResolver) Amount(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: Amount - amount"))
+	if obj.Amount.Valid {
+		return &obj.Amount.String, nil
+	}
+	return nil, nil
 }
 
 // ClaimableBalanceID is the resolver for the claimableBalanceId field.
 func (r *stateChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: ClaimableBalanceID - claimableBalanceId"))
+	if obj.ClaimableBalanceID.Valid {
+		return &obj.ClaimableBalanceID.String, nil
+	}
+	return nil, nil
 }
 
 // LiquidityPoolID is the resolver for the liquidityPoolId field.
 func (r *stateChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: LiquidityPoolID - liquidityPoolId"))
+	if obj.LiquidityPoolID.Valid {
+		return &obj.LiquidityPoolID.String, nil
+	}
+	return nil, nil
 }
 
 // OfferID is the resolver for the offerId field.
 func (r *stateChangeResolver) OfferID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: OfferID - offerId"))
+	if obj.OfferID.Valid {
+		return &obj.OfferID.String, nil
+	}
+	return nil, nil
 }
 
 // SignerAccountID is the resolver for the signerAccountId field.
 func (r *stateChangeResolver) SignerAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: SignerAccountID - signerAccountId"))
+	if obj.SignerAccountID.Valid {
+		return &obj.SignerAccountID.String, nil
+	}
+	return nil, nil
 }
 
 // SpenderAccountID is the resolver for the spenderAccountId field.
 func (r *stateChangeResolver) SpenderAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: SpenderAccountID - spenderAccountId"))
+	if obj.SpenderAccountID.Valid {
+		return &obj.SpenderAccountID.String, nil
+	}
+	return nil, nil
 }
 
 // SponsoredAccountID is the resolver for the sponsoredAccountId field.
 func (r *stateChangeResolver) SponsoredAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: SponsoredAccountID - sponsoredAccountId"))
+	if obj.SponsoredAccountID.Valid {
+		return &obj.SponsoredAccountID.String, nil
+	}
+	return nil, nil
 }
 
 // SponsorAccountID is the resolver for the sponsorAccountId field.
 func (r *stateChangeResolver) SponsorAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: SponsorAccountID - sponsorAccountId"))
+	if obj.SponsorAccountID.Valid {
+		return &obj.SponsorAccountID.String, nil
+	}
+	return nil, nil
 }
 
 // SignerWeights is the resolver for the signerWeights field.
 func (r *stateChangeResolver) SignerWeights(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: SignerWeights - signerWeights"))
+	if obj.SignerWeights == nil {
+		return nil, nil
+	}
+	jsonBytes, err := json.Marshal(obj.SignerWeights)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal signerWeights: %w", err)
+	}
+	jsonString := string(jsonBytes)
+	return &jsonString, nil
 }
 
 // Thresholds is the resolver for the thresholds field.
 func (r *stateChangeResolver) Thresholds(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: Thresholds - thresholds"))
+	if obj.Thresholds == nil {
+		return nil, nil
+	}
+	jsonBytes, err := json.Marshal(obj.Thresholds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal thresholds: %w", err)
+	}
+	jsonString := string(jsonBytes)
+	return &jsonString, nil
 }
 
 // Flags is the resolver for the flags field.
 func (r *stateChangeResolver) Flags(ctx context.Context, obj *types.StateChange) ([]string, error) {
-	panic(fmt.Errorf("not implemented: Flags - flags"))
+	if obj.Flags == nil {
+		return []string{}, nil
+	}
+	return []string(obj.Flags), nil
 }
 
 // KeyValue is the resolver for the keyValue field.
 func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChange) (*string, error) {
-	panic(fmt.Errorf("not implemented: KeyValue - keyValue"))
+	if obj.KeyValue == nil {
+		return nil, nil
+	}
+	jsonBytes, err := json.Marshal(obj.KeyValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal keyValue: %w", err)
+	}
+	jsonString := string(jsonBytes)
+	return &jsonString, nil
 }
 
-// LedgerNumber is the resolver for the ledgerNumber field.
-func (r *transactionResolver) LedgerNumber(ctx context.Context, obj *types.Transaction) (int32, error) {
-	panic(fmt.Errorf("not implemented: LedgerNumber - ledgerNumber"))
-}
-
-// StateChange returns StateChangeResolver implementation.
-func (r *Resolver) StateChange() StateChangeResolver { return &stateChangeResolver{r} }
-
-// Transaction returns TransactionResolver implementation.
-func (r *Resolver) Transaction() TransactionResolver { return &transactionResolver{r} }
+// StateChange returns graphql1.StateChangeResolver implementation.
+func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
 
 type stateChangeResolver struct{ *Resolver }
-type transactionResolver struct{ *Resolver }

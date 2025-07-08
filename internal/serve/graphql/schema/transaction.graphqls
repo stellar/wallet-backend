@@ -1,0 +1,15 @@
+type Transaction {
+  hash: String!
+  toId: ID!                    # Maps to json:"to_id" -> ToID int64
+  envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
+  resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
+  metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
+  ledgerNumber: Int!           # Maps to uint32
+  ledgerCreatedAt: Time!
+  ingestedAt: Time!
+  
+  # Relationships
+  operations: [Operation!]!
+  accounts: [Account!]!
+  stateChanges: [StateChange!]!
+}

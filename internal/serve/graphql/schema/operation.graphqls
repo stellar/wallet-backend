@@ -1,0 +1,13 @@
+type Operation {
+  id: ID!                      # Maps to int64
+  operationType: OperationType!
+  operationXdr: String!        # Maps to json:"operationXdr"
+  ledgerCreatedAt: Time!
+  ingestedAt: Time!
+  
+  # Relationships
+  txHash: String!
+  transaction: Transaction
+  accounts: [Account!]!
+  stateChanges: [StateChange!]!
+}

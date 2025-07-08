@@ -1,0 +1,3 @@
+# Custom scalars for database types
+scalar Time
+scalar NullString

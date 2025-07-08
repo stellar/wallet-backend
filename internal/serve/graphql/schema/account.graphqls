@@ -1,0 +1,4 @@
+type Account {
+  stellarAddress: String!
+  createdAt: Time!
+}

@@ -5,7 +5,6 @@ package graphql
 import (
 	"bytes"
 	"context"
-	"embed"
 	"errors"
 	"fmt"
 	"strconv"
@@ -567,19 +566,147 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 	return introspection.WrapTypeFromDef(ec.Schema(), ec.Schema().Types[name]), nil
 }
 
-//go:embed "schema.graphqls"
-var sourcesFS embed.FS
-
-func sourceData(filename string) string {
-	data, err := sourcesFS.ReadFile(filename)
-	if err != nil {
-		panic(fmt.Sprintf("codegen problem: %s not available", filename))
-	}
-	return string(data)
+var sources = []*ast.Source{
+	{Name: "../schema/account.graphqls", Input: `type Account {
+  stellarAddress: String!
+  createdAt: Time!
+}
+`, BuiltIn: false},
+	{Name: "../schema/enums.graphqls", Input: `# Enums matching Go constants
+enum OperationType {
+  CREATE_ACCOUNT
+  PAYMENT
+  PATH_PAYMENT_STRICT_RECEIVE
+  MANAGE_SELL_OFFER
+  CREATE_PASSIVE_SELL_OFFER
+  SET_OPTIONS
+  CHANGE_TRUST
+  ALLOW_TRUST
+  ACCOUNT_MERGE
+  INFLATION
+  MANAGE_DATA
+  BUMP_SEQUENCE
+  MANAGE_BUY_OFFER
+  PATH_PAYMENT_STRICT_SEND
+  CREATE_CLAIMABLE_BALANCE
+  CLAIM_CLAIMABLE_BALANCE
+  BEGIN_SPONSORING_FUTURE_RESERVES
+  END_SPONSORING_FUTURE_RESERVES
+  REVOKE_SPONSORSHIP
+  CLAWBACK
+  CLAWBACK_CLAIMABLE_BALANCE
+  SET_TRUST_LINE_FLAGS
+  LIQUIDITY_POOL_DEPOSIT
+  LIQUIDITY_POOL_WITHDRAW
+  INVOKE_HOST_FUNCTION
+  EXTEND_FOOTPRINT_TTL
+  RESTORE_FOOTPRINT
 }
 
-var sources = []*ast.Source{
-	{Name: "schema.graphqls", Input: sourceData("schema.graphqls"), BuiltIn: false},
+enum StateChangeCategory {
+  DEBIT
+  CREDIT
+  MINT
+  BURN
+  SIGNER
+  SIGNATURE_THRESHOLD
+  METADATA
+  FLAGS
+  LIABILITY
+  TRUSTLINE_FLAGS
+  SPONSORSHIP
+  UNSUPPORTED
+  ALLOWANCE
+  CONTRACT
+  AUTHORIZATION
+}
+
+enum StateChangeReason {
+  ADD
+  REMOVE
+  UPDATE
+  LOW
+  MEDIUM
+  HIGH
+  HOME_DOMAIN
+  SET
+  CLEAR
+  SELL
+  BUY
+  DATA_ENTRY
+  CONSUME
+  DEPLOY
+  INVOKE
+}
+`, BuiltIn: false},
+	{Name: "../schema/operation.graphqls", Input: `type Operation {
+  id: ID!                      # Maps to int64
+  operationType: OperationType!
+  operationXdr: String!        # Maps to json:"operationXdr"
+  ledgerCreatedAt: Time!
+  ingestedAt: Time!
+  
+  # Relationships
+  txHash: String!
+  transaction: Transaction
+  accounts: [Account!]!
+  stateChanges: [StateChange!]!
+}
+`, BuiltIn: false},
+	{Name: "../schema/scalars.graphqls", Input: `# Custom scalars for database types
+scalar Time
+scalar NullString
+`, BuiltIn: false},
+	{Name: "../schema/statechange.graphqls", Input: `type StateChange {
+  id: String!
+  stateChangeCategory: StateChangeCategory!
+  stateChangeReason: StateChangeReason  # Nullable in Go struct
+  ingestedAt: Time!
+  ledgerCreatedAt: Time!
+  ledgerNumber: Int!           # Maps to uint32
+  
+  # Nullable fields (sql.NullString in Go)
+  tokenId: String              # Maps to json:"tokenId"
+  amount: String
+  claimableBalanceId: String   # Maps to json:"claimableBalanceId"
+  liquidityPoolId: String      # Maps to json:"liquidityPoolId"
+  offerId: String              # Maps to json:"offerId"
+  signerAccountId: String      # Maps to json:"signerAccountId"
+  spenderAccountId: String     # Maps to json:"spenderAccountId"
+  sponsoredAccountId: String   # Maps to json:"sponsoredAccountId"
+  sponsorAccountId: String     # Maps to json:"sponsorAccountId"
+  
+  # JSONB fields (will need custom scalars)
+  signerWeights: String        # NullableJSONB -> JSON string
+  thresholds: String           # NullableJSONB -> JSON string
+  flags: [String!]             # NullableJSON -> string array
+  keyValue: String             # NullableJSONB -> JSON string
+  
+  # Relationships
+  accountId: String!           # Maps to json:"accountId"
+  account: Account
+  operationId: ID!             # Maps to json:"operationId" -> int64
+  operation: Operation
+  txHash: String!
+  transaction: Transaction
+}
+`, BuiltIn: false},
+	{Name: "../schema/transaction.graphqls", Input: `type Transaction {
+  hash: String!
+  toId: ID!                    # Maps to json:"to_id" -> ToID int64
+  envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
+  resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
+  metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
+  ledgerNumber: Int!           # Maps to uint32
+  ledgerCreatedAt: Time!
+  ingestedAt: Time!
+  
+  # Relationships
+  operations: [Operation!]!
+  accounts: [Account!]!
+  stateChanges: [StateChange!]!
+}
+`, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
 

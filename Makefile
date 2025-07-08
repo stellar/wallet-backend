@@ -99,6 +99,27 @@ check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulnche
 	@echo "✅ All checks completed successfully"
 
 # ==================================================================================== #
+# GRAPHQL
+# ==================================================================================== #
+gql-generate: ## Generate GraphQL code using gqlgen
+	@echo "==> Generating GraphQL code..."
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	$(shell go env GOPATH)/bin/gqlgen generate
+	@echo "✅ GraphQL code generated successfully"
+
+gql-init: ## Initialize gqlgen configuration (only run once)
+	@echo "==> Initializing gqlgen..."
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	$(shell go env GOPATH)/bin/gqlgen init
+	@echo "✅ gqlgen initialized successfully"
+
+gql-validate: ## Validate GraphQL schema
+	@echo "==> Validating GraphQL schema..."
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	$(shell go env GOPATH)/bin/gqlgen validate
+	@echo "✅ GraphQL schema is valid"
+
+# ==================================================================================== #
 # TESTING
 # ==================================================================================== #
 unit-test: ## Run unit tests
