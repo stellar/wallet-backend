@@ -12,12 +12,12 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
-// ToID is the resolver for the toId field.
-func (r *transactionResolver) ToID(ctx context.Context, obj *types.Transaction) (int, error) {
-	panic(fmt.Errorf("not implemented: ToID - toId"))
+// ID is the resolver for the id field.
+func (r *operationResolver) ID(ctx context.Context, obj *types.Operation) (int, error) {
+	panic(fmt.Errorf("not implemented: ID - id"))
 }
 
-// Transaction returns graphql1.TransactionResolver implementation.
-func (r *Resolver) Transaction() graphql1.TransactionResolver { return &transactionResolver{r} }
+// Operation returns graphql1.OperationResolver implementation.
+func (r *Resolver) Operation() graphql1.OperationResolver { return &operationResolver{r} }
 
-type transactionResolver struct{ *Resolver }
+type operationResolver struct{ *Resolver }

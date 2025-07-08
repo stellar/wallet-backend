@@ -131,10 +131,7 @@ autobind:
 models:
   ID:
     model:
-      - github.com/99designs/gqlgen/graphql.ID
-      - github.com/99designs/gqlgen/graphql.Int
-      - github.com/99designs/gqlgen/graphql.Int64
-      - github.com/99designs/gqlgen/graphql.Int32
+      - github.com/99designs/gqlgen/graphql.IntID
   # gqlgen provides a default GraphQL UUID convenience wrapper for github.com/google/uuid 
   # but you can override this to provide your own GraphQL UUID implementation
   UUID:
@@ -152,9 +149,11 @@ models:
   Int:
     model:
       - github.com/99designs/gqlgen/graphql.Int32
+  UInt32:
+    model:
+      - github.com/stellar/wallet-backend/internal/serve/graphql/scalars.UInt32
   Int64:
     model:
-      - github.com/99designs/gqlgen/graphql.Int
       - github.com/99designs/gqlgen/graphql.Int64
   Time:
     model:

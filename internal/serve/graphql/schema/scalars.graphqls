@@ -1,3 +1,4 @@
 # Custom scalars for database types
 scalar Time
-scalar NullString
+scalar UInt32
+scalar Int64

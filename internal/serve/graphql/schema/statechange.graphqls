@@ -4,7 +4,7 @@ type StateChange {
   stateChangeReason: StateChangeReason  # Nullable in Go struct
   ingestedAt: Time!
   ledgerCreatedAt: Time!
-  ledgerNumber: Int!           # Maps to uint32
+  ledgerNumber: UInt32!           # Maps to uint32
   
   # Nullable fields (sql.NullString in Go)
   tokenId: String              # Maps to json:"tokenId"

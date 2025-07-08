@@ -18,6 +18,20 @@ type TransactionModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.Transaction, error) {
+	const query = `SELECT * FROM transactions WHERE hash = $1`
+	var transaction types.Transaction
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &transaction, query, hash)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return &transaction, nil
+}
+
 // BatchInsert inserts the transactions and the transactions_accounts links.
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(

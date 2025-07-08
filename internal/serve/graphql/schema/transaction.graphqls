@@ -4,7 +4,7 @@ type Transaction {
   envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
   resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
   metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
-  ledgerNumber: Int!           # Maps to uint32
+  ledgerNumber: UInt32!        # Maps to uint32
   ledgerCreatedAt: Time!
   ingestedAt: Time!
   

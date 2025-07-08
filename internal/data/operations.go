@@ -18,6 +18,20 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *OperationModel) GetByID(ctx context.Context, id int64) (*types.Operation, error) {
+	const query = `SELECT * FROM operations WHERE id = $1`
+	var operation types.Operation
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &operation, query, id)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operation %d: %w", id, err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return &operation, nil
+}
+
 // BatchInsert inserts the operations and the operations_accounts links.
 // It returns the IDs of the successfully inserted operations.
 func (m *OperationModel) BatchInsert(

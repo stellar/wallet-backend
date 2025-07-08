@@ -4,4 +4,14 @@ package graphql
 //
 // It serves as dependency injection for your app, add any dependencies you require here.
 
-type Resolver struct{}
+import (
+	"github.com/stellar/wallet-backend/internal/data"
+)
+
+type Resolver struct {
+	models *data.Models
+}
+
+func NewResolver(models *data.Models) *Resolver {
+	return &Resolver{models: models}
+}

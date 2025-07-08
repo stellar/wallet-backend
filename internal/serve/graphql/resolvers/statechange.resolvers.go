@@ -13,11 +13,6 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
-// LedgerNumber is the resolver for the ledgerNumber field.
-func (r *stateChangeResolver) LedgerNumber(ctx context.Context, obj *types.StateChange) (int32, error) {
-	return int32(obj.LedgerNumber), nil
-}
-
 // TokenID is the resolver for the tokenId field.
 func (r *stateChangeResolver) TokenID(ctx context.Context, obj *types.StateChange) (*string, error) {
 	if obj.TokenID.Valid {
@@ -135,6 +130,11 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 	}
 	jsonString := string(jsonBytes)
 	return &jsonString, nil
+}
+
+// OperationID is the resolver for the operationId field.
+func (r *stateChangeResolver) OperationID(ctx context.Context, obj *types.StateChange) (int, error) {
+	panic(fmt.Errorf("not implemented: OperationID - operationId"))
 }
 
 // StateChange returns graphql1.StateChangeResolver implementation.
