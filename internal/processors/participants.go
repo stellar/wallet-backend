@@ -181,7 +181,7 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op operation_processor.
 	}
 
 	// 3. Get Soroban participants
-	sorobanParticipants, err := getContractOpParticipants(op)
+	sorobanParticipants, err := participantsForSorobanOp(op)
 	if err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}

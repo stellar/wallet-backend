@@ -124,9 +124,9 @@ func participantsForAuthEntries(authEntries []xdr.SorobanAuthorizationEntry) (se
 	return participants, nil
 }
 
-// getContractOpParticipants returns the participants for a Soroban contract operation.
+// participantsForSorobanOp returns the participants for a Soroban contract operation.
 // It returns an error ErrNotSorobanOperation if the operation is not a Soroban operation.
-func getContractOpParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
