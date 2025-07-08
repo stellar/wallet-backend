@@ -5,6 +5,8 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
+	operation_processor "github.com/stellar/go/processors/operation"
+
 	"github.com/stellar/go/xdr"
 )
 
@@ -112,4 +114,53 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 	}
 
 	return participantsSet, nil
+}
+
+type OperationParticipants struct {
+	Operation    xdr.Operation
+	Participants set.Set[string]
+}
+
+// GetOperationsParticipants returns a map of operation ID to its participants.
+func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]OperationParticipants, error) {
+	if !transaction.Successful() {
+		return nil, nil
+	}
+
+	ledgerSequence := transaction.Ledger.LedgerSequence()
+	operationsParticipants := map[int64]OperationParticipants{}
+
+	for opi, xdrOp := range transaction.Envelope.Operations() {
+		// 1. Build op wrapper, so we can use its methods
+		op := operation_processor.TransactionOperationWrapper{
+			Index:          uint32(opi),
+			Transaction:    transaction,
+			Operation:      xdrOp,
+			LedgerSequence: ledgerSequence,
+			Network:        p.networkPassphrase,
+		}
+		opID := op.ID()
+
+		// 2. Get participants for the operation
+		participants, err := op.Participants()
+		if err != nil {
+			return nil, fmt.Errorf("reading operation %d participants: %w", opID, err)
+		}
+		if len(participants) == 0 {
+			continue
+		}
+
+		// 3. Add participants to the map
+		if _, ok := operationsParticipants[opID]; !ok {
+			operationsParticipants[opID] = OperationParticipants{
+				Operation:    xdrOp,
+				Participants: set.NewSet[string](),
+			}
+		}
+		for _, participant := range participants {
+			operationsParticipants[opID].Participants.Add(participant.Address())
+		}
+	}
+
+	return operationsParticipants, nil
 }

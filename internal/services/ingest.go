@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -382,23 +383,39 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		indexerBuffer := &ledgerIndexer.IndexerBuffer
 
-		// 1. Identify which data should be ingested.
 		txByHash := make(map[string]types.Transaction)
-		stellarAddressesByTxHash := make(map[string][]string)
-		for _, participant := range indexerBuffer.Participants.ToSlice() {
+		stellarAddressesByTxHash := make(map[string]set.Set[string])
+
+		opByID := make(map[int64]types.Operation)
+		stellarAddressesByOpID := make(map[int64]set.Set[string])
+
+		// 1. Build the data structures needed for the DB insertions
+		for participant := range indexerBuffer.Participants.Iter() {
 			if !indexerBuffer.Participants.Contains(participant) {
 				continue
 			}
 
-			// 1.1. Identify which transactions should be ingested.
+			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
 				txByHash[tx.Hash] = tx
-				stellarAddressesByTxHash[tx.Hash] = append(stellarAddressesByTxHash[tx.Hash], participant)
+				if _, ok := stellarAddressesByTxHash[tx.Hash]; !ok {
+					stellarAddressesByTxHash[tx.Hash] = set.NewSet[string]()
+				}
+				stellarAddressesByTxHash[tx.Hash].Add(participant)
 			}
 
-			// 1.2. TODO: Identify which operations should be ingested.
-			// 1.3. TODO: Identify which state changes should be ingested.
+			// 1.2. operations data for the DB insertions
+			participantOperations := indexerBuffer.GetParticipantOperations(participant)
+			for opID, op := range participantOperations {
+				opByID[opID] = op
+				if _, ok := stellarAddressesByOpID[opID]; !ok {
+					stellarAddressesByOpID[opID] = set.NewSet[string]()
+				}
+				stellarAddressesByOpID[opID].Add(participant)
+			}
+
+			// 1.3. TODO: state changes data for the DB insertions
 		}
 
 		// 2. Insert queries
@@ -411,8 +428,18 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		if err != nil {
 			return fmt.Errorf("batch inserting transactions: %w", err)
 		}
-
 		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
+
+		// 2.2. Insert operations
+		ops := make([]types.Operation, 0, len(opByID))
+		for _, op := range opByID {
+			ops = append(ops, op)
+		}
+		insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
+		if err != nil {
+			return fmt.Errorf("batch inserting operations: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
 		// 3. Unlock channel accounts.
 		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
