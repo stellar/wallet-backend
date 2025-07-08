@@ -143,26 +143,49 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 		opID := op.ID()
 
 		// 2. Get participants for the operation
-		participants, err := op.Participants()
+		participants, err := p.GetOperationParticipants(op)
 		if err != nil {
-			return nil, fmt.Errorf("reading operation %d participants: %w", opID, err)
-		}
-		if len(participants) == 0 {
-			continue
+			return nil, fmt.Errorf("getting operation %d participants: %w", opID, err)
 		}
 
 		// 3. Add participants to the map
 		if _, ok := operationsParticipants[opID]; !ok {
 			operationsParticipants[opID] = OperationParticipants{
 				Operation:    xdrOp,
-				Participants: set.NewSet[string](),
+				Participants: participants,
 				OperationIdx: uint32(opi),
 			}
-		}
-		for _, participant := range participants {
-			operationsParticipants[opID].Participants.Add(participant.Address())
+		} else {
+			operationsParticipants[opID].Participants.Append(participants.ToSlice()...)
 		}
 	}
 
 	return operationsParticipants, nil
+}
+
+// GetOperationParticipants returns the participants for a Soroban operation.
+func (p *ParticipantsProcessor) GetOperationParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
+	participantsAccountIDs, err := op.Participants()
+	if err != nil {
+		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
+	}
+	participants := set.NewSet[string]()
+	for _, accountID := range participantsAccountIDs {
+		participants.Add(accountID.Address())
+	}
+
+	// 2. Return early if the operation is not a Soroban operation
+	if !op.Transaction.IsSorobanTx() {
+		return participants, nil
+	}
+
+	// 3. Get Soroban participants
+	sorobanParticipants, err := getContractOpParticipants(op)
+	if err != nil {
+		return nil, fmt.Errorf("getting soroban participants: %w", err)
+	}
+	participants = participants.Union(sorobanParticipants)
+
+	return participants, nil
 }
