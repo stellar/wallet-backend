@@ -59,17 +59,23 @@ func contractIDForInvokeHostFunctionOp(networkPassphrase string, invokeHostFunct
 
 	case xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
 		var preimage xdr.ContractIdPreimage
-		switch invokeHostFunctionOp.HostFunction.Type {
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
+		if invokeHostFunctionOp.HostFunction.Type == xdr.HostFunctionTypeHostFunctionTypeCreateContract {
 			preimage = invokeHostFunctionOp.HostFunction.MustCreateContract().ContractIdPreimage
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+		} else {
 			preimage = invokeHostFunctionOp.HostFunction.MustCreateContractV2().ContractIdPreimage
-		default:
-			return "", nil
 		}
 
-		if preimage.Type == xdr.ContractIdPreimageTypeContractIdPreimageFromAddress {
+		switch preimage.Type {
+		case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
 			return calculateContractID(networkPassphrase, preimage.MustFromAddress())
+
+		case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
+			fromAsset := preimage.MustFromAsset()
+			assetContractID, err := fromAsset.ContractID(networkPassphrase)
+			if err != nil {
+				return "", fmt.Errorf("getting asset contract ID: %w", err)
+			}
+			return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), nil
 		}
 
 	default:
@@ -237,8 +243,9 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 	contractID, err := contractIDForSorobanOperation(op)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID for soroban operation: %w", err)
+	} else if contractID != "" {
+		participants.Add(contractID)
 	}
-	participants.Add(contractID)
 
 	// 3. Return early if the operation is not an InvokeHostFunction operation
 	if op.Operation.Body.Type != xdr.OperationTypeInvokeHostFunction {
