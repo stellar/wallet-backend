@@ -5,10 +5,11 @@ import (
 	"fmt"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
+
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var ErrNotSorobanOperation = errors.New("not a soroban operation")
@@ -123,111 +124,47 @@ func participantsForAuthEntries(authEntries []xdr.SorobanAuthorizationEntry) (se
 	return participants, nil
 }
 
-func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) ([]string, error) {
+// getContractOpParticipants returns the participants for a Soroban contract operation.
+// It returns an error ErrNotSorobanOperation if the operation is not a Soroban operation.
+func getContractOpParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+	if !op.Transaction.IsSorobanTx() {
+		return nil, ErrNotSorobanOperation
+	}
+
 	// 1. Source Account
 	participants := set.NewSet[string]()
-	if op.SourceAccount != nil {
-		participants.Add(op.SourceAccount.Address())
-	} else {
-		participants.Add(tx.Envelope.SourceAccount().ToAccountId().Address())
-	}
-
-	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
+	participants.Add(op.SourceAccount().Address())
 
 	// 2. ContractID
-	contractID := invokeHostFunctionOp.HostFunction.InvokeContract.ContractAddress.ContractId
-	contractIDStr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-	participants.Add(contractIDStr)
-
-	// 3. Args
-	var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.InvokeContract.Args
-	argsScVal, err := xdr.NewScVal(xdr.ScValTypeScvVec, &argsScVec)
+	contractID, err := contractIDForSorobanOperation(op)
 	if err != nil {
-		return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
+		return nil, fmt.Errorf("getting contract ID for soroban operation: %w", err)
 	}
-	argParticipants, err := participantsForScVal(argsScVal)
-	if err != nil {
-		return nil, fmt.Errorf("getting scVal participants: %w", err)
-	}
-	participants = participants.Union(argParticipants)
+	participants.Add(contractID)
 
-	// 4. AuthEntries
+	// 3. Return early if the operation is not an InvokeHostFunction operation
+	if op.Operation.Body.Type != xdr.OperationTypeInvokeHostFunction {
+		return participants, nil
+	}
+	invokeHostFunctionOp := op.Operation.Body.MustInvokeHostFunctionOp()
+
+	// 4. InvokeHostFunction.Args
+	if invokeHostFunctionOp.HostFunction.Type == xdr.HostFunctionTypeHostFunctionTypeInvokeContract {
+		var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.MustInvokeContract().Args
+		var argParticipants set.Set[string]
+		argParticipants, err = participantsForScVal(xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(&argsScVec)})
+		if err != nil {
+			return nil, fmt.Errorf("getting scVal participants: %w", err)
+		}
+		participants = participants.Union(argParticipants)
+	}
+
+	// 5. InvokeHostFunction.Auth
 	authEntriesParticipants, err := participantsForAuthEntries(invokeHostFunctionOp.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("getting authEntry participants: %w", err)
 	}
 	participants = participants.Union(authEntriesParticipants)
 
-	return participants.ToSlice(), nil
+	return participants, nil
 }
-
-// func GetOperationParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
-// 	accountIDParticipants, err := op.Participants()
-// 	if err != nil {
-// 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
-// 	}
-// 	participants := set.NewSet[string]()
-// 	for _, accountID := range accountIDParticipants {
-// 		participants.Add(accountID.Address())
-// 	}
-
-// 	sorobanOperationTypes := []xdr.OperationType{
-// 		xdr.OperationTypeInvokeHostFunction,
-// 		xdr.OperationTypeExtendFootprintTtl,
-// 		xdr.OperationTypeRestoreFootprint,
-// 	}
-// 	if slices.Contains(sorobanOperationTypes, op.OperationType()) {
-// 		contractOpParticipants, err := GetContractOpParticipants(op.Operation, op.Transaction)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("getting participants for soroban operation %s: %w", op.OperationType(), err)
-// 		}
-// 		participants = participants.Union(contractOpParticipants)
-// 	}
-
-// 	return participants, nil
-// }
-
-// func GetContractOpParticipants(op xdr.Operation, tx ingest.LedgerTransaction) (set.Set[string], error) {
-// 	// 1. Source Account
-// 	participants := set.NewSet[string]()
-// 	if op.SourceAccount != nil {
-// 		participants.Add(op.SourceAccount.Address())
-// 	} else {
-// 		participants.Add(tx.Envelope.SourceAccount().ToAccountId().Address())
-// 	}
-
-// 	h := tx.Hash.HexString()
-// 	fmt.Println("tx hash", h)
-
-// 	invokeHostFunctionOp := op.Body.MustInvokeHostFunctionOp()
-
-// 	// 2. ContractID
-// 	contractID := invokeHostFunctionOp.HostFunction.InvokeContract.ContractAddress.ContractId
-// 	contractIDStr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-// 	participants.Add(contractIDStr)
-
-// 	// 3. Args
-// 	if op.Body.Type == xdr.OperationTypeInvokeHostFunction {
-// 		var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.InvokeContract.Args
-// 		argsScVal, err := xdr.NewScVal(xdr.ScValTypeScvVec, &argsScVec)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("creating NewScVal for the args vector: %w", err)
-// 		}
-// 		argParticipants, err := participantsForScVal(argsScVal)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("getting scVal participants: %w", err)
-// 		}
-// 		participants = participants.Union(argParticipants)
-// 	}
-
-// 	// 4. AuthEntries
-// 	if op.Body.Type == xdr.OperationTypeInvokeHostFunction {
-// 		authEntriesParticipants, err := participantsForAuthEntries(invokeHostFunctionOp.Auth)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("getting authEntry participants: %w", err)
-// 		}
-// 		participants = participants.Union(authEntriesParticipants)
-// 	}
-
-// 	return participants, nil
-// }
