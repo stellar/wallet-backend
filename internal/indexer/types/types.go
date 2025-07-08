@@ -148,7 +148,6 @@ const (
 	StateChangeReasonSell       StateChangeReason = "SELL"
 	StateChangeReasonBuy        StateChangeReason = "BUY"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonRevoke     StateChangeReason = "REVOKE"
 	StateChangeReasonConsume    StateChangeReason = "CONSUME"
 	StateChangeReasonDeploy     StateChangeReason = "DEPLOY"
 	StateChangeReasonInvoke     StateChangeReason = "INVOKE"
@@ -168,13 +167,14 @@ type StateChange struct {
 	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SignerWeight       sql.NullInt64  `json:"signerWeight,omitempty" db:"signer_weight"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	TargetAccountID    sql.NullString `json:"targetAccountId,omitempty" db:"target_account_id"`
+	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
-	Thresholds NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
-	Flags      NullableJSONB `json:"flags,omitempty" db:"flags"`
-	KeyValue   NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+	SignerWeights NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
+	Thresholds    NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
+	Flags         NullableJSON  `json:"flags,omitempty" db:"flags"`
+	KeyValue      NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty" db:"account"`
@@ -185,6 +185,53 @@ type StateChange struct {
 }
 
 type NullableJSONB map[string]any
+
+// NullableJSON represents a nullable JSON array of strings
+type NullableJSON []string
+
+var _ sql.Scanner = (*NullableJSON)(nil)
+
+func (n *NullableJSON) Scan(value any) error {
+	if value == nil {
+		*n = nil
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		var stringSlice []string
+		if err := json.Unmarshal(v, &stringSlice); err != nil {
+			return fmt.Errorf("unmarshalling value []byte: %w", err)
+		}
+		*n = stringSlice
+	case string:
+		var stringSlice []string
+		if err := json.Unmarshal([]byte(v), &stringSlice); err != nil {
+			return fmt.Errorf("unmarshalling value string: %w", err)
+		}
+		*n = stringSlice
+	default:
+		return fmt.Errorf("unsupported type for JSON array: %T", value)
+	}
+
+	return nil
+}
+
+var _ driver.Valuer = (*NullableJSON)(nil)
+
+func (n NullableJSON) Value() (driver.Value, error) {
+	// Handle nil slice as empty array to avoid null in JSON
+	if n == nil {
+		return []byte("[]"), nil
+	}
+
+	bytes, err := json.Marshal([]string(n))
+	if err != nil {
+		return nil, fmt.Errorf("marshalling JSON array: %w", err)
+	}
+
+	return bytes, nil
+}
 
 var _ sql.Scanner = (*NullableJSONB)(nil)
 

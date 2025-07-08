@@ -33,9 +33,46 @@ func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *S
 	return b
 }
 
+// WithReason sets the state change reason
+func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
+	b.base.StateChangeReason = &reason
+	return b
+}
+
+// WithThresholds sets the thresholds
+func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateChangeBuilder {
+	b.base.Thresholds = types.NullableJSONB(thresholds)
+	return b
+}
+
+// WithFlags sets the flags
+func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
+	b.base.Flags = types.NullableJSON(flags)
+	return b
+}
+
 // WithAccount sets the account ID
 func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 	b.base.AccountID = accountID
+	return b
+}
+
+// WithSigner sets the signer and the weights
+func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *StateChangeBuilder {
+	b.base.SignerAccountID = utils.SQLNullString(signer)
+	b.base.SignerWeights = types.NullableJSONB(weights)
+	return b
+}
+
+// WithSponsor sets the sponsor
+func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
+	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
+	return b
+}
+
+// WithKeyValue sets the key value
+func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
+	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
 }
 
@@ -60,6 +97,12 @@ func (b *StateChangeBuilder) WithClaimableBalance(balanceID string) *StateChange
 // WithLiquidityPool sets the liquidity pool ID
 func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilder {
 	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
+	return b
+}
+
+// WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
+func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
+	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
 	return b
 }
 
