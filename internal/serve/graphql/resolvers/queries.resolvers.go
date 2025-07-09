@@ -20,15 +20,6 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 	return transaction, nil
 }
 
-// OperationByID is the resolver for the operationByID field.
-func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
-	operation, err := r.models.Operations.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return operation, nil
-}
-
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 
