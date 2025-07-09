@@ -26,7 +26,7 @@ type StateChange {
   # Relationships
   accountId: String!           # Maps to json:"accountId"
   account: Account
-  operationId: ID!             # Maps to json:"operationId" -> int64
+  operationId: Int64!             # Maps to json:"operationId" -> int64
   operation: Operation
   txHash: String!
   transaction: Transaction

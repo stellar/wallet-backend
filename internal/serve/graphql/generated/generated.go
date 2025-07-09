@@ -129,8 +129,6 @@ type StateChangeResolver interface {
 	Thresholds(ctx context.Context, obj *types.StateChange) (*string, error)
 	Flags(ctx context.Context, obj *types.StateChange) ([]string, error)
 	KeyValue(ctx context.Context, obj *types.StateChange) (*string, error)
-
-	OperationID(ctx context.Context, obj *types.StateChange) (int, error)
 }
 
 type executableSchema struct {
@@ -705,7 +703,7 @@ scalar Int64
   # Relationships
   accountId: String!           # Maps to json:"accountId"
   account: Account
-  operationId: ID!             # Maps to json:"operationId" -> int64
+  operationId: Int64!             # Maps to json:"operationId" -> int64
   operation: Operation
   txHash: String!
   transaction: Transaction
@@ -2549,7 +2547,7 @@ func (ec *executionContext) _StateChange_operationId(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.StateChange().OperationID(rctx, obj)
+		return obj.OperationID, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2561,19 +2559,19 @@ func (ec *executionContext) _StateChange_operationId(ctx context.Context, field 
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int)
+	res := resTmp.(int64)
 	fc.Result = res
-	return ec.marshalNID2int(ctx, field.Selections, res)
+	return ec.marshalNInt642int64(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_StateChange_operationId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StateChange",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ID does not have child fields")
+			return nil, errors.New("field of type Int64 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5934,41 +5932,10 @@ func (ec *executionContext) _StateChange(ctx context.Context, sel ast.SelectionS
 		case "account":
 			out.Values[i] = ec._StateChange_account(ctx, field, obj)
 		case "operationId":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._StateChange_operationId(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
+			out.Values[i] = ec._StateChange_operationId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
 			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "operation":
 			out.Values[i] = ec._StateChange_operation(ctx, field, obj)
 		case "txHash":
@@ -6481,22 +6448,6 @@ func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (
 func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.SelectionSet, v bool) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalBoolean(v)
-	if res == graphql.Null {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
-		}
-	}
-	return res
-}
-
-func (ec *executionContext) unmarshalNID2int(ctx context.Context, v any) (int, error) {
-	res, err := graphql.UnmarshalIntID(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNID2int(ctx context.Context, sel ast.SelectionSet, v int) graphql.Marshaler {
-	_ = sel
-	res := graphql.MarshalIntID(v)
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			ec.Errorf(ctx, "the requested element is null which the schema does not allow")

@@ -132,11 +132,6 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 	return &jsonString, nil
 }
 
-// OperationID is the resolver for the operationId field.
-func (r *stateChangeResolver) OperationID(ctx context.Context, obj *types.StateChange) (int, error) {
-	panic(fmt.Errorf("not implemented: OperationID - operationId"))
-}
-
 // StateChange returns graphql1.StateChangeResolver implementation.
 func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
 
