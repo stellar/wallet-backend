@@ -40,7 +40,7 @@ func Test_calculateContractID(t *testing.T) {
 	require.Equal(t, "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD", contractID)
 }
 
-func Test_contractIDForSorobanOperation(t *testing.T) {
+func Test_contractIDsForSorobanOperation(t *testing.T) {
 	testCases := []struct {
 		name               string
 		ledgerCloseMetaXDR string
@@ -48,7 +48,7 @@ func Test_contractIDForSorobanOperation(t *testing.T) {
 		opType             xdr.OperationType
 		invokeOpSubtype    xdr.HostFunctionType
 		networkPassphrase  string
-		wantContractID     string
+		wantContractIDs    set.Set[string]
 		wantErrContains    string
 	}{
 		{
@@ -66,7 +66,7 @@ func Test_contractIDForSorobanOperation(t *testing.T) {
 			opType:             xdr.OperationTypeInvokeHostFunction,
 			invokeOpSubtype:    xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			networkPassphrase:  network.TestNetworkPassphrase,
-			wantContractID:     "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA",
+			wantContractIDs:    set.NewSet("CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"),
 		},
 		{
 			name:               "InvokeHostFunction/CreateContractV2",
@@ -75,7 +75,7 @@ func Test_contractIDForSorobanOperation(t *testing.T) {
 			opType:             xdr.OperationTypeInvokeHostFunction,
 			invokeOpSubtype:    xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
 			networkPassphrase:  network.TestNetworkPassphrase,
-			wantContractID:     "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D",
+			wantContractIDs:    set.NewSet("CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"),
 		},
 		{
 			name:               "ExtendFootprintTtl",
@@ -84,7 +84,7 @@ func Test_contractIDForSorobanOperation(t *testing.T) {
 			opType:             xdr.OperationTypeExtendFootprintTtl,
 			invokeOpSubtype:    xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
 			networkPassphrase:  network.TestNetworkPassphrase,
-			wantContractID:     "CBCLF2XD35RSWTIO4HVFLZG4WGQAB45C4PTMFWZFQ4R3Z3MFVRK3KDNV",
+			wantContractIDs:    set.NewSet("CBCLF2XD35RSWTIO4HVFLZG4WGQAB45C4PTMFWZFQ4R3Z3MFVRK3KDNV"),
 		},
 	}
 
@@ -117,13 +117,13 @@ func Test_contractIDForSorobanOperation(t *testing.T) {
 			}
 
 			// Test contract ID extraction
-			contractID, err := contractIDForSorobanOperation(op)
+			contractIDs, err := contractIDsForSorobanOperation(op)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
-				assert.Empty(t, contractID)
+				assert.Empty(t, contractIDs)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, tc.wantContractID, contractID)
+				require.Equal(t, tc.wantContractIDs, contractIDs)
 			}
 		})
 	}
@@ -481,6 +481,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		accountID2      = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
 		accountID3      = "GCTNXY3EZFV2BL4CWHIRSBJVBEYFXANMIDJEVITS66YXOQEF3PL7LHXQ"
 		contractID1     = "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"
+		contractID2     = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
 		xlmSACContracID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 	)
 
@@ -566,27 +567,25 @@ func Test_participantsForSorobanOp(t *testing.T) {
 	makeFootprintOp := func(base BaseOpConfig, footprint FootprintOpConfig) operation_processor.TransactionOperationWrapper {
 		op := makeBasicSorobanOp(base)
 
-		op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = func() []xdr.LedgerKey {
+		buildLedgerKeys := func(addresses []xdr.ScAddress) []xdr.LedgerKey {
 			ledgerKeys := []xdr.LedgerKey{}
-			for _, address := range footprint.readOnlyAddresses {
-				ledgerKeys = append(ledgerKeys, xdr.LedgerKey{
-					Type:         xdr.LedgerEntryTypeContractData,
-					ContractData: &xdr.LedgerKeyContractData{Contract: address},
-				})
-			}
-			return ledgerKeys
-		}()
+			for _, address := range addresses {
+				ledgerKey := xdr.LedgerKey{}
+				switch address.Type {
+				case xdr.ScAddressTypeScAddressTypeAccount:
+					ledgerKey.Type = xdr.LedgerEntryTypeAccount
+					ledgerKey.Account = &xdr.LedgerKeyAccount{AccountId: *address.AccountId}
 
-		op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite = func() []xdr.LedgerKey {
-			ledgerKeys := []xdr.LedgerKey{}
-			for _, address := range footprint.readWriteAddresses {
-				ledgerKeys = append(ledgerKeys, xdr.LedgerKey{
-					Type:         xdr.LedgerEntryTypeContractData,
-					ContractData: &xdr.LedgerKeyContractData{Contract: address},
-				})
+				case xdr.ScAddressTypeScAddressTypeContract:
+					ledgerKey.Type = xdr.LedgerEntryTypeContractData
+					ledgerKey.ContractData = &xdr.LedgerKeyContractData{Contract: address}
+				}
+				ledgerKeys = append(ledgerKeys, ledgerKey)
 			}
 			return ledgerKeys
-		}()
+		}
+		op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = buildLedgerKeys(footprint.readOnlyAddresses)
+		op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite = buildLedgerKeys(footprint.readWriteAddresses)
 
 		return op
 	}
@@ -773,7 +772,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			wantParticipants: set.NewSet(accountID1, contractID1),
 		},
 		{
-			name: "🟢ExtendFootprintTtl/ReadOnly/tx/op.SourceAccount",
+			name: "🟢ExtendFootprintTtl/ReadOnly&ReadWrite/tx/op.SourceAccount",
 			op: makeOp(TestOpConfig{
 				Base: BaseOpConfig{
 					opType:          xdr.OperationTypeExtendFootprintTtl,
@@ -781,10 +780,11 @@ func Test_participantsForSorobanOp(t *testing.T) {
 					opSourceAccount: accountID2,
 				},
 				FootprintOpConfig: FootprintOpConfig{
-					readOnlyAddresses: []xdr.ScAddress{makeScContract(contractID1)},
+					readOnlyAddresses:  []xdr.ScAddress{makeScContract(contractID1), makeScAddress(accountID3)},
+					readWriteAddresses: []xdr.ScAddress{makeScContract(contractID2)},
 				},
 			}),
-			wantParticipants: set.NewSet(accountID2, contractID1),
+			wantParticipants: set.NewSet(accountID2, accountID3, contractID1, contractID2),
 		},
 		{
 			name: "🟢RestoreFootprint/ReadWrite/fee_bump_tx/tx.SourceAccount",
