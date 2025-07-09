@@ -85,55 +85,67 @@ func contractIDForInvokeHostFunctionOp(networkPassphrase string, invokeHostFunct
 	return "", nil
 }
 
-// contractIDFromContractData returns the contract ID for a contract data ledger key.
-// It returns an empty string and false if the ledger key is not a contract data ledger key.
-func contractIDFromContractData(ledgerKey xdr.LedgerKey) (string, bool) {
-	contractData, ok := ledgerKey.GetContractData()
-	if !ok {
-		return "", false
-	}
-	contractIDHash, ok := contractData.Contract.GetContractId()
-	if !ok {
-		return "", false
+// contractIDFromContractDataOrAccount returns either the contract ID or the account ID for a contract data or account ledger key.
+// It returns an empty string and false if the ledger key is not a contract data or account ledger key.
+func contractIDFromContractDataOrAccount(ledgerKey xdr.LedgerKey) (string, bool) {
+	switch ledgerKey.Type {
+	case xdr.LedgerEntryTypeContractData:
+		contractData := ledgerKey.MustContractData()
+		if contractIDHash, ok := contractData.Contract.GetContractId(); ok {
+			contractIDByte, err := contractIDHash.MarshalBinary()
+			if err != nil {
+				panic(err)
+			}
+			return strkey.MustEncode(strkey.VersionByteContract, contractIDByte), true
+		}
+
+	case xdr.LedgerEntryTypeAccount:
+		account := ledgerKey.MustAccount()
+		return account.AccountId.Address(), true
+
+	default:
+		break
 	}
 
-	contractIDByte, err := contractIDHash.MarshalBinary()
-	if err != nil {
-		panic(err)
-	}
-
-	return strkey.MustEncode(strkey.VersionByteContract, contractIDByte), true
+	return "", false
 }
 
 // contractIDsFromTxEnvelope returns the contract IDs for a transaction envelope.
 // It returns an empty string if the transaction envelope is not a Soroban transaction envelope.
-func contractIDsFromTxEnvelope(t *ingest.LedgerTransaction) string {
+func contractIDsFromTxEnvelope(t *ingest.LedgerTransaction) set.Set[string] {
 	v1Envelope, ok := t.GetTransactionV1Envelope()
 	if !ok {
-		return ""
+		return nil
 	}
 
+	contractIDs := set.NewSet[string]()
 	readWrite := v1Envelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite
 	readOnly := v1Envelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly
 	for _, ledgerKey := range append(readWrite, readOnly...) {
-		contractID, ok := contractIDFromContractData(ledgerKey)
+		contractID, ok := contractIDFromContractDataOrAccount(ledgerKey)
 		if ok && contractID != "" {
-			return contractID
+			contractIDs.Add(contractID)
 		}
 	}
 
-	return ""
+	return contractIDs
 }
 
-func contractIDForSorobanOperation(op operation_processor.TransactionOperationWrapper) (string, error) {
+func contractIDsForSorobanOperation(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
-		return "", ErrNotSorobanOperation
+		return nil, ErrNotSorobanOperation
 	}
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeInvokeHostFunction:
 		invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
-		return contractIDForInvokeHostFunctionOp(op.Network, invokeHostOp)
+		contractID, err := contractIDForInvokeHostFunctionOp(op.Network, invokeHostOp)
+		if err != nil {
+			return nil, fmt.Errorf("getting contract ID for invoke host function operation: %w", err)
+		} else if contractID == "" {
+			return nil, nil
+		}
+		return set.NewSet(contractID), nil
 
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
 		return contractIDsFromTxEnvelope(&op.Transaction), nil
@@ -142,7 +154,7 @@ func contractIDForSorobanOperation(op operation_processor.TransactionOperationWr
 		break
 	}
 
-	return "", nil
+	return nil, nil
 }
 
 // scAddressesForScVal returns all ScAddresses that can be found in a ScVal. If the ScVal is a ScvVec or ScvMap,
@@ -239,12 +251,12 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 	participants := set.NewSet[string]()
 	participants.Add(op.SourceAccount().Address())
 
-	// 2. ContractID
-	contractID, err := contractIDForSorobanOperation(op)
+	// 2. ContractIDs
+	contractIDs, err := contractIDsForSorobanOperation(op)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract ID for soroban operation: %w", err)
-	} else if contractID != "" {
-		participants.Add(contractID)
+	} else if contractIDs != nil && contractIDs.Cardinality() > 0 {
+		participants = participants.Union(contractIDs)
 	}
 
 	// 3. Return early if the operation is not an InvokeHostFunction operation
