@@ -11,17 +11,8 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
-// Account is the resolver for the account field.
-func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
-	account, err := r.models.Account.Get(ctx, address)
-	if err != nil {
-		return nil, err
-	}
-	return account, nil
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *queryResolver) Transaction(ctx context.Context, hash string) (*types.Transaction, error) {
+// TransactionByHash is the resolver for the transactionByHash field.
+func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
 	transaction, err := r.models.Transactions.GetByHash(ctx, hash)
 	if err != nil {
 		return nil, err
@@ -29,8 +20,8 @@ func (r *queryResolver) Transaction(ctx context.Context, hash string) (*types.Tr
 	return transaction, nil
 }
 
-// Operation is the resolver for the operation field.
-func (r *queryResolver) Operation(ctx context.Context, id int64) (*types.Operation, error) {
+// OperationByID is the resolver for the operationByID field.
+func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
 	operation, err := r.models.Operations.GetByID(ctx, id)
 	if err != nil {
 		return nil, err

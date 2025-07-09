@@ -1,5 +1,4 @@
 type Query {
-    account(address: String!): Account
-    transaction(hash: String!): Transaction
-    operation(id: Int64!): Operation
+    transactionByHash(hash: String!): Transaction
+    operationByID(id: Int64!): Operation
 }

@@ -42,7 +42,6 @@ type Config struct {
 type ResolverRoot interface {
 	Query() QueryResolver
 	StateChange() StateChangeResolver
-	Transaction() TransactionResolver
 }
 
 type DirectiveRoot struct {
@@ -67,9 +66,8 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Account     func(childComplexity int, address string) int
-		Operation   func(childComplexity int, id int64) int
-		Transaction func(childComplexity int, hash string) int
+		OperationByID     func(childComplexity int, id int64) int
+		TransactionByHash func(childComplexity int, hash string) int
 	}
 
 	StateChange struct {
@@ -116,9 +114,8 @@ type ComplexityRoot struct {
 }
 
 type QueryResolver interface {
-	Account(ctx context.Context, address string) (*types.Account, error)
-	Transaction(ctx context.Context, hash string) (*types.Transaction, error)
-	Operation(ctx context.Context, id int64) (*types.Operation, error)
+	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
+	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
 }
 type StateChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.StateChange) (*string, error)
@@ -136,9 +133,6 @@ type StateChangeResolver interface {
 	KeyValue(ctx context.Context, obj *types.StateChange) (*string, error)
 
 	OperationID(ctx context.Context, obj *types.StateChange) (int, error)
-}
-type TransactionResolver interface {
-	ToID(ctx context.Context, obj *types.Transaction) (int, error)
 }
 
 type executableSchema struct {
@@ -237,41 +231,29 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Operation.TxHash(childComplexity), true
 
-	case "Query.account":
-		if e.complexity.Query.Account == nil {
+	case "Query.operationByID":
+		if e.complexity.Query.OperationByID == nil {
 			break
 		}
 
-		args, err := ec.field_Query_account_args(ctx, rawArgs)
+		args, err := ec.field_Query_operationByID_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.complexity.Query.Account(childComplexity, args["address"].(string)), true
+		return e.complexity.Query.OperationByID(childComplexity, args["id"].(int64)), true
 
-	case "Query.operation":
-		if e.complexity.Query.Operation == nil {
+	case "Query.transactionByHash":
+		if e.complexity.Query.TransactionByHash == nil {
 			break
 		}
 
-		args, err := ec.field_Query_operation_args(ctx, rawArgs)
+		args, err := ec.field_Query_transactionByHash_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.complexity.Query.Operation(childComplexity, args["id"].(int64)), true
-
-	case "Query.transaction":
-		if e.complexity.Query.Transaction == nil {
-			break
-		}
-
-		args, err := ec.field_Query_transaction_args(ctx, rawArgs)
-		if err != nil {
-			return 0, false
-		}
-
-		return e.complexity.Query.Transaction(childComplexity, args["hash"].(string)), true
+		return e.complexity.Query.TransactionByHash(childComplexity, args["hash"].(string)), true
 
 	case "StateChange.account":
 		if e.complexity.StateChange.Account == nil {
@@ -701,9 +683,8 @@ enum StateChangeReason {
 }
 `, BuiltIn: false},
 	{Name: "../schema/queries.graphqls", Input: `type Query {
-    account(address: String!): Account
-    transaction(hash: String!): Transaction
-    operation(id: Int64!): Operation
+    transactionByHash(hash: String!): Transaction
+    operationByID(id: Int64!): Operation
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# Custom scalars for database types
@@ -747,7 +728,7 @@ scalar Int64
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `type Transaction {
   hash: String!
-  toId: ID!                    # Maps to json:"to_id" -> ToID int64
+  toId: Int64!                 # Maps to json:"to_id" -> ToID int64
   envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
   resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
   metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
@@ -791,40 +772,17 @@ func (ec *executionContext) field_Query___type_argsName(
 	return zeroVal, nil
 }
 
-func (ec *executionContext) field_Query_account_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_operationByID_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Query_account_argsAddress(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["address"] = arg0
-	return args, nil
-}
-func (ec *executionContext) field_Query_account_argsAddress(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (string, error) {
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("address"))
-	if tmp, ok := rawArgs["address"]; ok {
-		return ec.unmarshalNString2string(ctx, tmp)
-	}
-
-	var zeroVal string
-	return zeroVal, nil
-}
-
-func (ec *executionContext) field_Query_operation_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := ec.field_Query_operation_argsID(ctx, rawArgs)
+	arg0, err := ec.field_Query_operationByID_argsID(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
 	args["id"] = arg0
 	return args, nil
 }
-func (ec *executionContext) field_Query_operation_argsID(
+func (ec *executionContext) field_Query_operationByID_argsID(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (int64, error) {
@@ -837,17 +795,17 @@ func (ec *executionContext) field_Query_operation_argsID(
 	return zeroVal, nil
 }
 
-func (ec *executionContext) field_Query_transaction_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_transactionByHash_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Query_transaction_argsHash(ctx, rawArgs)
+	arg0, err := ec.field_Query_transactionByHash_argsHash(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
 	args["hash"] = arg0
 	return args, nil
 }
-func (ec *executionContext) field_Query_transaction_argsHash(
+func (ec *executionContext) field_Query_transactionByHash_argsHash(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (string, error) {
@@ -1523,8 +1481,8 @@ func (ec *executionContext) fieldContext_Operation_stateChanges(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_account(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Query_account(ctx, field)
+func (ec *executionContext) _Query_transactionByHash(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_transactionByHash(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -1537,65 +1495,7 @@ func (ec *executionContext) _Query_account(ctx context.Context, field graphql.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().Account(rctx, fc.Args["address"].(string))
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*types.Account)
-	fc.Result = res
-	return ec.marshalOAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Query_account(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "stellarAddress":
-				return ec.fieldContext_Account_stellarAddress(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = ec.Recover(ctx, r)
-			ec.Error(ctx, err)
-		}
-	}()
-	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_account_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
-		ec.Error(ctx, err)
-		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_transaction(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Query_transaction(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().Transaction(rctx, fc.Args["hash"].(string))
+		return ec.resolvers.Query().TransactionByHash(rctx, fc.Args["hash"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1609,7 +1509,7 @@ func (ec *executionContext) _Query_transaction(ctx context.Context, field graphq
 	return ec.marshalOTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Query_transaction(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_transactionByHash(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -1650,15 +1550,15 @@ func (ec *executionContext) fieldContext_Query_transaction(ctx context.Context, 
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_transaction_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Query_transactionByHash_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_operation(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Query_operation(ctx, field)
+func (ec *executionContext) _Query_operationByID(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_operationByID(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -1671,7 +1571,7 @@ func (ec *executionContext) _Query_operation(ctx context.Context, field graphql.
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().Operation(rctx, fc.Args["id"].(int64))
+		return ec.resolvers.Query().OperationByID(rctx, fc.Args["id"].(int64))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1685,7 +1585,7 @@ func (ec *executionContext) _Query_operation(ctx context.Context, field graphql.
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Query_operation(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_operationByID(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -1722,7 +1622,7 @@ func (ec *executionContext) fieldContext_Query_operation(ctx context.Context, fi
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_operation_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Query_operationByID_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3017,7 +2917,7 @@ func (ec *executionContext) _Transaction_toId(ctx context.Context, field graphql
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Transaction().ToID(rctx, obj)
+		return obj.ToID, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3029,19 +2929,19 @@ func (ec *executionContext) _Transaction_toId(ctx context.Context, field graphql
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int)
+	res := resTmp.(int64)
 	fc.Result = res
-	return ec.marshalNID2int(ctx, field.Selections, res)
+	return ec.marshalNInt642int64(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_toId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type ID does not have child fields")
+			return nil, errors.New("field of type Int64 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5619,7 +5519,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("Query")
-		case "account":
+		case "transactionByHash":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -5628,7 +5528,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_account(ctx, field)
+				res = ec._Query_transactionByHash(ctx, field)
 				return res
 			}
 
@@ -5638,7 +5538,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "transaction":
+		case "operationByID":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -5647,26 +5547,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_transaction(ctx, field)
-				return res
-			}
-
-			rrm := func(ctx context.Context) graphql.Marshaler {
-				return ec.OperationContext.RootResolverMiddleware(ctx,
-					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "operation":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Query_operation(ctx, field)
+				res = ec._Query_operationByID(ctx, field)
 				return res
 			}
 
@@ -6263,88 +6144,57 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 		case "hash":
 			out.Values[i] = ec._Transaction_hash(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "toId":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Transaction_toId(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
+			out.Values[i] = ec._Transaction_toId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
 			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "envelopeXdr":
 			out.Values[i] = ec._Transaction_envelopeXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "resultXdr":
 			out.Values[i] = ec._Transaction_resultXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "metaXdr":
 			out.Values[i] = ec._Transaction_metaXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "ledgerNumber":
 			out.Values[i] = ec._Transaction_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Transaction_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "ingestedAt":
 			out.Values[i] = ec._Transaction_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "operations":
 			out.Values[i] = ec._Transaction_operations(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "accounts":
 			out.Values[i] = ec._Transaction_accounts(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "stateChanges":
 			out.Values[i] = ec._Transaction_stateChanges(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
