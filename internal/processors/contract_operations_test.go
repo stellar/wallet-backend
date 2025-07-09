@@ -499,8 +499,9 @@ func Test_participantsForSorobanOp(t *testing.T) {
 	}
 
 	type InvokeHostOpCreateContractConfig struct {
-		contractType xdr.HostFunctionType
-		preimageType xdr.ContractIdPreimageType
+		contractType    xdr.HostFunctionType
+		preimageType    xdr.ContractIdPreimageType
+		constructorArgs []xdr.ScAddress
 	}
 
 	type InvokeHostOpInvokeContractConfig struct {
@@ -642,11 +643,23 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			}
 		}
 
+		constructorArgs := []xdr.ScVal{}
+		for _, arg := range createContractOpConfig.constructorArgs {
+			switch arg.Type {
+			case xdr.ScAddressTypeScAddressTypeAccount:
+				constructorArgs = append(constructorArgs, xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &arg})
+			case xdr.ScAddressTypeScAddressTypeContract:
+				constructorArgs = append(constructorArgs, xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &arg})
+			default:
+				require.Fail(t, "unsupported/unimplemented constructor arg type")
+			}
+		}
+
 		op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
 			HostFunction: xdr.HostFunction{
 				Type:             createContractOpConfig.contractType,
 				CreateContract:   &xdr.CreateContractArgs{ContractIdPreimage: preimage},
-				CreateContractV2: &xdr.CreateContractArgsV2{ContractIdPreimage: preimage},
+				CreateContractV2: &xdr.CreateContractArgsV2{ContractIdPreimage: preimage, ConstructorArgs: constructorArgs},
 			},
 		}
 
@@ -816,7 +829,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED"),
 		},
 		{
-			name: "🟢InvokeHost/CreateContractV2/fromAddress/tx/tx.SourceAccount",
+			name: "🟢InvokeHost/CreateContractV2/fromAddress/tx/tx.SourceAccount/args",
 			op: makeOp(TestOpConfig{
 				Base: BaseOpConfig{
 					opType:          xdr.OperationTypeInvokeHostFunction,
@@ -826,9 +839,13 @@ func Test_participantsForSorobanOp(t *testing.T) {
 				CreateContractOpConfig: InvokeHostOpCreateContractConfig{
 					contractType: xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
 					preimageType: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+					constructorArgs: []xdr.ScAddress{
+						makeScAddress(accountID1),
+						makeScContract(contractID1),
+					},
 				},
 			}),
-			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED"),
+			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED", contractID1, accountID1),
 		},
 		{
 			name: "🟢InvokeHost/CreateContractV2/fromAsset/tx/tx.SourceAccount",
