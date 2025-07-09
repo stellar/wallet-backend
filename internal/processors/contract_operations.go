@@ -210,7 +210,7 @@ func participantsForScVal(scVal xdr.ScVal) (set.Set[string], error) {
 	scvAddresses := scAddressesForScVal(scVal)
 	participants := set.NewSet[string]()
 
-	for scvAddress := range scvAddresses.Iterator().C {
+	for scvAddress := range scvAddresses.Iter() {
 		scAddressStr, err := scvAddress.String()
 		if err != nil {
 			return nil, fmt.Errorf("converting ScAddress to string: %w", err)
@@ -265,11 +265,11 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 	}
 	invokeHostFunctionOp := op.Operation.Body.MustInvokeHostFunctionOp()
 
-	// 4. InvokeHostFunction.Args
-	if invokeHostFunctionOp.HostFunction.Type == xdr.HostFunctionTypeHostFunctionTypeInvokeContract {
-		var argsScVec xdr.ScVec = invokeHostFunctionOp.HostFunction.MustInvokeContract().Args
+	// 4. Invocation Args
+	args := argsForInvokeHostFunctionOp(invokeHostFunctionOp)
+	if len(args) > 0 {
 		var argParticipants set.Set[string]
-		argParticipants, err = participantsForScVal(xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(&argsScVec)})
+		argParticipants, err = participantsForScVal(scVecToScVal(args))
 		if err != nil {
 			return nil, fmt.Errorf("getting scVal participants: %w", err)
 		}
@@ -284,4 +284,25 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 	participants = participants.Union(authEntriesParticipants)
 
 	return participants, nil
+}
+
+func argsForInvokeHostFunctionOp(invokeHostFunctionOp xdr.InvokeHostFunctionOp) []xdr.ScVal {
+	switch invokeHostFunctionOp.HostFunction.Type {
+	case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
+		invokeContractOp := invokeHostFunctionOp.HostFunction.MustInvokeContract()
+		args := invokeContractOp.Args
+
+		return args
+
+	case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+		createContractV2Op := invokeHostFunctionOp.HostFunction.MustCreateContractV2()
+		return createContractV2Op.ConstructorArgs
+
+	default:
+		return nil
+	}
+}
+
+func scVecToScVal(scVec xdr.ScVec) xdr.ScVal {
+	return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(&scVec)}
 }
