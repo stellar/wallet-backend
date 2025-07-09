@@ -9,7 +9,7 @@ type Transaction {
   ingestedAt: Time!
   
   # Relationships
-  operations: [Operation!]!
+  operations: [Operation!]! @goField(forceResolver: true)
   accounts: [Account!]!
   stateChanges: [StateChange!]!
 }

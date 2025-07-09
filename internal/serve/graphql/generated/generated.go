@@ -42,6 +42,7 @@ type Config struct {
 type ResolverRoot interface {
 	Query() QueryResolver
 	StateChange() StateChangeResolver
+	Transaction() TransactionResolver
 }
 
 type DirectiveRoot struct {
@@ -129,6 +130,9 @@ type StateChangeResolver interface {
 	Thresholds(ctx context.Context, obj *types.StateChange) (*string, error)
 	Flags(ctx context.Context, obj *types.StateChange) ([]string, error)
 	KeyValue(ctx context.Context, obj *types.StateChange) (*string, error)
+}
+type TransactionResolver interface {
+	Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error)
 }
 
 type executableSchema struct {
@@ -585,6 +589,13 @@ var sources = []*ast.Source{
   createdAt: Time!
 }
 `, BuiltIn: false},
+	{Name: "../schema/directives.graphqls", Input: `directive @goField(
+	forceResolver: Boolean
+	name: String
+	omittable: Boolean
+	type: String
+) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
+`, BuiltIn: false},
 	{Name: "../schema/enums.graphqls", Input: `# Enums matching Go constants
 enum OperationType {
   CREATE_ACCOUNT
@@ -720,7 +731,7 @@ scalar Int64
   ingestedAt: Time!
   
   # Relationships
-  operations: [Operation!]!
+  operations: [Operation!]! @goField(forceResolver: true)
   accounts: [Account!]!
   stateChanges: [StateChange!]!
 }
@@ -3113,7 +3124,7 @@ func (ec *executionContext) _Transaction_operations(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Operations, nil
+		return ec.resolvers.Transaction().Operations(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3125,17 +3136,17 @@ func (ec *executionContext) _Transaction_operations(ctx context.Context, field g
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]types.Operation)
+	res := resTmp.([]*types.Operation)
 	fc.Result = res
-	return ec.marshalNOperation2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationᚄ(ctx, field.Selections, res)
+	return ec.marshalNOperation2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_operations(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "id":
@@ -5982,57 +5993,88 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 		case "hash":
 			out.Values[i] = ec._Transaction_hash(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "toId":
 			out.Values[i] = ec._Transaction_toId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "envelopeXdr":
 			out.Values[i] = ec._Transaction_envelopeXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "resultXdr":
 			out.Values[i] = ec._Transaction_resultXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "metaXdr":
 			out.Values[i] = ec._Transaction_metaXdr(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
 			out.Values[i] = ec._Transaction_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Transaction_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ingestedAt":
 			out.Values[i] = ec._Transaction_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "operations":
-			out.Values[i] = ec._Transaction_operations(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_operations(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "accounts":
 			out.Values[i] = ec._Transaction_accounts(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "stateChanges":
 			out.Values[i] = ec._Transaction_stateChanges(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -6472,11 +6514,7 @@ func (ec *executionContext) marshalNInt642int64(ctx context.Context, sel ast.Sel
 	return res
 }
 
-func (ec *executionContext) marshalNOperation2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx context.Context, sel ast.SelectionSet, v types.Operation) graphql.Marshaler {
-	return ec._Operation(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNOperation2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationᚄ(ctx context.Context, sel ast.SelectionSet, v []types.Operation) graphql.Marshaler {
+func (ec *executionContext) marshalNOperation2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationᚄ(ctx context.Context, sel ast.SelectionSet, v []*types.Operation) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
 	isLen1 := len(v) == 1
@@ -6500,7 +6538,7 @@ func (ec *executionContext) marshalNOperation2ᚕgithubᚗcomᚋstellarᚋwallet
 			if !isLen1 {
 				defer wg.Done()
 			}
-			ret[i] = ec.marshalNOperation2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, sel, v[i])
+			ret[i] = ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, sel, v[i])
 		}
 		if isLen1 {
 			f(i)
@@ -6518,6 +6556,16 @@ func (ec *executionContext) marshalNOperation2ᚕgithubᚗcomᚋstellarᚋwallet
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx context.Context, sel ast.SelectionSet, v *types.Operation) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Operation(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNOperationType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationType(ctx context.Context, v any) (types.OperationType, error) {
