@@ -234,6 +234,8 @@ func handler(deps handlerDeps) http.Handler {
 		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/graphql", func(r chi.Router) {
+			r.Use(middleware.DataloaderMiddleware(deps.Models))
+			
 			resolver := resolvers.NewResolver(deps.Models)
 
 			srv := gqlhandler.New(

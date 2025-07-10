@@ -18,18 +18,18 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetByID(ctx context.Context, id int64) (*types.Operation, error) {
-	const query = `SELECT * FROM operations WHERE id = $1`
-	var operation types.Operation
+func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
+	const query = `SELECT * FROM operations WHERE tx_hash = ANY($1)`
+	var operations []*types.Operation
 	start := time.Now()
-	err := m.DB.GetContext(ctx, &operation, query, id)
+	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting operation %d: %w", id, err)
+		return nil, fmt.Errorf("getting operations by tx hashes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
-	return &operation, nil
+	return operations, nil
 }
 
 // BatchInsert inserts the operations and the operations_accounts links.

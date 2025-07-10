@@ -6,15 +6,21 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // Operations is the resolver for the operations field.
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operations - operations"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, obj.Hash)
+	if err != nil {
+		return nil, err
+	}
+	return operations, nil
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.
