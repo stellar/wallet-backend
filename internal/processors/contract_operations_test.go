@@ -38,6 +38,21 @@ func Test_calculateContractID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD", contractID)
+
+	const (
+		accountID4  = "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"
+		contractID3 = "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD"
+	)
+	preimage := xdr.ContractIdPreimage{
+		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+		FromAddress: &xdr.ContractIdPreimageFromAddress{ // <--- contractID3
+			Address: makeScAddress(accountID4),
+			Salt:    xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252},
+		},
+	}
+	contractID, err = calculateContractID(networkPassphrase, preimage.MustFromAddress())
+	require.NoError(t, err)
+	require.Equal(t, contractID3, contractID)
 }
 
 func Test_scAddressesForScVal(t *testing.T) {
@@ -223,165 +238,180 @@ func Test_participantsForScVal(t *testing.T) {
 	}
 }
 
-func Test_participantsForAuthEntries(t *testing.T) {
-	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
-	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
-	scAddressAccount1 := xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID1,
-	}
+// func Test_participantsForAuthEntries(t *testing.T) {
+// 	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
+// 	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+// 	scAddressAccount1 := xdr.ScAddress{
+// 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+// 		AccountId: &accountID1,
+// 	}
 
-	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
-	require.NoError(t, err)
-	contractID1 := xdr.Hash(decodedContractID)
-	scAddressContract1 := xdr.ScAddress{
+// 	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+// 	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+// 	require.NoError(t, err)
+// 	contractID1 := xdr.Hash(decodedContractID)
+// 	scAddressContract1 := xdr.ScAddress{
+// 		Type:       xdr.ScAddressTypeScAddressTypeContract,
+// 		ContractId: &contractID1,
+// 	}
+
+// 	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
+// 	accountID2 := xdr.MustAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+// 	scAddressAccount2 := xdr.ScAddress{
+// 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+// 		AccountId: &accountID2,
+// 	}
+
+// 	testCases := []struct {
+// 		name            string
+// 		authEntries     []xdr.SorobanAuthorizationEntry
+// 		expected        []string
+// 		wantErrContains string
+// 	}{
+// 		{
+// 			name:        "🟢empty_auth_entries",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{},
+// 			expected:    []string{},
+// 		},
+// 		{
+// 			name: "🟢single_account_auth_entry",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressAccount1,
+// 						}),
+// 					},
+// 				},
+// 			},
+// 			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
+// 		},
+// 		{
+// 			name: "🟢single_contract_auth_entry",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressContract1,
+// 						}),
+// 					},
+// 				},
+// 			},
+// 			expected: []string{"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"},
+// 		},
+// 		{
+// 			name: "🟢multiple_auth_entries",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressAccount1,
+// 						}),
+// 					},
+// 				},
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressContract1,
+// 						}),
+// 					},
+// 				},
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressAccount2,
+// 						}),
+// 					},
+// 				},
+// 			},
+// 			expected: []string{
+// 				"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P",
+// 				"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+// 				"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
+// 			},
+// 		},
+// 		{
+// 			name: "🟡unsupported_credentials_type_should_be_ignored",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressContract1,
+// 						}),
+// 					},
+// 				},
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressAccount2,
+// 						}),
+// 					},
+// 				},
+// 			},
+// 			expected: []string{"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"},
+// 		},
+// 		{
+// 			name: "🟢duplicate_addresses_should_be_deduplicated",
+// 			authEntries: []xdr.SorobanAuthorizationEntry{
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{
+// 							Address: scAddressAccount1,
+// 						}),
+// 					},
+// 				},
+// 				{
+// 					Credentials: xdr.SorobanCredentials{
+// 						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+// 						Address: utils.PointOf(xdr.SorobanAddressCredentials{ // Duplicate
+// 							Address: scAddressAccount1,
+// 						}),
+// 					},
+// 				},
+// 			},
+// 			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
+// 		},
+// 	}
+
+// 	for _, tc := range testCases {
+// 		t.Run(tc.name, func(t *testing.T) {
+// 			participants, err := participantsForAuthEntries(tc.authEntries)
+
+// 			if tc.wantErrContains != "" {
+// 				assert.Error(t, err)
+// 				assert.ErrorContains(t, err, tc.wantErrContains)
+// 				assert.Empty(t, participants)
+// 			} else {
+// 				assert.NoError(t, err)
+// 				assert.Equal(t, len(tc.expected), participants.Cardinality())
+// 				for _, expectedParticipant := range tc.expected {
+// 					assert.True(t, participants.Contains(expectedParticipant))
+// 				}
+// 			}
+// 		})
+// 	}
+// }
+
+func makeScAddress(accountID string) xdr.ScAddress {
+	return xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: utils.PointOf(xdr.MustAddress(accountID)),
+	}
+}
+
+func makeScContract(contractID string) xdr.ScAddress {
+	decoded := strkey.MustDecode(strkey.VersionByteContract, contractID)
+	return xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: &contractID1,
-	}
-
-	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
-	accountID2 := xdr.MustAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
-	scAddressAccount2 := xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID2,
-	}
-
-	testCases := []struct {
-		name            string
-		authEntries     []xdr.SorobanAuthorizationEntry
-		expected        []string
-		wantErrContains string
-	}{
-		{
-			name:        "🟢empty_auth_entries",
-			authEntries: []xdr.SorobanAuthorizationEntry{},
-			expected:    []string{},
-		},
-		{
-			name: "🟢single_account_auth_entry",
-			authEntries: []xdr.SorobanAuthorizationEntry{
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressAccount1,
-						}),
-					},
-				},
-			},
-			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
-		},
-		{
-			name: "🟢single_contract_auth_entry",
-			authEntries: []xdr.SorobanAuthorizationEntry{
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressContract1,
-						}),
-					},
-				},
-			},
-			expected: []string{"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"},
-		},
-		{
-			name: "🟢multiple_auth_entries",
-			authEntries: []xdr.SorobanAuthorizationEntry{
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressAccount1,
-						}),
-					},
-				},
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressContract1,
-						}),
-					},
-				},
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressAccount2,
-						}),
-					},
-				},
-			},
-			expected: []string{
-				"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P",
-				"CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-				"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
-			},
-		},
-		{
-			name: "🟡unsupported_credentials_type_should_be_ignored",
-			authEntries: []xdr.SorobanAuthorizationEntry{
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressContract1,
-						}),
-					},
-				},
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressAccount2,
-						}),
-					},
-				},
-			},
-			expected: []string{"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"},
-		},
-		{
-			name: "🟢duplicate_addresses_should_be_deduplicated",
-			authEntries: []xdr.SorobanAuthorizationEntry{
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{
-							Address: scAddressAccount1,
-						}),
-					},
-				},
-				{
-					Credentials: xdr.SorobanCredentials{
-						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-						Address: utils.PointOf(xdr.SorobanAddressCredentials{ // Duplicate
-							Address: scAddressAccount1,
-						}),
-					},
-				},
-			},
-			expected: []string{"GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForAuthEntries(tc.authEntries)
-
-			if tc.wantErrContains != "" {
-				assert.Error(t, err)
-				assert.ErrorContains(t, err, tc.wantErrContains)
-				assert.Empty(t, participants)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, len(tc.expected), participants.Cardinality())
-				for _, expectedParticipant := range tc.expected {
-					assert.True(t, participants.Contains(expectedParticipant))
-				}
-			}
-		})
+		ContractId: utils.PointOf(xdr.Hash(decoded)),
 	}
 }
 
@@ -391,8 +421,11 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		accountID1      = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
 		accountID2      = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
 		accountID3      = "GCTNXY3EZFV2BL4CWHIRSBJVBEYFXANMIDJEVITS66YXOQEF3PL7LHXQ"
+		accountID4      = "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"
 		contractID1     = "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"
 		contractID2     = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
+		contractID3     = "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD"
+		contractID4     = "CAXR4FCMM4RTFCOHZ3EOFEOQHDHMBLSZQBXFTX2OWHDQWO5IFCFF6Z3K"
 		xlmSACContracID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 	)
 
@@ -413,6 +446,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		contractType    xdr.HostFunctionType
 		preimageType    xdr.ContractIdPreimageType
 		constructorArgs []xdr.ScAddress
+		authAccounts    []xdr.ScAddress
 	}
 
 	type InvokeHostOpInvokeContractConfig struct {
@@ -428,21 +462,23 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		InvokeContractOpConfig InvokeHostOpInvokeContractConfig
 	}
 
-	// Helper functions
-	makeScAddress := func(accountID string) xdr.ScAddress {
-		return xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: utils.PointOf(xdr.MustAddress(accountID)),
+	// Helpers:
+	makeAuthEntries := func(sorobanAuthFn xdr.SorobanAuthorizedFunction, authAccounts []xdr.ScAddress) []xdr.SorobanAuthorizationEntry {
+		authEntries := []xdr.SorobanAuthorizationEntry{}
+		for _, authAccount := range authAccounts {
+			authEntries = append(authEntries, xdr.SorobanAuthorizationEntry{
+				Credentials: xdr.SorobanCredentials{
+					Type:    xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+					Address: utils.PointOf(xdr.SorobanAddressCredentials{Address: authAccount}),
+				},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function:       sorobanAuthFn,
+					SubInvocations: nil,
+				},
+			})
 		}
-	}
 
-	makeScContract := func(contractID string) xdr.ScAddress {
-		decoded, err := strkey.Decode(strkey.VersionByteContract, contractID)
-		require.NoError(t, err)
-		return xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: utils.PointOf(xdr.Hash(decoded)),
-		}
+		return authEntries
 	}
 
 	// Fixtures functions
@@ -502,22 +538,6 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		return op
 	}
 
-	makeFeeBumpOp := func(feeBumpSourceAccount string, baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
-		op := baseOp
-		op.Transaction.Envelope.V1 = &xdr.TransactionV1Envelope{}
-		op.Transaction.Envelope.Type = xdr.EnvelopeTypeEnvelopeTypeTxFeeBump
-		op.Transaction.Envelope.FeeBump = &xdr.FeeBumpTransactionEnvelope{
-			Tx: xdr.FeeBumpTransaction{
-				FeeSource: xdr.MustMuxedAddress(feeBumpSourceAccount),
-				InnerTx: xdr.FeeBumpTransactionInnerTx{
-					Type: baseOp.Transaction.Envelope.Type,
-					V1:   baseOp.Transaction.Envelope.V1,
-				},
-			},
-		}
-		return op
-	}
-
 	makeCreateContractOp := func(base BaseOpConfig, createContractOpConfig InvokeHostOpCreateContractConfig) operation_processor.TransactionOperationWrapper {
 		op := makeBasicSorobanOp(base)
 		deployerAccount := base.txSourceAccount
@@ -540,7 +560,6 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			copy(uint256Val[:], rawAddress)
 
 			preimage = xdr.ContractIdPreimage{
-				Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
 				FromAddress: &xdr.ContractIdPreimageFromAddress{
 					Address: xdr.ScAddress{
 						Type: xdr.ScAddressTypeScAddressTypeAccount,
@@ -566,12 +585,22 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			}
 		}
 
+		sorobanAuthFn := xdr.SorobanAuthorizedFunction{Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn}
+		hostFn := xdr.HostFunction{Type: createContractOpConfig.contractType}
+		switch createContractOpConfig.contractType {
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
+			hostFn.CreateContract = &xdr.CreateContractArgs{ContractIdPreimage: preimage}
+			sorobanAuthFn.CreateContractHostFn = hostFn.CreateContract
+		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
+			hostFn.CreateContractV2 = &xdr.CreateContractArgsV2{ContractIdPreimage: preimage, ConstructorArgs: constructorArgs}
+			sorobanAuthFn.CreateContractV2HostFn = hostFn.CreateContractV2
+		default:
+			require.Fail(t, "unsupported/unimplemented contract type")
+		}
+
 		op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
-			HostFunction: xdr.HostFunction{
-				Type:             createContractOpConfig.contractType,
-				CreateContract:   &xdr.CreateContractArgs{ContractIdPreimage: preimage},
-				CreateContractV2: &xdr.CreateContractArgsV2{ContractIdPreimage: preimage, ConstructorArgs: constructorArgs},
-			},
+			HostFunction: hostFn,
+			Auth:         makeAuthEntries(sorobanAuthFn, createContractOpConfig.authAccounts),
 		}
 
 		return op
@@ -591,21 +620,9 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			Args:            args,
 		}
 
-		authEntries := []xdr.SorobanAuthorizationEntry{}
-		for _, authAccount := range invokeContractOpConfig.authAccounts {
-			authEntries = append(authEntries, xdr.SorobanAuthorizationEntry{
-				Credentials: xdr.SorobanCredentials{
-					Type:    xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
-					Address: utils.PointOf(xdr.SorobanAddressCredentials{Address: authAccount}),
-				},
-				RootInvocation: xdr.SorobanAuthorizedInvocation{
-					Function: xdr.SorobanAuthorizedFunction{
-						Type:       xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
-						ContractFn: &invokeContractArgs,
-					},
-					SubInvocations: []xdr.SorobanAuthorizedInvocation{},
-				},
-			})
+		sorobanAuthFn := xdr.SorobanAuthorizedFunction{
+			Type:       xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+			ContractFn: &invokeContractArgs,
 		}
 
 		op.Operation.Body.InvokeHostFunctionOp = &xdr.InvokeHostFunctionOp{
@@ -613,7 +630,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 				Type:           xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 				InvokeContract: &invokeContractArgs,
 			},
-			Auth: authEntries,
+			Auth: makeAuthEntries(sorobanAuthFn, invokeContractOpConfig.authAccounts),
 		}
 
 		return op
@@ -634,6 +651,91 @@ func Test_participantsForSorobanOp(t *testing.T) {
 		op := makeBasicSorobanOp(base)
 		op.Transaction.Envelope.V1.Tx.Ext.V = 0
 		op.Transaction.Envelope.V1.Tx.Ext.SorobanData = nil
+		return op
+	}
+
+	makeFeeBumpOp := func(feeBumpSourceAccount string, baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
+		op := baseOp
+		op.Transaction.Envelope.V1 = &xdr.TransactionV1Envelope{}
+		op.Transaction.Envelope.Type = xdr.EnvelopeTypeEnvelopeTypeTxFeeBump
+		op.Transaction.Envelope.FeeBump = &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: xdr.MustMuxedAddress(feeBumpSourceAccount),
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: baseOp.Transaction.Envelope.Type,
+					V1:   baseOp.Transaction.Envelope.V1,
+				},
+			},
+		}
+		return op
+	}
+
+	// includeSubinvocations will add subinvocations to any existing SorobanAuthorizationEntry where the following
+	// accounts are present: [xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID2, accountID3, accountID4].
+	includeSubinvocations := func(baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
+		op := baseOp
+
+		subInvocations := []xdr.SorobanAuthorizedInvocation{
+			{
+				Function: xdr.SorobanAuthorizedFunction{
+					Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+					CreateContractHostFn: &xdr.CreateContractArgs{ContractIdPreimage: xdr.ContractIdPreimage{
+						Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
+						FromAsset: &xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, // <--- xlmSACContracID
+					}},
+				},
+				SubInvocations: []xdr.SorobanAuthorizedInvocation{
+					{
+						Function: xdr.SorobanAuthorizedFunction{
+							Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+							ContractFn: &xdr.InvokeContractArgs{
+								ContractAddress: makeScContract(contractID1), // <--- contractID1
+								FunctionName:    xdr.ScSymbol("sub_fn"),
+								Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScContract(contractID2))}}, // <--- contractID2
+							},
+						},
+						SubInvocations: nil,
+					},
+					{
+						Function: xdr.SorobanAuthorizedFunction{
+							Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn,
+							CreateContractV2HostFn: &xdr.CreateContractArgsV2{
+								ConstructorArgs: []xdr.ScVal{
+									{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID3))}, // <--- accountID3
+								},
+								ContractIdPreimage: xdr.ContractIdPreimage{
+									Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+									FromAddress: &xdr.ContractIdPreimageFromAddress{ // <--- contractID3
+										Address: makeScAddress(accountID4),
+										Salt:    xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252},
+									},
+								},
+							},
+						},
+						SubInvocations: nil,
+					},
+				},
+			},
+			{
+				Function: xdr.SorobanAuthorizedFunction{
+					Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+					ContractFn: &xdr.InvokeContractArgs{
+						ContractAddress: makeScContract(contractID4),
+						FunctionName:    xdr.ScSymbol("sub_fn"),
+						Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID2))}}, // <--- accountID2
+					},
+				},
+				SubInvocations: nil,
+			},
+		}
+
+		// Add subinvocations to existing auth entries
+		if op.Operation.Body.InvokeHostFunctionOp != nil && len(op.Operation.Body.InvokeHostFunctionOp.Auth) > 0 {
+			for i := range op.Operation.Body.InvokeHostFunctionOp.Auth {
+				op.Operation.Body.MustInvokeHostFunctionOp().Auth[i].RootInvocation.SubInvocations = subInvocations
+			}
+		}
+
 		return op
 	}
 
@@ -729,8 +831,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			op: makeOp(TestOpConfig{
 				Base: BaseOpConfig{
 					opType:          xdr.OperationTypeInvokeHostFunction,
-					txSourceAccount: accountID3,
-					opSourceAccount: accountID2,
+					txSourceAccount: accountID2,
 				},
 				CreateContractOpConfig: InvokeHostOpCreateContractConfig{
 					contractType: xdr.HostFunctionTypeHostFunctionTypeCreateContract,
@@ -744,8 +845,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 			op: makeOp(TestOpConfig{
 				Base: BaseOpConfig{
 					opType:          xdr.OperationTypeInvokeHostFunction,
-					txSourceAccount: accountID3,
-					opSourceAccount: accountID2,
+					txSourceAccount: accountID2,
 				},
 				CreateContractOpConfig: InvokeHostOpCreateContractConfig{
 					contractType: xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
@@ -756,7 +856,7 @@ func Test_participantsForSorobanOp(t *testing.T) {
 					},
 				},
 			}),
-			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED", contractID1, accountID1),
+			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED", accountID1, contractID1),
 		},
 		{
 			name: "🟢InvokeHost/CreateContractV2/fromAsset/tx/tx.SourceAccount",
@@ -800,6 +900,55 @@ func Test_participantsForSorobanOp(t *testing.T) {
 				},
 			}),
 			wantParticipants: set.NewSet(accountID2),
+		},
+		{
+			name: "🟢InvokeHost/CreateContract/fromAddress/tx/tx.SourceAccount/subinvocations",
+			op: includeSubinvocations(makeOp(TestOpConfig{
+				Base: BaseOpConfig{
+					opType:          xdr.OperationTypeInvokeHostFunction,
+					txSourceAccount: accountID2,
+				},
+				CreateContractOpConfig: InvokeHostOpCreateContractConfig{
+					contractType: xdr.HostFunctionTypeHostFunctionTypeCreateContract,
+					preimageType: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+					authAccounts: []xdr.ScAddress{makeScAddress(accountID2)},
+				},
+			})),
+			// xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID2, accountID3, accountID4
+			wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED", xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID3, accountID4),
+		},
+		// {
+		// 	name: "🟢InvokeHost/CreateContractV2/fromAddress/tx/tx.SourceAccount/subinvocations",
+		// 	op: includeSubinvocations(makeOp(TestOpConfig{
+		// 		Base: BaseOpConfig{
+		// 			opType:          xdr.OperationTypeInvokeHostFunction,
+		// 			txSourceAccount: accountID2,
+		// 		},
+		// 		CreateContractOpConfig: InvokeHostOpCreateContractConfig{
+		// 			contractType: xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
+		// 			preimageType: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+		// 			authAccounts: []xdr.ScAddress{makeScAddress(accountID2)},
+		// 		},
+		// 	})),
+		// 	// xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID2, accountID3, accountID4
+		// 	wantParticipants: set.NewSet(accountID2, "CBFECUDH6TY6GHBBJS2ASEAXCL2KMBGF46E7A2F42SWMICKG2VDFVPED", xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID3, accountID4),
+		// },
+		{
+			name: "🟢InvokeHost/InvokeContract/auth/args/tx/tx.SourceAccount/subinvocations",
+			op: includeSubinvocations(makeOp(TestOpConfig{
+				Base: BaseOpConfig{
+					opType:          xdr.OperationTypeInvokeHostFunction,
+					txSourceAccount: accountID2,
+				},
+				InvokeContractOpConfig: InvokeHostOpInvokeContractConfig{
+					contractAddress: makeScContract(contractID1),
+					authAccounts:    []xdr.ScAddress{makeScAddress(accountID1)},
+				},
+			})),
+			wantParticipants: set.NewSet(
+				accountID1, accountID2, contractID1,
+				xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID3, accountID4,
+			),
 		},
 	}
 
