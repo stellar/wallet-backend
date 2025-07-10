@@ -20,6 +20,11 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 	return transaction, nil
 }
 
+// Transactions is the resolver for the transactions field.
+func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+	return r.models.Transactions.GetAll(ctx, limit)
+}
+
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 

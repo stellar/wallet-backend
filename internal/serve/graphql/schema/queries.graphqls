@@ -1,3 +1,4 @@
 type Query {
     transactionByHash(hash: String!): Transaction
+    transactions(limit: Int): [Transaction]!
 }

@@ -32,6 +32,27 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.T
 	return &transaction, nil
 }
 
+func (m *TransactionModel) GetAll(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+	query := `SELECT * FROM transactions ORDER BY ledger_created_at DESC`
+	args := []interface{}{}
+	
+	if limit != nil && *limit > 0 {
+		query += ` LIMIT $1`
+		args = append(args, *limit)
+	}
+	
+	var transactions []*types.Transaction
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
 // BatchInsert inserts the transactions and the transactions_accounts links.
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(
