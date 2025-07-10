@@ -20,7 +20,17 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 				if err != nil {
 					return nil, []error{err}
 				}
-				return [][]*types.Operation{operations}, nil
+				// operations is a flat slice, so we need to group them by tx hash.
+				// The loader expects a slice of slices, one for each key.
+				operationsByTxHash := make(map[string][]*types.Operation)
+				for _, operation := range operations {
+					operationsByTxHash[operation.TxHash] = append(operationsByTxHash[operation.TxHash], operation)
+				}
+				result := make([][]*types.Operation, len(keys))
+				for i, key := range keys {
+					result[i] = operationsByTxHash[key]
+				}
+				return result, nil
 			},
 			dataloadgen.WithBatchCapacity(100),
 			dataloadgen.WithWait(5 * time.Millisecond),
