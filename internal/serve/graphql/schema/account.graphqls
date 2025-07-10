@@ -1,4 +1,9 @@
 type Account {
   stellarAddress: String!
   createdAt: Time!
+
+  # Relationships
+  transactions: [Transaction!]!
+  operations: [Operation!]!
+  statechanges: [StateChange!]!
 }

@@ -25,6 +25,15 @@ func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*type
 	return r.models.Transactions.GetAll(ctx, limit)
 }
 
+// Account is the resolver for the account field.
+func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
+	account, err := r.models.Account.Get(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 

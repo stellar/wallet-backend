@@ -30,6 +30,11 @@ type Transaction struct {
 	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
 }
 
+type TransactionWithAccountID struct {
+	Transaction
+	AccountID string `json:"accountId,omitempty" db:"account_id"`
+}
+
 // xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
 var xdrToOperationTypeMap = map[xdr.OperationType]OperationType{
 	xdr.OperationTypeCreateAccount:                 OperationTypeCreateAccount,
