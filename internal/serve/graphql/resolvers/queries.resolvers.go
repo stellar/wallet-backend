@@ -34,6 +34,15 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 	return account, nil
 }
 
+// Operations is the resolver for the operations field.
+func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+	operations, err := r.models.Operations.GetAll(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	return operations, nil
+}
+
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 

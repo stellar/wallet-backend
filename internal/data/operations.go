@@ -18,6 +18,23 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+	query := `SELECT * FROM operations ORDER BY ledger_created_at DESC`
+	if limit != nil && *limit > 0 {
+		query += ` LIMIT $1`
+	}
+	var operations []*types.Operation
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operations, query, limit)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting all operations: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return operations, nil
+}
+
 func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
 	const query = `SELECT * FROM operations WHERE tx_hash = ANY($1)`
 	var operations []*types.Operation
