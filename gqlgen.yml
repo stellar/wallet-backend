@@ -35,7 +35,7 @@ model:
 
 # Where should the resolver implementations go?
 resolver:
-  package: graphql
+  package: resolvers
   layout: follow-schema # Only other option is "single-file."
 
   # Only for single-file layout:
