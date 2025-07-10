@@ -35,12 +35,12 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.T
 func (m *TransactionModel) GetAll(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
 	query := `SELECT * FROM transactions ORDER BY ledger_created_at DESC`
 	args := []interface{}{}
-	
+
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`
 		args = append(args, *limit)
 	}
-	
+
 	var transactions []*types.Transaction
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, args...)

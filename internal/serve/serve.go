@@ -20,11 +20,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
-	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -235,7 +235,7 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
-			
+
 			resolver := resolvers.NewResolver(deps.Models)
 
 			srv := gqlhandler.New(

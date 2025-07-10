@@ -32,6 +32,28 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHashes []string
 	return operations, nil
 }
 
+func (m *OperationModel) BatchGetByAccount(ctx context.Context, accountAddresses []string) ([]*types.OperationWithAccountID, error) {
+	const query = `
+		SELECT o.*, oa.account_id
+		FROM operations o
+		INNER JOIN operations_accounts oa ON o.id = oa.operation_id
+		WHERE oa.account_id = ANY($1)
+		ORDER BY o.ledger_created_at DESC
+	`
+
+	var operationsWithAccounts []*types.OperationWithAccountID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operationsWithAccounts, query, pq.Array(accountAddresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations by account addresses: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+
+	return operationsWithAccounts, nil
+}
+
 // BatchInsert inserts the operations and the operations_accounts links.
 // It returns the IDs of the successfully inserted operations.
 func (m *OperationModel) BatchInsert(

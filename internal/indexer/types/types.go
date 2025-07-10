@@ -118,6 +118,11 @@ type Operation struct {
 	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
 }
 
+type OperationWithAccountID struct {
+	Operation
+	AccountID string `db:"account_id"`
+}
+
 type StateChangeCategory string
 
 const (

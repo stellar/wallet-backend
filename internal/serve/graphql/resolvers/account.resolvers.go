@@ -26,7 +26,12 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 
 // Operations is the resolver for the operations field.
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operations - operations"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	operations, err := loaders.OperationsByAccountLoader.Load(ctx, obj.StellarAddress)
+	if err != nil {
+		return nil, err
+	}
+	return operations, nil
 }
 
 // Statechanges is the resolver for the statechanges field.
