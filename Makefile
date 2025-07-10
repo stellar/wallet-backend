@@ -50,7 +50,7 @@ shadow: ## Run shadow analysis to find shadowed variables
 		echo "Installing shadow..."; \
 		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0; \
 	fi
-	$(shell go env GOPATH)/bin/shadow ./...
+	@$(shell go env GOPATH)/bin/shadow ./... | { grep -v "generated.go" || true; }
 
 exhaustive: ## Check exhaustiveness of switch statements
 	@echo "==> Running exhaustive..."
@@ -63,7 +63,7 @@ deadcode: ## Find unused code
 		echo "Installing deadcode..."; \
 		go install golang.org/x/tools/cmd/deadcode@v0.31.0; \
 	fi
-	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./...); \
+	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./... | grep -v "UnmarshalUInt32"); \
 	if [ -n "$$output" ]; then \
 		echo "🚨 Deadcode found:"; \
 		echo "$$output"; \

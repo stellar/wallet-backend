@@ -9,11 +9,14 @@ import (
 
 func MarshalUInt32(i uint32) graphql.Marshaler {
 	return graphql.WriterFunc(func(w io.Writer) {
-		io.WriteString(w, fmt.Sprintf("%d", i))
+		_, err := io.WriteString(w, fmt.Sprintf("%d", i))
+		if err != nil {
+			panic(err)
+		}
 	})
 }
 
-func UnmarshalUInt32(v interface{}) (uint32, error) {
+func UnmarshalUInt32(v any) (uint32, error) {
 	switch v := v.(type) {
 	case int:
 		return uint32(v), nil
