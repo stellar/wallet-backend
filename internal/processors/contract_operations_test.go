@@ -78,37 +78,27 @@ func Test_scAddressesForScVal(t *testing.T) {
 		},
 		{
 			name: "🟢scv_vec_with_addresses",
-			scVal: func() xdr.ScVal {
-				vec := xdr.ScVec{
-					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
-					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount2},
-					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
-					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract2},
-				}
-				vecPtr := &vec
-				return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &vecPtr}
-			}(),
+			scVal: scVecToScVal(xdr.ScVec{
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount2},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract2},
+			}),
 			wantAddresses: set.NewSet(scAddressAccount1, scAddressAccount2, scAddressContract1, scAddressContract2),
 		},
 		{
 			name: "🟢scv_map_with_addresses",
-			scVal: func() xdr.ScVal {
-				scMap := utils.PointOf(xdr.ScMap{
-					xdr.ScMapEntry{
-						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
-						Val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
-					},
-				})
-				return xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &scMap}
-			}(),
+			scVal: xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: utils.PointOf(utils.PointOf(xdr.ScMap{
+				xdr.ScMapEntry{
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+					Val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+				},
+			}))},
 			wantAddresses: set.NewSet(scAddressAccount1, scAddressContract1),
 		},
 		{
-			name: "🟢scv_bytes_as_contract_id",
-			scVal: func() xdr.ScVal {
-				scb := xdr.ScBytes(contractID1[:])
-				return xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &scb}
-			}(),
+			name:          "🟢scv_bytes_as_contract_id",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: utils.PointOf(xdr.ScBytes(contractID1[:]))},
 			wantAddresses: set.NewSet(scAddressContract1, scAddressContract1AsAccountID),
 		},
 		{
@@ -197,7 +187,7 @@ func makeScContract(contractID string) xdr.ScAddress {
 	}
 }
 
-// makeFeeBumpOp makes a fee bump operation from a base operation.
+// makeFeeBumpOp updates the envelope type to a fee bump envelope and sets the fee source account.
 func makeFeeBumpOp(feeBumpSourceAccount string, baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
 	op := baseOp
 	op.Transaction.Envelope.V0 = nil
@@ -271,7 +261,6 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 }
 
 func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
-	// Test addresses
 	const (
 		txSourceAccount = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
 		opSourceAccount = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
@@ -280,7 +269,6 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 		contractID2     = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
 	)
 
-	// Helpers:
 	basicSorobanOp := func() operation_processor.TransactionOperationWrapper {
 		return operation_processor.TransactionOperationWrapper{
 			Network:      network.TestNetworkPassphrase,
@@ -293,7 +281,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						Tx: xdr.Transaction{
 							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
 							Ext: xdr.TransactionExt{
-								V:           int32(1),
+								V:           1,
 								SorobanData: &xdr.SorobanTransactionData{},
 							},
 						},
@@ -321,7 +309,6 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 		}
 	}
 
-	// Test cases
 	type TestCase struct {
 		name             string
 		op               operation_processor.TransactionOperationWrapper
@@ -329,7 +316,6 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 	}
 
 	testCases := []TestCase{}
-
 	for _, feeBump := range []bool{false, true} {
 		for _, opType := range []xdr.OperationType{xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint} {
 			prefix := opType.String()
@@ -430,7 +416,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 						Tx: xdr.Transaction{
 							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
 							Ext: xdr.TransactionExt{
-								V:           int32(1),
+								V:           1,
 								SorobanData: &xdr.SorobanTransactionData{},
 							},
 						},
@@ -440,7 +426,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 		}
 	}
 
-	// Test cases
 	testCases := []struct {
 		name             string
 		op               operation_processor.TransactionOperationWrapper
@@ -476,20 +461,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 	}
 }
 
-// Test addresses
-const (
-	deployerAccountID  = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
-	deployedContractID = "CCUWLGAV43F52A2ZYHRWIWNCNMSZBGWEUTWRKEX5SHJXK74GFSZFGPZY"
-	accountID2         = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
-	accountID3         = "GCTNXY3EZFV2BL4CWHIRSBJVBEYFXANMIDJEVITS66YXOQEF3PL7LHXQ"
-	contractID1        = "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"
-	contractID2        = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
-	contractID4        = "CAXR4FCMM4RTFCOHZ3EOFEOQHDHMBLSZQBXFTX2OWHDQWO5IFCFF6Z3K"
-	xlmSACContracID    = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-)
-
-// makeAuthEntries creates a slice of SorobanAuthorizationEntry for the given operation,
-// with the given auth accounts.
+// makeAuthEntries receives a []xdr.ScAddress and returns a []xdr.SorobanAuthorizationEntry. It also populates the
+// SorobanAuthorizedFunction's type and function fields based on the operation provided.
 func makeAuthEntries(t *testing.T, op *operation_processor.TransactionOperationWrapper, authAccounts ...xdr.ScAddress) []xdr.SorobanAuthorizationEntry {
 	t.Helper()
 	sorobanAuthFn := xdr.SorobanAuthorizedFunction{}
@@ -524,9 +497,22 @@ func makeAuthEntries(t *testing.T, op *operation_processor.TransactionOperationW
 	return authEntries
 }
 
-// includeSubinvocations will add subinvocations to any existing SorobanAuthorizationEntry where the following
-// accounts are present: [xlmSACContracID, contractID1, contractID2, contractID3, contractID4, accountID1, accountID2, accountID3].
-func includeSubinvocations(baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
+// Test addresses used in the subInvocations:
+const (
+	deployerAccountID  = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
+	deployedContractID = "CCUWLGAV43F52A2ZYHRWIWNCNMSZBGWEUTWRKEX5SHJXK74GFSZFGPZY"
+	accountID1         = "GCTNXY3EZFV2BL4CWHIRSBJVBEYFXANMIDJEVITS66YXOQEF3PL7LHXQ"
+	accountID2         = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
+	contractID1        = "CBN2MBW4AFEHXMLE5ADTAWFOQKEHBYTVO62AZ7DTQONACYE26VFPHKVA"
+	contractID2        = "CCSZ54OHAF6BBBFVKHGA6WFWNQLEBXBVO3JYY4BPRYQTXOYJ7LI3QE4D"
+	contractID3        = "CAXR4FCMM4RTFCOHZ3EOFEOQHDHMBLSZQBXFTX2OWHDQWO5IFCFF6Z3K"
+	xlmSACID           = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+)
+
+// includeSubInvocations will add subInvocations to any existing SorobanAuthorizationEntry. After adding the subinvocations,
+// the following addresses are expected to be present:
+// [deployerAccountID, deployedContractID, accountID1, accountID2, contractID1, contractID2, contractID3, xlmSACID]
+func includeSubInvocations(baseOp operation_processor.TransactionOperationWrapper) operation_processor.TransactionOperationWrapper {
 	op := baseOp
 
 	subInvocations := []xdr.SorobanAuthorizedInvocation{
@@ -555,12 +541,12 @@ func includeSubinvocations(baseOp operation_processor.TransactionOperationWrappe
 						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn,
 						CreateContractV2HostFn: &xdr.CreateContractArgsV2{
 							ConstructorArgs: []xdr.ScVal{
-								{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID3))}, // <--- accountID3
+								{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID1))}, // <--- accountID1
 							},
 							ContractIdPreimage: xdr.ContractIdPreimage{
 								Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
-								FromAddress: &xdr.ContractIdPreimageFromAddress{ // <--- contractID3
-									Address: makeScAddress(deployerAccountID),
+								FromAddress: &xdr.ContractIdPreimageFromAddress{ // <--- deployedContractID
+									Address: makeScAddress(deployerAccountID), //   <--- deployerAccountID
 									Salt:    xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252},
 								},
 							},
@@ -574,7 +560,7 @@ func includeSubinvocations(baseOp operation_processor.TransactionOperationWrappe
 			Function: xdr.SorobanAuthorizedFunction{
 				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
 				ContractFn: &xdr.InvokeContractArgs{
-					ContractAddress: makeScContract(contractID4),
+					ContractAddress: makeScContract(contractID3),
 					FunctionName:    xdr.ScSymbol("sub_fn"),
 					Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID2))}}, // <--- accountID2
 				},
@@ -594,7 +580,6 @@ func includeSubinvocations(baseOp operation_processor.TransactionOperationWrappe
 }
 
 func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.T) {
-	// Test addresses
 	const (
 		txSourceAccount       = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
 		opSourceAccount       = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
@@ -613,7 +598,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	}
 	salt := xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
 
-	// Helpers:
 	basicSorobanOp := func() operation_processor.TransactionOperationWrapper {
 		return operation_processor.TransactionOperationWrapper{
 			Network:      network.TestNetworkPassphrase,
@@ -634,7 +618,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 						Tx: xdr.Transaction{
 							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
 							Ext: xdr.TransactionExt{
-								V:           int32(1),
+								V:           1,
 								SorobanData: &xdr.SorobanTransactionData{},
 							},
 						},
@@ -689,7 +673,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		}
 	}
 
-	// Test cases
 	type TestCase struct {
 		name             string
 		op               operation_processor.TransactionOperationWrapper
@@ -697,7 +680,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	}
 
 	testCases := []TestCase{}
-
 	for _, withSubinvocations := range []bool{false, true} {
 		for _, feeBump := range []bool{false, true} {
 			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
@@ -705,7 +687,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 				subInvocationsParticipants := set.NewSet[string]()
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
-					subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID3, contractID1, contractID2, deployedContractID, contractID4, xlmSACContracID, authSignerAccount)
+					subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID1, contractID1, contractID2, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 				}
 				if feeBump {
 					prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -718,7 +700,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							setFromAddress(&op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-								op = includeSubinvocations(op)
+								op = includeSubInvocations(op)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -735,7 +717,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							setFromAddress(&op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-								op = includeSubinvocations(op)
+								op = includeSubInvocations(op)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -751,7 +733,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							setFromAsset(&op, hostFnType, usdcAsset)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-								op = includeSubinvocations(op)
+								op = includeSubInvocations(op)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -792,21 +774,17 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 }
 
 func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.T) {
-	// Test addresses
 	const (
-		txSourceAccount = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
-		opSourceAccount = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
-
-		argAccountID1  = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
-		argAccountID2  = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
-		argContractID1 = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
-		argContractID2 = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
-
+		txSourceAccount   = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
+		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
+		argAccountID1     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+		argAccountID2     = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
+		argContractID1    = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+		argContractID2    = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
 		authSignerAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 		invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
 	)
 
-	// Helpers:
 	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) operation_processor.TransactionOperationWrapper {
 		return operation_processor.TransactionOperationWrapper{
 			Network:      network.TestNetworkPassphrase,
@@ -841,7 +819,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						Tx: xdr.Transaction{
 							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
 							Ext: xdr.TransactionExt{
-								V:           int32(1),
+								V:           1,
 								SorobanData: &xdr.SorobanTransactionData{},
 							},
 						},
@@ -851,7 +829,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 		}
 	}
 
-	// Test cases
 	type TestCase struct {
 		name             string
 		op               operation_processor.TransactionOperationWrapper
@@ -859,14 +836,13 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	}
 
 	testCases := []TestCase{}
-
 	for _, withSubinvocations := range []bool{false, true} {
 		for _, feeBump := range []bool{false, true} {
 			prefix := ""
 			subInvocationsParticipants := set.NewSet[string]()
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
-				subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID3, contractID1, contractID2, deployedContractID, contractID4, xlmSACContracID, authSignerAccount)
+				subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID1, contractID1, contractID2, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 			}
 			if feeBump {
 				prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -878,7 +854,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-							op = includeSubinvocations(op)
+							op = includeSubInvocations(op)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -894,7 +870,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-							op = includeSubinvocations(op)
+							op = includeSubInvocations(op)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
