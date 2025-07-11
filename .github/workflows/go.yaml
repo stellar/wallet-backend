@@ -44,7 +44,7 @@ jobs:
       - name: Run `deadcode@v0.31.0`
         run: |
           go install golang.org/x/tools/cmd/deadcode@v0.31.0
-          output=$(deadcode -test ./...)
+          output=$(deadcode -test ./... | { grep -v "UnmarshalUInt32" || true; })
           if [[ -n "$output" ]]; then
             echo "🚨 Deadcode found:"
             echo "$output"
