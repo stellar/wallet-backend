@@ -5,13 +5,14 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 
+	"github.com/stellar/go/ingest"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func NewIndexerBuffer() IndexerBuffer {
 	return IndexerBuffer{
 		Participants:          set.NewSet[string](),
-		txByHash:              make(map[string]types.Transaction),
+		txByHash:              make(map[string]ingest.LedgerTransaction),
 		txHashesByParticipant: make(map[string]set.Set[string]),
 		opByID:                make(map[int64]types.Operation),
 		opIDsByParticipant:    make(map[string]set.Set[int64]),
@@ -21,27 +22,28 @@ func NewIndexerBuffer() IndexerBuffer {
 type IndexerBuffer struct {
 	mu                    sync.RWMutex
 	Participants          set.Set[string]
-	txByHash              map[string]types.Transaction
+	txByHash              map[string]ingest.LedgerTransaction
 	txHashesByParticipant map[string]set.Set[string]
 	opByID                map[int64]types.Operation
 	opIDsByParticipant    map[string]set.Set[int64]
 }
 
-func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
+func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction ingest.LedgerTransaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.pushParticipantTransactionUnsafe(participant, transaction)
 }
 
-func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction types.Transaction) {
-	b.txByHash[transaction.Hash] = transaction
+func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction ingest.LedgerTransaction) {
+	txHash := transaction.Hash.HexString()
+	b.txByHash[txHash] = transaction
 	b.Participants.Add(participant)
 
 	if _, ok := b.txHashesByParticipant[participant]; !ok {
 		b.txHashesByParticipant[participant] = set.NewSet[string]()
 	}
-	b.txHashesByParticipant[participant].Add(transaction.Hash)
+	b.txHashesByParticipant[participant].Add(txHash)
 }
 
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
@@ -51,7 +53,7 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	return len(b.txByHash)
 }
 
-func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
+func (b *IndexerBuffer) GetParticipantTransactions(participant string) []ingest.LedgerTransaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -60,7 +62,7 @@ func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.T
 		return nil
 	}
 
-	txs := make([]types.Transaction, 0, txHashes.Cardinality())
+	txs := make([]ingest.LedgerTransaction, 0, txHashes.Cardinality())
 	for txHash := range txHashes.Iter() {
 		txs = append(txs, b.txByHash[txHash])
 	}
@@ -68,11 +70,11 @@ func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.T
 	return txs
 }
 
-func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
+func (b *IndexerBuffer) GetAllTransactions() []ingest.LedgerTransaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	txs := make([]types.Transaction, 0, len(b.txByHash))
+	txs := make([]ingest.LedgerTransaction, 0, len(b.txByHash))
 	for _, tx := range b.txByHash {
 		txs = append(txs, tx)
 	}
@@ -80,7 +82,7 @@ func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
 	return txs
 }
 
-func (b *IndexerBuffer) PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction) {
+func (b *IndexerBuffer) PushParticipantOperation(participant string, operation types.Operation, transaction ingest.LedgerTransaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

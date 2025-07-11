@@ -25,7 +25,9 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	ingestutils "github.com/stellar/wallet-backend/internal/processors"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -61,6 +63,8 @@ type ingestService struct {
 	contractStore     cache.TokenContractStore
 	metricsService    metrics.MetricsService
 	networkPassphrase string
+	tokenTransferProcessor *processors.TokenTransferProcessor
+	effectsProcessor *processors.EffectsProcessor
 }
 
 func NewIngestService(
@@ -71,6 +75,8 @@ func NewIngestService(
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
+	tokenTransferProcessor *processors.TokenTransferProcessor,
+	effectsProcessor *processors.EffectsProcessor,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -103,6 +109,8 @@ func NewIngestService(
 		contractStore:     contractStore,
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
+		tokenTransferProcessor: tokenTransferProcessor,
+		effectsProcessor: effectsProcessor,
 	}, nil
 }
 
@@ -389,16 +397,30 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		opByID := make(map[int64]types.Operation)
 		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
+		stateChanges := make([]types.StateChange, 0)
+
 		// 1. Build the data structures needed for the DB insertions
 		for participant := range indexerBuffer.Participants.Iter() {
 			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
-				txByHash[tx.Hash] = tx
-				if _, ok := stellarAddressesByTxHash[tx.Hash]; !ok {
-					stellarAddressesByTxHash[tx.Hash] = set.NewSet[string]()
+				dataTx, err := ingestutils.ConvertTransaction(&tx)
+				if err != nil {
+					return fmt.Errorf("creating data transaction: %w", err)
 				}
-				stellarAddressesByTxHash[tx.Hash].Add(participant)
+
+				txByHash[dataTx.Hash] = *dataTx
+				if _, ok := stellarAddressesByTxHash[dataTx.Hash]; !ok {
+					stellarAddressesByTxHash[dataTx.Hash] = set.NewSet[string]()
+				}
+				stellarAddressesByTxHash[dataTx.Hash].Add(participant)
+
+				tokenTransferChanges, err := m.tokenTransferProcessor.ProcessTransaction(ctx, tx)
+				if err != nil {
+					return fmt.Errorf("processing token transfer changes: %w", err)
+				}
+
+				stateChanges = append(stateChanges, tokenTransferChanges...)
 			}
 
 			// 1.2. operations data for the DB insertions
@@ -410,8 +432,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				}
 				stellarAddressesByOpID[opID].Add(participant)
 			}
-
-			// 1.3. TODO: state changes data for the DB insertions
 		}
 
 		// 2. Insert queries
@@ -437,6 +457,13 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		}
 		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
+		// 2.3. Insert state changes
+		insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
+		if err != nil {
+			return fmt.Errorf("batch inserting state changes: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
+
 		// 3. Unlock channel accounts.
 		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
 		if err != nil {
@@ -461,7 +488,12 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerIndexer
 
 	innerTxHashes := make([]string, 0, len(txs))
 	for _, tx := range txs {
-		innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR)
+		envelopeXDR, err := xdr.MarshalBase64(tx.Envelope)
+		if err != nil {
+			return fmt.Errorf("marshalling transaction envelope: %w", err)
+		}
+
+		innerTxHash, err := m.extractInnerTxHash(envelopeXDR)
 		if err != nil {
 			return fmt.Errorf("extracting inner tx hash: %w", err)
 		}

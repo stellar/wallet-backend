@@ -7,6 +7,8 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -14,8 +16,11 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 	t.Run("🟢sequential_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := ingest.LedgerTransaction{Hash: xdr.Hash{1, 1, 1, 1}}
+		tx2 := ingest.LedgerTransaction{Hash: xdr.Hash{2, 2, 2, 2}}
+		tx1Hash := tx1.Hash.HexString()
+		tx2Hash := tx2.Hash.HexString()
+
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -31,21 +36,21 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Assert participants txHashes
 		wantTxHashesByParticipant := map[string]set.Set[string]{
-			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
-			"bob":   set.NewSet("tx_hash_2"),
-			"chuck": set.NewSet("tx_hash_2"),
+			"alice": set.NewSet(tx1Hash, tx2Hash),
+			"bob":   set.NewSet(tx2Hash),
+			"chuck": set.NewSet(tx2Hash),
 		}
 		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
 
 		// Assert GetParticipantTransactions
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
-		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
-		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
+		assert.ElementsMatch(t, []ingest.LedgerTransaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
+		assert.ElementsMatch(t, []ingest.LedgerTransaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
+		assert.ElementsMatch(t, []ingest.LedgerTransaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
 
 		// Assert txByHash
-		wantTxByHash := map[string]types.Transaction{
-			"tx_hash_1": tx1,
-			"tx_hash_2": tx2,
+		wantTxByHash := map[string]ingest.LedgerTransaction{
+			tx1Hash: tx1,
+			tx2Hash: tx2,
 		}
 		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
 
@@ -56,7 +61,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Assert GetAllTransactions
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
+		assert.ElementsMatch(t, []ingest.LedgerTransaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
 
 		// Assert operations
 		wantOpByID := map[int64]types.Operation{
@@ -83,8 +88,12 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 	t.Run("🟢concurrent_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		tx1 := ingest.LedgerTransaction{Hash: xdr.Hash{1, 1, 1, 1}}
+		tx1Hash := tx1.Hash.HexString()
+
+		tx2 := ingest.LedgerTransaction{Hash: xdr.Hash{2, 2, 2, 2}}
+		tx2Hash := tx2.Hash.HexString()
+
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
@@ -131,15 +140,15 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// GetParticipantTransactions
 		go func() {
-			assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
+			assert.ElementsMatch(t, []ingest.LedgerTransaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
 			wg.Done()
 		}()
 		go func() {
-			assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
+			assert.ElementsMatch(t, []ingest.LedgerTransaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
 			wg.Done()
 		}()
 		go func() {
-			assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
+			assert.ElementsMatch(t, []ingest.LedgerTransaction{tx2}, indexerBuffer.GetParticipantTransactions("chuck"))
 			wg.Done()
 		}()
 
@@ -180,7 +189,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Assert GetAllTransactions
 		go func() {
-			assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
+			assert.ElementsMatch(t, []ingest.LedgerTransaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
 			wg.Done()
 		}()
 
@@ -188,17 +197,17 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		wg.Wait()
 
 		// Assert txByHash
-		wantTxByHash := map[string]types.Transaction{
-			"tx_hash_1": tx1,
-			"tx_hash_2": tx2,
+		wantTxByHash := map[string]ingest.LedgerTransaction{
+			tx1Hash: tx1,
+			tx2Hash: tx2,
 		}
 		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
 
 		// Assert participants txHashes
 		wantTxHashesByParticipant := map[string]set.Set[string]{
-			"alice": set.NewSet("tx_hash_1", "tx_hash_2"),
-			"bob":   set.NewSet("tx_hash_2"),
-			"chuck": set.NewSet("tx_hash_2"),
+			"alice": set.NewSet(tx1Hash, tx2Hash),
+			"bob":   set.NewSet(tx2Hash),
+			"chuck": set.NewSet(tx2Hash),
 		}
 		assert.Equal(t, wantTxHashesByParticipant, indexerBuffer.txHashesByParticipant)
 
