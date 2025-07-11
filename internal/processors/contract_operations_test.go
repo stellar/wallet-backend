@@ -21,20 +21,8 @@ func Test_calculateContractID(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	salt := xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
 
-	rawAddress, err := strkey.Decode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
-	require.NoError(t, err)
-	var uint256Val xdr.Uint256
-	copy(uint256Val[:], rawAddress)
-	fromAddress := xdr.ScAddress{
-		Type: xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: utils.PointOf(xdr.AccountId{
-			Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
-			Ed25519: &uint256Val,
-		}),
-	}
-
 	contractID, err := calculateContractID(networkPassphrase, xdr.ContractIdPreimageFromAddress{
-		Address: fromAddress,
+		Address: makeScAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"),
 		Salt:    salt,
 	})
 	require.NoError(t, err)
@@ -42,50 +30,33 @@ func Test_calculateContractID(t *testing.T) {
 }
 
 func Test_scAddressesForScVal(t *testing.T) {
-	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
-	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
-	scAddressAccount1 := xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID1,
-	}
+	scAddressAccount1 := makeScAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
 
 	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
-	accountID2 := xdr.MustAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
-	scAddressAccount2 := xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID2,
-	}
+	scAddressAccount2 := makeScAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
 	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U re-encoded as a C-account
-	accountID2Bytes := strkey.MustDecode(strkey.VersionByteAccountID, accountID2.Address())
+	accountID2Bytes := strkey.MustDecode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
 	scAddressContract2AsAccountID := xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
 		ContractId: utils.PointOf(xdr.Hash(accountID2Bytes)),
 	}
 
 	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
-	require.NoError(t, err)
+	decodedContractID := strkey.MustDecode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
 	contractID1 := xdr.Hash(decodedContractID)
 	scAddressContract1 := xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
 		ContractId: &contractID1,
 	}
 	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC re-encoded as a G-account
-	contractID1AsAccountID, err := strkey.Encode(strkey.VersionByteAccountID, contractID1[:])
-	require.NoError(t, err)
+	contractID1AsAccountID := strkey.MustEncode(strkey.VersionByteAccountID, scAddressContract1.ContractId[:])
 	scAddressContract1AsAccountID := xdr.ScAddress{
 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
 		AccountId: utils.PointOf(xdr.MustAddress(contractID1AsAccountID)),
 	}
 
 	// CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR
-	decodedContractID, err = strkey.Decode(strkey.VersionByteContract, "CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR")
-	require.NoError(t, err)
-	contractID2 := xdr.Hash(decodedContractID)
-	scAddressContract2 := xdr.ScAddress{
-		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: &contractID2,
-	}
+	scAddressContract2 := makeScContract("CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR")
 
 	testCases := []struct {
 		name          string
@@ -143,7 +114,7 @@ func Test_scAddressesForScVal(t *testing.T) {
 		{
 			name: "🟢scv_bytes_as_account_id",
 			scVal: func() xdr.ScVal {
-				decoded, err := strkey.Decode(strkey.VersionByteAccountID, accountID2.Address())
+				decoded, err := strkey.Decode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
 				require.NoError(t, err)
 				scb := xdr.ScBytes(decoded)
 				return xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &scb}
@@ -162,21 +133,8 @@ func Test_scAddressesForScVal(t *testing.T) {
 }
 
 func Test_participantsForScVal(t *testing.T) {
-	// GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P
-	accountID1 := xdr.MustAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
-	scAddressAccount1 := xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: &accountID1,
-	}
-
-	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-	decodedContractID, err := strkey.Decode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
-	require.NoError(t, err)
-	contractID1 := xdr.Hash(decodedContractID)
-	scAddressContract1 := xdr.ScAddress{
-		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: &contractID1,
-	}
+	scAddressAccount := makeScAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+	scAddressContract := makeScContract("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
 
 	testCases := []struct {
 		name          string
@@ -192,7 +150,7 @@ func Test_participantsForScVal(t *testing.T) {
 			name: "🟢scv_address",
 			scVal: xdr.ScVal{
 				Type:    xdr.ScValTypeScvAddress,
-				Address: &scAddressAccount1,
+				Address: &scAddressAccount,
 			},
 			wantAddresses: set.NewSet("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"),
 		},
@@ -200,11 +158,11 @@ func Test_participantsForScVal(t *testing.T) {
 			name: "🟢scv_map_with_address_and_vector",
 			scVal: func() xdr.ScVal {
 				vec := &xdr.ScVec{
-					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount},
 				}
 				scMap := utils.PointOf(xdr.ScMap{
 					xdr.ScMapEntry{
-						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract},
 						Val: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(vec)},
 					},
 				})
