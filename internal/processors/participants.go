@@ -119,6 +119,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 type OperationParticipants struct {
 	Operation    xdr.Operation
 	Participants set.Set[string]
+	OperationIdx   uint32
 }
 
 // GetOperationsParticipants returns a map of operation ID to its participants.
@@ -154,6 +155,7 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 		if _, ok := operationsParticipants[opID]; !ok {
 			operationsParticipants[opID] = OperationParticipants{
 				Operation:    xdrOp,
+				OperationIdx: uint32(opi),
 				Participants: set.NewSet[string](),
 			}
 		}

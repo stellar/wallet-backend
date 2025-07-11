@@ -426,11 +426,25 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			// 1.2. operations data for the DB insertions
 			participantOperations := indexerBuffer.GetParticipantOperations(participant)
 			for opID, op := range participantOperations {
-				opByID[opID] = op
+				opIdx := indexerBuffer.GetOperationIndex(opID)
+				tx := indexerBuffer.GetOperationTransaction(opID)
+				dataOp, err := ingestutils.ConvertOperation(&tx, &op, opID)
+				if err != nil {
+					return fmt.Errorf("creating data operation: %w", err)
+				}
+
+				opByID[opID] = *dataOp
 				if _, ok := stellarAddressesByOpID[opID]; !ok {
 					stellarAddressesByOpID[opID] = set.NewSet[string]()
 				}
 				stellarAddressesByOpID[opID].Add(participant)
+
+				effectsChanges, err := m.effectsProcessor.ProcessOperation(ctx, tx, op, opIdx)
+				if err != nil {
+					return fmt.Errorf("processing operation effects: %w", err)
+				}
+
+				stateChanges = append(stateChanges, effectsChanges...)
 			}
 		}
 

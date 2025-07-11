@@ -43,13 +43,13 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	for opID, opParticipants := range opsParticipants {
-		dataOp, err := processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
-		if err != nil {
-			return fmt.Errorf("creating data operation: %w", err)
-		}
+		// dataOp, err := processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
+		// if err != nil {
+		// 	return fmt.Errorf("creating data operation: %w", err)
+		// }
 
 		for participant := range opParticipants.Participants.Iter() {
-			i.IndexerBuffer.PushParticipantOperation(participant, *dataOp, transaction)
+			i.IndexerBuffer.PushParticipantOperation(participant, opID, opParticipants.Operation, transaction, opParticipants.OperationIdx)
 		}
 	}
 

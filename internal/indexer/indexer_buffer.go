@@ -6,7 +6,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/go/xdr"
 )
 
 func NewIndexerBuffer() IndexerBuffer {
@@ -14,8 +14,10 @@ func NewIndexerBuffer() IndexerBuffer {
 		Participants:          set.NewSet[string](),
 		txByHash:              make(map[string]ingest.LedgerTransaction),
 		txHashesByParticipant: make(map[string]set.Set[string]),
-		opByID:                make(map[int64]types.Operation),
+		opByID:                make(map[int64]xdr.Operation),
 		opIDsByParticipant:    make(map[string]set.Set[int64]),
+		opIdxByOpID:           make(map[int64]uint32),
+		txHashByOpID:          make(map[int64]string),
 	}
 }
 
@@ -24,8 +26,10 @@ type IndexerBuffer struct {
 	Participants          set.Set[string]
 	txByHash              map[string]ingest.LedgerTransaction
 	txHashesByParticipant map[string]set.Set[string]
-	opByID                map[int64]types.Operation
+	opByID                map[int64]xdr.Operation
 	opIDsByParticipant    map[string]set.Set[int64]
+	opIdxByOpID           map[int64]uint32
+	txHashByOpID          map[int64]string
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction ingest.LedgerTransaction) {
@@ -82,22 +86,49 @@ func (b *IndexerBuffer) GetAllTransactions() []ingest.LedgerTransaction {
 	return txs
 }
 
-func (b *IndexerBuffer) PushParticipantOperation(participant string, operation types.Operation, transaction ingest.LedgerTransaction) {
+func (b *IndexerBuffer) GetOperationIndex(opID int64) uint32 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.opIdxByOpID[opID]
+}
+
+func (b *IndexerBuffer) GetOperationTransaction(opID int64) ingest.LedgerTransaction {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	txHash, ok := b.txHashByOpID[opID]
+	if !ok {
+		return ingest.LedgerTransaction{}
+	}
+
+	return b.txByHash[txHash]
+}
+
+func (b *IndexerBuffer) PushParticipantOperation(participant string, opID int64, operation xdr.Operation, transaction ingest.LedgerTransaction, operationIdx uint32) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.opByID[operation.ID] = operation
+	b.opByID[opID] = operation
 	b.Participants.Add(participant)
 
 	if _, ok := b.opIDsByParticipant[participant]; !ok {
 		b.opIDsByParticipant[participant] = set.NewSet[int64]()
 	}
-	b.opIDsByParticipant[participant].Add(operation.ID)
+	b.opIDsByParticipant[participant].Add(opID)
+
+	if _, ok := b.opIdxByOpID[opID]; !ok {
+		b.opIdxByOpID[opID] = operationIdx
+	}
+
+	if _, ok := b.txHashByOpID[opID]; !ok {
+		b.txHashByOpID[opID] = transaction.Hash.HexString()
+	}
 
 	b.pushParticipantTransactionUnsafe(participant, transaction)
 }
 
-func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
+func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]xdr.Operation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -106,7 +137,7 @@ func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]t
 		return nil
 	}
 
-	ops := make(map[int64]types.Operation, opIDs.Cardinality())
+	ops := make(map[int64]xdr.Operation, opIDs.Cardinality())
 	for opID := range opIDs.Iter() {
 		ops[opID] = b.opByID[opID]
 	}
