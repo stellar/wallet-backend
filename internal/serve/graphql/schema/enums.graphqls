@@ -50,8 +50,11 @@ enum StateChangeCategory {
   SPONSORSHIP
   CONTRACT
   AUTHORIZATION
+  UNSUPPORTED
 }
 
+# StateChangeReason enum - provides specific reason for the state change
+# Used in GraphQL queries to understand why a state change occurred
 enum StateChangeReason {
   ADD
   REMOVE
