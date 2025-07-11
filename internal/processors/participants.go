@@ -146,6 +146,8 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 		participants, err := p.GetOperationParticipants(op)
 		if err != nil {
 			return nil, fmt.Errorf("getting operation %d participants: %w", opID, err)
+		} else if participants.IsEmpty() {
+			continue
 		}
 
 		// 3. Add participants to the map
@@ -163,7 +165,8 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 	return operationsParticipants, nil
 }
 
-// GetOperationParticipants returns the participants for a Soroban operation.
+// GetOperationParticipants returns the participants for a transaction operation.
+// In case of a Soroban operation, it calls the participantsForSorobanOp function to get the Soroban participants.
 func (p *ParticipantsProcessor) GetOperationParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
 	participantsAccountIDs, err := op.Participants()
@@ -175,17 +178,16 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op operation_processor.
 		participants.Add(accountID.Address())
 	}
 
-	// 2. Return early if the operation is not a Soroban operation
+	// 1.1. Return early if the operation is not a Soroban operation
 	if !op.Transaction.IsSorobanTx() {
 		return participants, nil
 	}
 
-	// 3. Get Soroban participants
+	// 2. Get Soroban participants
 	sorobanParticipants, err := participantsForSorobanOp(op)
 	if err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
-	participants = participants.Union(sorobanParticipants)
 
-	return participants, nil
+	return participants.Union(sorobanParticipants), nil
 }
