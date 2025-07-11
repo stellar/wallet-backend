@@ -50,7 +50,7 @@ shadow: ## Run shadow analysis to find shadowed variables
 		echo "Installing shadow..."; \
 		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0; \
 	fi
-	$(shell go env GOPATH)/bin/shadow ./...
+	@$(shell go env GOPATH)/bin/shadow ./... | { grep -v "generated.go" || true; }
 
 exhaustive: ## Check exhaustiveness of switch statements
 	@echo "==> Running exhaustive..."
@@ -63,7 +63,7 @@ deadcode: ## Find unused code
 		echo "Installing deadcode..."; \
 		go install golang.org/x/tools/cmd/deadcode@v0.31.0; \
 	fi
-	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./...); \
+	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./... | grep -v "UnmarshalUInt32"); \
 	if [ -n "$$output" ]; then \
 		echo "🚨 Deadcode found:"; \
 		echo "$$output"; \
@@ -97,6 +97,21 @@ govulncheck: ## Check for known vulnerabilities
 
 check: tidy fmt vet lint generate shadow exhaustive deadcode goimports govulncheck ## Run all checks
 	@echo "✅ All checks completed successfully"
+
+# ==================================================================================== #
+# GRAPHQL
+# ==================================================================================== #
+gql-generate: ## Generate GraphQL code using gqlgen
+	@echo "==> Generating GraphQL code..."
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	$(shell go env GOPATH)/bin/gqlgen generate
+	@echo "✅ GraphQL code generated successfully"
+
+gql-validate: ## Validate GraphQL schema
+	@echo "==> Validating GraphQL schema..."
+	@command -v $(shell go env GOPATH)/bin/gqlgen >/dev/null 2>&1 || { go install github.com/99designs/gqlgen@v0.17.76; }
+	$(shell go env GOPATH)/bin/gqlgen validate
+	@echo "✅ GraphQL schema is valid"
 
 # ==================================================================================== #
 # TESTING

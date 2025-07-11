@@ -6,12 +6,27 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type AccountModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
+}
+
+func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account, error) {
+	const query = `SELECT * FROM accounts WHERE stellar_address = $1`
+	var account types.Account
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &account, query, address)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting account %s: %w", address, err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return &account, nil
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
