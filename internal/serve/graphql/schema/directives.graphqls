@@ -1,6 +1,23 @@
+# GraphQL Directive - provides metadata to control gqlgen code generation
+# Directives are like annotations that modify how GraphQL processes fields
+
+# @goField directive - controls how gqlgen generates Go code for fields
+# This is a gqlgen-specific directive for customizing field resolution
 directive @goField(
+	# forceResolver: Boolean - forces gqlgen to generate a resolver function
+	# even if the Go struct has a matching field name
+	# Useful when you need custom logic for field resolution
 	forceResolver: Boolean
+	
+	# name: String - specifies the Go struct field name to map to
+	# Allows mapping GraphQL field names to different Go field names
 	name: String
+	
+	# omittable: Boolean - indicates if the field can be omitted from queries
+	# Used for optional fields in input types
 	omittable: Boolean
+	
+	# type: String - specifies the Go type for the field
+	# Overrides gqlgen's default type inference
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION

@@ -1,13 +1,31 @@
+# GraphQL Operation type - represents a blockchain operation
+# Operations are the individual actions within a transaction
 type Operation {
+  # Operation's unique identifier - uses custom Int64 scalar
   id: Int64!                   # Maps to int64
+  
+  # Type of operation - uses GraphQL enum for type safety
   operationType: OperationType!
+  
+  # Operation data in XDR format
   operationXdr: String!        # Maps to json:"operationXdr"
+  
+  # Timestamp when ledger was created - uses custom Time scalar
   ledgerCreatedAt: Time!
+  
+  # Timestamp when operation was ingested by our system
   ingestedAt: Time!
   
-  # Relationships
+  # GraphQL Relationships - these fields use resolvers
+  # Transaction hash this operation belongs to
   txHash: String!
+  
+  # Parent transaction - nullable because resolver might not find it
   transaction: Transaction
+  
+  # Related accounts - uses resolver with dataloader for efficiency
   accounts: [Account!]!
+  
+  # Related state changes - uses resolver to fetch associated changes
   stateChanges: [StateChange!]!
 }

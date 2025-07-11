@@ -1,15 +1,40 @@
+# GraphQL Transaction type - represents a blockchain transaction
+# gqlgen generates Go structs from this schema definition
 type Transaction {
+  # Transaction's unique hash identifier
   hash: String!
+  
+  # Internal database ID - uses custom Int64 scalar
+  # Comment shows Go struct field mapping for gqlgen
   toId: Int64!                 # Maps to json:"to_id" -> ToID int64
+  
+  # Transaction envelope in XDR format
+  # gqlgen will map this to Go struct field with matching name
   envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
+  
+  # Transaction result in XDR format
   resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
+  
+  # Transaction metadata in XDR format
   metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
+  
+  # Ledger number - uses custom UInt32 scalar for type safety
   ledgerNumber: UInt32!        # Maps to uint32
+  
+  # Timestamp when ledger was created - uses custom Time scalar
   ledgerCreatedAt: Time!
+  
+  # Timestamp when transaction was ingested by our system
   ingestedAt: Time!
   
-  # Relationships
+  # GraphQL Relationships - these fields require resolvers
+  # @goField(forceResolver: true) tells gqlgen to always generate a resolver
+  # even if the Go struct has a matching field
   operations: [Operation!]! @goField(forceResolver: true)
+  
+  # Related accounts - uses resolver with dataloader for efficiency
   accounts: [Account!]!
+  
+  # Related state changes - uses resolver to fetch associated changes
   stateChanges: [StateChange!]!
 }

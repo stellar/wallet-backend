@@ -15,8 +15,16 @@ import (
 )
 
 // Transactions is the resolver for the transactions field.
+// This is a field resolver - it resolves the "transactions" field on an Account object
+// gqlgen calls this when a GraphQL query requests the transactions field on an Account
+// Field resolvers receive the parent object (Account) and return the field value
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) ([]*types.Transaction, error) {
+	// Extract dataloaders from GraphQL context
+	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to efficiently batch-load transactions for this account
+	// This prevents N+1 queries when multiple accounts request their transactions
 	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, obj.StellarAddress)
 	if err != nil {
 		return nil, err
@@ -25,8 +33,13 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 }
 
 // Operations is the resolver for the operations field.
+// This field resolver handles the "operations" field on an Account object
+// Demonstrates the same dataloader pattern as Transactions resolver
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to batch-load operations for this account
+	// Dataloaders automatically batch multiple requests and cache results
 	operations, err := loaders.OperationsByAccountLoader.Load(ctx, obj.StellarAddress)
 	if err != nil {
 		return nil, err
@@ -35,11 +48,16 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 }
 
 // Statechanges is the resolver for the statechanges field.
+// TODO: Implement state changes resolution with dataloader
 func (r *accountResolver) Statechanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
 	panic(fmt.Errorf("not implemented: Statechanges - statechanges"))
 }
 
 // Account returns graphql1.AccountResolver implementation.
+// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
+// gqlgen calls this to get the resolver for Account type fields
 func (r *Resolver) Account() graphql1.AccountResolver { return &accountResolver{r} }
 
+// accountResolver embeds the main Resolver to access dependencies
+// This struct implements the gqlgen-generated AccountResolver interface
 type accountResolver struct{ *Resolver }

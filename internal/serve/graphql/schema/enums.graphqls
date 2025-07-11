@@ -1,10 +1,16 @@
-# Enums matching Go constants
+# GraphQL Enums - provide type safety and restrict values to predefined options
+# These enums match Go constants and provide better GraphQL introspection
+
+# OperationType enum - defines all possible blockchain operation types
+# GraphQL enums are validated at query time, preventing invalid values
 enum OperationType {
   CREATE_ACCOUNT
   PAYMENT
   PATH_PAYMENT_STRICT_RECEIVE
+  PATH_PAYMENT_STRICT_SEND
   MANAGE_SELL_OFFER
   CREATE_PASSIVE_SELL_OFFER
+  MANAGE_BUY_OFFER
   SET_OPTIONS
   CHANGE_TRUST
   ALLOW_TRUST
@@ -12,8 +18,6 @@ enum OperationType {
   INFLATION
   MANAGE_DATA
   BUMP_SEQUENCE
-  MANAGE_BUY_OFFER
-  PATH_PAYMENT_STRICT_SEND
   CREATE_CLAIMABLE_BALANCE
   CLAIM_CLAIMABLE_BALANCE
   BEGIN_SPONSORING_FUTURE_RESERVES
@@ -29,6 +33,8 @@ enum OperationType {
   RESTORE_FOOTPRINT
 }
 
+# StateChangeCategory enum - categorizes the type of state change
+# Used in GraphQL queries to filter state changes by category
 enum StateChangeCategory {
   DEBIT
   CREDIT
@@ -40,9 +46,8 @@ enum StateChangeCategory {
   FLAGS
   LIABILITY
   TRUSTLINE_FLAGS
-  SPONSORSHIP
-  UNSUPPORTED
   ALLOWANCE
+  SPONSORSHIP
   CONTRACT
   AUTHORIZATION
 }

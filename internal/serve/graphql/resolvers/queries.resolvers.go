@@ -12,7 +12,10 @@ import (
 )
 
 // TransactionByHash is the resolver for the transactionByHash field.
+// This is a root query resolver - it handles the "transactionByHash" query.
+// gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
+	// Query the database using the injected models dependency
 	transaction, err := r.models.Transactions.GetByHash(ctx, hash)
 	if err != nil {
 		return nil, err
@@ -21,12 +24,17 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 }
 
 // Transactions is the resolver for the transactions field.
+// This resolver handles the "transactions" query.
+// It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
 	return r.models.Transactions.GetAll(ctx, limit)
 }
 
 // Account is the resolver for the account field.
+// This resolver handles the "account" query.
+// It shows the standard pattern: receive args, query data, return result or error
 func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
+	// Query the database for the account
 	account, err := r.models.Account.Get(ctx, address)
 	if err != nil {
 		return nil, err
@@ -35,7 +43,9 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 }
 
 // Operations is the resolver for the operations field.
+// This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+	// Query operations with optional limit
 	operations, err := r.models.Operations.GetAll(ctx, limit)
 	if err != nil {
 		return nil, err
@@ -44,6 +54,10 @@ func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.
 }
 
 // Query returns graphql1.QueryResolver implementation.
+// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
+// gqlgen calls this to get the resolver for the defined queries.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 
+// queryResolver embeds the main Resolver to access dependencies
+// This struct implements the gqlgen-generated QueryResolver interface
 type queryResolver struct{ *Resolver }

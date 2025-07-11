@@ -1,4 +1,18 @@
-# Custom scalars for database types
+# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
+# Custom scalars provide type safety for specific data formats
+# gqlgen requires custom marshal/unmarshal functions for these types
+
+# Time scalar - represents timestamps
+# Handles conversion between Go time.Time and GraphQL string/int representations
+# Used for createdAt, ingestedAt, and other timestamp fields
 scalar Time
+
+# UInt32 scalar - represents unsigned 32-bit integers
+# GraphQL doesn't have native uint32, so we define a custom scalar
+# Used for ledger numbers and other positive integer values
 scalar UInt32
+
+# Int64 scalar - represents 64-bit integers
+# GraphQL's Int type is 32-bit, so we need custom scalar for larger values
+# Used for database IDs and other large integer values
 scalar Int64

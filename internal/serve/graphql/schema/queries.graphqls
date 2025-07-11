@@ -1,6 +1,20 @@
+# GraphQL Query root type - defines all available queries in the API
+# In GraphQL, the Query type is the entry point for read operations
 type Query {
+    # Fetch a single transaction by its hash
+    # Returns null if no transaction found (nullable return type)
     transactionByHash(hash: String!): Transaction
+    
+    # Fetch a list of transactions with optional limit
+    # Returns empty array if no transactions found (non-nullable array)
+    # GraphQL resolvers will handle the optional limit parameter
     transactions(limit: Int): [Transaction!]!
+    
+    # Fetch a single account by its address
+    # Returns null if no account found (nullable return type)
     account(address: String!): Account
+    
+    # Fetch a list of operations with optional limit
+    # Returns empty array if no operations found (non-nullable array)
     operations(limit: Int): [Operation!]!
 }

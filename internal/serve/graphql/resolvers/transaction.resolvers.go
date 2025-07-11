@@ -14,8 +14,16 @@ import (
 )
 
 // Operations is the resolver for the operations field.
+// This is a field resolver for the "operations" field on a Transaction object
+// It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
+	// Extract dataloaders from GraphQL context
+	// Dataloaders are provided by middleware to enable efficient batch loading
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to batch-load operations for this transaction
+	// This prevents N+1 queries when multiple transactions request their operations
+	// The loader groups multiple requests and executes them in a single database query
 	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, obj.Hash)
 	if err != nil {
 		return nil, err
@@ -24,6 +32,10 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.
+// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
+// gqlgen calls this to get the resolver for Transaction type fields
 func (r *Resolver) Transaction() graphql1.TransactionResolver { return &transactionResolver{r} }
 
+// transactionResolver embeds the main Resolver to access dependencies
+// This struct implements the gqlgen-generated TransactionResolver interface
 type transactionResolver struct{ *Resolver }
