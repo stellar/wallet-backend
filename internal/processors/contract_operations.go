@@ -153,11 +153,11 @@ func participantsFromInvocationAndSubInvocations(invocation xdr.SorobanAuthorize
 			participants.Add(address)
 		}
 
-		contractID, err := contractIDForPreimage(createContractHostFn.ContractIdPreimage, networkPassphrase)
+		contractIDs, err := contractIDsForPreimage(createContractHostFn.ContractIdPreimage, networkPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants.Add(contractID)
+		participants = participants.Union(contractIDs)
 
 	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn:
 		createContractV2HostFn, ok := invocation.Function.GetCreateContractV2HostFn()
@@ -173,11 +173,11 @@ func participantsFromInvocationAndSubInvocations(invocation xdr.SorobanAuthorize
 			participants.Add(address)
 		}
 
-		contractID, err := contractIDForPreimage(createContractV2HostFn.ContractIdPreimage, networkPassphrase)
+		contractIDs, err := contractIDsForPreimage(createContractV2HostFn.ContractIdPreimage, networkPassphrase)
 		if err != nil {
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
-		participants.Add(contractID)
+		participants = participants.Union(contractIDs)
 
 		argsParticipants, err := participantsForScVal(scVecToScVal(createContractV2HostFn.ConstructorArgs))
 		if err != nil {
@@ -280,21 +280,30 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 	return participants, nil
 }
 
-func contractIDForPreimage(preimage xdr.ContractIdPreimage, networkPassphrase string) (string, error) {
+func contractIDsForPreimage(preimage xdr.ContractIdPreimage, networkPassphrase string) (set.Set[string], error) {
 	switch preimage.Type {
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
-		return calculateContractID(networkPassphrase, preimage.MustFromAddress())
+		contractID, err := calculateContractID(networkPassphrase, preimage.MustFromAddress())
+		if err != nil {
+			return nil, fmt.Errorf("calculating contract ID: %w", err)
+		}
+
+		fromAccountID, err := preimage.MustFromAddress().Address.String()
+		if err != nil {
+			return nil, fmt.Errorf("getting from address' string representation: %w", err)
+		}
+		return set.NewSet(contractID, fromAccountID), nil
 
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
 		fromAsset := preimage.MustFromAsset()
 		assetContractID, err := fromAsset.ContractID(networkPassphrase)
 		if err != nil {
-			return "", fmt.Errorf("getting asset contract ID: %w", err)
+			return nil, fmt.Errorf("getting asset contract ID: %w", err)
 		}
-		return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), nil
+		return set.NewSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
 
 	default:
-		return "", fmt.Errorf("invalid contract id preimage type")
+		return nil, fmt.Errorf("invalid contract id preimage type")
 	}
 }
 
@@ -315,13 +324,13 @@ func (p *CreateContractV1OpProcessor) GetCreateContract() (xdr.CreateContractArg
 	return invokeHostFunctionOp.HostFunction.MustCreateContract(), true
 }
 
-func (p *CreateContractV1OpProcessor) ContractID() (string, error) {
+func (p *CreateContractV1OpProcessor) ContractIDs() (set.Set[string], error) {
 	createContractOp, ok := p.GetCreateContract()
 	if !ok {
-		return "", fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
+		return nil, fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
 	}
 
-	return contractIDForPreimage(createContractOp.ContractIdPreimage, p.op.Network)
+	return contractIDsForPreimage(createContractOp.ContractIdPreimage, p.op.Network)
 }
 
 func (p *CreateContractV1OpProcessor) ParticipantsFromAuthEntries() (set.Set[string], error) {
@@ -337,10 +346,10 @@ func (p *CreateContractV1OpProcessor) ParticipantsFromAuthEntries() (set.Set[str
 func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	participants := set.NewSet(p.op.SourceAccount().Address())
 
-	if contractID, err := p.ContractID(); err != nil {
+	if contractIDs, err := p.ContractIDs(); err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
-	} else if contractID != "" {
-		participants.Add(contractID)
+	} else if !contractIDs.IsEmpty() {
+		participants = participants.Union(contractIDs)
 	}
 
 	if authParticipants, err := p.ParticipantsFromAuthEntries(); err != nil {
@@ -369,13 +378,13 @@ func (p *CreateContractV2OpProcessor) GetCreateContract() (xdr.CreateContractArg
 	return invokeHostFunctionOp.HostFunction.MustCreateContractV2(), true
 }
 
-func (p *CreateContractV2OpProcessor) ContractID() (string, error) {
+func (p *CreateContractV2OpProcessor) ContractIDs() (set.Set[string], error) {
 	createContractOp, ok := p.GetCreateContract()
 	if !ok {
-		return "", fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
+		return nil, fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
 	}
 
-	return contractIDForPreimage(createContractOp.ContractIdPreimage, p.op.Network)
+	return contractIDsForPreimage(createContractOp.ContractIdPreimage, p.op.Network)
 }
 
 func (p *CreateContractV2OpProcessor) ParticipantsFromArgs() (set.Set[string], error) {
@@ -405,10 +414,10 @@ func (p *CreateContractV2OpProcessor) ParticipantsFromAuthEntries() (set.Set[str
 func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	participants := set.NewSet(p.op.SourceAccount().Address())
 
-	if contractID, err := p.ContractID(); err != nil {
+	if contractIDs, err := p.ContractIDs(); err != nil {
 		return nil, fmt.Errorf("getting contract ID: %w", err)
-	} else if contractID != "" {
-		participants.Add(contractID)
+	} else if !contractIDs.IsEmpty() {
+		participants = participants.Union(contractIDs)
 	}
 
 	if argsParticipants, err := p.ParticipantsFromArgs(); err != nil {
