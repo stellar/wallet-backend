@@ -27,8 +27,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	ingestutils "github.com/stellar/wallet-backend/internal/processors"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	ingestutils "github.com/stellar/wallet-backend/internal/processors"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
 	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
@@ -55,16 +55,16 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models            *data.Models
-	ledgerCursorName  string
-	appTracker        apptracker.AppTracker
-	rpcService        RPCService
-	chAccStore        store.ChannelAccountStore
-	contractStore     cache.TokenContractStore
-	metricsService    metrics.MetricsService
-	networkPassphrase string
+	models                 *data.Models
+	ledgerCursorName       string
+	appTracker             apptracker.AppTracker
+	rpcService             RPCService
+	chAccStore             store.ChannelAccountStore
+	contractStore          cache.TokenContractStore
+	metricsService         metrics.MetricsService
+	networkPassphrase      string
 	tokenTransferProcessor *processors.TokenTransferProcessor
-	effectsProcessor *processors.EffectsProcessor
+	effectsProcessor       *processors.EffectsProcessor
 }
 
 func NewIngestService(
@@ -101,16 +101,16 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:            models,
-		ledgerCursorName:  ledgerCursorName,
-		appTracker:        appTracker,
-		rpcService:        rpcService,
-		chAccStore:        chAccStore,
-		contractStore:     contractStore,
-		metricsService:    metricsService,
-		networkPassphrase: rpcService.NetworkPassphrase(),
+		models:                 models,
+		ledgerCursorName:       ledgerCursorName,
+		appTracker:             appTracker,
+		rpcService:             rpcService,
+		chAccStore:             chAccStore,
+		contractStore:          contractStore,
+		metricsService:         metricsService,
+		networkPassphrase:      rpcService.NetworkPassphrase(),
 		tokenTransferProcessor: tokenTransferProcessor,
-		effectsProcessor: effectsProcessor,
+		effectsProcessor:       effectsProcessor,
 	}, nil
 }
 

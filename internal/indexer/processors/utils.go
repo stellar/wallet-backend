@@ -37,7 +37,7 @@ func ConvertToInt32(value any) (int32, error) {
 	if value == nil {
 		return 0, nil
 	}
-	
+
 	switch v := value.(type) {
 	case int:
 		return int32(v), nil
