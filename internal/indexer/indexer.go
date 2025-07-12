@@ -27,13 +27,13 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		return fmt.Errorf("getting transaction participants: %w", err)
 	}
 
-	dataTx, err := processors.ConvertTransaction(&transaction)
-	if err != nil {
-		return fmt.Errorf("creating data transaction: %w", err)
-	}
+	// dataTx, err := processors.ConvertTransaction(&transaction)
+	// if err != nil {
+	// 	return fmt.Errorf("creating data transaction: %w", err)
+	// }
 	if txParticipants.Cardinality() != 0 {
 		for participant := range txParticipants.Iter() {
-			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
+			i.IndexerBuffer.PushParticipantTransaction(participant, transaction)
 		}
 	}
 
@@ -43,13 +43,17 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	for opID, opParticipants := range opsParticipants {
-		dataOp, err := processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
-		if err != nil {
-			return fmt.Errorf("creating data operation: %w", err)
-		}
+		// dataOp, err := processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
+		// if err != nil {
+		// 	return fmt.Errorf("creating data operation: %w", err)
+		// }
 
 		for participant := range opParticipants.Participants.Iter() {
-			i.IndexerBuffer.PushParticipantOperation(participant, *dataOp, *dataTx)
+			i.IndexerBuffer.PushParticipantOperation(participant, opID, opParticipants.Operation, transaction, opParticipants.OperationIdx)
+
+			// Even though the participant is not part of a transaction, we still want to index the transaction since the participant
+			// is part of one of its operations.
+			i.IndexerBuffer.PushParticipantTransaction(participant, transaction)
 		}
 	}
 

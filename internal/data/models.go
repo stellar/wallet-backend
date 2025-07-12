@@ -15,6 +15,7 @@ type Models struct {
 	Operations   *OperationModel
 	Payments     *PaymentModel
 	Transactions *TransactionModel
+	StateChanges *StateChangeModel
 }
 
 func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Models, error) {
@@ -30,5 +31,6 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 		Operations:   &OperationModel{DB: db, MetricsService: metricsService},
 		Payments:     &PaymentModel{DB: db, MetricsService: metricsService},
 		Transactions: &TransactionModel{DB: db, MetricsService: metricsService},
+		StateChanges: &StateChangeModel{DB: db, MetricsService: metricsService},
 	}, nil
 }
