@@ -6,23 +6,23 @@ import (
 
 	"github.com/stellar/go/ingest"
 
-	"github.com/stellar/wallet-backend/internal/processors"
 	statechangeprocessors "github.com/stellar/wallet-backend/internal/indexer/processors"
+	"github.com/stellar/wallet-backend/internal/processors"
 )
 
 type Indexer struct {
 	IndexerBuffer
-	participantsProcessor processors.ParticipantsProcessor
+	participantsProcessor  processors.ParticipantsProcessor
 	tokenTransferProcessor *statechangeprocessors.TokenTransferProcessor
-	effectsProcessor *statechangeprocessors.EffectsProcessor
+	effectsProcessor       *statechangeprocessors.EffectsProcessor
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
 	return &Indexer{
-		IndexerBuffer:         NewIndexerBuffer(),
-		participantsProcessor: processors.NewParticipantsProcessor(networkPassphrase),
+		IndexerBuffer:          NewIndexerBuffer(),
+		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: statechangeprocessors.NewTokenTransferProcessor(networkPassphrase),
-		effectsProcessor: statechangeprocessors.NewEffectsProcessor(networkPassphrase),
+		effectsProcessor:       statechangeprocessors.NewEffectsProcessor(networkPassphrase),
 	}
 }
 
