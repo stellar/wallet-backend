@@ -69,6 +69,14 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		}
 		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
 
+		// Assert GetOperationIndex
+		assert.Equal(t, uint32(0), indexerBuffer.GetOperationIndex(1))
+		assert.Equal(t, uint32(0), indexerBuffer.GetOperationIndex(2))
+
+		// Assert GetOperationTransaction
+		assert.Equal(t, tx1, indexerBuffer.GetOperationTransaction(1))
+		assert.Equal(t, tx2, indexerBuffer.GetOperationTransaction(2))
+
 		// Assert GetParticipantOperations
 		wantAliceOps := map[int64]xdr.Operation{
 			1: op1,
@@ -135,7 +143,7 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 
 		// Concurrent getter operations
 		wg = sync.WaitGroup{}
-		wg.Add(9)
+		wg.Add(13)
 
 		// GetParticipantTransactions
 		go func() {
@@ -189,6 +197,26 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		// Assert GetAllTransactions
 		go func() {
 			assert.ElementsMatch(t, []ingest.LedgerTransaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
+			wg.Done()
+		}()
+
+		// Assert GetOperationIndex
+		go func() {
+			assert.Equal(t, uint32(0), indexerBuffer.GetOperationIndex(1))
+			wg.Done()
+		}()
+		go func() {
+			assert.Equal(t, uint32(0), indexerBuffer.GetOperationIndex(2))
+			wg.Done()
+		}()
+
+		// Assert GetOperationTransaction
+		go func() {
+			assert.Equal(t, tx1, indexerBuffer.GetOperationTransaction(1))
+			wg.Done()
+		}()
+		go func() {
+			assert.Equal(t, tx2, indexerBuffer.GetOperationTransaction(2))
 			wg.Done()
 		}()
 
