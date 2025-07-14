@@ -330,7 +330,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// Log a summary
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
-	numberOfTransactions := ledgerIndexer.GetNumberOfTransactions()
+	numberOfTransactions := ledgerIndexer.Buffer.GetNumberOfTransactions()
 	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
 
 	return nil
@@ -348,7 +348,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 
 	for _, tx := range transactions {
-		if err := ledgerIndexer.ProcessTransaction(tx); err != nil {
+		if err := ledgerIndexer.ProcessTransaction(ctx, tx); err != nil {
 			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
 		}
 	}
@@ -381,7 +381,7 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		indexerBuffer := &ledgerIndexer.IndexerBuffer
+		indexerBuffer := ledgerIndexer.Buffer
 
 		txByHash := make(map[string]types.Transaction)
 		stellarAddressesByTxHash := make(map[string]set.Set[string])
@@ -390,11 +390,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
 		// 1. Build the data structures needed for the DB insertions
-		for participant := range indexerBuffer.Participants.Iter() {
-			if !indexerBuffer.Participants.Contains(participant) {
-				continue
-			}
-
+		participants := indexerBuffer.GetParticipants()
+		for participant := range participants.Iter() {
 			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
@@ -441,6 +438,14 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		}
 		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
+		// 2.3. Insert state changes
+		stateChanges := indexerBuffer.GetAllStateChanges()
+		insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
+		if err != nil {
+			return fmt.Errorf("batch inserting state changes: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
+
 		// 3. Unlock channel accounts.
 		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
 		if err != nil {
@@ -458,7 +463,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
 func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
-	txs := ledgerIndexer.GetAllTransactions()
+	txs := ledgerIndexer.Buffer.GetAllTransactions()
 	if len(txs) == 0 {
 		return nil
 	}

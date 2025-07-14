@@ -8,16 +8,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func NewIndexerBuffer() IndexerBuffer {
-	return IndexerBuffer{
-		Participants:          set.NewSet[string](),
-		txByHash:              make(map[string]types.Transaction),
-		txHashesByParticipant: make(map[string]set.Set[string]),
-		opByID:                make(map[int64]types.Operation),
-		opIDsByParticipant:    make(map[string]set.Set[int64]),
-	}
-}
-
 type IndexerBuffer struct {
 	mu                    sync.RWMutex
 	Participants          set.Set[string]
@@ -25,6 +15,25 @@ type IndexerBuffer struct {
 	txHashesByParticipant map[string]set.Set[string]
 	opByID                map[int64]types.Operation
 	opIDsByParticipant    map[string]set.Set[int64]
+	stateChanges          []types.StateChange
+}
+
+func NewIndexerBuffer() *IndexerBuffer {
+	return &IndexerBuffer{
+		Participants:          set.NewSet[string](),
+		txByHash:              make(map[string]types.Transaction),
+		txHashesByParticipant: make(map[string]set.Set[string]),
+		opByID:                make(map[int64]types.Operation),
+		opIDsByParticipant:    make(map[string]set.Set[int64]),
+		stateChanges:          make([]types.StateChange, 0),
+	}
+}
+
+func (b *IndexerBuffer) GetParticipants() set.Set[string] {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.Participants
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
@@ -110,4 +119,21 @@ func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]t
 	}
 
 	return ops
+}
+
+func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.stateChanges = append(b.stateChanges, stateChanges...)
+}
+
+func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Return a copy to prevent race conditions on the slice.
+	stateChangesCopy := make([]types.StateChange, len(b.stateChanges))
+	copy(stateChangesCopy, b.stateChanges)
+	return stateChangesCopy
 }
