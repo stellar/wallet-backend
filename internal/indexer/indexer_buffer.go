@@ -8,8 +8,18 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func NewIndexerBuffer() IndexerBuffer {
-	return IndexerBuffer{
+type IndexerBuffer struct {
+	mu                    sync.RWMutex
+	Participants          set.Set[string]
+	txByHash              map[string]types.Transaction
+	txHashesByParticipant map[string]set.Set[string]
+	opByID                map[int64]types.Operation
+	opIDsByParticipant    map[string]set.Set[int64]
+	stateChanges          []types.StateChange
+}
+
+func NewIndexerBuffer() *IndexerBuffer {
+	return &IndexerBuffer{
 		Participants:          set.NewSet[string](),
 		txByHash:              make(map[string]types.Transaction),
 		txHashesByParticipant: make(map[string]set.Set[string]),
@@ -19,14 +29,11 @@ func NewIndexerBuffer() IndexerBuffer {
 	}
 }
 
-type IndexerBuffer struct {
-	mu                    sync.RWMutex
-	Participants          set.Set[string]
-	txByHash              map[string]types.Transaction
-	txHashesByParticipant map[string]set.Set[string]
-	opByID                map[int64]types.Operation
-	opIDsByParticipant    map[string]set.Set[int64]
-	stateChanges          []types.StateChange
+func (b *IndexerBuffer) GetParticipants() set.Set[string] {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.Participants
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {

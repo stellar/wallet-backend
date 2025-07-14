@@ -4,7 +4,6 @@ package indexer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -18,67 +17,71 @@ import (
 	"github.com/stellar/wallet-backend/internal/processors"
 )
 
-// Testable indexer wrapper to allow for dependency injection
-type TestableIndexer struct {
-	buffer              IndexerBufferInterface
-	participantsProcessor ParticipantsProcessorInterface
-	tokenTransferProcessor TokenTransferProcessorInterface
-	effectsProcessor     EffectsProcessorInterface
-}
+var (
+	accountA = xdr.MustMuxedAddress("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON")
+	accountB = xdr.MustMuxedAddress("GCCOBXW2XQNUSL467IEILE6MMCNRR66SSVL4YQADUNYYNUVREF3FIV2Z")
+	oneUnit = xdr.Int64(1e7)
 
-func (ti *TestableIndexer) ProcessTransaction(ctx context.Context, transaction ingest.LedgerTransaction) error {
-	// 1. Index transaction txParticipants
-	txParticipants, err := ti.participantsProcessor.GetTransactionParticipants(transaction)
-	if err != nil {
-		return fmt.Errorf("getting transaction participants: %w", err)
+	testLcm = xdr.LedgerCloseMeta{
+		V: int32(0),
+		V0: &xdr.LedgerCloseMetaV0{
+			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+				Header: xdr.LedgerHeader{
+					LedgerVersion: 20,
+					LedgerSeq:     xdr.Uint32(12345),
+					ScpValue:      xdr.StellarValue{CloseTime: xdr.TimePoint(12345 * 100)},
+				},
+			},
+			TxSet:              xdr.TransactionSet{},
+			TxProcessing:       nil,
+			UpgradesProcessing: nil,
+			ScpInfo:            nil,
+		},
+		V1: nil,
 	}
 
-	// Create mock data transaction to avoid XDR conversion issues in tests
-	dataTx := &types.Transaction{
-		Hash:         "test_tx_hash",
-		ToID:         1,
-		LedgerNumber: 1,
-	}
-	
-	if txParticipants.Cardinality() != 0 {
-		for participant := range txParticipants.Iter() {
-			ti.buffer.PushParticipantTransaction(participant, *dataTx)
-		}
-	}
-
-	// 2. Index tx.Operations() participants
-	opsParticipants, err := ti.participantsProcessor.GetOperationsParticipants(transaction)
-	if err != nil {
-		return fmt.Errorf("getting operations participants: %w", err)
-	}
-	for opID, opParticipants := range opsParticipants {
-		// Create mock data operation to avoid XDR conversion issues in tests
-		dataOp := &types.Operation{
-			ID:     opID,
-			TxHash: "test_tx_hash",
-		}
-
-		for participant := range opParticipants.Participants.Iter() {
-			ti.buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
-		}
-
-		// 2.1. Index effects state changes
-		effectsStateChanges, err := ti.effectsProcessor.ProcessOperation(ctx, transaction, opParticipants.Operation, opParticipants.OperationIdx)
-		if err != nil {
-			return fmt.Errorf("processing effects state changes: %w", err)
-		}
-		ti.buffer.PushStateChanges(effectsStateChanges)
+	testTx = ingest.LedgerTransaction{
+		Index:  1,
+		Ledger: testLcm,
+		Hash:   xdr.Hash{1, 2, 3},
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1: &xdr.TransactionV1Envelope{
+				Tx: xdr.Transaction{
+					SourceAccount: xdr.MustMuxedAddress("GBF3XFXGBGNQDN3HOSZ7NVRF6TJ2JOD5U6ELIWJOOEI6T5WKMQT2YSXQ"),
+					SeqNum:        xdr.SequenceNumber(54321),
+				},
+			},
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash{1, 2, 3},
+			Result: xdr.TransactionResult{
+				FeeCharged: xdr.Int64(100),
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{
+			V: 3,
+			V3: &xdr.TransactionMetaV3{
+				Operations: []xdr.OperationMeta{{}},
+			},
+		},
 	}
 
-	// 3. Index token transfer state changes
-	tokenTransferStateChanges, err := ti.tokenTransferProcessor.ProcessTransaction(ctx, transaction)
-	if err != nil {
-		return fmt.Errorf("processing token transfer state changes: %w", err)
+	createAccountOp = xdr.Operation{
+		SourceAccount: &accountA,
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeCreateAccount,
+			CreateAccountOp: &xdr.CreateAccountOp{
+				Destination:     accountB.ToAccountId(),
+				StartingBalance: 100 * oneUnit,
+			},
+		},
 	}
-	ti.buffer.PushStateChanges(tokenTransferStateChanges)
-
-	return nil
-}
+)
 
 func TestIndexer_ProcessTransaction(t *testing.T) {
 	
@@ -99,7 +102,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						Operation:    xdr.Operation{},
+						Operation:    createAccountOp,
 						Participants: set.NewSet("alice"),
 						OperationIdx: 0,
 					},
@@ -119,7 +122,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			txParticipants: set.NewSet("alice", "bob"),
 			opsParticipants: map[int64]processors.OperationParticipants{
 				1: {
-					Operation:    xdr.Operation{},
+					Operation:    createAccountOp,
 					Participants: set.NewSet("alice"),
 					OperationIdx: 0,
 				},
@@ -169,7 +172,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						Operation:    xdr.Operation{},
+						Operation:    createAccountOp,
 						Participants: set.NewSet("alice"),
 						OperationIdx: 0,
 					},
@@ -208,22 +211,14 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockBuffer)
 			
 			// Create testable indexer with mocked dependencies
-			indexer := &TestableIndexer{
-				buffer:                 mockBuffer,
+			indexer := &Indexer{
+				Buffer:                 mockBuffer,
 				participantsProcessor:  mockParticipants,
 				tokenTransferProcessor: mockTokenTransfer,
 				effectsProcessor:       mockEffects,
 			}
 			
-			// Create test transaction
-			ctx := context.Background()
-			transaction := ingest.LedgerTransaction{
-				Index: 1,
-				Hash:  xdr.Hash{1, 2, 3},
-			}
-			
-			// Call method under test
-			err := indexer.ProcessTransaction(ctx, transaction)
+			err := indexer.ProcessTransaction(context.Background(), testTx)
 			
 			// Assert results
 			if tt.wantError != "" {

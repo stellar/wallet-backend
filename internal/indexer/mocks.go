@@ -7,30 +7,14 @@ import (
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/processors"
 
 	set "github.com/deckarep/golang-set/v2"
 )
 
-// Test interfaces for mocking
-type ParticipantsProcessorInterface interface {
-	GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error)
-	GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error)
-}
-
-type TokenTransferProcessorInterface interface {
-	ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error)
-}
-
 type EffectsProcessorInterface interface {
 	ProcessOperation(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error)
-}
-
-type IndexerBufferInterface interface {
-	PushParticipantTransaction(participant string, tx types.Transaction)
-	PushParticipantOperation(participant string, op types.Operation, tx types.Transaction)
-	PushStateChanges(stateChanges []types.StateChange)
 }
 
 // Mock implementations for testing
@@ -81,3 +65,32 @@ func (m *MockIndexerBuffer) PushParticipantOperation(participant string, op type
 func (m *MockIndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
 	m.Called(stateChanges)
 }
+
+func (m *MockIndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
+	args := m.Called(participant)
+	return args.Get(0).([]types.Transaction)
+}
+func (m *MockIndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
+	args := m.Called(participant)
+	return args.Get(0).(map[int64]types.Operation)
+}
+
+func (m *MockIndexerBuffer) GetParticipants() set.Set[string] {
+	args := m.Called()
+	return args.Get(0).(set.Set[string])
+}
+
+func (m *MockIndexerBuffer) GetNumberOfTransactions() int {
+	args := m.Called()
+	return args.Get(0).(int)
+}
+
+func (m *MockIndexerBuffer) GetAllTransactions() []types.Transaction {
+	args := m.Called()
+	return args.Get(0).([]types.Transaction)
+}
+
+var _ IndexerBufferInterface = &MockIndexerBuffer{}
+var _ ParticipantsProcessorInterface = &MockParticipantsProcessor{}
+var _ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
+var _ EffectsProcessorInterface = &MockEffectsProcessor{}

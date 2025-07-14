@@ -5,21 +5,42 @@ import (
 	"fmt"
 
 	"github.com/stellar/go/ingest"
-
+	set "github.com/deckarep/golang-set/v2"
 	statechangeprocessors "github.com/stellar/wallet-backend/internal/indexer/processors"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/processors"
 )
 
+type IndexerBufferInterface interface {
+	PushParticipantTransaction(participant string, transaction types.Transaction)
+	PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction)
+	GetParticipantTransactions(participant string) []types.Transaction
+	GetParticipantOperations(participant string) map[int64]types.Operation
+	PushStateChanges(stateChanges []types.StateChange)
+	GetParticipants() set.Set[string]
+	GetNumberOfTransactions() int
+	GetAllTransactions() []types.Transaction
+}
+
+type TokenTransferProcessorInterface interface {
+	ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error)
+}
+
+type ParticipantsProcessorInterface interface {
+	GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error)
+	GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error)
+}
+
 type Indexer struct {
-	IndexerBuffer
-	participantsProcessor  processors.ParticipantsProcessor
-	tokenTransferProcessor *statechangeprocessors.TokenTransferProcessor
-	effectsProcessor       *statechangeprocessors.EffectsProcessor
+	Buffer                 IndexerBufferInterface
+	participantsProcessor  ParticipantsProcessorInterface
+	tokenTransferProcessor TokenTransferProcessorInterface
+	effectsProcessor       EffectsProcessorInterface
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
 	return &Indexer{
-		IndexerBuffer:          NewIndexerBuffer(),
+		Buffer:                 NewIndexerBuffer(),
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: statechangeprocessors.NewTokenTransferProcessor(networkPassphrase),
 		effectsProcessor:       statechangeprocessors.NewEffectsProcessor(networkPassphrase),
@@ -39,7 +60,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	}
 	if txParticipants.Cardinality() != 0 {
 		for participant := range txParticipants.Iter() {
-			i.IndexerBuffer.PushParticipantTransaction(participant, *dataTx)
+			i.Buffer.PushParticipantTransaction(participant, *dataTx)
 		}
 	}
 
@@ -55,7 +76,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		for participant := range opParticipants.Participants.Iter() {
-			i.IndexerBuffer.PushParticipantOperation(participant, *dataOp, *dataTx)
+			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 
 		// 2.1. Index effects state changes
@@ -63,7 +84,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		if err != nil {
 			return fmt.Errorf("processing effects state changes: %w", err)
 		}
-		i.IndexerBuffer.PushStateChanges(effectsStateChanges)
+		i.Buffer.PushStateChanges(effectsStateChanges)
 	}
 
 	// 3. Index token transfer state changes
@@ -71,7 +92,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	if err != nil {
 		return fmt.Errorf("processing token transfer state changes: %w", err)
 	}
-	i.IndexerBuffer.PushStateChanges(tokenTransferStateChanges)
+	i.Buffer.PushStateChanges(tokenTransferStateChanges)
 
 	return nil
 }
