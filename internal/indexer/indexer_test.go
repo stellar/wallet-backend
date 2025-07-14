@@ -85,11 +85,11 @@ var (
 
 func TestIndexer_ProcessTransaction(t *testing.T) {
 	tests := []struct {
-		name                      string
-		setupMocks                func(*MockParticipantsProcessor, *MockTokenTransferProcessor, *MockEffectsProcessor, *MockIndexerBuffer)
-		wantError                 string
-		txParticipants            set.Set[string]
-		opsParticipants           map[int64]processors.OperationParticipants
+		name            string
+		setupMocks      func(*MockParticipantsProcessor, *MockTokenTransferProcessor, *MockEffectsProcessor, *MockIndexerBuffer)
+		wantError       string
+		txParticipants  set.Set[string]
+		opsParticipants map[int64]processors.OperationParticipants
 	}{
 		{
 			name: "🟢 successful processing with participants",
@@ -172,8 +172,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 						return len(stateChanges) == 0
 					})).Return()
 			},
-			txParticipants:            set.NewSet[string](),
-			opsParticipants:           map[int64]processors.OperationParticipants{},
+			txParticipants:  set.NewSet[string](),
+			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 		{
 			name: "🔴 error getting transaction participants",
