@@ -404,6 +404,17 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
+				// We only process state changes for a transaction if it hasn't been processed yet.
+				// This is to avoid processing the same transaction multiple times since
+				// a transaction could be tied to multiple participants.
+				if _, ok := txByHash[tx.Hash.HexString()]; !ok {
+					tokenTransferChanges, err := m.tokenTransferProcessor.ProcessTransaction(ctx, tx)
+					if err != nil {
+						return fmt.Errorf("processing token transfer changes: %w", err)
+					}
+					stateChanges = append(stateChanges, tokenTransferChanges...)
+				}
+
 				dataTx, err := ingestutils.ConvertTransaction(&tx)
 				if err != nil {
 					return fmt.Errorf("creating data transaction: %w", err)
@@ -414,13 +425,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 					stellarAddressesByTxHash[dataTx.Hash] = set.NewSet[string]()
 				}
 				stellarAddressesByTxHash[dataTx.Hash].Add(participant)
-
-				tokenTransferChanges, err := m.tokenTransferProcessor.ProcessTransaction(ctx, tx)
-				if err != nil {
-					return fmt.Errorf("processing token transfer changes: %w", err)
-				}
-
-				stateChanges = append(stateChanges, tokenTransferChanges...)
 			}
 
 			// 1.2. operations data for the DB insertions
@@ -428,6 +432,18 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			for opID, op := range participantOperations {
 				opIdx := indexerBuffer.GetOperationIndex(opID)
 				tx := indexerBuffer.GetOperationTransaction(opID)
+
+				// We only process the effects of the operation if it hasn't been processed yet.
+				// This is to avoid processing the same operation multiple times since
+				// an operation could be tied to multiple participants.
+				if _, ok := opByID[opID]; !ok {
+					effectsChanges, err := m.effectsProcessor.ProcessOperation(ctx, tx, op, opIdx)
+					if err != nil {
+						return fmt.Errorf("processing operation effects: %w", err)
+					}
+					stateChanges = append(stateChanges, effectsChanges...)
+				}
+
 				dataOp, err := ingestutils.ConvertOperation(&tx, &op, opID)
 				if err != nil {
 					return fmt.Errorf("creating data operation: %w", err)
@@ -438,13 +454,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 					stellarAddressesByOpID[opID] = set.NewSet[string]()
 				}
 				stellarAddressesByOpID[opID].Add(participant)
-
-				effectsChanges, err := m.effectsProcessor.ProcessOperation(ctx, tx, op, opIdx)
-				if err != nil {
-					return fmt.Errorf("processing operation effects: %w", err)
-				}
-
-				stateChanges = append(stateChanges, effectsChanges...)
 			}
 		}
 
