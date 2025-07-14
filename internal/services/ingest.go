@@ -410,7 +410,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				if _, ok := txByHash[tx.Hash.HexString()]; !ok {
 					tokenTransferChanges, err := m.tokenTransferProcessor.ProcessTransaction(ctx, tx)
 					if err != nil {
-						return fmt.Errorf("extracting token transfer changes from transaction %s: %w", tx.Hash.HexString(), err)
+						return fmt.Errorf("extracting token transfer state changes from transaction %s: %w", tx.Hash.HexString(), err)
 					}
 					stateChanges = append(stateChanges, tokenTransferChanges...)
 				}
@@ -439,7 +439,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				if _, ok := opByID[opID]; !ok {
 					effectsChanges, err := m.effectsProcessor.ProcessOperation(ctx, tx, op, opIdx)
 					if err != nil {
-						return fmt.Errorf("extracting operation effects from transaction %s, operation %d: %w", tx.Hash.HexString(), opID, err)
+						return fmt.Errorf("extracting effects state changes from transaction %s, operation %d: %w", tx.Hash.HexString(), opID, err)
 					}
 					stateChanges = append(stateChanges, effectsChanges...)
 				}
