@@ -15,6 +15,7 @@ func NewIndexerBuffer() IndexerBuffer {
 		txHashesByParticipant: make(map[string]set.Set[string]),
 		opByID:                make(map[int64]types.Operation),
 		opIDsByParticipant:    make(map[string]set.Set[int64]),
+		stateChanges: make([]types.StateChange, 0),
 	}
 }
 
@@ -25,6 +26,7 @@ type IndexerBuffer struct {
 	txHashesByParticipant map[string]set.Set[string]
 	opByID                map[int64]types.Operation
 	opIDsByParticipant    map[string]set.Set[int64]
+	stateChanges          []types.StateChange
 }
 
 func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
@@ -110,4 +112,11 @@ func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]t
 	}
 
 	return ops
+}
+
+func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.stateChanges = append(b.stateChanges, stateChanges...)
 }

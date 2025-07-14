@@ -348,7 +348,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 
 	for _, tx := range transactions {
-		if err := ledgerIndexer.ProcessTransaction(tx); err != nil {
+		if err := ledgerIndexer.ProcessTransaction(ctx, tx); err != nil {
 			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
 		}
 	}
