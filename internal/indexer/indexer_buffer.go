@@ -15,7 +15,7 @@ func NewIndexerBuffer() IndexerBuffer {
 		txHashesByParticipant: make(map[string]set.Set[string]),
 		opByID:                make(map[int64]types.Operation),
 		opIDsByParticipant:    make(map[string]set.Set[int64]),
-		stateChanges: make([]types.StateChange, 0),
+		stateChanges:          make([]types.StateChange, 0),
 	}
 }
 
@@ -119,4 +119,14 @@ func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChanges...)
+}
+
+func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Return a copy to prevent race conditions on the slice.
+	stateChangesCopy := make([]types.StateChange, len(b.stateChanges))
+	copy(stateChangesCopy, b.stateChanges)
+	return stateChangesCopy
 }
