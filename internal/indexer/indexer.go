@@ -21,6 +21,7 @@ type IndexerBufferInterface interface {
 	GetParticipants() set.Set[string]
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
+	GetAllStateChanges() []types.StateChange
 }
 
 type TokenTransferProcessorInterface interface {

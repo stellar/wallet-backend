@@ -442,6 +442,14 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		}
 		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
+		// 2.3. Insert state changes
+		stateChanges := indexerBuffer.GetAllStateChanges()
+		insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
+		if err != nil {
+			return fmt.Errorf("batch inserting state changes: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
+
 		// 3. Unlock channel accounts.
 		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
 		if err != nil {

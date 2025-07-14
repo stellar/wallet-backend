@@ -91,6 +91,11 @@ func (m *MockIndexerBuffer) GetAllTransactions() []types.Transaction {
 	return args.Get(0).([]types.Transaction)
 }
 
+func (m *MockIndexerBuffer) GetAllStateChanges() []types.StateChange {
+	args := m.Called()
+	return args.Get(0).([]types.StateChange)
+}
+
 var (
 	_ IndexerBufferInterface          = &MockIndexerBuffer{}
 	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
