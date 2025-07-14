@@ -192,12 +192,10 @@ func (m *StateChangeModel) BatchInsert(
 	)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "state_changes", duration)
-	if err == nil {
-		m.MetricsService.IncDBQuery("INSERT", "state_changes")
-	}
 	if err != nil {
 		return nil, fmt.Errorf("batch inserting state changes: %w", err)
 	}
+	m.MetricsService.IncDBQuery("INSERT", "state_changes")
 
 	return insertedIDs, nil
 }
