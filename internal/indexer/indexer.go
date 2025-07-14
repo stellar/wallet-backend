@@ -50,10 +50,6 @@ func (i *Indexer) ProcessTransaction(transaction ingest.LedgerTransaction) error
 
 		for participant := range opParticipants.Participants.Iter() {
 			i.IndexerBuffer.PushParticipantOperation(participant, opID, opParticipants.Operation, transaction, opParticipants.OperationIdx)
-
-			// Even though the participant is not part of a transaction, we still want to index the transaction since the participant
-			// is part of one of its operations.
-			i.IndexerBuffer.PushParticipantTransaction(participant, transaction)
 		}
 	}
 
