@@ -90,8 +90,6 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 		wantError                 string
 		txParticipants            set.Set[string]
 		opsParticipants           map[int64]processors.OperationParticipants
-		tokenTransferStateChanges []types.StateChange
-		effectsStateChanges       []types.StateChange
 	}{
 		{
 			name: "🟢 successful processing with participants",
@@ -154,8 +152,6 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					OperationIdx: 0,
 				},
 			},
-			tokenTransferStateChanges: []types.StateChange{{ID: "token_sc1"}},
-			effectsStateChanges:       []types.StateChange{{ID: "effects_sc1"}},
 		},
 		{
 			name: "🟢 successful processing without participants",
@@ -178,7 +174,6 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			},
 			txParticipants:            set.NewSet[string](),
 			opsParticipants:           map[int64]processors.OperationParticipants{},
-			tokenTransferStateChanges: []types.StateChange{},
 		},
 		{
 			name: "🔴 error getting transaction participants",
