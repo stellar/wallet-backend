@@ -392,10 +392,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		// 1. Build the data structures needed for the DB insertions
 		participants := indexerBuffer.GetParticipants()
 		for participant := range participants.Iter() {
-			if !participants.Contains(participant) {
-				continue
-			}
-
 			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
