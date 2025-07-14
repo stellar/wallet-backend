@@ -70,6 +70,7 @@ func (m *MockIndexerBuffer) GetParticipantTransactions(participant string) []typ
 	args := m.Called(participant)
 	return args.Get(0).([]types.Transaction)
 }
+
 func (m *MockIndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
 	args := m.Called(participant)
 	return args.Get(0).(map[int64]types.Operation)
@@ -90,7 +91,9 @@ func (m *MockIndexerBuffer) GetAllTransactions() []types.Transaction {
 	return args.Get(0).([]types.Transaction)
 }
 
-var _ IndexerBufferInterface = &MockIndexerBuffer{}
-var _ ParticipantsProcessorInterface = &MockParticipantsProcessor{}
-var _ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
-var _ EffectsProcessorInterface = &MockEffectsProcessor{}
+var (
+	_ IndexerBufferInterface          = &MockIndexerBuffer{}
+	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
+	_ EffectsProcessorInterface       = &MockEffectsProcessor{}
+)
