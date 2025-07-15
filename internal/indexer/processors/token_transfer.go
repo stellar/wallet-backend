@@ -58,7 +58,10 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	for _, e := range txEvents.OperationEvents {
 		meta := e.GetMeta()
 		contractAddress := meta.GetContractAddress()
-		opIdx := meta.GetOperationIndex()
+		// The input operationIndex is 0-indexed.
+		// As per SEP-35, the OperationIndex in the output proto is 1-indexed.
+		// So we need to subtract 1 from the input operationIndex to get the correct operation index.
+		opIdx := meta.GetOperationIndex()-1
 		event := e.GetEvent()
 
 		// For non-fee events, we need operation details to determine the correct state change type
@@ -86,7 +89,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.
 // Returns operation ID, type, and source account which determine how events should be categorized.
 func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string, error) {
-	op, found := tx.GetOperation(opIdx - 1)
+	op, found := tx.GetOperation(opIdx)
 	if !found {
 		return 0, nil, "", ErrOperationNotFound
 	}
