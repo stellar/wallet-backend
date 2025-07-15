@@ -1,7 +1,7 @@
 # GraphQL Enums - provide type safety and restrict values to predefined options
 # These enums match Go constants and provide better GraphQL introspection
 
-# OperationType enum - defines all possible blockchain operation types
+# OperationType enum - defines all possible operation types
 # GraphQL enums are validated at query time, preventing invalid values
 enum OperationType {
   CREATE_ACCOUNT

@@ -1,10 +1,7 @@
 # GraphQL Account type - represents a blockchain account
 # In GraphQL, types define the shape of data that can be queried
 type Account {
-  # Account's unique identifier - non-nullable required field
   stellarAddress: String!
-  
-  # Account creation timestamp - uses custom Time scalar
   createdAt: Time!
 
   # GraphQL Relationships - these fields use resolvers for data fetching
