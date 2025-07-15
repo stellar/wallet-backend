@@ -230,3 +230,19 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHashes []stri
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
 	return stateChanges, nil
 }
+
+func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.StateChange, error) {
+	const query = `
+		SELECT * FROM state_changes WHERE operation_id = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}

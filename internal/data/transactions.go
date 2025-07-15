@@ -72,6 +72,25 @@ func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []str
 	return transactions, nil
 }
 
+func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.Transaction, error) {
+	const query = `
+		SELECT transactions.* 
+		FROM operations 
+		INNER JOIN transactions 
+		ON operations.tx_hash = transactions.hash 
+		WHERE operations.id = ANY($1)`
+	var transactions []*types.Transaction
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
 // BatchInsert inserts the transactions and the transactions_accounts links.
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(

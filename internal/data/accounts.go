@@ -99,3 +99,22 @@ func (m *AccountModel) BatchGetByTxHash(ctx context.Context, txHashes []string) 
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return accounts, nil
 }
+
+func (m *AccountModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.AccountWithOperationID, error) {
+	const query = `
+		SELECT accounts.*, operations_accounts.operation_id 
+		FROM operations_accounts 
+		INNER JOIN accounts 
+		ON operations_accounts.account_id = accounts.stellar_address 
+		WHERE operations_accounts.operation_id = ANY($1)`
+	var accounts []*types.AccountWithOperationID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return accounts, nil
+}

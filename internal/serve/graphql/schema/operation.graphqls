@@ -12,11 +12,11 @@ type Operation {
   txHash: String!
   
   # Parent transaction - nullable because resolver might not find it
-  transaction: Transaction
+  transaction: Transaction @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
-  accounts: [Account!]!
+  accounts: [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges: [StateChange!]!
+  stateChanges: [StateChange!]! @goField(forceResolver: true)
 }

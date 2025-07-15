@@ -128,6 +128,11 @@ type OperationWithAccountID struct {
 	AccountID string `db:"account_id"`
 }
 
+type AccountWithOperationID struct {
+	Account
+	OperationID int64 `db:"operation_id"`
+}
+
 type StateChangeCategory string
 
 const (
