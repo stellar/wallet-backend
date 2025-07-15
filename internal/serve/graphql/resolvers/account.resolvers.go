@@ -6,7 +6,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -48,9 +47,18 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 }
 
 // Statechanges is the resolver for the statechanges field.
-// TODO: Implement state changes resolution with dataloader
+// This field resolver handles the "statechanges" field on an Account object
+// Demonstrates the same dataloader pattern as Transactions and Operations resolvers
 func (r *accountResolver) Statechanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
-	panic(fmt.Errorf("not implemented: Statechanges - statechanges"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to batch-load state changes for this account
+	// Dataloaders automatically batch multiple requests and cache results
+	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, obj.StellarAddress)
+	if err != nil {
+		return nil, err
+	}
+	return stateChanges, nil
 }
 
 // Account returns graphql1.AccountResolver implementation.

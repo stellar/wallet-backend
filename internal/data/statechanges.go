@@ -17,6 +17,21 @@ type StateChangeModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *StateChangeModel) BatchGetByAccount(
+	ctx context.Context,
+	accountIDs []string,
+) ([]*types.StateChange, error) {
+	query := `
+		SELECT * FROM state_changes WHERE account_id = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
+	}
+	return stateChanges, nil
+}
+
 func (m *StateChangeModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,

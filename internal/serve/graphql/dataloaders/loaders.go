@@ -29,6 +29,10 @@ type Dataloaders struct {
 	// OperationsByAccountLoader batches requests for operations by account address
 	// Used by Account.operations field resolver to prevent N+1 queries
 	OperationsByAccountLoader *dataloadgen.Loader[string, []*types.Operation]
+
+	// StateChangesByAccountLoader batches requests for state changes by account address
+	// Used by Account.statechanges field resolver to prevent N+1 queries
+	StateChangesByAccountLoader *dataloadgen.Loader[string, []*types.StateChange]
 }
 
 // opByTxHashLoader creates a dataloader for fetching operations by transaction hash
@@ -136,19 +140,43 @@ func opByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types
 	)
 }
 
+// stateChangesByAccountLoader creates a dataloader for fetching state changes by account address
+
+func stateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.StateChange] {
+	return dataloadgen.NewLoader(
+		func(ctx context.Context, keys []string) ([][]*types.StateChange, []error) {
+			stateChanges, err := models.StateChanges.BatchGetByAccount(ctx, keys)
+			if err != nil {
+				return nil, []error{err}
+			}
+
+			// Group state changes by account address
+			stateChangesByAccount := make(map[string][]*types.StateChange)
+			for _, stateChange := range stateChanges {
+				stateChangesByAccount[stateChange.AccountID] = append(stateChangesByAccount[stateChange.AccountID], stateChange)
+			}
+
+			// Create result slice matching the order of input keys
+			result := make([][]*types.StateChange, len(keys))
+			for i, key := range keys {
+				result[i] = stateChangesByAccount[key] // Will be nil slice if no state changes found
+			}
+			return result, nil
+		},
+		dataloadgen.WithBatchCapacity(100),
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
 // NewDataloaders creates a new instance of all dataloaders
 // This is called during GraphQL server initialization
 // The dataloaders are then injected into GraphQL context by middleware
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		// Initialize dataloader for operations by transaction hash
 		OperationsByTxHashLoader: opByTxHashLoader(models),
-
-		// Initialize dataloader for transactions by account address
 		TransactionsByAccountLoader: txByAccountLoader(models),
-
-		// Initialize dataloader for operations by account address
 		OperationsByAccountLoader: opByAccountLoader(models),
+		StateChangesByAccountLoader: stateChangesByAccountLoader(models),
 	}
 }
