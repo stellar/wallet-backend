@@ -17,5 +17,5 @@ type Account {
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  statechanges: [StateChange!]!
+  stateChanges: [StateChange!]!
 }

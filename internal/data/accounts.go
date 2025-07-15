@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -77,4 +79,23 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return exists, nil
+}
+
+func (m *AccountModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.AccountWithTxHash, error) {
+	const query = `
+		SELECT accounts.*, transactions_accounts.tx_hash 
+		FROM transactions_accounts 
+		INNER JOIN accounts 
+		ON transactions_accounts.account_id = accounts.stellar_address 
+		WHERE transactions_accounts.tx_hash = ANY($1)`
+	var accounts []*types.AccountWithTxHash
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting accounts by transaction hashes: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return accounts, nil
 }

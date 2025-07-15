@@ -35,6 +35,11 @@ type TransactionWithAccountID struct {
 	AccountID string `json:"accountId,omitempty" db:"account_id"`
 }
 
+type AccountWithTxHash struct {
+	Account
+	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+}
+
 // xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
 var xdrToOperationTypeMap = map[xdr.OperationType]OperationType{
 	xdr.OperationTypeCreateAccount:                 OperationTypeCreateAccount,

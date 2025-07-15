@@ -38,7 +38,6 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 
 	// Use dataloader to batch-load operations for this account
-	// Dataloaders automatically batch multiple requests and cache results
 	operations, err := loaders.OperationsByAccountLoader.Load(ctx, obj.StellarAddress)
 	if err != nil {
 		return nil, err
@@ -46,14 +45,11 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 	return operations, nil
 }
 
-// Statechanges is the resolver for the statechanges field.
-// This field resolver handles the "statechanges" field on an Account object
-// Demonstrates the same dataloader pattern as Transactions and Operations resolvers
-func (r *accountResolver) Statechanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
+// StateChanges is the resolver for the stateChanges field.
+func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 
 	// Use dataloader to batch-load state changes for this account
-	// Dataloaders automatically batch multiple requests and cache results
 	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, obj.StellarAddress)
 	if err != nil {
 		return nil, err

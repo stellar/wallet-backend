@@ -214,3 +214,19 @@ func (m *StateChangeModel) BatchInsert(
 
 	return insertedIDs, nil
 }
+
+func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.StateChange, error) {
+	const query = `
+		SELECT * FROM state_changes WHERE tx_hash = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by transaction hashes: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}

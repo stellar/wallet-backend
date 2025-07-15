@@ -53,7 +53,7 @@ type ComplexityRoot struct {
 	Account struct {
 		CreatedAt      func(childComplexity int) int
 		Operations     func(childComplexity int) int
-		Statechanges   func(childComplexity int) int
+		StateChanges   func(childComplexity int) int
 		StellarAddress func(childComplexity int) int
 		Transactions   func(childComplexity int) int
 	}
@@ -123,7 +123,7 @@ type ComplexityRoot struct {
 type AccountResolver interface {
 	Transactions(ctx context.Context, obj *types.Account) ([]*types.Transaction, error)
 	Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error)
-	Statechanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error)
+	StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error)
 }
 type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
@@ -191,12 +191,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Account.Operations(childComplexity), true
 
-	case "Account.statechanges":
-		if e.complexity.Account.Statechanges == nil {
+	case "Account.stateChanges":
+		if e.complexity.Account.StateChanges == nil {
 			break
 		}
 
-		return e.complexity.Account.Statechanges(childComplexity), true
+		return e.complexity.Account.StateChanges(childComplexity), true
 
 	case "Account.stellarAddress":
 		if e.complexity.Account.StellarAddress == nil {
@@ -683,7 +683,7 @@ type Account {
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  statechanges: [StateChange!]!
+  stateChanges: [StateChange!]!
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -1363,8 +1363,8 @@ func (ec *executionContext) fieldContext_Account_operations(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _Account_statechanges(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Account_statechanges(ctx, field)
+func (ec *executionContext) _Account_stateChanges(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Account_stateChanges(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -1377,7 +1377,7 @@ func (ec *executionContext) _Account_statechanges(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().Statechanges(rctx, obj)
+		return ec.resolvers.Account().StateChanges(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1394,7 +1394,7 @@ func (ec *executionContext) _Account_statechanges(ctx context.Context, field gra
 	return ec.marshalNStateChange2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeᚄ(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Account_statechanges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Account_stateChanges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Account",
 		Field:      field,
@@ -1835,8 +1835,8 @@ func (ec *executionContext) fieldContext_Operation_accounts(_ context.Context, f
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
 				return ec.fieldContext_Account_operations(ctx, field)
-			case "statechanges":
-				return ec.fieldContext_Account_statechanges(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -2139,8 +2139,8 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
 				return ec.fieldContext_Account_operations(ctx, field)
-			case "statechanges":
-				return ec.fieldContext_Account_statechanges(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -3247,8 +3247,8 @@ func (ec *executionContext) fieldContext_StateChange_account(_ context.Context, 
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
 				return ec.fieldContext_Account_operations(ctx, field)
-			case "statechanges":
-				return ec.fieldContext_Account_statechanges(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -3933,8 +3933,8 @@ func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context,
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
 				return ec.fieldContext_Account_operations(ctx, field)
-			case "statechanges":
-				return ec.fieldContext_Account_statechanges(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6090,7 +6090,7 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "statechanges":
+		case "stateChanges":
 			field := field
 
 			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
@@ -6099,7 +6099,7 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Account_statechanges(ctx, field, obj)
+				res = ec._Account_stateChanges(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

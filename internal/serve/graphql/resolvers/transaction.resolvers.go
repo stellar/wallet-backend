@@ -6,7 +6,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -18,13 +17,9 @@ import (
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
-	// Extract dataloaders from GraphQL context
-	// Dataloaders are provided by middleware to enable efficient batch loading
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 
 	// Use dataloader to batch-load operations for this transaction
-	// This prevents N+1 queries when multiple transactions request their operations
-	// The loader groups multiple requests and executes them in a single database query
 	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, obj.Hash)
 	if err != nil {
 		return nil, err
@@ -33,13 +28,33 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 }
 
 // Accounts is the resolver for the accounts field.
+// This is a field resolver for the "accounts" field on a Transaction object
+// It's called when a GraphQL query requests the accounts within a transaction
 func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Accounts - accounts"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to batch-load accounts for this transaction
+	// This prevents N+1 queries when multiple transactions request their operations
+	// The loader groups multiple requests and executes them in a single database query
+	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, obj.Hash)
+	if err != nil {
+		return nil, err
+	}
+	return accounts, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.
+// This is a field resolver for the "stateChanges" field on a Transaction object
+// It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
-	panic(fmt.Errorf("not implemented: StateChanges - stateChanges"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	// Use dataloader to batch-load state changes for this transaction
+	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, obj.Hash)
+	if err != nil {
+		return nil, err
+	}
+	return stateChanges, nil
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.

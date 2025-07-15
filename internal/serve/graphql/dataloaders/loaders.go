@@ -33,6 +33,29 @@ type Dataloaders struct {
 	// StateChangesByAccountLoader batches requests for state changes by account address
 	// Used by Account.statechanges field resolver to prevent N+1 queries
 	StateChangesByAccountLoader *dataloadgen.Loader[string, []*types.StateChange]
+
+	// AccountsByTxHashLoader batches requests for accounts by transaction hash
+	// Used by Transaction.accounts field resolver to prevent N+1 queries
+	AccountsByTxHashLoader *dataloadgen.Loader[string, []*types.Account]
+
+	// StateChangesByTxHashLoader batches requests for state changes by transaction hash
+	// Used by Transaction.stateChanges field resolver to prevent N+1 queries
+	StateChangesByTxHashLoader *dataloadgen.Loader[string, []*types.StateChange]
+}
+
+// NewDataloaders creates a new instance of all dataloaders
+// This is called during GraphQL server initialization
+// The dataloaders are then injected into GraphQL context by middleware
+// GraphQL resolvers access these loaders to batch database queries efficiently
+func NewDataloaders(models *data.Models) *Dataloaders {
+	return &Dataloaders{
+		OperationsByTxHashLoader:    opByTxHashLoader(models),
+		TransactionsByAccountLoader: txByAccountLoader(models),
+		OperationsByAccountLoader:   opByAccountLoader(models),
+		StateChangesByAccountLoader: stateChangesByAccountLoader(models),
+		AccountsByTxHashLoader:      accountsByTxHashLoader(models),
+		StateChangesByTxHashLoader:  stateChangesByTxHashLoader(models),
+	}
 }
 
 // opByTxHashLoader creates a dataloader for fetching operations by transaction hash
@@ -168,15 +191,76 @@ func stateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[string
 	)
 }
 
-// NewDataloaders creates a new instance of all dataloaders
-// This is called during GraphQL server initialization
-// The dataloaders are then injected into GraphQL context by middleware
-// GraphQL resolvers access these loaders to batch database queries efficiently
-func NewDataloaders(models *data.Models) *Dataloaders {
-	return &Dataloaders{
-		OperationsByTxHashLoader: opByTxHashLoader(models),
-		TransactionsByAccountLoader: txByAccountLoader(models),
-		OperationsByAccountLoader: opByAccountLoader(models),
-		StateChangesByAccountLoader: stateChangesByAccountLoader(models),
-	}
+// accountsByTxHashLoader creates a dataloader for fetching accounts by transaction hash
+// This prevents N+1 queries when multiple transactions request their accounts
+// The loader batches multiple transaction hashes into a single database query
+func accountsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Account] {
+	return dataloadgen.NewLoader(
+		// Batch function - receives multiple keys (tx hashes) and returns data for each
+		func(ctx context.Context, keys []string) ([][]*types.Account, []error) {
+			// Single database query for all requested transaction hashes
+			accountsWithTxHash, err := models.Account.BatchGetByTxHash(ctx, keys)
+			if err != nil {
+				// Return error for all keys if batch query fails
+				return nil, []error{err}
+			}
+
+			// Group accounts by transaction hash
+			// accountsWithTxHash is a flat slice, so we need to group them by tx hash.
+			// The loader expects a slice of slices, one for each key.
+			accountsByTxHash := make(map[string][]*types.Account)
+			for _, accountWithTxHash := range accountsWithTxHash {
+				// Extract just the Account part from AccountWithTxHash wrapper
+				account := &accountWithTxHash.Account
+				accountsByTxHash[accountWithTxHash.TxHash] = append(accountsByTxHash[accountWithTxHash.TxHash], account)
+			}
+
+			// Create result slice matching the order of input keys
+			result := make([][]*types.Account, len(keys))
+			for i, key := range keys {
+				result[i] = accountsByTxHash[key] // Will be nil slice if no accounts found
+			}
+			return result, nil
+		},
+		// Configure batch size - maximum number of keys to batch together
+		dataloadgen.WithBatchCapacity(100),
+		// Configure wait time - how long to wait for more requests before executing batch
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
+// stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
+// This prevents N+1 queries when multiple transactions request their state changes
+// The loader batches multiple transaction hashes into a single database query
+func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.StateChange] {
+	return dataloadgen.NewLoader(
+		// Batch function - receives multiple keys (tx hashes) and returns data for each
+		func(ctx context.Context, keys []string) ([][]*types.StateChange, []error) {
+			// Single database query for all requested transaction hashes
+			stateChanges, err := models.StateChanges.BatchGetByTxHash(ctx, keys)
+			if err != nil {
+				// Return error for all keys if batch query fails
+				return nil, []error{err}
+			}
+
+			// Group state changes by transaction hash
+			// stateChanges is a flat slice, so we need to group them by tx hash.
+			// The loader expects a slice of slices, one for each key.
+			stateChangesByTxHash := make(map[string][]*types.StateChange)
+			for _, stateChange := range stateChanges {
+				stateChangesByTxHash[stateChange.TxHash] = append(stateChangesByTxHash[stateChange.TxHash], stateChange)
+			}
+
+			// Create result slice matching the order of input keys
+			result := make([][]*types.StateChange, len(keys))
+			for i, key := range keys {
+				result[i] = stateChangesByTxHash[key] // Will be nil slice if no state changes found
+			}
+			return result, nil
+		},
+		// Configure batch size - maximum number of keys to batch together
+		dataloadgen.WithBatchCapacity(100),
+		// Configure wait time - how long to wait for more requests before executing batch
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
 }
