@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -146,9 +145,17 @@ type StateChangeResolver interface {
 	Thresholds(ctx context.Context, obj *types.StateChange) (*string, error)
 	Flags(ctx context.Context, obj *types.StateChange) ([]string, error)
 	KeyValue(ctx context.Context, obj *types.StateChange) (*string, error)
+
+	Account(ctx context.Context, obj *types.StateChange) (*types.Account, error)
+
+	Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error)
+
+	Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error)
 }
 type TransactionResolver interface {
 	Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error)
+	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
+	StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error)
 }
 
 type executableSchema struct {
@@ -657,30 +664,65 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 }
 
 var sources = []*ast.Source{
-	{Name: "../schema/account.graphqls", Input: `type Account {
+	{Name: "../schema/account.graphqls", Input: `# GraphQL Account type - represents a blockchain account
+# In GraphQL, types define the shape of data that can be queried
+type Account {
   stellarAddress: String!
   createdAt: Time!
 
-  # Relationships
+  # GraphQL Relationships - these fields use resolvers for data fetching
+  # Each relationship resolver will be called when the field is requested
+  
+  # All transactions associated with this account
+  # Uses dataloader for efficient batching to prevent N+1 queries
   transactions: [Transaction!]!
+  
+  # All operations associated with this account
+  # Uses dataloader for efficient batching to prevent N+1 queries
   operations: [Operation!]!
+  
+  # All state changes associated with this account
+  # Uses resolver to fetch related state changes
   statechanges: [StateChange!]!
 }
 `, BuiltIn: false},
-	{Name: "../schema/directives.graphqls", Input: `directive @goField(
+	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
+# Directives are like annotations that modify how GraphQL processes fields
+
+# @goField directive - controls how gqlgen generates Go code for fields
+# This is a gqlgen-specific directive for customizing field resolution
+directive @goField(
+	# forceResolver: Boolean - forces gqlgen to generate a resolver function
+	# even if the Go struct has a matching field name
+	# Useful when you need custom logic for field resolution
 	forceResolver: Boolean
+	
+	# name: String - specifies the Go struct field name to map to
+	# Allows mapping GraphQL field names to different Go field names
 	name: String
+	
+	# omittable: Boolean - indicates if the field can be omitted from queries
+	# Used for optional fields in input types
 	omittable: Boolean
+	
+	# type: String - specifies the Go type for the field
+	# Overrides gqlgen's default type inference
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
 `, BuiltIn: false},
-	{Name: "../schema/enums.graphqls", Input: `# Enums matching Go constants
+	{Name: "../schema/enums.graphqls", Input: `# GraphQL Enums - provide type safety and restrict values to predefined options
+# These enums match Go constants and provide better GraphQL introspection
+
+# OperationType enum - defines all possible operation types
+# GraphQL enums are validated at query time, preventing invalid values
 enum OperationType {
   CREATE_ACCOUNT
   PAYMENT
   PATH_PAYMENT_STRICT_RECEIVE
+  PATH_PAYMENT_STRICT_SEND
   MANAGE_SELL_OFFER
   CREATE_PASSIVE_SELL_OFFER
+  MANAGE_BUY_OFFER
   SET_OPTIONS
   CHANGE_TRUST
   ALLOW_TRUST
@@ -688,8 +730,6 @@ enum OperationType {
   INFLATION
   MANAGE_DATA
   BUMP_SEQUENCE
-  MANAGE_BUY_OFFER
-  PATH_PAYMENT_STRICT_SEND
   CREATE_CLAIMABLE_BALANCE
   CLAIM_CLAIMABLE_BALANCE
   BEGIN_SPONSORING_FUTURE_RESERVES
@@ -705,6 +745,8 @@ enum OperationType {
   RESTORE_FOOTPRINT
 }
 
+# StateChangeCategory enum - categorizes the type of state change
+# Used in GraphQL queries to filter state changes by category
 enum StateChangeCategory {
   DEBIT
   CREDIT
@@ -716,13 +758,15 @@ enum StateChangeCategory {
   FLAGS
   LIABILITY
   TRUSTLINE_FLAGS
-  SPONSORSHIP
-  UNSUPPORTED
   ALLOWANCE
+  SPONSORSHIP
   CONTRACT
   AUTHORIZATION
+  UNSUPPORTED
 }
 
+# StateChangeReason enum - provides specific reason for the state change
+# Used in GraphQL queries to understand why a state change occurred
 enum StateChangeReason {
   ADD
   REMOVE
@@ -741,33 +785,72 @@ enum StateChangeReason {
   INVOKE
 }
 `, BuiltIn: false},
-	{Name: "../schema/operation.graphqls", Input: `type Operation {
+	{Name: "../schema/operation.graphqls", Input: `# GraphQL Operation type - represents a blockchain operation
+# Operations are the individual actions within a transaction
+type Operation {
   id: Int64!                   # Maps to int64
   operationType: OperationType!
   operationXdr: String!        # Maps to json:"operationXdr"
   ledgerCreatedAt: Time!
   ingestedAt: Time!
   
-  # Relationships
+  # GraphQL Relationships - these fields use resolvers
+  # Transaction hash this operation belongs to
   txHash: String!
+  
+  # Parent transaction - nullable because resolver might not find it
   transaction: Transaction
+  
+  # Related accounts - uses resolver with dataloader for efficiency
   accounts: [Account!]!
+  
+  # Related state changes - uses resolver to fetch associated changes
   stateChanges: [StateChange!]!
 }
 `, BuiltIn: false},
-	{Name: "../schema/queries.graphqls", Input: `type Query {
+	{Name: "../schema/queries.graphqls", Input: `# GraphQL Query root type - defines all available queries in the API
+# In GraphQL, the Query type is the entry point for read operations
+type Query {
+    # Fetch a single transaction by its hash
+    # Returns null if no transaction found (nullable return type)
     transactionByHash(hash: String!): Transaction
+    
+    # Fetch a list of transactions with optional limit
+    # Returns empty array if no transactions found (non-nullable array)
+    # GraphQL resolvers will handle the optional limit parameter
     transactions(limit: Int): [Transaction!]!
+    
+    # Fetch a single account by its address
+    # Returns null if no account found (nullable return type)
     account(address: String!): Account
+    
+    # Fetch a list of operations with optional limit
+    # Returns empty array if no operations found (non-nullable array)
     operations(limit: Int): [Operation!]!
 }
 `, BuiltIn: false},
-	{Name: "../schema/scalars.graphqls", Input: `# Custom scalars for database types
+	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
+# Custom scalars provide type safety for specific data formats
+# gqlgen requires custom marshal/unmarshal functions for these types
+
+# Time scalar - represents timestamps
+# Handles conversion between Go time.Time and GraphQL string/int representations
+# Used for createdAt, ingestedAt, and other timestamp fields
 scalar Time
+
+# UInt32 scalar - represents unsigned 32-bit integers
+# GraphQL doesn't have native uint32, so we define a custom scalar
+# Used for ledger numbers and other positive integer values
 scalar UInt32
+
+# Int64 scalar - represents 64-bit integers
+# GraphQL's Int type is 32-bit, so we need custom scalar for larger values
+# Used for database IDs and other large integer values
 scalar Int64
 `, BuiltIn: false},
-	{Name: "../schema/statechange.graphqls", Input: `type StateChange {
+	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
+# This type has many nullable fields to handle various state change scenarios
+type StateChange {
   id: String!
   stateChangeCategory: StateChangeCategory!
   stateChangeReason: StateChangeReason  # Nullable in Go struct
@@ -775,7 +858,8 @@ scalar Int64
   ledgerCreatedAt: Time!
   ledgerNumber: UInt32!           # Maps to uint32
   
-  # Nullable fields (sql.NullString in Go)
+  # GraphQL Nullable fields - these map to sql.NullString in Go
+  # GraphQL handles nullable fields gracefully - they return null if not set
   tokenId: String              # Maps to json:"tokenId"
   amount: String
   claimableBalanceId: String   # Maps to json:"claimableBalanceId"
@@ -786,22 +870,36 @@ scalar Int64
   sponsoredAccountId: String   # Maps to json:"sponsoredAccountId"
   sponsorAccountId: String     # Maps to json:"sponsorAccountId"
   
-  # JSONB fields (will need custom scalars)
+  # GraphQL fields for JSONB data - require custom resolvers
+  # These fields need special handling to convert between Go types and GraphQL
   signerWeights: String        # NullableJSONB -> JSON string
   thresholds: String           # NullableJSONB -> JSON string
   flags: [String!]             # NullableJSON -> string array
   keyValue: String             # NullableJSONB -> JSON string
   
-  # Relationships
+  # GraphQL Relationships - these fields use resolvers
+  # Account ID this state change belongs to
   accountId: String!           # Maps to json:"accountId"
-  account: Account
+  
+  # Related account - nullable because resolver might not find it
+  account: Account @goField(forceResolver: true)
+  
+  # Operation ID that caused this state change
   operationId: Int64!             # Maps to json:"operationId" -> int64
-  operation: Operation
+  
+  # Related operation - nullable because resolver might not find it
+  operation: Operation @goField(forceResolver: true)
+  
+  # Transaction hash that contains the operation
   txHash: String!
-  transaction: Transaction
+  
+  # Related transaction - nullable because resolver might not find it
+  transaction: Transaction @goField(forceResolver: true)
 }
 `, BuiltIn: false},
-	{Name: "../schema/transaction.graphqls", Input: `type Transaction {
+	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
+# gqlgen generates Go structs from this schema definition
+type Transaction {
   hash: String!
   toId: Int64!                 # Maps to json:"to_id" -> ToID int64
   envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
@@ -811,10 +909,16 @@ scalar Int64
   ledgerCreatedAt: Time!
   ingestedAt: Time!
   
-  # Relationships
+  # GraphQL Relationships - these fields require resolvers
+  # @goField(forceResolver: true) tells gqlgen to always generate a resolver
+  # even if the Go struct has a matching field
   operations: [Operation!]! @goField(forceResolver: true)
-  accounts: [Account!]!
-  stateChanges: [StateChange!]!
+  
+  # Related accounts - uses resolver with dataloader for efficiency
+  accounts: [Account!]! @goField(forceResolver: true)
+  
+  # Related state changes - uses resolver to fetch associated changes
+  stateChanges: [StateChange!]! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 }
@@ -3113,7 +3217,7 @@ func (ec *executionContext) _StateChange_account(ctx context.Context, field grap
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Account, nil
+		return ec.resolvers.StateChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3131,8 +3235,8 @@ func (ec *executionContext) fieldContext_StateChange_account(_ context.Context, 
 	fc = &graphql.FieldContext{
 		Object:     "StateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "stellarAddress":
@@ -3210,7 +3314,7 @@ func (ec *executionContext) _StateChange_operation(ctx context.Context, field gr
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Operation, nil
+		return ec.resolvers.StateChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3228,8 +3332,8 @@ func (ec *executionContext) fieldContext_StateChange_operation(_ context.Context
 	fc = &graphql.FieldContext{
 		Object:     "StateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "id":
@@ -3315,7 +3419,7 @@ func (ec *executionContext) _StateChange_transaction(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Transaction, nil
+		return ec.resolvers.StateChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3333,8 +3437,8 @@ func (ec *executionContext) fieldContext_StateChange_transaction(_ context.Conte
 	fc = &graphql.FieldContext{
 		Object:     "StateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "hash":
@@ -3796,7 +3900,7 @@ func (ec *executionContext) _Transaction_accounts(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Accounts, nil
+		return ec.resolvers.Transaction().Accounts(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3808,17 +3912,17 @@ func (ec *executionContext) _Transaction_accounts(ctx context.Context, field gra
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]types.Account)
+	res := resTmp.([]*types.Account)
 	fc.Result = res
-	return ec.marshalNAccount2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccountᚄ(ctx, field.Selections, res)
+	return ec.marshalNAccount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccountᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "stellarAddress":
@@ -3852,7 +3956,7 @@ func (ec *executionContext) _Transaction_stateChanges(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChanges, nil
+		return ec.resolvers.Transaction().StateChanges(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3864,17 +3968,17 @@ func (ec *executionContext) _Transaction_stateChanges(ctx context.Context, field
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]types.StateChange)
+	res := resTmp.([]*types.StateChange)
 	fc.Result = res
-	return ec.marshalNStateChange2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeᚄ(ctx, field.Selections, res)
+	return ec.marshalNStateChange2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_stateChanges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transaction",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
 			case "id":
@@ -6726,21 +6830,114 @@ func (ec *executionContext) _StateChange(ctx context.Context, sel ast.SelectionS
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "account":
-			out.Values[i] = ec._StateChange_account(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StateChange_account(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "operationId":
 			out.Values[i] = ec._StateChange_operationId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "operation":
-			out.Values[i] = ec._StateChange_operation(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StateChange_operation(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "txHash":
 			out.Values[i] = ec._StateChange_txHash(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "transaction":
-			out.Values[i] = ec._StateChange_transaction(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StateChange_transaction(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -6852,15 +7049,77 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "accounts":
-			out.Values[i] = ec._Transaction_accounts(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_accounts(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "stateChanges":
-			out.Values[i] = ec._Transaction_stateChanges(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_stateChanges(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7265,6 +7524,60 @@ func (ec *executionContext) marshalNAccount2ᚕgithubᚗcomᚋstellarᚋwallet�
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNAccount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccountᚄ(ctx context.Context, sel ast.SelectionSet, v []*types.Account) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx context.Context, sel ast.SelectionSet, v *types.Account) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Account(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {

@@ -16,8 +16,8 @@ type Transaction {
   operations: [Operation!]! @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
-  accounts: [Account!]!
+  accounts: [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges: [StateChange!]!
+  stateChanges: [StateChange!]! @goField(forceResolver: true)
 }

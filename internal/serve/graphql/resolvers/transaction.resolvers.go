@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -31,11 +32,17 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	return operations, nil
 }
 
+// Accounts is the resolver for the accounts field.
+func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error) {
+	panic(fmt.Errorf("not implemented: Accounts - accounts"))
+}
+
+// StateChanges is the resolver for the stateChanges field.
+func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
+	panic(fmt.Errorf("not implemented: StateChanges - stateChanges"))
+}
+
 // Transaction returns graphql1.TransactionResolver implementation.
-// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
-// gqlgen calls this to get the resolver for Transaction type fields
 func (r *Resolver) Transaction() graphql1.TransactionResolver { return &transactionResolver{r} }
 
-// transactionResolver embeds the main Resolver to access dependencies
-// This struct implements the gqlgen-generated TransactionResolver interface
 type transactionResolver struct{ *Resolver }

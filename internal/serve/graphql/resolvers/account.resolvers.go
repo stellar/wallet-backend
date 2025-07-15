@@ -62,10 +62,6 @@ func (r *accountResolver) Statechanges(ctx context.Context, obj *types.Account) 
 }
 
 // Account returns graphql1.AccountResolver implementation.
-// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
-// gqlgen calls this to get the resolver for Account type fields
 func (r *Resolver) Account() graphql1.AccountResolver { return &accountResolver{r} }
 
-// accountResolver embeds the main Resolver to access dependencies
-// This struct implements the gqlgen-generated AccountResolver interface
 type accountResolver struct{ *Resolver }

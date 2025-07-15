@@ -32,17 +32,17 @@ type StateChange {
   accountId: String!           # Maps to json:"accountId"
   
   # Related account - nullable because resolver might not find it
-  account: Account
+  account: Account @goField(forceResolver: true)
   
   # Operation ID that caused this state change
   operationId: Int64!             # Maps to json:"operationId" -> int64
   
   # Related operation - nullable because resolver might not find it
-  operation: Operation
+  operation: Operation @goField(forceResolver: true)
   
   # Transaction hash that contains the operation
   txHash: String!
   
   # Related transaction - nullable because resolver might not find it
-  transaction: Transaction
+  transaction: Transaction @goField(forceResolver: true)
 }

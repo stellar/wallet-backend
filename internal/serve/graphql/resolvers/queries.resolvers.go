@@ -54,10 +54,6 @@ func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.
 }
 
 // Query returns graphql1.QueryResolver implementation.
-// This is a gqlgen-generated interface method that connects our resolver to the GraphQL schema
-// gqlgen calls this to get the resolver for the defined queries.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 
-// queryResolver embeds the main Resolver to access dependencies
-// This struct implements the gqlgen-generated QueryResolver interface
 type queryResolver struct{ *Resolver }
