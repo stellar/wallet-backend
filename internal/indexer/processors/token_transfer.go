@@ -61,7 +61,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		// The input operationIndex is 0-indexed.
 		// As per SEP-35, the OperationIndex in the output proto is 1-indexed.
 		// So we need to subtract 1 from the input operationIndex to get the correct operation index.
-		opIdx := meta.GetOperationIndex()-1
+		opIdx := meta.GetOperationIndex() - 1
 		event := e.GetEvent()
 
 		// For non-fee events, we need operation details to determine the correct state change type
