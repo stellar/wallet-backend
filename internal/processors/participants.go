@@ -14,8 +14,8 @@ type ParticipantsProcessor struct {
 	networkPassphrase string
 }
 
-func NewParticipantsProcessor(networkPassphrase string) ParticipantsProcessor {
-	return ParticipantsProcessor{
+func NewParticipantsProcessor(networkPassphrase string) *ParticipantsProcessor {
+	return &ParticipantsProcessor{
 		networkPassphrase: networkPassphrase,
 	}
 }
@@ -119,6 +119,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 type OperationParticipants struct {
 	Operation    xdr.Operation
 	Participants set.Set[string]
+	OperationIdx uint32
 }
 
 // GetOperationsParticipants returns a map of operation ID to its participants.
@@ -155,6 +156,7 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 			operationsParticipants[opID] = OperationParticipants{
 				Operation:    xdrOp,
 				Participants: set.NewSet[string](),
+				OperationIdx: uint32(opi),
 			}
 		}
 		for _, participant := range participants {

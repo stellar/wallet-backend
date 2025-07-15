@@ -9,8 +9,8 @@ CREATE TABLE state_changes (
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
     account_id TEXT NOT NULL REFERENCES accounts(stellar_address),
-    operation_id BIGINT NOT NULL REFERENCES operations(id),
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash),
+    operation_id BIGINT NOT NULL,
+    tx_hash TEXT NOT NULL, -- TODO: Add foreign key constraint back once https://github.com/stellar/wallet-backend/pull/238 is merged
     token_id TEXT,
     amount TEXT,
     claimable_balance_id TEXT,

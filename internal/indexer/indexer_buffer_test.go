@@ -210,3 +210,46 @@ func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
 	})
 }
+
+func Test_IndexerBuffer_StateChanges(t *testing.T) {
+	t.Run("🟢sequential_calls", func(t *testing.T) {
+		indexerBuffer := NewIndexerBuffer()
+
+		sc1 := types.StateChange{ID: "sc1"}
+		sc2 := types.StateChange{ID: "sc2"}
+		sc3 := types.StateChange{ID: "sc3"}
+
+		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
+		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+
+		allStateChanges := indexerBuffer.GetAllStateChanges()
+		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
+	})
+
+	t.Run("🟢concurrent_calls", func(t *testing.T) {
+		indexerBuffer := NewIndexerBuffer()
+
+		sc1 := types.StateChange{ID: "sc1"}
+		sc2 := types.StateChange{ID: "sc2"}
+		sc3 := types.StateChange{ID: "sc3"}
+
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			indexerBuffer.PushStateChanges([]types.StateChange{sc1})
+		}()
+
+		go func() {
+			defer wg.Done()
+			indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+		}()
+
+		wg.Wait()
+
+		allStateChanges := indexerBuffer.GetAllStateChanges()
+		assert.Len(t, allStateChanges, 3)
+		assert.ElementsMatch(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
+	})
+}
