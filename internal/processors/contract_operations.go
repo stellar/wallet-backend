@@ -85,7 +85,7 @@ func scAddressesForScVal(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
 		if _, err := strkey.Encode(strkey.VersionByteContract, b); err == nil {
 			scAddresses.Add(xdr.ScAddress{
 				Type:       xdr.ScAddressTypeScAddressTypeContract,
-				ContractId: utils.PointOf(xdr.Hash(b)),
+				ContractId: utils.PointOf(xdr.ContractId(b)),
 			})
 		}
 

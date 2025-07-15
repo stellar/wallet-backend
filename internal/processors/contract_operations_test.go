@@ -38,12 +38,12 @@ func Test_scAddressesForScVal(t *testing.T) {
 	accountID2Bytes := strkey.MustDecode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
 	scAddressContract2AsAccountID := xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: utils.PointOf(xdr.Hash(accountID2Bytes)),
+		ContractId: utils.PointOf(xdr.ContractId(accountID2Bytes)),
 	}
 
 	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 	decodedContractID := strkey.MustDecode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
-	contractID1 := xdr.Hash(decodedContractID)
+	contractID1 := xdr.ContractId(decodedContractID)
 	scAddressContract1 := xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
 		ContractId: &contractID1,
@@ -183,7 +183,7 @@ func makeScContract(contractID string) xdr.ScAddress {
 	decoded := strkey.MustDecode(strkey.VersionByteContract, contractID)
 	return xdr.ScAddress{
 		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: utils.PointOf(xdr.Hash(decoded)),
+		ContractId: utils.PointOf(xdr.ContractId(decoded)),
 	}
 }
 
