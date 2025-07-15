@@ -71,6 +71,26 @@ func (m *OperationModel) BatchGetByAccount(ctx context.Context, accountAddresses
 	return operationsWithAccounts, nil
 }
 
+func (m *OperationModel) BatchGetByStateChangeID(ctx context.Context, stateChangeIDs []string) ([]*types.OperationWithStateChangeID, error) {
+	const query = `
+		SELECT o.*, sc.id as state_change_id
+		FROM operations o
+		INNER JOIN state_changes sc ON o.id = sc.operation_id
+		WHERE sc.id = ANY($1)
+		ORDER BY o.ledger_created_at DESC
+	`
+	var operationsWithStateChanges []*types.OperationWithStateChangeID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(stateChangeIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations by state change IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return operationsWithStateChanges, nil
+}
+
 // BatchInsert inserts the operations and the operations_accounts links.
 // It returns the IDs of the successfully inserted operations.
 func (m *OperationModel) BatchInsert(

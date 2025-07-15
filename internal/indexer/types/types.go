@@ -35,6 +35,11 @@ type TransactionWithAccountID struct {
 	AccountID string `json:"accountId,omitempty" db:"account_id"`
 }
 
+type TransactionWithStateChangeID struct {
+	Transaction
+	StateChangeID string `json:"stateChangeId,omitempty" db:"state_change_id"`
+}
+
 type AccountWithTxHash struct {
 	Account
 	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
@@ -126,6 +131,11 @@ type Operation struct {
 type OperationWithAccountID struct {
 	Operation
 	AccountID string `db:"account_id"`
+}
+
+type OperationWithStateChangeID struct {
+	Operation
+	StateChangeID string `db:"state_change_id"`
 }
 
 type AccountWithOperationID struct {

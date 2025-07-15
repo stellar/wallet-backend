@@ -53,6 +53,14 @@ type Dataloaders struct {
 	// StateChangesByOperationIDLoader batches requests for state changes by operation ID
 	// Used by Operation.stateChanges field resolver to prevent N+1 queries
 	StateChangesByOperationIDLoader *dataloadgen.Loader[int64, []*types.StateChange]
+
+	// OperationsByStateChangeIDLoader batches requests for operations by state change ID
+	// Used by StateChange.operation field resolver to prevent N+1 queries
+	OperationsByStateChangeIDLoader *dataloadgen.Loader[string, *types.Operation]
+
+	// TransactionsByStateChangeIDLoader batches requests for transactions by state change ID
+	// Used by StateChange.transaction field resolver to prevent N+1 queries
+	TransactionsByStateChangeIDLoader *dataloadgen.Loader[string, *types.Transaction]
 }
 
 // NewDataloaders creates a new instance of all dataloaders
@@ -61,22 +69,24 @@ type Dataloaders struct {
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		OperationsByTxHashLoader:        opByTxHashLoader(models),
-		TransactionsByAccountLoader:     txByAccountLoader(models),
-		OperationsByAccountLoader:       opByAccountLoader(models),
+		OperationsByTxHashLoader:        operationsByTxHashLoader(models),
+		TransactionsByAccountLoader:     transactionsByAccountLoader(models),
+		OperationsByAccountLoader:       operationsByAccountLoader(models),
 		StateChangesByAccountLoader:     stateChangesByAccountLoader(models),
 		AccountsByTxHashLoader:          accountsByTxHashLoader(models),
 		StateChangesByTxHashLoader:      stateChangesByTxHashLoader(models),
 		TransactionsByOperationIDLoader: txByOperationIDLoader(models),
 		AccountsByOperationIDLoader:     accountsByOperationIDLoader(models),
 		StateChangesByOperationIDLoader: stateChangesByOperationIDLoader(models),
+		OperationsByStateChangeIDLoader: operationsByStateChangeIDLoader(models),
+		TransactionsByStateChangeIDLoader: transactionsByStateChangeIDLoader(models),
 	}
 }
 
 // opByTxHashLoader creates a dataloader for fetching operations by transaction hash
 // This prevents N+1 queries when multiple transactions request their operations
 // The loader batches multiple transaction hashes into a single database query
-func opByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
+func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
 	return dataloadgen.NewLoader(
 		// Batch function - receives multiple keys (tx hashes) and returns data for each
 		func(ctx context.Context, keys []string) ([][]*types.Operation, []error) {
@@ -112,7 +122,7 @@ func opByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.
 // txByAccountLoader creates a dataloader for fetching transactions by account address
 // This prevents N+1 queries when multiple accounts request their transactions
 // The loader batches multiple account addresses into a single database query
-func txByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Transaction] {
+func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Transaction] {
 	return dataloadgen.NewLoader(
 		// Batch function - receives multiple keys (account addresses) and returns data for each
 		func(ctx context.Context, keys []string) ([][]*types.Transaction, []error) {
@@ -144,7 +154,7 @@ func txByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types
 // opByAccountLoader creates a dataloader for fetching operations by account address
 // This prevents N+1 queries when multiple accounts request their operations
 // The loader batches multiple account addresses into a single database query
-func opByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
+func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
 	return dataloadgen.NewLoader(
 		// Batch function - receives multiple keys (account addresses) and returns data for each
 		func(ctx context.Context, keys []string) ([][]*types.Operation, []error) {
@@ -388,6 +398,58 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[in
 		// Configure batch size - maximum number of keys to batch together
 		dataloadgen.WithBatchCapacity(100),
 		// Configure wait time - how long to wait for more requests before executing batch
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
+func operationsByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Operation] {
+	return dataloadgen.NewLoader(
+		func(ctx context.Context, keys []string) ([]*types.Operation, []error) {
+			operations, err := models.Operations.BatchGetByStateChangeID(ctx, keys)
+			if err != nil {
+				return nil, []error{err}
+			}
+
+			// Group operations by state change ID
+			operationsByStateChangeID := make(map[string]*types.Operation)
+			for _, operationWithStateChangeID := range operations {
+				operationsByStateChangeID[operationWithStateChangeID.StateChangeID] = &operationWithStateChangeID.Operation
+			}
+
+			// Create result slice matching the order of input keys
+			result := make([]*types.Operation, len(keys))
+			for i, key := range keys {
+				result[i] = operationsByStateChangeID[key] // Will be nil if no operation found
+			}
+			return result, nil
+		},
+		dataloadgen.WithBatchCapacity(100),
+		dataloadgen.WithWait(5*time.Millisecond),
+	)
+}
+
+func transactionsByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Transaction] {
+	return dataloadgen.NewLoader(
+		func(ctx context.Context, keys []string) ([]*types.Transaction, []error) {
+			transactions, err := models.Transactions.BatchGetByStateChangeID(ctx, keys)
+			if err != nil {
+				return nil, []error{err}
+			}
+
+			// Group transactions by state change ID
+			transactionsByStateChangeID := make(map[string]*types.Transaction)
+			for _, transactionWithStateChangeID := range transactions {
+				transactionsByStateChangeID[transactionWithStateChangeID.StateChangeID] = &transactionWithStateChangeID.Transaction
+			}
+
+			// Create result slice matching the order of input keys
+			result := make([]*types.Transaction, len(keys))
+			for i, key := range keys {
+				result[i] = transactionsByStateChangeID[key] // Will be nil if no transaction found
+			}
+			return result, nil
+		},
+		dataloadgen.WithBatchCapacity(100),
 		dataloadgen.WithWait(5*time.Millisecond),
 	)
 }

@@ -17,4 +17,6 @@ type Query {
     # Fetch a list of operations with optional limit
     # Returns empty array if no operations found (non-nullable array)
     operations(limit: Int): [Operation!]!
+
+    stateChanges(limit: Int): [StateChange!]!
 }

@@ -32,6 +32,18 @@ func (m *StateChangeModel) BatchGetByAccount(
 	return stateChanges, nil
 }
 
+func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+	const query = `
+		SELECT * FROM state_changes
+	`
+	var stateChanges []*types.StateChange
+	err := m.DB.SelectContext(ctx, &stateChanges, query)
+	if err != nil {
+		return nil, fmt.Errorf("getting all state changes: %w", err)
+	}
+	return stateChanges, nil
+}
+
 func (m *StateChangeModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,

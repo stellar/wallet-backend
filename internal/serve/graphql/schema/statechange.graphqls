@@ -31,9 +31,6 @@ type StateChange {
   # Account ID this state change belongs to
   accountId: String!           # Maps to json:"accountId"
   
-  # Related account - nullable because resolver might not find it
-  account: Account @goField(forceResolver: true)
-  
   # Operation ID that caused this state change
   operationId: Int64!             # Maps to json:"operationId" -> int64
   

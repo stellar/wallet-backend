@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -75,12 +74,12 @@ type ComplexityRoot struct {
 	Query struct {
 		Account           func(childComplexity int, address string) int
 		Operations        func(childComplexity int, limit *int32) int
+		StateChanges      func(childComplexity int, limit *int32) int
 		TransactionByHash func(childComplexity int, hash string) int
 		Transactions      func(childComplexity int, limit *int32) int
 	}
 
 	StateChange struct {
-		Account             func(childComplexity int) int
 		AccountID           func(childComplexity int) int
 		Amount              func(childComplexity int) int
 		ClaimableBalanceID  func(childComplexity int) int
@@ -137,6 +136,7 @@ type QueryResolver interface {
 	Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error)
 	Account(ctx context.Context, address string) (*types.Account, error)
 	Operations(ctx context.Context, limit *int32) ([]*types.Operation, error)
+	StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error)
 }
 type StateChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.StateChange) (*string, error)
@@ -152,8 +152,6 @@ type StateChangeResolver interface {
 	Thresholds(ctx context.Context, obj *types.StateChange) (*string, error)
 	Flags(ctx context.Context, obj *types.StateChange) ([]string, error)
 	KeyValue(ctx context.Context, obj *types.StateChange) (*string, error)
-
-	Account(ctx context.Context, obj *types.StateChange) (*types.Account, error)
 
 	Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error)
 
@@ -306,6 +304,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Query.Operations(childComplexity, args["limit"].(*int32)), true
 
+	case "Query.stateChanges":
+		if e.complexity.Query.StateChanges == nil {
+			break
+		}
+
+		args, err := ec.field_Query_stateChanges_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.StateChanges(childComplexity, args["limit"].(*int32)), true
+
 	case "Query.transactionByHash":
 		if e.complexity.Query.TransactionByHash == nil {
 			break
@@ -329,13 +339,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.Transactions(childComplexity, args["limit"].(*int32)), true
-
-	case "StateChange.account":
-		if e.complexity.StateChange.Account == nil {
-			break
-		}
-
-		return e.complexity.StateChange.Account(childComplexity), true
 
 	case "StateChange.accountId":
 		if e.complexity.StateChange.AccountID == nil {
@@ -834,6 +837,8 @@ type Query {
     # Fetch a list of operations with optional limit
     # Returns empty array if no operations found (non-nullable array)
     operations(limit: Int): [Operation!]!
+
+    stateChanges(limit: Int): [StateChange!]!
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
@@ -887,9 +892,6 @@ type StateChange {
   # GraphQL Relationships - these fields use resolvers
   # Account ID this state change belongs to
   accountId: String!           # Maps to json:"accountId"
-  
-  # Related account - nullable because resolver might not find it
-  account: Account @goField(forceResolver: true)
   
   # Operation ID that caused this state change
   operationId: Int64!             # Maps to json:"operationId" -> int64
@@ -992,6 +994,29 @@ func (ec *executionContext) field_Query_operations_args(ctx context.Context, raw
 	return args, nil
 }
 func (ec *executionContext) field_Query_operations_argsLimit(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int32, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+	if tmp, ok := rawArgs["limit"]; ok {
+		return ec.unmarshalOInt2ᚖint32(ctx, tmp)
+	}
+
+	var zeroVal *int32
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_stateChanges_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_stateChanges_argsLimit(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_stateChanges_argsLimit(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (*int32, error) {
@@ -1449,8 +1474,6 @@ func (ec *executionContext) fieldContext_Account_stateChanges(_ context.Context,
 				return ec.fieldContext_StateChange_keyValue(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
-			case "account":
-				return ec.fieldContext_StateChange_account(ctx, field)
 			case "operationId":
 				return ec.fieldContext_StateChange_operationId(ctx, field)
 			case "operation":
@@ -1930,8 +1953,6 @@ func (ec *executionContext) fieldContext_Operation_stateChanges(_ context.Contex
 				return ec.fieldContext_StateChange_keyValue(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
-			case "account":
-				return ec.fieldContext_StateChange_account(ctx, field)
 			case "operationId":
 				return ec.fieldContext_StateChange_operationId(ctx, field)
 			case "operation":
@@ -2235,6 +2256,111 @@ func (ec *executionContext) fieldContext_Query_operations(ctx context.Context, f
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_operations_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_stateChanges(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_stateChanges(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().StateChanges(rctx, fc.Args["limit"].(*int32))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*types.StateChange)
+	fc.Result = res
+	return ec.marshalNStateChange2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_stateChanges(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_StateChange_id(ctx, field)
+			case "stateChangeCategory":
+				return ec.fieldContext_StateChange_stateChangeCategory(ctx, field)
+			case "stateChangeReason":
+				return ec.fieldContext_StateChange_stateChangeReason(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_StateChange_ingestedAt(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_StateChange_ledgerCreatedAt(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_StateChange_ledgerNumber(ctx, field)
+			case "tokenId":
+				return ec.fieldContext_StateChange_tokenId(ctx, field)
+			case "amount":
+				return ec.fieldContext_StateChange_amount(ctx, field)
+			case "claimableBalanceId":
+				return ec.fieldContext_StateChange_claimableBalanceId(ctx, field)
+			case "liquidityPoolId":
+				return ec.fieldContext_StateChange_liquidityPoolId(ctx, field)
+			case "offerId":
+				return ec.fieldContext_StateChange_offerId(ctx, field)
+			case "signerAccountId":
+				return ec.fieldContext_StateChange_signerAccountId(ctx, field)
+			case "spenderAccountId":
+				return ec.fieldContext_StateChange_spenderAccountId(ctx, field)
+			case "sponsoredAccountId":
+				return ec.fieldContext_StateChange_sponsoredAccountId(ctx, field)
+			case "sponsorAccountId":
+				return ec.fieldContext_StateChange_sponsorAccountId(ctx, field)
+			case "signerWeights":
+				return ec.fieldContext_StateChange_signerWeights(ctx, field)
+			case "thresholds":
+				return ec.fieldContext_StateChange_thresholds(ctx, field)
+			case "flags":
+				return ec.fieldContext_StateChange_flags(ctx, field)
+			case "keyValue":
+				return ec.fieldContext_StateChange_keyValue(ctx, field)
+			case "accountId":
+				return ec.fieldContext_StateChange_accountId(ctx, field)
+			case "operationId":
+				return ec.fieldContext_StateChange_operationId(ctx, field)
+			case "operation":
+				return ec.fieldContext_StateChange_operation(ctx, field)
+			case "txHash":
+				return ec.fieldContext_StateChange_txHash(ctx, field)
+			case "transaction":
+				return ec.fieldContext_StateChange_transaction(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StateChange", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_stateChanges_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3210,59 +3336,6 @@ func (ec *executionContext) fieldContext_StateChange_accountId(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _StateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.StateChange) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_StateChange_account(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.StateChange().Account(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*types.Account)
-	fc.Result = res
-	return ec.marshalOAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_StateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "StateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "stellarAddress":
-				return ec.fieldContext_Account_stellarAddress(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
-			case "transactions":
-				return ec.fieldContext_Account_transactions(ctx, field)
-			case "operations":
-				return ec.fieldContext_Account_operations(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Account_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _StateChange_operationId(ctx context.Context, field graphql.CollectedField, obj *types.StateChange) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_StateChange_operationId(ctx, field)
 	if err != nil {
@@ -4028,8 +4101,6 @@ func (ec *executionContext) fieldContext_Transaction_stateChanges(_ context.Cont
 				return ec.fieldContext_StateChange_keyValue(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
-			case "account":
-				return ec.fieldContext_StateChange_account(ctx, field)
 			case "operationId":
 				return ec.fieldContext_StateChange_operationId(ctx, field)
 			case "operation":
@@ -6426,6 +6497,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "stateChanges":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_stateChanges(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -6929,39 +7022,6 @@ func (ec *executionContext) _StateChange(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "account":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._StateChange_account(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "operationId":
 			out.Values[i] = ec._StateChange_operationId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

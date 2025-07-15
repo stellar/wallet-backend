@@ -10,7 +10,9 @@ import (
 	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // TokenID is the resolver for the tokenId field.
@@ -144,19 +146,24 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 	return &jsonString, nil
 }
 
-// Account is the resolver for the account field.
-func (r *stateChangeResolver) Account(ctx context.Context, obj *types.StateChange) (*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Account - account"))
-}
-
 // Operation is the resolver for the operation field.
 func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operation - operation"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	operations, err := loaders.OperationsByStateChangeIDLoader.Load(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	return operations, nil
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
-	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	transactions, err := loaders.TransactionsByStateChangeIDLoader.Load(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	return transactions, nil
 }
 
 // StateChange returns graphql1.StateChangeResolver implementation.

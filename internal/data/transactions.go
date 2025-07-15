@@ -91,6 +91,26 @@ func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationI
 	return transactions, nil
 }
 
+func (m *TransactionModel) BatchGetByStateChangeID(ctx context.Context, stateChangeIDs []string) ([]*types.TransactionWithStateChangeID, error) {
+	const query = `
+		SELECT t.*, sc.id as state_change_id
+		FROM state_changes sc
+		INNER JOIN transactions t ON t.hash = sc.tx_hash 
+		WHERE sc.id = ANY($1)
+		ORDER BY t.ledger_created_at DESC
+	`
+	var transactions []*types.TransactionWithStateChangeID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
 // BatchInsert inserts the transactions and the transactions_accounts links.
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(

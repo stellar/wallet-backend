@@ -15,12 +15,7 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	// Query the database using the injected models dependency
-	transaction, err := r.models.Transactions.GetByHash(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	return transaction, nil
+	return r.models.Transactions.GetByHash(ctx, hash)
 }
 
 // Transactions is the resolver for the transactions field.
@@ -34,23 +29,18 @@ func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*type
 // This resolver handles the "account" query.
 // It shows the standard pattern: receive args, query data, return result or error
 func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
-	// Query the database for the account
-	account, err := r.models.Account.Get(ctx, address)
-	if err != nil {
-		return nil, err
-	}
-	return account, nil
+	return r.models.Account.Get(ctx, address)
 }
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	// Query operations with optional limit
-	operations, err := r.models.Operations.GetAll(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	return operations, nil
+	return r.models.Operations.GetAll(ctx, limit)
+}
+
+// StateChanges is the resolver for the stateChanges field.
+func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+	return r.models.StateChanges.GetAll(ctx, limit)
 }
 
 // Query returns graphql1.QueryResolver implementation.
