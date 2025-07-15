@@ -1,22 +1,11 @@
 # GraphQL StateChange type - represents changes to blockchain state
 # This type has many nullable fields to handle various state change scenarios
 type StateChange {
-  # State change unique identifier
   id: String!
-  
-  # Category of state change - uses GraphQL enum for type safety
   stateChangeCategory: StateChangeCategory!
-  
-  # Reason for state change - nullable enum (some changes don't have reasons)
   stateChangeReason: StateChangeReason  # Nullable in Go struct
-  
-  # Timestamp when state change was ingested by our system
   ingestedAt: Time!
-  
-  # Timestamp when ledger was created
   ledgerCreatedAt: Time!
-  
-  # Ledger number - uses custom UInt32 scalar
   ledgerNumber: UInt32!           # Maps to uint32
   
   # GraphQL Nullable fields - these map to sql.NullString in Go
