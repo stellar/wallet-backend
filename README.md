@@ -12,6 +12,10 @@ account management, and payment tracking capabilities.
 - [Wallet-Backend](#wallet-backend)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
+  - [Usage](#usage)
+    - [Transaction Building and Fee Bump](#transaction-building-and-fee-bump)
+      - [Complete Transaction Flow](#complete-transaction-flow)
+    - [State Changes Indexer and History API](#state-changes-indexer-and-history-api)
   - [Local Development Setup](#local-development-setup)
     - [Prerequisites](#prerequisites)
     - [Running the Server](#running-the-server)
@@ -37,6 +41,73 @@ The wallet-backend service provides several key functionalities:
 - **Payment History**: Tracking and querying of payment records
 - **Channel Account Management**: Creation and management of channel accounts for transaction signing
 - **Security**: Request authentication and signature verification
+
+## Usage
+
+The wallet-backend provides two core services that simplify Stellar transaction management for wallet applications:
+
+### Transaction Building and Fee Bump
+
+1. **Transaction Building** (`POST /transactions/build`):
+   - Uses pre-funded channel accounts to handle sequence numbers automatically
+   - Provides high throughput by eliminating client-side sequence number management
+   - Returns signed transaction XDRs ready for client signature
+
+2. **Fee Bump Transactions** (`POST /tx/create-fee-bump`):
+   - Automatically creates and signs fee bump transactions
+   - Uses a distribution account to cover transaction fees
+   - Returns a complete fee bump transaction ready for submission
+
+#### Complete Transaction Flow
+
+The following diagram illustrates the complete transaction lifecycle:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant WB as Wallet Backend Server
+    participant RPC as Stellar RPC
+
+    Note over Client,RPC: Complete Transaction Flow
+
+    %% Step 1: Build Transaction
+    Client->>WB: POST /transactions/build
+    Note right of Client: JWT authenticated request<br/>with operations array
+
+    WB->>RPC: GetAccountLedgerSequence(channelAccount)
+    RPC-->>WB: Current sequence number
+
+    WB->>WB: Get idle channel account<br/>Build transaction<br/>Sign with channel account
+    WB-->>Client: { transactionXdrs: ["..."] }
+
+    %% Step 2: Client Signs Transaction
+    Note over Client: Parse transaction XDR<br/>Sign with user keypairs<br/>Encode back to XDR
+
+    %% Step 3: Fee Bump Transaction
+    Client->>WB: POST /tx/create-fee-bump
+    Note right of Client: { transaction: "signedTxXDR" }
+
+    WB->>WB: Parse and validate transaction<br/>Create fee bump transaction<br/>Sign with distribution account
+    WB-->>Client: { transaction: "feeBumpTxXDR",<br/>networkPassphrase: "..." }
+
+    %% Step 4: Submit to RPC
+    Client->>RPC: sendTransaction(feeBumpTxXDR)
+    RPC-->>Client: { status: "PENDING", hash: "..." }
+
+    %% Step 5: Poll for Result
+    loop Poll for confirmation
+        Client->>RPC: getTransaction(hash)
+        RPC-->>Client: { status: "NOT_FOUND" }
+        Note over Client: Wait ~6 seconds for the transaction to be confirmed
+    end
+
+    Client->>RPC: getTransaction(hash)
+    RPC-->>Client: { status: "SUCCESS", ... }
+```
+
+### State Changes Indexer and History API
+
+🚧 This is a work in progress.
 
 ## Local Development Setup
 
