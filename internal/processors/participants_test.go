@@ -584,9 +584,6 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 						Participants: set.NewSet(
 							"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
 							"CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD",
-							// ScBytes produces two optional addresses (contractID and accountID):
-							"GCY6URWMZUT7NTUGFAGWCGQEAMKTR2BYBPNLEQRTXZDEWX7DZSN7FEDM",
-							"CCY6URWMZUT7NTUGFAGWCGQEAMKTR2BYBPNLEQRTXZDEWX7DZSN7EAGV",
 						),
 					},
 				}

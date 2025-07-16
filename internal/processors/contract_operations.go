@@ -49,69 +49,6 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 	return contractID, nil
 }
 
-// scAddressesForScVal returns all ScAddresses that can be found in a ScVal.
-// If the ScVal is a ScvVec or ScvMap, it recursively iterates over its inner values to find all existing ScAddresses.
-// If the ScVal is a ScvBytes with a length of 32, it returns two ScAddresses: one oncoded as ContractID and another as AccountID.
-func scAddressesForScVal(scVal xdr.ScVal) set.Set[xdr.ScAddress] {
-	scAddresses := set.NewSet[xdr.ScAddress]()
-	switch scVal.Type {
-	case xdr.ScValTypeScvAddress:
-		scAddresses.Add(scVal.MustAddress())
-
-	case xdr.ScValTypeScvVec:
-		for _, innerVal := range *scVal.MustVec() {
-			scAddresses = scAddresses.Union(scAddressesForScVal(innerVal))
-		}
-
-	case xdr.ScValTypeScvMap:
-		for _, mapEntry := range *scVal.MustMap() {
-			scAddresses = scAddresses.Union(scAddressesForScVal(mapEntry.Key))
-			scAddresses = scAddresses.Union(scAddressesForScVal(mapEntry.Val))
-		}
-
-	case xdr.ScValTypeScvBytes:
-		// xdr.ScValTypeScvBytes is sometimes used for contract IDs and/or public keys.
-		b := scVal.MustBytes()
-		if len(b) != 32 {
-			break
-		}
-
-		if address, err := strkey.Encode(strkey.VersionByteAccountID, b); err == nil {
-			scAddresses.Add(xdr.ScAddress{
-				Type:      xdr.ScAddressTypeScAddressTypeAccount,
-				AccountId: utils.PointOf(xdr.MustAddress(address)),
-			})
-		}
-		if _, err := strkey.Encode(strkey.VersionByteContract, b); err == nil {
-			scAddresses.Add(xdr.ScAddress{
-				Type:       xdr.ScAddressTypeScAddressTypeContract,
-				ContractId: utils.PointOf(xdr.ContractId(b)),
-			})
-		}
-
-	default:
-		break
-	}
-
-	return scAddresses
-}
-
-// participantsForScVal extracts all participant addresses from an ScVal.
-func participantsForScVal(scVal xdr.ScVal) (set.Set[string], error) {
-	scAddresses := scAddressesForScVal(scVal)
-	participants := set.NewSet[string]()
-
-	for scvAddress := range scAddresses.Iter() {
-		scAddressStr, err := scvAddress.String()
-		if err != nil {
-			return nil, fmt.Errorf("converting ScAddress to string: %w", err)
-		}
-		participants.Add(scAddressStr)
-	}
-
-	return participants, nil
-}
-
 // participantsFromInvocationAndSubInvocations recursively collects all ScAddresses from a SorobanAuthorizedInvocation
 // and its subinvocations.
 func participantsFromInvocationAndSubInvocations(networkPassphrase string, invocation xdr.SorobanAuthorizedInvocation) (set.Set[string], error) {
@@ -132,12 +69,6 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 			return nil, fmt.Errorf("converting contract address to string: %w", err)
 		}
 		participants.Add(contractID)
-
-		argsParticipants, err := participantsForScVal(scVecToScVal(contractFn.Args))
-		if err != nil {
-			return nil, fmt.Errorf("getting invoke contract args participants: %w", err)
-		}
-		participants = participants.Union(argsParticipants)
 
 	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn:
 		createContractHostFn, ok := invocation.Function.GetCreateContractHostFn()
@@ -162,12 +93,6 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 			return nil, fmt.Errorf("getting contract ID: %w", err)
 		}
 		participants = participants.Union(contractIDs)
-
-		argsParticipants, err := participantsForScVal(scVecToScVal(createContractV2HostFn.ConstructorArgs))
-		if err != nil {
-			return nil, fmt.Errorf("getting constructor args participants: %w", err)
-		}
-		participants = participants.Union(argsParticipants)
 	}
 
 	for _, sub := range invocation.SubInvocations {
@@ -201,10 +126,6 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 	}
 
 	return participants, nil
-}
-
-func scVecToScVal(scVec xdr.ScVec) xdr.ScVal {
-	return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(&scVec)}
 }
 
 // participantsForSorobanOp returns the participants for a Soroban contract operation.
@@ -372,13 +293,6 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	}
 	participants = participants.Union(contractIDs)
 
-	// (Constructor) args participants
-	argsParticipants, err := participantsForScVal(scVecToScVal(createContractOp.ConstructorArgs))
-	if err != nil {
-		return nil, fmt.Errorf("getting constructor args participants: %w", err)
-	}
-	participants = participants.Union(argsParticipants)
-
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
 	authParticipants, err := participantsForAuthEntries(p.op.Network, authEntries)
@@ -492,13 +406,6 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	if contractID != "" {
 		participants.Add(contractID)
 	}
-
-	// Args participants
-	argsParticipants, err := participantsForScVal(scVecToScVal(invokeContractOp.Args))
-	if err != nil {
-		return nil, fmt.Errorf("getting invoke contract args participants: %w", err)
-	}
-	participants = participants.Union(argsParticipants)
 
 	// Auth participants
 	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
