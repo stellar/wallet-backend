@@ -128,8 +128,22 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 	return participants, nil
 }
 
-// participantsForSorobanOp returns the participants for a Soroban contract operation.
-// It can return ErrNotSorobanOperation if the operation is not a Soroban operation.
+// participantsForSorobanOp identifies participants (AddressId or ContractId) from Soroban operations.
+// The source account is always included. Additional participants are gathered based on the operation type:
+//
+// - For `ExtendFootprintTtl` and `RestoreFootprint` operations: only the source account is included.
+// - For `InvokeHostFunction.UploadWasm` operations: only the source account is included.
+// - For `InvokeHostFunction.InvokeContract`: includes the ContractId being invoked.
+// - For `InvokeHostFunction.CreateContract(V1/V2)`, it includes the fromAddress, and if the subtype is:
+//   - `FromAsset`: includes the SAC ID derived from the classic asset being deployed
+//   - `FromAccount`: includes the fromAccount address and the calculated contract ID (from preimage)
+//
+// For CreateContract (V1/V2) and InvokeContract operations, we also:
+//   - Include all AccountId and ContractId addresses found in AuthEntries
+//   - Recursively include any nested InvokeContract or CreateContract (V1/V2) calls found in subinvocations,
+//     applying the same extraction logic as above
+//
+// It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
 func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
