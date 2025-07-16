@@ -1,16 +1,13 @@
 # GraphQL Operation type - represents a blockchain operation
 # Operations are the individual actions within a transaction
 type Operation {
-  id: Int64!                   # Maps to int64
+  id: Int64!                   
   operationType: OperationType!
-  operationXdr: String!        # Maps to json:"operationXdr"
+  operationXdr: String!        
   ledgerCreatedAt: Time!
   ingestedAt: Time!
   
-  # GraphQL Relationships - these fields use resolvers
-  # Transaction hash this operation belongs to
-  txHash: String!
-  
+  # GraphQL Relationships - these fields use resolvers  
   # Parent transaction - nullable because resolver might not find it
   transaction: Transaction @goField(forceResolver: true)
   

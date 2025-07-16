@@ -2,11 +2,11 @@
 # gqlgen generates Go structs from this schema definition
 type Transaction {
   hash: String!
-  toId: Int64!                 # Maps to json:"to_id" -> ToID int64
-  envelopeXdr: String!         # Maps to json:"envelopeXdr" -> EnvelopeXDR
-  resultXdr: String!           # Maps to json:"resultXdr" -> ResultXDR
-  metaXdr: String!             # Maps to json:"metaXdr" -> MetaXDR
-  ledgerNumber: UInt32!        # Maps to uint32
+  toId: Int64!                 
+  envelopeXdr: String!         
+  resultXdr: String!           
+  metaXdr: String!             
+  ledgerNumber: UInt32!        
   ledgerCreatedAt: Time!
   ingestedAt: Time!
   

@@ -2,43 +2,35 @@
 # This type has many nullable fields to handle various state change scenarios
 type StateChange {
   id: String!
+  accountId: String!           
   stateChangeCategory: StateChangeCategory!
-  stateChangeReason: StateChangeReason  # Nullable in Go struct
+  stateChangeReason: StateChangeReason
   ingestedAt: Time!
   ledgerCreatedAt: Time!
-  ledgerNumber: UInt32!           # Maps to uint32
+  ledgerNumber: UInt32!           
   
   # GraphQL Nullable fields - these map to sql.NullString in Go
   # GraphQL handles nullable fields gracefully - they return null if not set
-  tokenId: String              # Maps to json:"tokenId"
+  tokenId: String              
   amount: String
-  claimableBalanceId: String   # Maps to json:"claimableBalanceId"
-  liquidityPoolId: String      # Maps to json:"liquidityPoolId"
-  offerId: String              # Maps to json:"offerId"
-  signerAccountId: String      # Maps to json:"signerAccountId"
-  spenderAccountId: String     # Maps to json:"spenderAccountId"
-  sponsoredAccountId: String   # Maps to json:"sponsoredAccountId"
-  sponsorAccountId: String     # Maps to json:"sponsorAccountId"
+  claimableBalanceId: String   
+  liquidityPoolId: String      
+  offerId: String              
+  signerAccountId: String      
+  spenderAccountId: String     
+  sponsoredAccountId: String   
+  sponsorAccountId: String     
   
   # GraphQL fields for JSONB data - require custom resolvers
   # These fields need special handling to convert between Go types and GraphQL
-  signerWeights: String        # NullableJSONB -> JSON string
-  thresholds: String           # NullableJSONB -> JSON string
-  flags: [String!]             # NullableJSON -> string array
-  keyValue: String             # NullableJSONB -> JSON string
+  signerWeights: String        
+  thresholds: String           
+  flags: [String!]             
+  keyValue: String             
   
   # GraphQL Relationships - these fields use resolvers
-  # Account ID this state change belongs to
-  accountId: String!           # Maps to json:"accountId"
-  
-  # Operation ID that caused this state change
-  operationId: Int64!             # Maps to json:"operationId" -> int64
-  
   # Related operation - nullable because resolver might not find it
   operation: Operation @goField(forceResolver: true)
-  
-  # Transaction hash that contains the operation
-  txHash: String!
   
   # Related transaction - nullable because resolver might not find it
   transaction: Transaction @goField(forceResolver: true)
