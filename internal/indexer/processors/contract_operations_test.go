@@ -18,10 +18,9 @@ import (
 )
 
 func Test_calculateContractID(t *testing.T) {
-	networkPassphrase := network.TestNetworkPassphrase
 	salt := xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
 
-	contractID, err := calculateContractID(networkPassphrase, xdr.ContractIdPreimageFromAddress{
+	contractID, err := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
 		Address: makeScAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"),
 		Salt:    salt,
 	})
@@ -446,7 +445,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		constructorAccountID  = "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER"
 		constructorContractID = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
 	)
-	usdcAsset := xdr.Asset{
+	usdcXdrAsset := xdr.Asset{
 		Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
 		AlphaNum4: &xdr.AlphaNum4{
 			AssetCode: [4]byte{'U', 'S', 'D', 'C'},
@@ -587,7 +586,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
 						op: func() operation_processor.TransactionOperationWrapper {
 							op := basicSorobanOp()
-							setFromAsset(&op, hostFnType, usdcAsset)
+							setFromAsset(&op, hostFnType, usdcXdrAsset)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
 								op = includeSubInvocations(op)
