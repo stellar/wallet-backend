@@ -7,9 +7,8 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 
-	statechangeprocessors "github.com/stellar/wallet-backend/internal/indexer/processors"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/processors"
 )
 
 type IndexerBufferInterface interface {
@@ -44,8 +43,8 @@ func NewIndexer(networkPassphrase string) *Indexer {
 	return &Indexer{
 		Buffer:                 NewIndexerBuffer(),
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: statechangeprocessors.NewTokenTransferProcessor(networkPassphrase),
-		effectsProcessor:       statechangeprocessors.NewEffectsProcessor(networkPassphrase),
+		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
+		effectsProcessor:       processors.NewEffectsProcessor(networkPassphrase),
 	}
 }
 

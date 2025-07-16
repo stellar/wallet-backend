@@ -3,14 +3,13 @@ package indexer
 import (
 	"context"
 
-	"github.com/stretchr/testify/mock"
-
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/processors"
+	"github.com/stretchr/testify/mock"
 
-	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 type EffectsProcessorInterface interface {
