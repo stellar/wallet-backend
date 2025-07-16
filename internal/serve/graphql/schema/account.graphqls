@@ -2,20 +2,20 @@
 # In GraphQL, types define the shape of data that can be queried
 type Account @key(fields: "stellarAddress"){
   stellarAddress: String!
-  createdAt: Time!
+  createdAt:      Time!
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested
   
   # All transactions associated with this account
   # Uses dataloader for efficient batching to prevent N+1 queries
-  transactions: [Transaction!]!
+  transactions:   [Transaction!]!
   
   # All operations associated with this account
   # Uses dataloader for efficient batching to prevent N+1 queries
-  operations: [Operation!]!
+  operations:     [Operation!]!
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges: [StateChange!]!
+  stateChanges:   [StateChange!]!
 }

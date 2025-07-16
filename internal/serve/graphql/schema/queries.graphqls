@@ -2,8 +2,8 @@
 # In GraphQL, the Query type is the entry point for read operations
 type Query {
     transactionByHash(hash: String!): Transaction
-    transactions(limit: Int): [Transaction!]!
-    account(address: String!): Account
-    operations(limit: Int): [Operation!]!
-    stateChanges(limit: Int): [StateChange!]!
+    transactions(limit: Int):         [Transaction!]!
+    account(address: String!):        Account
+    operations(limit: Int):           [Operation!]!
+    stateChanges(limit: Int):         [StateChange!]!
 }

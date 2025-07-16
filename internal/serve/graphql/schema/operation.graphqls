@@ -1,19 +1,19 @@
 # GraphQL Operation type - represents a blockchain operation
 # Operations are the individual actions within a transaction
 type Operation @key(fields: "id"){
-  id: Int64!                   
-  operationType: OperationType!
-  operationXdr: String!        
+  id:              Int64!
+  operationType:   OperationType!
+  operationXdr:    String!
   ledgerCreatedAt: Time!
-  ingestedAt: Time!
+  ingestedAt:      Time!
   
   # GraphQL Relationships - these fields use resolvers  
   # Parent transaction - nullable because resolver might not find it
   transaction: Transaction @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
-  accounts: [Account!]! @goField(forceResolver: true)
+  accounts:        [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges: [StateChange!]! @goField(forceResolver: true)
+  stateChanges:    [StateChange!]! @goField(forceResolver: true)
 }
