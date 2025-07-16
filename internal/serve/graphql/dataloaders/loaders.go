@@ -53,13 +53,13 @@ type Dataloaders struct {
 	// Used by Operation.stateChanges field resolver to prevent N+1 queries
 	StateChangesByOperationIDLoader *dataloadgen.Loader[int64, []*types.StateChange]
 
-	// OperationsByStateChangeIDLoader batches requests for operations by state change ID
+	// OperationByStateChangeIDLoader batches requests for operations by state change ID
 	// Used by StateChange.operation field resolver to prevent N+1 queries
-	OperationsByStateChangeIDLoader *dataloadgen.Loader[string, *types.Operation]
+	OperationByStateChangeIDLoader *dataloadgen.Loader[string, *types.Operation]
 
-	// TransactionsByStateChangeIDLoader batches requests for transactions by state change ID
+	// TransactionByStateChangeIDLoader batches requests for transactions by state change ID
 	// Used by StateChange.transaction field resolver to prevent N+1 queries
-	TransactionsByStateChangeIDLoader *dataloadgen.Loader[string, *types.Transaction]
+	TransactionByStateChangeIDLoader *dataloadgen.Loader[string, *types.Transaction]
 }
 
 // NewDataloaders creates a new instance of all dataloaders
@@ -77,8 +77,8 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 		TransactionsByOperationIDLoader:   txByOperationIDLoader(models),
 		AccountsByOperationIDLoader:       accountsByOperationIDLoader(models),
 		StateChangesByOperationIDLoader:   stateChangesByOperationIDLoader(models),
-		OperationsByStateChangeIDLoader:   operationsByStateChangeIDLoader(models),
-		TransactionsByStateChangeIDLoader: transactionsByStateChangeIDLoader(models),
+		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
+		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 	}
 }
 
@@ -326,7 +326,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[in
 	)
 }
 
-func operationsByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Operation] {
+func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.OperationWithStateChangeID, error) {
 			return models.Operations.BatchGetByStateChangeID(ctx, keys)
@@ -340,7 +340,7 @@ func operationsByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[st
 	)
 }
 
-func transactionsByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Transaction] {
+func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.TransactionWithStateChangeID, error) {
 			return models.Transactions.BatchGetByStateChangeID(ctx, keys)
