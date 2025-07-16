@@ -187,14 +187,14 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						op := basicSorobanOp()
 						op.Operation.Body.Type = opType
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = []xdr.LedgerKey{
-							makeContractDataLedgerKey(contractID1),
+							makeContractDataLedgerKey(contractID1), // <--- footprint is not returned
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount, contractID1),
+					wantParticipants: set.NewSet(txSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly/op.SourceAccount", prefix),
@@ -203,14 +203,14 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						op.Operation.Body.Type = opType
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = []xdr.LedgerKey{
-							makeContractDataLedgerKey(contractID1),
+							makeContractDataLedgerKey(contractID1), // <--- footprint is not returned
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount, contractID1),
+					wantParticipants: set.NewSet(opSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly&ReadWrite/tx.SourceAccount", prefix),
@@ -218,18 +218,18 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						op := basicSorobanOp()
 						op.Operation.Body.Type = opType
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly = []xdr.LedgerKey{
-							makeContractDataLedgerKey(contractID1),
-							makeAccountLedgerKey(accountID1),
+							makeContractDataLedgerKey(contractID1), // <--- footprint is not returned
+							makeAccountLedgerKey(accountID1),       // <--- footprint is not returned
 						}
 						op.Transaction.Envelope.V1.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite = []xdr.LedgerKey{
-							makeContractDataLedgerKey(contractID2),
+							makeContractDataLedgerKey(contractID2), // <--- footprint is not returned
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount, contractID1, accountID1, contractID2),
+					wantParticipants: set.NewSet(txSourceAccount),
 				},
 			)
 		}

@@ -139,12 +139,7 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
-		footprintOpProcessor := FootprintOpProcessor{op: &op}
-		footprintOpParticipants, err := footprintOpProcessor.Participants()
-		if err != nil {
-			return nil, fmt.Errorf("getting footprint participants: %w", err)
-		}
-		participants = participants.Union(footprintOpParticipants)
+		break
 
 	case xdr.OperationTypeInvokeHostFunction:
 		invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
@@ -300,74 +295,6 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 		return nil, fmt.Errorf("getting auth participants: %w", err)
 	}
 	participants = participants.Union(authParticipants)
-
-	return participants, nil
-}
-
-type FootprintOpProcessor struct {
-	op *operation_processor.TransactionOperationWrapper
-}
-
-func (p *FootprintOpProcessor) ValidateType() bool {
-	opType := p.op.OperationType()
-	return opType == xdr.OperationTypeExtendFootprintTtl || opType == xdr.OperationTypeRestoreFootprint
-}
-
-// contractParticipantsFromLedgerKey returns either the contract ID or the account ID for a contract data or account ledger key.
-// It returns an empty string and false if the ledger key is not a contract data or account ledger key.
-func (p *FootprintOpProcessor) contractParticipantsFromLedgerKey(ledgerKey xdr.LedgerKey) (string, bool) {
-	switch ledgerKey.Type {
-	case xdr.LedgerEntryTypeContractData:
-		contractData := ledgerKey.MustContractData()
-		if contractIDHash, ok := contractData.Contract.GetContractId(); ok {
-			contractIDByte, err := contractIDHash.MarshalBinary()
-			if err != nil {
-				panic(err)
-			}
-			return strkey.MustEncode(strkey.VersionByteContract, contractIDByte), true
-		}
-
-	case xdr.LedgerEntryTypeAccount:
-		account := ledgerKey.MustAccount()
-		return account.AccountId.Address(), true
-
-	default:
-		break
-	}
-
-	return "", false
-}
-
-// contractParticipantsFromTxSorobanData returns the contract IDs for a transaction envelope.
-// It returns an empty string if the transaction envelope is not a Soroban transaction envelope.
-func (p *FootprintOpProcessor) contractParticipantsFromTxSorobanData() set.Set[string] {
-	v1Envelope, ok := p.op.Transaction.GetTransactionV1Envelope()
-	if !ok {
-		return set.NewSet[string]()
-	}
-
-	contractIDs := set.NewSet[string]()
-	footprint := v1Envelope.Tx.Ext.SorobanData.Resources.Footprint
-	for _, ledgerKey := range append(footprint.ReadWrite, footprint.ReadOnly...) {
-		contractID, ok := p.contractParticipantsFromLedgerKey(ledgerKey)
-		if ok && contractID != "" {
-			contractIDs.Add(contractID)
-		}
-	}
-
-	return contractIDs
-}
-
-func (p *FootprintOpProcessor) Participants() (set.Set[string], error) {
-	if !p.ValidateType() {
-		return nil, fmt.Errorf("invalid operation type: %w", ErrInvalidOpType)
-	}
-
-	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
-
-	// Contract IDs
-	participants = participants.Union(p.contractParticipantsFromTxSorobanData())
 
 	return participants, nil
 }
