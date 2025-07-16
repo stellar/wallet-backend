@@ -15,6 +15,16 @@ type Account struct {
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
 }
 
+type AccountWithTxHash struct {
+	Account
+	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+}
+
+type AccountWithOperationID struct {
+	Account
+	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
+}
+
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"to_id,omitempty" db:"to_id"`
@@ -40,9 +50,9 @@ type TransactionWithStateChangeID struct {
 	StateChangeID string `json:"stateChangeId,omitempty" db:"state_change_id"`
 }
 
-type AccountWithTxHash struct {
-	Account
-	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+type TransactionWithOperationID struct {
+	Transaction
+	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
 }
 
 // xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
@@ -136,11 +146,6 @@ type OperationWithAccountID struct {
 type OperationWithStateChangeID struct {
 	Operation
 	StateChangeID string `db:"state_change_id"`
-}
-
-type AccountWithOperationID struct {
-	Account
-	OperationID int64 `db:"operation_id"`
 }
 
 type StateChangeCategory string

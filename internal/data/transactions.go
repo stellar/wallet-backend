@@ -72,14 +72,14 @@ func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []str
 	return transactions, nil
 }
 
-func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.Transaction, error) {
+func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
 	const query = `
-		SELECT transactions.* 
-		FROM operations 
-		INNER JOIN transactions 
-		ON operations.tx_hash = transactions.hash 
-		WHERE operations.id = ANY($1)`
-	var transactions []*types.Transaction
+		SELECT transactions.*, o.id as operation_id
+		FROM operations o
+		INNER JOIN transactions t
+		ON o.tx_hash = t.hash 
+		WHERE o.id = ANY($1)`
+	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
@@ -97,8 +97,7 @@ func (m *TransactionModel) BatchGetByStateChangeID(ctx context.Context, stateCha
 		FROM state_changes sc
 		INNER JOIN transactions t ON t.hash = sc.tx_hash 
 		WHERE sc.id = ANY($1)
-		ORDER BY t.ledger_created_at DESC
-	`
+		`
 	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))
