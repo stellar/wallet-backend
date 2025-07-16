@@ -33,14 +33,21 @@ func (m *StateChangeModel) BatchGetByAccount(
 }
 
 func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	const query = `
-		SELECT * FROM state_changes
-	`
+	start := time.Now()
+	query := `SELECT * FROM state_changes ORDER BY ledger_created_at DESC`
+	var args []interface{}
+	if limit != nil && *limit > 0 {
+		query += ` LIMIT $1`
+		args = append(args, *limit)
+	}
 	var stateChanges []*types.StateChange
-	err := m.DB.SelectContext(ctx, &stateChanges, query)
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
 		return nil, fmt.Errorf("getting all state changes: %w", err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
 	return stateChanges, nil
 }
 

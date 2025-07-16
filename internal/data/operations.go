@@ -20,12 +20,14 @@ type OperationModel struct {
 
 func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Operation, error) {
 	query := `SELECT * FROM operations ORDER BY ledger_created_at DESC`
+	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`
+		args = append(args, *limit)
 	}
 	var operations []*types.Operation
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, limit)
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
