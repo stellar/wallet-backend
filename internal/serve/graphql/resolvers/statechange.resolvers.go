@@ -149,7 +149,7 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 // Operation is the resolver for the operation field.
 func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	operations, err := loaders.OperationsByStateChangeIDLoader.Load(ctx, obj.ID)
+	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, obj.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateCha
 // Transaction is the resolver for the transaction field.
 func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	transactions, err := loaders.TransactionsByStateChangeIDLoader.Load(ctx, obj.ID)
+	transactions, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, obj.ID)
 	if err != nil {
 		return nil, err
 	}
