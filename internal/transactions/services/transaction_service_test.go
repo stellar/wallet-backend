@@ -29,7 +29,7 @@ import (
 func buildInvokeContractOp(t *testing.T) *txnbuild.InvokeHostFunction {
 	t.Helper()
 
-	var nativeAssetContractID xdr.Hash
+	var nativeAssetContractID xdr.ContractId
 	var err error
 	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func buildSimulationResponse(
 	case credentialsType == xdr.SorobanCredentialsTypeSorobanCredentialsAddress && signerType == xdr.ScAddressTypeScAddressTypeContract:
 		decodedContractID, err := strkey.Decode(strkey.VersionByteContract, signerID)
 		require.NoError(t, err)
-		authEntryContractID := xdr.Hash(decodedContractID)
+		authEntryContractID := xdr.ContractId(decodedContractID)
 		sorobanCredentials = xdr.SorobanCredentials{
 			Type: credentialsType,
 			Address: &xdr.SorobanAddressCredentials{

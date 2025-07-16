@@ -331,7 +331,7 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 		opSourceAccount = sourceAccountKP.Address()
 	}
 
-	var nativeAssetContractID xdr.Hash
+	var nativeAssetContractID xdr.ContractId
 	var err error
 	nativeAssetContractID, err = xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(f.NetworkPassphrase)
 	if err != nil {

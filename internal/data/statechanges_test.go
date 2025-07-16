@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -35,6 +36,34 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	require.NoError(t, err)
 	nonExistingAccount := keypair.MustRandom()
 
+	// Create referenced transactions first
+	tx1 := types.Transaction{
+		Hash:            "tx1",
+		ToID:            1,
+		EnvelopeXDR:     "envelope1",
+		ResultXDR:       "result1",
+		MetaXDR:         "meta1",
+		LedgerNumber:    1,
+		LedgerCreatedAt: now,
+	}
+	tx2 := types.Transaction{
+		Hash:            "tx2",
+		ToID:            2,
+		EnvelopeXDR:     "envelope2",
+		ResultXDR:       "result2",
+		MetaXDR:         "meta2",
+		LedgerNumber:    2,
+		LedgerCreatedAt: now,
+	}
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	require.NoError(t, err)
+	txModel := &TransactionModel{DB: dbConnectionPool, MetricsService: metrics.NewMetricsService(sqlxDB)}
+	_, err = txModel.BatchInsert(ctx, nil, []types.Transaction{tx1, tx2}, map[string]set.Set[string]{
+		tx1.Hash: set.NewSet(kp1.Address()),
+		tx2.Hash: set.NewSet(kp2.Address()),
+	})
+	require.NoError(t, err)
+
 	reason := types.StateChangeReasonAdd
 	sc1 := types.StateChange{
 		ID:                  "sc1",
@@ -44,7 +73,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           kp1.Address(),
 		OperationID:         123,
-		TxHash:              "tx_hash_1",
+		TxHash:              tx1.Hash,
 		TokenID:             sql.NullString{String: "token1", Valid: true},
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
@@ -55,7 +84,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		LedgerNumber:        2,
 		AccountID:           kp2.Address(),
 		OperationID:         456,
-		TxHash:              "tx_hash_2",
+		TxHash:              tx2.Hash,
 	}
 
 	testCases := []struct {
@@ -99,7 +128,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 					LedgerNumber:        3,
 					AccountID:           nonExistingAccount.Address(),
 					OperationID:         789,
-					TxHash:              "tx_hash_3",
+					TxHash:              tx1.Hash,
 				},
 			},
 			wantIDs: nil,
@@ -115,7 +144,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 					LedgerNumber:        4,
 					AccountID:           nonExistingAccount.Address(),
 					OperationID:         101,
-					TxHash:              "tx_hash_4",
+					TxHash:              tx2.Hash,
 				},
 			},
 			wantIDs: []string{sc1.ID},
