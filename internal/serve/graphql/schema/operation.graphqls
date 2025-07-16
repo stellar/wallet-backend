@@ -1,6 +1,6 @@
 # GraphQL Operation type - represents a blockchain operation
 # Operations are the individual actions within a transaction
-type Operation @key(fields: "id"){
+type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!

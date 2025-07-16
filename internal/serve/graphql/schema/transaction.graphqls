@@ -1,6 +1,6 @@
 # GraphQL Transaction type - represents a blockchain transaction
 # gqlgen generates Go structs from this schema definition
-type Transaction @key(fields: "hash"){
+type Transaction{
   hash:            String!
   toId:            Int64!
   envelopeXdr:     String!

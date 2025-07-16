@@ -48,11 +48,6 @@ type ResolverRoot interface {
 }
 
 type DirectiveRoot struct {
-	Extends  func(ctx context.Context, obj any, next graphql.Resolver) (res any, err error)
-	External func(ctx context.Context, obj any, next graphql.Resolver) (res any, err error)
-	Key      func(ctx context.Context, obj any, next graphql.Resolver, fields string) (res any, err error)
-	Provides func(ctx context.Context, obj any, next graphql.Resolver, fields string) (res any, err error)
-	Requires func(ctx context.Context, obj any, next graphql.Resolver, fields string) (res any, err error)
 }
 
 type ComplexityRoot struct {
@@ -655,24 +650,24 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 var sources = []*ast.Source{
 	{Name: "../schema/account.graphqls", Input: `# GraphQL Account type - represents a blockchain account
 # In GraphQL, types define the shape of data that can be queried
-type Account @key(fields: "stellarAddress"){
+type Account{
   stellarAddress: String!
-  createdAt: Time!
+  createdAt:      Time!
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested
   
   # All transactions associated with this account
   # Uses dataloader for efficient batching to prevent N+1 queries
-  transactions: [Transaction!]!
+  transactions:   [Transaction!]!
   
   # All operations associated with this account
   # Uses dataloader for efficient batching to prevent N+1 queries
-  operations: [Operation!]!
+  operations:     [Operation!]!
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges: [StateChange!]!
+  stateChanges:   [StateChange!]!
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -698,28 +693,6 @@ directive @goField(
 	# Overrides gqlgen's default type inference
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
-
-# --- Apollo Federation Directives ---
-
-# @key directive - specifies the primary key of an entity
-# This is how the Apollo Gateway uniquely identifies and fetches entities
-directive @key(fields: String!) on OBJECT | INTERFACE
-
-# @extends directive - indicates that a type is an extension of an entity
-# defined in another service
-directive @extends on OBJECT | INTERFACE
-
-# @external directive - marks a field as being defined by another service
-# This field is only used for resolving other fields within the same service
-directive @external on FIELD_DEFINITION
-
-# @requires directive - indicates that a field's resolver requires other fields
-# The gateway will ensure the required fields are available before resolving
-directive @requires(fields: String!) on FIELD_DEFINITION
-
-# @provides directive - annotates a field that can be resolved by this service
-# for an entity defined in another service
-directive @provides(fields: String!) on FIELD_DEFINITION
 `, BuiltIn: false},
 	{Name: "../schema/enums.graphqls", Input: `# GraphQL Enums - provide type safety and restrict values to predefined options
 # These enums match Go constants and provide better GraphQL introspection
@@ -798,32 +771,32 @@ enum StateChangeReason {
 `, BuiltIn: false},
 	{Name: "../schema/operation.graphqls", Input: `# GraphQL Operation type - represents a blockchain operation
 # Operations are the individual actions within a transaction
-type Operation @key(fields: "id"){
-  id: Int64!                   
-  operationType: OperationType!
-  operationXdr: String!        
+type Operation{
+  id:              Int64!
+  operationType:   OperationType!
+  operationXdr:    String!
   ledgerCreatedAt: Time!
-  ingestedAt: Time!
+  ingestedAt:      Time!
   
   # GraphQL Relationships - these fields use resolvers  
   # Parent transaction - nullable because resolver might not find it
   transaction: Transaction @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
-  accounts: [Account!]! @goField(forceResolver: true)
+  accounts:        [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges: [StateChange!]! @goField(forceResolver: true)
+  stateChanges:    [StateChange!]! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/queries.graphqls", Input: `# GraphQL Query root type - defines all available queries in the API
 # In GraphQL, the Query type is the entry point for read operations
 type Query {
     transactionByHash(hash: String!): Transaction
-    transactions(limit: Int): [Transaction!]!
-    account(address: String!): Account
-    operations(limit: Int): [Operation!]!
-    stateChanges(limit: Int): [StateChange!]!
+    transactions(limit: Int):         [Transaction!]!
+    account(address: String!):        Account
+    operations(limit: Int):           [Operation!]!
+    stateChanges(limit: Int):         [StateChange!]!
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
@@ -847,64 +820,64 @@ scalar Int64
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
 # This type has many nullable fields to handle various state change scenarios
-type StateChange @key(fields: "id"){
-  id: String!
-  accountId: String!           
-  stateChangeCategory: StateChangeCategory!
-  stateChangeReason: StateChangeReason
-  ingestedAt: Time!
-  ledgerCreatedAt: Time!
-  ledgerNumber: UInt32!           
+type StateChange{
+  id:                         String!
+  accountId:                  String!           
+  stateChangeCategory:        StateChangeCategory!
+  stateChangeReason:          StateChangeReason
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!           
   
   # GraphQL Nullable fields - these map to sql.NullString in Go
   # GraphQL handles nullable fields gracefully - they return null if not set
-  tokenId: String              
-  amount: String
-  claimableBalanceId: String   
-  liquidityPoolId: String      
-  offerId: String              
-  signerAccountId: String      
-  spenderAccountId: String     
-  sponsoredAccountId: String   
-  sponsorAccountId: String     
+  tokenId:                    String              
+  amount:                     String
+  claimableBalanceId:         String   
+  liquidityPoolId:            String      
+  offerId:                    String              
+  signerAccountId:            String      
+  spenderAccountId:           String     
+  sponsoredAccountId:         String   
+  sponsorAccountId:           String     
   
   # GraphQL fields for JSONB data - require custom resolvers
   # These fields need special handling to convert between Go types and GraphQL
-  signerWeights: String        
-  thresholds: String           
-  flags: [String!]             
-  keyValue: String             
+  signerWeights:              String        
+  thresholds:                 String           
+  flags:                      [String!]             
+  keyValue:                   String             
   
   # GraphQL Relationships - these fields use resolvers
   # Related operation - nullable because resolver might not find it
-  operation: Operation @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
   
   # Related transaction - nullable because resolver might not find it
-  transaction: Transaction @goField(forceResolver: true)
+  transaction:                Transaction @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
 # gqlgen generates Go structs from this schema definition
-type Transaction @key(fields: "hash"){
-  hash: String!
-  toId: Int64!                 
-  envelopeXdr: String!         
-  resultXdr: String!           
-  metaXdr: String!             
-  ledgerNumber: UInt32!        
+type Transaction{
+  hash:            String!
+  toId:            Int64!
+  envelopeXdr:     String!
+  resultXdr:       String!
+  metaXdr:         String!
+  ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
-  ingestedAt: Time!
+  ingestedAt:      Time!
   
   # GraphQL Relationships - these fields require resolvers
   # @goField(forceResolver: true) tells gqlgen to always generate a resolver
   # even if the Go struct has a matching field
-  operations: [Operation!]! @goField(forceResolver: true)
+  operations:      [Operation!]! @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
-  accounts: [Account!]! @goField(forceResolver: true)
+  accounts:        [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges: [StateChange!]! @goField(forceResolver: true)
+  stateChanges:    [StateChange!]! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 }
@@ -913,90 +886,6 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // endregion ************************** generated!.gotpl **************************
 
 // region    ***************************** args.gotpl *****************************
-
-func (ec *executionContext) dir_key_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := ec.dir_key_argsFields(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["fields"] = arg0
-	return args, nil
-}
-func (ec *executionContext) dir_key_argsFields(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (string, error) {
-	if _, ok := rawArgs["fields"]; !ok {
-		var zeroVal string
-		return zeroVal, nil
-	}
-
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("fields"))
-	if tmp, ok := rawArgs["fields"]; ok {
-		return ec.unmarshalNString2string(ctx, tmp)
-	}
-
-	var zeroVal string
-	return zeroVal, nil
-}
-
-func (ec *executionContext) dir_provides_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := ec.dir_provides_argsFields(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["fields"] = arg0
-	return args, nil
-}
-func (ec *executionContext) dir_provides_argsFields(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (string, error) {
-	if _, ok := rawArgs["fields"]; !ok {
-		var zeroVal string
-		return zeroVal, nil
-	}
-
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("fields"))
-	if tmp, ok := rawArgs["fields"]; ok {
-		return ec.unmarshalNString2string(ctx, tmp)
-	}
-
-	var zeroVal string
-	return zeroVal, nil
-}
-
-func (ec *executionContext) dir_requires_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
-	var err error
-	args := map[string]any{}
-	arg0, err := ec.dir_requires_argsFields(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["fields"] = arg0
-	return args, nil
-}
-func (ec *executionContext) dir_requires_argsFields(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (string, error) {
-	if _, ok := rawArgs["fields"]; !ok {
-		var zeroVal string
-		return zeroVal, nil
-	}
-
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("fields"))
-	if tmp, ok := rawArgs["fields"]; ok {
-		return ec.unmarshalNString2string(ctx, tmp)
-	}
-
-	var zeroVal string
-	return zeroVal, nil
-}
 
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
@@ -1337,35 +1226,8 @@ func (ec *executionContext) _Account_transactions(ctx context.Context, field gra
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Account().Transactions(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "hash")
-			if err != nil {
-				var zeroVal []*types.Transaction
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Transaction
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Transaction); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Transaction`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Account().Transactions(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1432,35 +1294,8 @@ func (ec *executionContext) _Account_operations(ctx context.Context, field graph
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Account().Operations(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.Operation
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Operation
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Operation); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Operation`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Account().Operations(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1521,35 +1356,8 @@ func (ec *executionContext) _Account_stateChanges(ctx context.Context, field gra
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Account().StateChanges(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.StateChange); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.StateChange`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Account().StateChanges(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1858,35 +1666,8 @@ func (ec *executionContext) _Operation_transaction(ctx context.Context, field gr
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Operation().Transaction(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "hash")
-			if err != nil {
-				var zeroVal *types.Transaction
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal *types.Transaction
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.(*types.Transaction); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/stellar/wallet-backend/internal/indexer/types.Transaction`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Operation().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1950,35 +1731,8 @@ func (ec *executionContext) _Operation_accounts(ctx context.Context, field graph
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Operation().Accounts(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "stellarAddress")
-			if err != nil {
-				var zeroVal []*types.Account
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Account
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Account); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Account`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Operation().Accounts(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2033,35 +1787,8 @@ func (ec *executionContext) _Operation_stateChanges(ctx context.Context, field g
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Operation().StateChanges(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.StateChange); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.StateChange`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Operation().StateChanges(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2150,35 +1877,8 @@ func (ec *executionContext) _Query_transactionByHash(ctx context.Context, field 
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Query().TransactionByHash(rctx, fc.Args["hash"].(string))
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "hash")
-			if err != nil {
-				var zeroVal *types.Transaction
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal *types.Transaction
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, nil, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.(*types.Transaction); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/stellar/wallet-backend/internal/indexer/types.Transaction`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().TransactionByHash(rctx, fc.Args["hash"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2253,35 +1953,8 @@ func (ec *executionContext) _Query_transactions(ctx context.Context, field graph
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Query().Transactions(rctx, fc.Args["limit"].(*int32))
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "hash")
-			if err != nil {
-				var zeroVal []*types.Transaction
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Transaction
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, nil, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Transaction); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Transaction`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().Transactions(rctx, fc.Args["limit"].(*int32))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2359,35 +2032,8 @@ func (ec *executionContext) _Query_account(ctx context.Context, field graphql.Co
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Query().Account(rctx, fc.Args["address"].(string))
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "stellarAddress")
-			if err != nil {
-				var zeroVal *types.Account
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal *types.Account
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, nil, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.(*types.Account); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/stellar/wallet-backend/internal/indexer/types.Account`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().Account(rctx, fc.Args["address"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2450,35 +2096,8 @@ func (ec *executionContext) _Query_operations(ctx context.Context, field graphql
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Query().Operations(rctx, fc.Args["limit"].(*int32))
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.Operation
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Operation
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, nil, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Operation); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Operation`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().Operations(rctx, fc.Args["limit"].(*int32))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2550,35 +2169,8 @@ func (ec *executionContext) _Query_stateChanges(ctx context.Context, field graph
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Query().StateChanges(rctx, fc.Args["limit"].(*int32))
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, nil, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.StateChange); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.StateChange`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().StateChanges(rctx, fc.Args["limit"].(*int32))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3647,35 +3239,8 @@ func (ec *executionContext) _StateChange_operation(ctx context.Context, field gr
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.StateChange().Operation(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal *types.Operation
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal *types.Operation
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.(*types.Operation); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/stellar/wallet-backend/internal/indexer/types.Operation`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StateChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3733,35 +3298,8 @@ func (ec *executionContext) _StateChange_transaction(ctx context.Context, field 
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.StateChange().Transaction(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "hash")
-			if err != nil {
-				var zeroVal *types.Transaction
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal *types.Transaction
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.(*types.Transaction); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be *github.com/stellar/wallet-backend/internal/indexer/types.Transaction`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StateChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4177,35 +3715,8 @@ func (ec *executionContext) _Transaction_operations(ctx context.Context, field g
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Transaction().Operations(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.Operation
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Operation
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Operation); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Operation`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Transaction().Operations(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4266,35 +3777,8 @@ func (ec *executionContext) _Transaction_accounts(ctx context.Context, field gra
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Transaction().Accounts(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "stellarAddress")
-			if err != nil {
-				var zeroVal []*types.Account
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.Account
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.Account); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.Account`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Transaction().Accounts(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4349,35 +3833,8 @@ func (ec *executionContext) _Transaction_stateChanges(ctx context.Context, field
 		}
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		directive0 := func(rctx context.Context) (any, error) {
-			ctx = rctx // use context from middleware stack in children
-			return ec.resolvers.Transaction().StateChanges(rctx, obj)
-		}
-
-		directive1 := func(ctx context.Context) (any, error) {
-			fields, err := ec.unmarshalNString2string(ctx, "id")
-			if err != nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, err
-			}
-			if ec.directives.Key == nil {
-				var zeroVal []*types.StateChange
-				return zeroVal, errors.New("directive key is not implemented")
-			}
-			return ec.directives.Key(ctx, obj, directive0, fields)
-		}
-
-		tmp, err := directive1(rctx)
-		if err != nil {
-			return nil, graphql.ErrorOnPath(ctx, err)
-		}
-		if tmp == nil {
-			return nil, nil
-		}
-		if data, ok := tmp.([]*types.StateChange); ok {
-			return data, nil
-		}
-		return nil, fmt.Errorf(`unexpected type %T from directive, should be []*github.com/stellar/wallet-backend/internal/indexer/types.StateChange`, tmp)
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Transaction().StateChanges(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)

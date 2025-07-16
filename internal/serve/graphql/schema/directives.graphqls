@@ -21,25 +21,3 @@ directive @goField(
 	# Overrides gqlgen's default type inference
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
-
-# --- Apollo Federation Directives ---
-
-# @key directive - specifies the primary key of an entity
-# This is how the Apollo Gateway uniquely identifies and fetches entities
-directive @key(fields: String!) on OBJECT | INTERFACE
-
-# @extends directive - indicates that a type is an extension of an entity
-# defined in another service
-directive @extends on OBJECT | INTERFACE
-
-# @external directive - marks a field as being defined by another service
-# This field is only used for resolving other fields within the same service
-directive @external on FIELD_DEFINITION
-
-# @requires directive - indicates that a field's resolver requires other fields
-# The gateway will ensure the required fields are available before resolving
-directive @requires(fields: String!) on FIELD_DEFINITION
-
-# @provides directive - annotates a field that can be resolved by this service
-# for an entity defined in another service
-directive @provides(fields: String!) on FIELD_DEFINITION

@@ -1,6 +1,6 @@
 # GraphQL Account type - represents a blockchain account
 # In GraphQL, types define the shape of data that can be queried
-type Account @key(fields: "stellarAddress"){
+type Account{
   stellarAddress: String!
   createdAt:      Time!
 

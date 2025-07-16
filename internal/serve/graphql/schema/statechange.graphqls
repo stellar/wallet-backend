@@ -1,6 +1,6 @@
 # GraphQL StateChange type - represents changes to blockchain state
 # This type has many nullable fields to handle various state change scenarios
-type StateChange @key(fields: "id"){
+type StateChange{
   id:                         String!
   accountId:                  String!           
   stateChangeCategory:        StateChangeCategory!
