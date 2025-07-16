@@ -26,7 +26,7 @@ func Test_ConvertingObjectTypes_BetweenXDRAndTxnbuild(t *testing.T) {
 
 	contractIDBytes, err := hex.DecodeString("df06d62447fd25da07c0135eed7557e5a5497ee7d15b7fe345bd47e191d8f577")
 	require.NoError(t, err)
-	contractID := xdr.Hash(contractIDBytes)
+	contractID := xdr.ContractId(contractIDBytes)
 
 	testCases := []struct {
 		name            string

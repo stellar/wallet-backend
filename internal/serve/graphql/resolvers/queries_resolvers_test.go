@@ -353,6 +353,7 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		require.NoError(t, err)
 		return nil
 	})
+	require.NoError(t, dbErr)
 
 	sc1 := &types.StateChange{
 		ID:                  "sc1",

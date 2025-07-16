@@ -33,44 +33,56 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 			SponsorAccountID:   sql.NullString{String: "G-SPONSOR", Valid: true},
 		}
 
-		tokenID, _ := resolver.TokenID(ctx, obj)
+		tokenID, err := resolver.TokenID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "token1", *tokenID)
 
-		amount, _ := resolver.Amount(ctx, obj)
+		amount, err := resolver.Amount(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "100.5", *amount)
 
-		cbID, _ := resolver.ClaimableBalanceID(ctx, obj)
+		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "cb1", *cbID)
 
-		lpID, _ := resolver.LiquidityPoolID(ctx, obj)
+		lpID, err := resolver.LiquidityPoolID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "lp1", *lpID)
 
-		offerID, _ := resolver.OfferID(ctx, obj)
+		offerID, err := resolver.OfferID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "offer1", *offerID)
 
-		signer, _ := resolver.SignerAccountID(ctx, obj)
+		signer, err := resolver.SignerAccountID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "G-SIGNER", *signer)
 
-		spender, _ := resolver.SpenderAccountID(ctx, obj)
+		spender, err := resolver.SpenderAccountID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "G-SPENDER", *spender)
 
-		sponsored, _ := resolver.SponsoredAccountID(ctx, obj)
+		sponsored, err := resolver.SponsoredAccountID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "G-SPONSORED", *sponsored)
 
-		sponsor, _ := resolver.SponsorAccountID(ctx, obj)
+		sponsor, err := resolver.SponsorAccountID(ctx, obj)
+		require.NoError(t, err)
 		assert.Equal(t, "G-SPONSOR", *sponsor)
 	})
 
 	t.Run("all null", func(t *testing.T) {
 		obj := &types.StateChange{} // All fields are zero-valued (Valid: false)
 
-		tokenID, _ := resolver.TokenID(ctx, obj)
+		tokenID, err := resolver.TokenID(ctx, obj)
+		require.NoError(t, err)
 		assert.Nil(t, tokenID)
 
-		amount, _ := resolver.Amount(ctx, obj)
+		amount, err := resolver.Amount(ctx, obj)
+		require.NoError(t, err)
 		assert.Nil(t, amount)
 
-		cbID, _ := resolver.ClaimableBalanceID(ctx, obj)
+		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
+		require.NoError(t, err)
 		assert.Nil(t, cbID)
 	})
 }
@@ -83,7 +95,8 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 		obj := &types.StateChange{
 			SignerWeights: types.NullableJSONB{"weight": 1},
 		}
-		expectedJSON, _ := json.Marshal(obj.SignerWeights)
+		expectedJSON, err := json.Marshal(obj.SignerWeights)
+		require.NoError(t, err)
 
 		jsonStr, err := resolver.SignerWeights(ctx, obj)
 		require.NoError(t, err)
@@ -99,7 +112,8 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 		obj := &types.StateChange{
 			Thresholds: types.NullableJSONB{"low": 1, "med": 2},
 		}
-		expectedJSON, _ := json.Marshal(obj.Thresholds)
+		expectedJSON, err := json.Marshal(obj.Thresholds)
+		require.NoError(t, err)
 
 		jsonStr, err := resolver.Thresholds(ctx, obj)
 		require.NoError(t, err)
@@ -124,7 +138,8 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 		obj := &types.StateChange{
 			KeyValue: types.NullableJSONB{"key": "value"},
 		}
-		expectedJSON, _ := json.Marshal(obj.KeyValue)
+		expectedJSON, err := json.Marshal(obj.KeyValue)
+		require.NoError(t, err)
 
 		jsonStr, err := resolver.KeyValue(ctx, obj)
 		require.NoError(t, err)
