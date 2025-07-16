@@ -5,12 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vikstrous/dataloadgen"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 func TestTransactionResolver_Operations(t *testing.T) {

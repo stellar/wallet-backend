@@ -68,15 +68,15 @@ type Dataloaders struct {
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		OperationsByTxHashLoader:          operationsByTxHashLoader(models),
-		TransactionsByAccountLoader:       transactionsByAccountLoader(models),
-		OperationsByAccountLoader:         operationsByAccountLoader(models),
-		StateChangesByAccountLoader:       stateChangesByAccountLoader(models),
-		AccountsByTxHashLoader:            accountsByTxHashLoader(models),
-		StateChangesByTxHashLoader:        stateChangesByTxHashLoader(models),
-		TransactionsByOperationIDLoader:   txByOperationIDLoader(models),
-		AccountsByOperationIDLoader:       accountsByOperationIDLoader(models),
-		StateChangesByOperationIDLoader:   stateChangesByOperationIDLoader(models),
+		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
+		TransactionsByAccountLoader:      transactionsByAccountLoader(models),
+		OperationsByAccountLoader:        operationsByAccountLoader(models),
+		StateChangesByAccountLoader:      stateChangesByAccountLoader(models),
+		AccountsByTxHashLoader:           accountsByTxHashLoader(models),
+		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
+		TransactionsByOperationIDLoader:  txByOperationIDLoader(models),
+		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
+		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 	}
