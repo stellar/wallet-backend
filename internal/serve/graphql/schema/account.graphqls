@@ -2,7 +2,6 @@
 # In GraphQL, types define the shape of data that can be queried
 type Account{
   address: String!
-  createdAt:      Time!
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested

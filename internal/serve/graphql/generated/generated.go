@@ -54,7 +54,6 @@ type DirectiveRoot struct {
 type ComplexityRoot struct {
 	Account struct {
 		Address      func(childComplexity int) int
-		CreatedAt    func(childComplexity int) int
 		Operations   func(childComplexity int) int
 		StateChanges func(childComplexity int) int
 		Transactions func(childComplexity int) int
@@ -121,7 +120,6 @@ type ComplexityRoot struct {
 
 type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
-
 	Transactions(ctx context.Context, obj *types.Account) ([]*types.Transaction, error)
 	Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error)
 	StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error)
@@ -186,13 +184,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Account.Address(childComplexity), true
-
-	case "Account.createdAt":
-		if e.complexity.Account.CreatedAt == nil {
-			break
-		}
-
-		return e.complexity.Account.CreatedAt(childComplexity), true
 
 	case "Account.operations":
 		if e.complexity.Account.Operations == nil {
@@ -655,7 +646,6 @@ var sources = []*ast.Source{
 # In GraphQL, types define the shape of data that can be queried
 type Account{
   address: String!
-  createdAt:      Time!
 
   # GraphQL Relationships - these fields use resolvers for data fetching
   # Each relationship resolver will be called when the field is requested
@@ -1167,50 +1157,6 @@ func (ec *executionContext) fieldContext_Account_address(_ context.Context, fiel
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Account_createdAt(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Account_createdAt(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.CreatedAt, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(time.Time)
-	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Account_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Account",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
 		},
 	}
 	return fc, nil
@@ -1762,8 +1708,6 @@ func (ec *executionContext) fieldContext_Operation_accounts(_ context.Context, f
 			switch field.Name {
 			case "address":
 				return ec.fieldContext_Account_address(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "transactions":
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
@@ -2060,8 +2004,6 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 			switch field.Name {
 			case "address":
 				return ec.fieldContext_Account_address(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "transactions":
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
@@ -3808,8 +3750,6 @@ func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context,
 			switch field.Name {
 			case "address":
 				return ec.fieldContext_Account_address(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_Account_createdAt(ctx, field)
 			case "transactions":
 				return ec.fieldContext_Account_transactions(ctx, field)
 			case "operations":
@@ -5919,11 +5859,6 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "createdAt":
-			out.Values[i] = ec._Account_createdAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
 		case "transactions":
 			field := field
 
