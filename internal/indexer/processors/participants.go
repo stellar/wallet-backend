@@ -117,9 +117,8 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 }
 
 type OperationParticipants struct {
-	Operation    xdr.Operation
+	OpWrapper    operation_processor.TransactionOperationWrapper
 	Participants set.Set[string]
-	OperationIdx uint32
 }
 
 // GetOperationsParticipants returns a map of operation ID to its participants.
@@ -153,9 +152,8 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 		// 3. Add participants to the map
 		if _, ok := operationsParticipants[opID]; !ok {
 			operationsParticipants[opID] = OperationParticipants{
-				Operation:    xdrOp,
+				OpWrapper:    op,
 				Participants: participants,
-				OperationIdx: uint32(opi),
 			}
 		} else {
 			operationsParticipants[opID].Participants.Append(participants.ToSlice()...)

@@ -73,7 +73,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	var dataOp *types.Operation
 	var effectsStateChanges []types.StateChange
 	for opID, opParticipants := range opsParticipants {
-		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.Operation, opID)
+		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
 			return fmt.Errorf("creating data operation: %w", err)
 		}
@@ -83,7 +83,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		// 2.1. Index effects state changes
-		effectsStateChanges, err = i.effectsProcessor.ProcessOperation(ctx, transaction, opParticipants.Operation, opParticipants.OperationIdx)
+		effectsStateChanges, err = i.effectsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if err != nil {
 			return fmt.Errorf("processing effects state changes: %w", err)
 		}
