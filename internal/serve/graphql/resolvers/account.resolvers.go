@@ -13,6 +13,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// Address is the resolver for the address field.
+func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (string, error) {
+	return obj.StellarAddress, nil
+}
+
 // Transactions is the resolver for the transactions field.
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
