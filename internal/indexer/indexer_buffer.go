@@ -44,13 +44,22 @@ func (b *IndexerBuffer) PushParticipantTransaction(participant string, transacti
 }
 
 func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction types.Transaction) {
-	b.txByHash[transaction.Hash] = transaction
-	b.Participants.Add(participant)
+	if _, ok := b.txByHash[transaction.Hash]; !ok {
+		b.txByHash[transaction.Hash] = transaction
+	}
 
-	if _, ok := b.txHashesByParticipant[participant]; !ok {
+	if !b.Participants.Contains(participant) {
+		b.Participants.Add(participant)
+	}
+
+	_, ok := b.txHashesByParticipant[participant]
+	if !ok {
 		b.txHashesByParticipant[participant] = set.NewSet[string]()
 	}
-	b.txHashesByParticipant[participant].Add(transaction.Hash)
+
+	if !ok || !b.txHashesByParticipant[participant].Contains(transaction.Hash) {
+		b.txHashesByParticipant[participant].Add(transaction.Hash)
+	}
 }
 
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
@@ -99,13 +108,22 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 }
 
 func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation types.Operation) {
-	b.opByID[operation.ID] = operation
-	b.Participants.Add(participant)
+	if _, ok := b.opByID[operation.ID]; !ok {
+		b.opByID[operation.ID] = operation
+	}
 
-	if _, ok := b.opIDsByParticipant[participant]; !ok {
+	if !b.Participants.Contains(participant) {
+		b.Participants.Add(participant)
+	}
+
+	_, ok := b.opIDsByParticipant[participant]
+	if !ok {
 		b.opIDsByParticipant[participant] = set.NewSet[int64]()
 	}
-	b.opIDsByParticipant[participant].Add(operation.ID)
+
+	if !ok || !b.opIDsByParticipant[participant].Contains(operation.ID) {
+		b.opIDsByParticipant[participant].Add(operation.ID)
+	}
 }
 
 func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
@@ -138,10 +156,8 @@ func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
 			}
 		}
 
-		if stateChange.TxHash != "" {
-			if tx, ok := b.txByHash[stateChange.TxHash]; ok {
-				b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
-			}
+		if tx, ok := b.txByHash[stateChange.TxHash]; ok {
+			b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
 		}
 	}
 }
