@@ -4,12 +4,13 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
+  ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
   
   # GraphQL Relationships - these fields use resolvers  
-  # Parent transaction - nullable because resolver might not find it
-  transaction: Transaction @goField(forceResolver: true)
+  # Parent transaction
+  transaction: Transaction! @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)

@@ -110,6 +110,7 @@ func (m *OperationModel) BatchInsert(
 	txHashes := make([]string, len(operations))
 	operationTypes := make([]string, len(operations))
 	operationXDRs := make([]string, len(operations))
+	ledgerNumbers := make([]uint32, len(operations))
 	ledgerCreatedAts := make([]time.Time, len(operations))
 
 	for i, op := range operations {
@@ -117,6 +118,7 @@ func (m *OperationModel) BatchInsert(
 		txHashes[i] = op.TxHash
 		operationTypes[i] = string(op.OperationType)
 		operationXDRs[i] = op.OperationXDR
+		ledgerNumbers[i] = op.LedgerNumber
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
 	}
 
@@ -136,7 +138,7 @@ func (m *OperationModel) BatchInsert(
 	WITH
 	-- STEP 1: Get existing accounts
 	existing_accounts AS (
-		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($7)
+		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($8)
 	),
 
 	-- STEP 2: Get operation IDs to insert (connected to at least one existing account)
@@ -144,8 +146,8 @@ func (m *OperationModel) BatchInsert(
         SELECT DISTINCT op_id
         FROM (
 			SELECT
-				UNNEST($6::bigint[]) AS op_id,
-				UNNEST($7::text[]) AS account_id
+				UNNEST($7::bigint[]) AS op_id,
+				UNNEST($8::text[]) AS account_id
 		) oa
 		WHERE oa.account_id IN (SELECT stellar_address FROM existing_accounts)
     ),
@@ -153,12 +155,13 @@ func (m *OperationModel) BatchInsert(
 	-- STEP 3: Insert those operations
     inserted_operations AS (
         INSERT INTO operations
-          	(id, tx_hash, operation_type, operation_xdr, ledger_created_at)
+          	(id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
         SELECT
             vo.op_id,
             o.tx_hash,
             o.operation_type,
             o.operation_xdr,
+			o.ledger_number,
             o.ledger_created_at
         FROM valid_operations vo
         JOIN (
@@ -167,7 +170,8 @@ func (m *OperationModel) BatchInsert(
                 UNNEST($2::text[]) AS tx_hash,
                 UNNEST($3::text[]) AS operation_type,
                 UNNEST($4::text[]) AS operation_xdr,
-                UNNEST($5::timestamptz[]) AS ledger_created_at
+                UNNEST($5::bigint[]) AS ledger_number,
+                UNNEST($6::timestamptz[]) AS ledger_created_at
         ) o ON o.id = vo.op_id
         ON CONFLICT (id) DO NOTHING
         RETURNING id
@@ -181,8 +185,8 @@ func (m *OperationModel) BatchInsert(
 			oa.op_id, oa.account_id
 		FROM (
 			SELECT
-				UNNEST($6::bigint[]) AS op_id,
-				UNNEST($7::text[]) AS account_id
+				UNNEST($7::bigint[]) AS op_id,
+				UNNEST($8::text[]) AS account_id
 		) oa
 		INNER JOIN existing_accounts ea ON ea.stellar_address = oa.account_id
 		INNER JOIN inserted_operations io ON io.id = oa.op_id
@@ -200,6 +204,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(txHashes),
 		pq.Array(operationTypes),
 		pq.Array(operationXDRs),
+		pq.Array(ledgerNumbers),
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),

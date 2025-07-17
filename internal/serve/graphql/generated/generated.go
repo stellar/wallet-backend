@@ -64,6 +64,7 @@ type ComplexityRoot struct {
 		ID              func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
 		OperationType   func(childComplexity int) int
 		OperationXDR    func(childComplexity int) int
 		StateChanges    func(childComplexity int) int
@@ -232,6 +233,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Operation.LedgerCreatedAt(childComplexity), true
+
+	case "Operation.ledgerNumber":
+		if e.complexity.Operation.LedgerNumber == nil {
+			break
+		}
+
+		return e.complexity.Operation.LedgerNumber(childComplexity), true
 
 	case "Operation.operationType":
 		if e.complexity.Operation.OperationType == nil {
@@ -760,12 +768,13 @@ type Operation{
   id:              Int64!
   operationType:   OperationType!
   operationXdr:    String!
+  ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
   
   # GraphQL Relationships - these fields use resolvers  
-  # Parent transaction - nullable because resolver might not find it
-  transaction: Transaction @goField(forceResolver: true)
+  # Parent transaction
+  transaction: Transaction! @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)
@@ -1265,6 +1274,8 @@ func (ec *executionContext) fieldContext_Account_operations(_ context.Context, f
 				return ec.fieldContext_Operation_operationType(ctx, field)
 			case "operationXdr":
 				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
 			case "ingestedAt":
@@ -1504,6 +1515,50 @@ func (ec *executionContext) fieldContext_Operation_operationXdr(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _Operation_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.Operation) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Operation_ledgerNumber(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LedgerNumber, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(uint32)
+	fc.Result = res
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Operation_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Operation",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Operation_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.Operation) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
 	if err != nil {
@@ -1613,11 +1668,14 @@ func (ec *executionContext) _Operation_transaction(ctx context.Context, field gr
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
 	res := resTmp.(*types.Transaction)
 	fc.Result = res
-	return ec.marshalOTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
+	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Operation_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -2057,6 +2115,8 @@ func (ec *executionContext) fieldContext_Query_operations(ctx context.Context, f
 				return ec.fieldContext_Operation_operationType(ctx, field)
 			case "operationXdr":
 				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
 			case "ingestedAt":
@@ -3197,6 +3257,8 @@ func (ec *executionContext) fieldContext_StateChange_operation(_ context.Context
 				return ec.fieldContext_Operation_operationType(ctx, field)
 			case "operationXdr":
 				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
 			case "ingestedAt":
@@ -3630,6 +3692,8 @@ func (ec *executionContext) fieldContext_Transaction_operations(_ context.Contex
 				return ec.fieldContext_Operation_operationType(ctx, field)
 			case "operationXdr":
 				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
 			case "ledgerCreatedAt":
 				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
 			case "ingestedAt":
@@ -5954,6 +6018,11 @@ func (ec *executionContext) _Operation(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "ledgerNumber":
+			out.Values[i] = ec._Operation_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "ledgerCreatedAt":
 			out.Values[i] = ec._Operation_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -5967,13 +6036,16 @@ func (ec *executionContext) _Operation(ctx context.Context, sel ast.SelectionSet
 		case "transaction":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Operation_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -7577,6 +7649,10 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNTransaction2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx context.Context, sel ast.SelectionSet, v types.Transaction) graphql.Marshaler {
+	return ec._Transaction(ctx, sel, &v)
 }
 
 func (ec *executionContext) marshalNTransaction2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransactionᚄ(ctx context.Context, sel ast.SelectionSet, v []*types.Transaction) graphql.Marshaler {
