@@ -44,13 +44,22 @@ func (b *IndexerBuffer) PushParticipantTransaction(participant string, transacti
 }
 
 func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction types.Transaction) {
-	b.txByHash[transaction.Hash] = transaction
-	b.Participants.Add(participant)
+	if _, ok := b.txByHash[transaction.Hash]; !ok {
+		b.txByHash[transaction.Hash] = transaction
+	}
 
-	if _, ok := b.txHashesByParticipant[participant]; !ok {
+	if !b.Participants.Contains(participant) {
+		b.Participants.Add(participant)
+	}
+
+	_, ok := b.txHashesByParticipant[participant]
+	if !ok {
 		b.txHashesByParticipant[participant] = set.NewSet[string]()
 	}
-	b.txHashesByParticipant[participant].Add(transaction.Hash)
+
+	if !ok || !b.txHashesByParticipant[participant].Contains(transaction.Hash) {
+		b.txHashesByParticipant[participant].Add(transaction.Hash)
+	}
 }
 
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
@@ -93,15 +102,28 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.opByID[operation.ID] = operation
-	b.Participants.Add(participant)
-
-	if _, ok := b.opIDsByParticipant[participant]; !ok {
-		b.opIDsByParticipant[participant] = set.NewSet[int64]()
-	}
-	b.opIDsByParticipant[participant].Add(operation.ID)
+	b.pushParticipantOperationUnsafe(participant, operation)
 
 	b.pushParticipantTransactionUnsafe(participant, transaction)
+}
+
+func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation types.Operation) {
+	if _, ok := b.opByID[operation.ID]; !ok {
+		b.opByID[operation.ID] = operation
+	}
+
+	if !b.Participants.Contains(participant) {
+		b.Participants.Add(participant)
+	}
+
+	_, ok := b.opIDsByParticipant[participant]
+	if !ok {
+		b.opIDsByParticipant[participant] = set.NewSet[int64]()
+	}
+
+	if !ok || !b.opIDsByParticipant[participant].Contains(operation.ID) {
+		b.opIDsByParticipant[participant].Add(operation.ID)
+	}
 }
 
 func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
@@ -126,6 +148,18 @@ func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChanges...)
+
+	for _, stateChange := range stateChanges {
+		if stateChange.OperationID != 0 {
+			if op, ok := b.opByID[stateChange.OperationID]; ok {
+				b.pushParticipantOperationUnsafe(stateChange.AccountID, op)
+			}
+		}
+
+		if tx, ok := b.txByHash[stateChange.TxHash]; ok {
+			b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
+		}
+	}
 }
 
 func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
