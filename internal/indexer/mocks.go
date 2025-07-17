@@ -13,7 +13,7 @@ import (
 )
 
 type EffectsProcessorInterface interface {
-	ProcessOperation(ctx context.Context, opWrapper operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
+	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
 }
 
 // Mock implementations for testing
@@ -44,7 +44,7 @@ type MockEffectsProcessor struct {
 	mock.Mock
 }
 
-func (m *MockEffectsProcessor) ProcessOperation(ctx context.Context, opWrapper operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (m *MockEffectsProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	args := m.Called(ctx, opWrapper)
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }

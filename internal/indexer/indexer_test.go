@@ -101,7 +101,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						OpWrapper: operation_processor.TransactionOperationWrapper{
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
 							Index:          0,
 							Operation:      createAccountOp,
 							Network:        network.TestNetworkPassphrase,
@@ -153,7 +153,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			txParticipants: set.NewSet("alice", "bob"),
 			opsParticipants: map[int64]processors.OperationParticipants{
 				1: {
-					OpWrapper: operation_processor.TransactionOperationWrapper{
+					OpWrapper: &operation_processor.TransactionOperationWrapper{
 						Index:          0,
 						Operation:      createAccountOp,
 						Network:        network.TestNetworkPassphrase,
@@ -209,7 +209,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						OpWrapper: operation_processor.TransactionOperationWrapper{
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
 							Index:          0,
 							Operation:      createAccountOp,
 							Network:        network.TestNetworkPassphrase,

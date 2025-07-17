@@ -117,7 +117,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 }
 
 type OperationParticipants struct {
-	OpWrapper    operation_processor.TransactionOperationWrapper
+	OpWrapper    *operation_processor.TransactionOperationWrapper
 	Participants set.Set[string]
 }
 
@@ -132,7 +132,7 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 
 	for opi, xdrOp := range transaction.Envelope.Operations() {
 		// 1. Build op wrapper, so we can use its methods
-		op := operation_processor.TransactionOperationWrapper{
+		op := &operation_processor.TransactionOperationWrapper{
 			Index:          uint32(opi),
 			Transaction:    transaction,
 			Operation:      xdrOp,
@@ -165,7 +165,7 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 
 // GetOperationParticipants returns the participants for a transaction operation.
 // In case of a Soroban operation, it calls the participantsForSorobanOp function to get the Soroban participants.
-func (p *ParticipantsProcessor) GetOperationParticipants(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+func (p *ParticipantsProcessor) GetOperationParticipants(op *operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
 	participantsAccountIDs, err := op.Participants()
 	if err != nil {
