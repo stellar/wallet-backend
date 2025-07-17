@@ -30,9 +30,9 @@ type StateChange{
   keyValue:                   String             
   
   # GraphQL Relationships - these fields use resolvers
-  # Related operation - nullable because resolver might not find it
-  operation:                  Operation @goField(forceResolver: true)
+  # Related operation
+  operation:                  Operation! @goField(forceResolver: true)
   
-  # Related transaction - nullable because resolver might not find it
-  transaction:                Transaction @goField(forceResolver: true)
+  # Related transaction
+  transaction:                Transaction! @goField(forceResolver: true)
 }
