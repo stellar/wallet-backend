@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -345,6 +346,11 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
 	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
+
+	if resp.StatusCode != http.StatusOK {
+		r.metricsService.IncRPCEndpointFailure(method)
+		return nil, fmt.Errorf("RPC returned status code=%d, body=%s", resp.StatusCode, string(body))
+	}
 
 	var res entities.RPCResponse
 	err = json.Unmarshal(body, &res)

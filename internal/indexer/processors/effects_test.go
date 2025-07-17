@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go/network"
+	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +36,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 8)
 
@@ -92,7 +101,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
 
@@ -129,7 +145,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -162,7 +185,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -200,7 +230,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 1)
 
@@ -233,7 +270,14 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
 		processor := NewEffectsProcessor(networkPassphrase)
-		changes, err := processor.ProcessOperation(context.Background(), transaction, op, 0)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 8)
 

@@ -5,7 +5,7 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/xdr"
+	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
@@ -13,7 +13,7 @@ import (
 )
 
 type EffectsProcessorInterface interface {
-	ProcessOperation(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error)
+	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
 }
 
 // Mock implementations for testing
@@ -44,8 +44,8 @@ type MockEffectsProcessor struct {
 	mock.Mock
 }
 
-func (m *MockEffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
-	args := m.Called(ctx, tx, op, opIdx)
+func (m *MockEffectsProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+	args := m.Called(ctx, opWrapper)
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }
 

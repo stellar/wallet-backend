@@ -144,7 +144,7 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 //     applying the same extraction logic as above
 //
 // It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
-func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
+func participantsForSorobanOp(op *operation_processor.TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
@@ -160,7 +160,7 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 
 		switch invokeHostOp.HostFunction.Type {
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			createContractOpProcessor := CreateContractV1OpProcessor{op: &op}
+			createContractOpProcessor := CreateContractV1OpProcessor{op: op}
 			createContractOpParticipants, err := createContractOpProcessor.Participants()
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
@@ -168,7 +168,7 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 			participants = participants.Union(createContractOpParticipants)
 
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			createContractV2OpProcessor := CreateContractV2OpProcessor{op: &op}
+			createContractV2OpProcessor := CreateContractV2OpProcessor{op: op}
 			createContractV2OpParticipants, err := createContractV2OpProcessor.Participants()
 			if err != nil {
 				return nil, fmt.Errorf("getting create contract participants: %w", err)
@@ -176,7 +176,7 @@ func participantsForSorobanOp(op operation_processor.TransactionOperationWrapper
 			participants = participants.Union(createContractV2OpParticipants)
 
 		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
-			invokeContractOpProcessor := InvokeContractOpProcessor{op: &op}
+			invokeContractOpProcessor := InvokeContractOpProcessor{op: op}
 			invokeContractOpParticipants, err := invokeContractOpProcessor.Participants()
 			if err != nil {
 				return nil, fmt.Errorf("getting invoke contract participants: %w", err)
