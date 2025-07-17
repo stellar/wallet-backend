@@ -189,3 +189,256 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 		})
 	}
 }
+
+func TestTransactionModel_GetByHash(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transaction
+	txHash := "test_tx_hash"
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES ($1, 1, 'envelope', 'result', 'meta', 1, $2)
+	`, txHash, now)
+	require.NoError(t, err)
+
+	// Test GetByHash
+	transaction, err := m.GetByHash(ctx, txHash)
+	require.NoError(t, err)
+	assert.Equal(t, txHash, transaction.Hash)
+	assert.Equal(t, int64(1), transaction.ToID)
+	assert.Equal(t, "envelope", transaction.EnvelopeXDR)
+}
+
+func TestTransactionModel_GetAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transactions
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Test GetAll without limit
+	transactions, err := m.GetAll(ctx, nil)
+	require.NoError(t, err)
+	assert.Len(t, transactions, 3)
+
+	// Test GetAll with limit
+	limit := int32(2)
+	transactions, err = m.GetAll(ctx, &limit)
+	require.NoError(t, err)
+	assert.Len(t, transactions, 2)
+}
+
+func TestTransactionModel_BatchGetByAccount(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test accounts
+	address1 := keypair.MustRandom().Address()
+	address2 := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	require.NoError(t, err)
+
+	// Create test transactions
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test transactions_accounts links
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions_accounts (tx_hash, account_id)
+		VALUES 
+			('tx1', $1),
+			('tx2', $1),
+			('tx3', $2)
+	`, address1, address2)
+	require.NoError(t, err)
+
+	// Test BatchGetByAccount
+	transactions, err := m.BatchGetByAccount(ctx, []string{address1, address2})
+	require.NoError(t, err)
+	assert.Len(t, transactions, 3)
+
+	// Verify transactions are for correct accounts
+	accountsFound := make(map[string]int)
+	for _, tx := range transactions {
+		accountsFound[tx.AccountID]++
+	}
+	assert.Equal(t, 2, accountsFound[address1])
+	assert.Equal(t, 1, accountsFound[address2])
+}
+
+func TestTransactionModel_BatchGetByOperationID(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transactions
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', $1),
+			(2, 'tx2', 'create_account', 'xdr2', $1),
+			(3, 'tx1', 'payment', 'xdr3', $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Test BatchGetByOperationID
+	transactions, err := m.BatchGetByOperationID(ctx, []int64{1, 2, 3})
+	require.NoError(t, err)
+	assert.Len(t, transactions, 3)
+
+	// Verify transactions are for correct operation IDs
+	operationIDsFound := make(map[int64]string)
+	for _, tx := range transactions {
+		operationIDsFound[tx.OperationID] = tx.Hash
+	}
+	assert.Equal(t, "tx1", operationIDsFound[1])
+	assert.Equal(t, "tx2", operationIDsFound[2])
+	assert.Equal(t, "tx1", operationIDsFound[3])
+}
+
+func TestTransactionModel_BatchGetByStateChangeID(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &TransactionModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
+			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
+			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 1, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 2, 'tx2'),
+			('sc3', 'credit', $1, 3, $2, 3, 'tx1')
+	`, now, address)
+	require.NoError(t, err)
+
+	// Test BatchGetByStateChangeID
+	transactions, err := m.BatchGetByStateChangeID(ctx, []string{"sc1", "sc2", "sc3"})
+	require.NoError(t, err)
+	assert.Len(t, transactions, 3)
+
+	// Verify transactions are for correct state change IDs
+	stateChangeIDsFound := make(map[string]string)
+	for _, tx := range transactions {
+		stateChangeIDsFound[tx.StateChangeID] = tx.Hash
+	}
+	assert.Equal(t, "tx1", stateChangeIDsFound["sc1"])
+	assert.Equal(t, "tx2", stateChangeIDsFound["sc2"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["sc3"])
+}

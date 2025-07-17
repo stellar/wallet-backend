@@ -74,7 +74,7 @@ func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []str
 
 func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
 	const query = `
-		SELECT transactions.*, o.id as operation_id
+		SELECT t.*, o.id as operation_id
 		FROM operations o
 		INNER JOIN transactions t
 		ON o.tx_hash = t.hash 
