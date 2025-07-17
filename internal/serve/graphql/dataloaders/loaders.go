@@ -326,6 +326,9 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[in
 	)
 }
 
+// operationByStateChangeIDLoader creates a dataloader for fetching operations by state change ID
+// This prevents N+1 queries when multiple state changes request their operations
+// The loader batches multiple state change IDs into a single database query
 func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.OperationWithStateChangeID, error) {
@@ -340,6 +343,9 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[str
 	)
 }
 
+// transactionByStateChangeIDLoader creates a dataloader for fetching transactions by state change ID
+// This prevents N+1 queries when multiple state changes request their transactions
+// The loader batches multiple state change IDs into a single database query
 func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.TransactionWithStateChangeID, error) {
