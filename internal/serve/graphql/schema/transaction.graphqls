@@ -2,7 +2,6 @@
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  toId:            Int64!
   envelopeXdr:     String!
   resultXdr:       String!
   metaXdr:         String!

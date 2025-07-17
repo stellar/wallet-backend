@@ -114,7 +114,6 @@ type ComplexityRoot struct {
 		Operations      func(childComplexity int) int
 		ResultXDR       func(childComplexity int) int
 		StateChanges    func(childComplexity int) int
-		ToID            func(childComplexity int) int
 	}
 }
 
@@ -546,13 +545,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Transaction.StateChanges(childComplexity), true
 
-	case "Transaction.toId":
-		if e.complexity.Transaction.ToID == nil {
-			break
-		}
-
-		return e.complexity.Transaction.ToID(childComplexity), true
-
 	}
 	return 0, false
 }
@@ -813,6 +805,7 @@ scalar Int64
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
 # This type has many nullable fields to handle various state change scenarios
+# TODO: Break state change type into interface design and add sub types that implement the interface
 type StateChange{
   id:                         String!
   accountId:                  String!           
@@ -853,7 +846,6 @@ type StateChange{
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  toId:            Int64!
   envelopeXdr:     String!
   resultXdr:       String!
   metaXdr:         String!
@@ -1203,8 +1195,6 @@ func (ec *executionContext) fieldContext_Account_transactions(_ context.Context,
 			switch field.Name {
 			case "hash":
 				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "toId":
-				return ec.fieldContext_Transaction_toId(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
 			case "resultXdr":
@@ -1640,8 +1630,6 @@ func (ec *executionContext) fieldContext_Operation_transaction(_ context.Context
 			switch field.Name {
 			case "hash":
 				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "toId":
-				return ec.fieldContext_Transaction_toId(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
 			case "resultXdr":
@@ -1849,8 +1837,6 @@ func (ec *executionContext) fieldContext_Query_transactionByHash(ctx context.Con
 			switch field.Name {
 			case "hash":
 				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "toId":
-				return ec.fieldContext_Transaction_toId(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
 			case "resultXdr":
@@ -1928,8 +1914,6 @@ func (ec *executionContext) fieldContext_Query_transactions(ctx context.Context,
 			switch field.Name {
 			case "hash":
 				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "toId":
-				return ec.fieldContext_Transaction_toId(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
 			case "resultXdr":
@@ -3268,8 +3252,6 @@ func (ec *executionContext) fieldContext_StateChange_transaction(_ context.Conte
 			switch field.Name {
 			case "hash":
 				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "toId":
-				return ec.fieldContext_Transaction_toId(ctx, field)
 			case "envelopeXdr":
 				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
 			case "resultXdr":
@@ -3334,50 +3316,6 @@ func (ec *executionContext) fieldContext_Transaction_hash(_ context.Context, fie
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Transaction_toId(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Transaction_toId(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.ToID, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int64)
-	fc.Result = res
-	return ec.marshalNInt642int64(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Transaction_toId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Transaction",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int64 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -6882,11 +6820,6 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = graphql.MarshalString("Transaction")
 		case "hash":
 			out.Values[i] = ec._Transaction_hash(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "toId":
-			out.Values[i] = ec._Transaction_toId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
