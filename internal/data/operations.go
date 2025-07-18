@@ -37,7 +37,8 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Ope
 	return operations, nil
 }
 
-func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
+// BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
 	const query = `SELECT * FROM operations WHERE tx_hash = ANY($1)`
 	var operations []*types.Operation
 	start := time.Now()
@@ -51,7 +52,8 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHashes []string
 	return operations, nil
 }
 
-func (m *OperationModel) BatchGetByAccount(ctx context.Context, accountAddresses []string) ([]*types.OperationWithAccountID, error) {
+// BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
+func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string) ([]*types.OperationWithAccountID, error) {
 	const query = `
 		SELECT o.*, oa.account_id
 		FROM operations o
@@ -73,7 +75,8 @@ func (m *OperationModel) BatchGetByAccount(ctx context.Context, accountAddresses
 	return operationsWithAccounts, nil
 }
 
-func (m *OperationModel) BatchGetByStateChangeID(ctx context.Context, stateChangeIDs []string) ([]*types.OperationWithStateChangeID, error) {
+// BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string) ([]*types.OperationWithStateChangeID, error) {
 	const query = `
 		SELECT o.*, sc.id as state_change_id
 		FROM operations o

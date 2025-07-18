@@ -181,7 +181,7 @@ func newOneToOneLoader[K comparable, V any, T any](
 func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.Operation, error) {
-			return models.Operations.BatchGetByTxHash(ctx, keys)
+			return models.Operations.BatchGetByTxHashes(ctx, keys)
 		},
 		func(item *types.Operation) string {
 			return item.TxHash
@@ -198,7 +198,7 @@ func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, [
 func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Transaction] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.TransactionWithAccountID, error) {
-			return models.Transactions.BatchGetByAccount(ctx, keys)
+			return models.Transactions.BatchGetByAccountAddresses(ctx, keys)
 		},
 		func(item *types.TransactionWithAccountID) string {
 			return item.AccountID
@@ -215,7 +215,7 @@ func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[string
 func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Operation] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.OperationWithAccountID, error) {
-			return models.Operations.BatchGetByAccount(ctx, keys)
+			return models.Operations.BatchGetByAccountAddresses(ctx, keys)
 		},
 		func(item *types.OperationWithAccountID) string {
 			return item.AccountID
@@ -230,7 +230,7 @@ func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, 
 func stateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.StateChange] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.StateChange, error) {
-			return models.StateChanges.BatchGetByAccount(ctx, keys)
+			return models.StateChanges.BatchGetByAccountAddresses(ctx, keys)
 		},
 		func(item *types.StateChange) string {
 			return item.AccountID
@@ -247,7 +247,7 @@ func stateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[string
 func accountsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Account] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.AccountWithTxHash, error) {
-			return models.Account.BatchGetByTxHash(ctx, keys)
+			return models.Account.BatchGetByTxHashes(ctx, keys)
 		},
 		func(item *types.AccountWithTxHash) string {
 			return item.TxHash
@@ -264,7 +264,7 @@ func accountsByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*
 func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[string, []*types.StateChange] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []string) ([]*types.StateChange, error) {
-			return models.StateChanges.BatchGetByTxHash(ctx, keys)
+			return models.StateChanges.BatchGetByTxHashes(ctx, keys)
 		},
 		func(item *types.StateChange) string {
 			return item.TxHash
@@ -281,7 +281,7 @@ func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[string,
 func txByOperationIDLoader(models *data.Models) *dataloadgen.Loader[int64, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []int64) ([]*types.TransactionWithOperationID, error) {
-			return models.Transactions.BatchGetByOperationID(ctx, keys)
+			return models.Transactions.BatchGetByOperationIDs(ctx, keys)
 		},
 		func(item *types.TransactionWithOperationID) int64 {
 			return item.OperationID
@@ -298,7 +298,7 @@ func txByOperationIDLoader(models *data.Models) *dataloadgen.Loader[int64, *type
 func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[int64, []*types.Account] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []int64) ([]*types.AccountWithOperationID, error) {
-			return models.Account.BatchGetByOperationID(ctx, keys)
+			return models.Account.BatchGetByOperationIDs(ctx, keys)
 		},
 		func(item *types.AccountWithOperationID) int64 {
 			return item.OperationID
@@ -315,7 +315,7 @@ func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[int64,
 func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[int64, []*types.StateChange] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []int64) ([]*types.StateChange, error) {
-			return models.StateChanges.BatchGetByOperationID(ctx, keys)
+			return models.StateChanges.BatchGetByOperationIDs(ctx, keys)
 		},
 		func(item *types.StateChange) int64 {
 			return item.OperationID
@@ -332,7 +332,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[in
 func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.OperationWithStateChangeID, error) {
-			return models.Operations.BatchGetByStateChangeID(ctx, keys)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, keys)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID
@@ -349,7 +349,7 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[str
 func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[string, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []string) ([]*types.TransactionWithStateChangeID, error) {
-			return models.Transactions.BatchGetByStateChangeID(ctx, keys)
+			return models.Transactions.BatchGetByStateChangeIDs(ctx, keys)
 		},
 		func(item *types.TransactionWithStateChangeID) string {
 			return item.StateChangeID

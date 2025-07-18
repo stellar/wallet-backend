@@ -268,7 +268,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	assert.Len(t, transactions, 2)
 }
 
-func TestTransactionModel_BatchGetByAccount(t *testing.T) {
+func TestTransactionModel_BatchGetByAccountAddresses(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -315,7 +315,7 @@ func TestTransactionModel_BatchGetByAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccount(ctx, []string{address1, address2})
+	transactions, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -328,7 +328,7 @@ func TestTransactionModel_BatchGetByAccount(t *testing.T) {
 	assert.Equal(t, 1, accountsFound[address2])
 }
 
-func TestTransactionModel_BatchGetByOperationID(t *testing.T) {
+func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -369,7 +369,7 @@ func TestTransactionModel_BatchGetByOperationID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
-	transactions, err := m.BatchGetByOperationID(ctx, []int64{1, 2, 3})
+	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{1, 2, 3})
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -383,7 +383,7 @@ func TestTransactionModel_BatchGetByOperationID(t *testing.T) {
 	assert.Equal(t, "tx1", operationIDsFound[3])
 }
 
-func TestTransactionModel_BatchGetByStateChangeID(t *testing.T) {
+func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -429,7 +429,7 @@ func TestTransactionModel_BatchGetByStateChangeID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	transactions, err := m.BatchGetByStateChangeID(ctx, []string{"sc1", "sc2", "sc3"})
+	transactions, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"})
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 

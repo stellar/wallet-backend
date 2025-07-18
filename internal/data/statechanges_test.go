@@ -196,7 +196,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	}
 }
 
-func TestStateChangeModel_BatchGetByAccount(t *testing.T) {
+func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -238,7 +238,7 @@ func TestStateChangeModel_BatchGetByAccount(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount
-	stateChanges, err := m.BatchGetByAccount(ctx, []string{address1, address2})
+	stateChanges, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
@@ -308,7 +308,7 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	assert.Len(t, stateChanges, 2)
 }
 
-func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
+func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -353,7 +353,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash
-	stateChanges, err := m.BatchGetByTxHash(ctx, []string{"tx1", "tx2"})
+	stateChanges, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"})
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
@@ -366,7 +366,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	assert.Equal(t, 1, txHashesFound["tx2"])
 }
 
-func TestStateChangeModel_BatchGetByOperationID(t *testing.T) {
+func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -412,7 +412,7 @@ func TestStateChangeModel_BatchGetByOperationID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
-	stateChanges, err := m.BatchGetByOperationID(ctx, []int64{123, 456})
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456})
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 

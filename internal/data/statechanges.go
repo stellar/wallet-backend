@@ -17,15 +17,16 @@ type StateChangeModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *StateChangeModel) BatchGetByAccount(
+// BatchGetByAccountAddresses gets the state changes that are associated with the given account addresses.
+func (m *StateChangeModel) BatchGetByAccountAddresses(
 	ctx context.Context,
-	accountIDs []string,
+	accountAddresses []string,
 ) ([]*types.StateChange, error) {
 	query := `
 		SELECT * FROM state_changes WHERE account_id = ANY($1)
 	`
 	var stateChanges []*types.StateChange
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountIDs))
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
 	}
@@ -234,7 +235,8 @@ func (m *StateChangeModel) BatchInsert(
 	return insertedIDs, nil
 }
 
-func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.StateChange, error) {
+// BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.StateChange, error) {
 	const query = `
 		SELECT * FROM state_changes WHERE tx_hash = ANY($1)
 	`
@@ -250,7 +252,8 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHashes []stri
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.StateChange, error) {
+// BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.StateChange, error) {
 	const query = `
 		SELECT * FROM state_changes WHERE operation_id = ANY($1)
 	`

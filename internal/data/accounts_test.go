@@ -111,7 +111,7 @@ func TestAccountModelGet(t *testing.T) {
 	assert.Equal(t, address, account.StellarAddress)
 }
 
-func TestAccountModelBatchGetByTxHash(t *testing.T) {
+func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -147,7 +147,7 @@ func TestAccountModelBatchGetByTxHash(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash function
-	accounts, err := m.BatchGetByTxHash(ctx, []string{txHash1, txHash2})
+	accounts, err := m.BatchGetByTxHashes(ctx, []string{txHash1, txHash2})
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 
@@ -160,7 +160,7 @@ func TestAccountModelBatchGetByTxHash(t *testing.T) {
 	assert.Equal(t, txHash2, addressSet[address2])
 }
 
-func TestAccountModelBatchGetByOperationID(t *testing.T) {
+func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -200,7 +200,7 @@ func TestAccountModelBatchGetByOperationID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID function
-	accounts, err := m.BatchGetByOperationID(ctx, []int64{operationID1, operationID2})
+	accounts, err := m.BatchGetByOperationIDs(ctx, []int64{operationID1, operationID2})
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 

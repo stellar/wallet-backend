@@ -53,7 +53,8 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32) ([]*types.T
 	return transactions, nil
 }
 
-func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []string) ([]*types.TransactionWithAccountID, error) {
+// BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
+func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string) ([]*types.TransactionWithAccountID, error) {
 	const query = `
 		SELECT transactions.*, transactions_accounts.account_id 
 		FROM transactions_accounts 
@@ -62,7 +63,7 @@ func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []str
 		WHERE transactions_accounts.account_id = ANY($1)`
 	var transactions []*types.TransactionWithAccountID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accounts))
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
@@ -72,7 +73,8 @@ func (m *TransactionModel) BatchGetByAccount(ctx context.Context, accounts []str
 	return transactions, nil
 }
 
-func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
+// BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
 	const query = `
 		SELECT t.*, o.id as operation_id
 		FROM operations o
@@ -91,7 +93,8 @@ func (m *TransactionModel) BatchGetByOperationID(ctx context.Context, operationI
 	return transactions, nil
 }
 
-func (m *TransactionModel) BatchGetByStateChangeID(ctx context.Context, stateChangeIDs []string) ([]*types.TransactionWithStateChangeID, error) {
+// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string) ([]*types.TransactionWithStateChangeID, error) {
 	const query = `
 		SELECT t.*, sc.id as state_change_id
 		FROM state_changes sc

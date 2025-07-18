@@ -268,7 +268,7 @@ func TestOperationModel_GetAll(t *testing.T) {
 	assert.Len(t, operations, 2)
 }
 
-func TestOperationModel_BatchGetByTxHash(t *testing.T) {
+func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -308,7 +308,7 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash
-	operations, err := m.BatchGetByTxHash(ctx, []string{"tx1", "tx2"})
+	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"})
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
@@ -321,7 +321,7 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	assert.Equal(t, 1, txHashesFound["tx2"])
 }
 
-func TestOperationModel_BatchGetByAccount(t *testing.T) {
+func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -378,7 +378,7 @@ func TestOperationModel_BatchGetByAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	operations, err := m.BatchGetByAccount(ctx, []string{address1, address2})
+	operations, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
@@ -391,7 +391,7 @@ func TestOperationModel_BatchGetByAccount(t *testing.T) {
 	assert.Equal(t, 1, accountsFound[address2])
 }
 
-func TestOperationModel_BatchGetByStateChangeID(t *testing.T) {
+func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -447,7 +447,7 @@ func TestOperationModel_BatchGetByStateChangeID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	operations, err := m.BatchGetByStateChangeID(ctx, []string{"sc1", "sc2", "sc3"})
+	operations, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"})
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 

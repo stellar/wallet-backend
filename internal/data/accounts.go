@@ -81,7 +81,8 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	return exists, nil
 }
 
-func (m *AccountModel) BatchGetByTxHash(ctx context.Context, txHashes []string) ([]*types.AccountWithTxHash, error) {
+// BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
+func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.AccountWithTxHash, error) {
 	const query = `
 		SELECT accounts.*, transactions_accounts.tx_hash 
 		FROM transactions_accounts 
@@ -100,7 +101,8 @@ func (m *AccountModel) BatchGetByTxHash(ctx context.Context, txHashes []string) 
 	return accounts, nil
 }
 
-func (m *AccountModel) BatchGetByOperationID(ctx context.Context, operationIDs []int64) ([]*types.AccountWithOperationID, error) {
+// BatchGetByOperationIDs gets the accounts that are associated with the given operation IDs.
+func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.AccountWithOperationID, error) {
 	const query = `
 		SELECT accounts.*, operations_accounts.operation_id 
 		FROM operations_accounts 
