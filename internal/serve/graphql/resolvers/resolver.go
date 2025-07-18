@@ -9,6 +9,7 @@ package resolvers
 
 import (
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 // Resolver is the main resolver struct for gqlgen
@@ -18,11 +19,16 @@ type Resolver struct {
 	// models provides access to data layer for database operations
 	// This follows dependency injection pattern - resolvers don't create their own DB connections
 	models *data.Models
+	// accountService provides account management operations
+	accountService services.AccountService
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models) *Resolver {
-	return &Resolver{models: models}
+func NewResolver(models *data.Models, accountService services.AccountService) *Resolver {
+	return &Resolver{
+		models:         models,
+		accountService: accountService,
+	}
 }

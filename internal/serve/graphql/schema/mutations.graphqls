@@ -1,0 +1,28 @@
+# GraphQL Mutation root type - defines all available mutations in the API
+# In GraphQL, the Mutation type is the entry point for write operations
+type Mutation {
+    # Account management mutations
+    registerAccount(input: RegisterAccountInput!): RegisterAccountPayload!
+    deregisterAccount(input: DeregisterAccountInput!): DeregisterAccountPayload!
+}
+
+# Input types for account mutations
+input RegisterAccountInput {
+    address: String!
+}
+
+input DeregisterAccountInput {
+    address: String!
+}
+
+# Payload types for account mutations
+type RegisterAccountPayload {
+    success: Boolean!
+    message: String
+    account: Account
+}
+
+type DeregisterAccountPayload {
+    success: Boolean!
+    message: String
+}
