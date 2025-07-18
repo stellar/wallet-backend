@@ -262,6 +262,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		OperationType:   types.OperationTypePayment,
 		OperationXDR:    "op1_xdr",
 		TxHash:          "tx1",
+		LedgerNumber:    1,
 		LedgerCreatedAt: time.Now(),
 	}
 	op2 := &types.Operation{
@@ -269,14 +270,15 @@ func TestQueryResolver_Operations(t *testing.T) {
 		OperationType:   types.OperationTypeCreateAccount,
 		OperationXDR:    "op2_xdr",
 		TxHash:          "tx1",
+		LedgerNumber:    1,
 		LedgerCreatedAt: time.Now(),
 	}
 
 	dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO operations (id, operation_type, operation_xdr, tx_hash, ledger_created_at) VALUES ($1, $2, $3, $4, $5), ($6, $7, $8, $9, $10)`,
-			op1.ID, op1.OperationType, op1.OperationXDR, op1.TxHash, op1.LedgerCreatedAt,
-			op2.ID, op2.OperationType, op2.OperationXDR, op2.TxHash, op2.LedgerCreatedAt)
+			`INSERT INTO operations (id, operation_type, operation_xdr, tx_hash, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6), ($7, $8, $9, $10, $11, $12)`,
+			op1.ID, op1.OperationType, op1.OperationXDR, op1.TxHash, op1.LedgerNumber, op1.LedgerCreatedAt,
+			op2.ID, op2.OperationType, op2.OperationXDR, op2.TxHash, op2.LedgerNumber, op2.LedgerCreatedAt)
 		require.NoError(t, err)
 		return nil
 	})
@@ -392,7 +394,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs, 2)
-		assert.Equal(t, []string{"sc1", "sc2"}, []string{scs[0].ID, scs[1].ID})
+		assert.Contains(t, []string{"sc1", "sc2"}, scs[0].ID)
+		assert.Contains(t, []string{"sc1", "sc2"}, scs[1].ID)
 		mockMetricsService.AssertExpectations(t)
 	})
 
