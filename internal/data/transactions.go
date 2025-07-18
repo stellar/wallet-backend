@@ -18,6 +18,101 @@ type TransactionModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.Transaction, error) {
+	const query = `SELECT * FROM transactions WHERE hash = $1`
+	var transaction types.Transaction
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &transaction, query, hash)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return &transaction, nil
+}
+
+func (m *TransactionModel) GetAll(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+	query := `SELECT * FROM transactions ORDER BY ledger_created_at DESC`
+	args := []interface{}{}
+
+	if limit != nil && *limit > 0 {
+		query += ` LIMIT $1`
+		args = append(args, *limit)
+	}
+
+	var transactions []*types.Transaction
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
+// BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
+func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string) ([]*types.TransactionWithAccountID, error) {
+	const query = `
+		SELECT transactions.*, transactions_accounts.account_id 
+		FROM transactions_accounts 
+		INNER JOIN transactions 
+		ON transactions_accounts.tx_hash = transactions.hash 
+		WHERE transactions_accounts.account_id = ANY($1)`
+	var transactions []*types.TransactionWithAccountID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions by accounts: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
+// BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
+	const query = `
+		SELECT t.*, o.id as operation_id
+		FROM operations o
+		INNER JOIN transactions t
+		ON o.tx_hash = t.hash 
+		WHERE o.id = ANY($1)`
+	var transactions []*types.TransactionWithOperationID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
+// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string) ([]*types.TransactionWithStateChangeID, error) {
+	const query = `
+		SELECT t.*, sc.id as state_change_id
+		FROM state_changes sc
+		INNER JOIN transactions t ON t.hash = sc.tx_hash 
+		WHERE sc.id = ANY($1)
+		`
+	var transactions []*types.TransactionWithStateChangeID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "transactions")
+	return transactions, nil
+}
+
 // BatchInsert inserts the transactions and the transactions_accounts links.
 // It returns the hashes of the successfully inserted transactions.
 func (m *TransactionModel) BatchInsert(

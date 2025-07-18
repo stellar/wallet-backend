@@ -20,6 +20,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
@@ -29,6 +31,12 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
+
+	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
@@ -224,6 +232,29 @@ func handler(deps handlerDeps) http.Handler {
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
 		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+
+		r.Route("/graphql", func(r chi.Router) {
+			r.Use(middleware.DataloaderMiddleware(deps.Models))
+
+			resolver := resolvers.NewResolver(deps.Models)
+
+			srv := gqlhandler.New(
+				generated.NewExecutableSchema(
+					generated.Config{
+						Resolvers: resolver,
+					},
+				),
+			)
+			srv.AddTransport(transport.Options{})
+			srv.AddTransport(transport.GET{})
+			srv.AddTransport(transport.POST{})
+			srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+			srv.Use(extension.Introspection{})
+			srv.Use(extension.AutomaticPersistedQuery{
+				Cache: lru.New[string](100),
+			})
+			r.Handle("/query", srv)
+		})
 
 		r.Route("/accounts", func(r chi.Router) {
 			handler := &httphandler.AccountHandler{

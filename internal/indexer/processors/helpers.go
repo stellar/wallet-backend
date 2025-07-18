@@ -50,6 +50,7 @@ func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, 
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    xdrOpStr,
+		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		TxHash:          transaction.Hash.HexString(),
 	}, nil

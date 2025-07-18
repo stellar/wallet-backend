@@ -195,3 +195,232 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		})
 	}
 }
+
+func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test accounts
+	address1 := keypair.MustRandom().Address()
+	address2 := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
+			('sc3', 'credit', $1, 3, $3, 789, 'tx3')
+	`, now, address1, address2)
+	require.NoError(t, err)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: metrics.NewMockMetricsService(),
+	}
+
+	// Test BatchGetByAccount
+	stateChanges, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
+	require.NoError(t, err)
+	assert.Len(t, stateChanges, 3)
+
+	// Verify state changes are for correct accounts
+	accountsFound := make(map[string]int)
+	for _, sc := range stateChanges {
+		accountsFound[sc.AccountID]++
+	}
+	assert.Equal(t, 2, accountsFound[address1])
+	assert.Equal(t, 1, accountsFound[address2])
+}
+
+func TestStateChangeModel_GetAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
+			('sc3', 'credit', $1, 3, $2, 789, 'tx3')
+	`, now, address)
+	require.NoError(t, err)
+
+	// Test GetAll without limit
+	stateChanges, err := m.GetAll(ctx, nil)
+	require.NoError(t, err)
+	assert.Len(t, stateChanges, 3)
+
+	// Test GetAll with limit
+	limit := int32(2)
+	stateChanges, err = m.GetAll(ctx, &limit)
+	require.NoError(t, err)
+	assert.Len(t, stateChanges, 2)
+}
+
+func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
+			('sc3', 'credit', $1, 3, $2, 789, 'tx1')
+	`, now, address)
+	require.NoError(t, err)
+
+	// Test BatchGetByTxHash
+	stateChanges, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"})
+	require.NoError(t, err)
+	assert.Len(t, stateChanges, 3)
+
+	// Verify state changes are for correct tx hashes
+	txHashesFound := make(map[string]int)
+	for _, sc := range stateChanges {
+		txHashesFound[sc.TxHash]++
+	}
+	assert.Equal(t, 2, txHashesFound["tx1"])
+	assert.Equal(t, 1, txHashesFound["tx2"])
+}
+
+func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
+			('sc3', 'credit', $1, 3, $2, 123, 'tx3')
+	`, now, address)
+	require.NoError(t, err)
+
+	// Test BatchGetByOperationID
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456})
+	require.NoError(t, err)
+	assert.Len(t, stateChanges, 3)
+
+	// Verify state changes are for correct operation IDs
+	operationIDsFound := make(map[int64]int)
+	for _, sc := range stateChanges {
+		operationIDsFound[sc.OperationID]++
+	}
+	assert.Equal(t, 2, operationIDsFound[123])
+	assert.Equal(t, 1, operationIDsFound[456])
+}
