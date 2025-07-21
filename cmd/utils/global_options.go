@@ -16,7 +16,7 @@ func IngestServerPortOption(configKey *int) *config.ConfigOption {
 		Usage:       "The port for the ingest server.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 8001,
+		FlagDefault: 8002,
 		Required:    false,
 	}
 }
