@@ -50,6 +50,8 @@ services:
         condition: service_healthy
       stellar-rpc:
         condition: service_started
+      ingest:
+        condition: service_healthy
     ports:
       - 8001:8001
     entrypoint: ""
@@ -57,7 +59,6 @@ services:
       - sh
       - -c
       - |
-        ./wallet-backend migrate up
         ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
         ./wallet-backend serve
     environment:
@@ -112,7 +113,9 @@ services:
     command:
       - sh
       - -c
-      - ./wallet-backend ingest
+      - |
+        ./wallet-backend migrate up
+        ./wallet-backend ingest
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
