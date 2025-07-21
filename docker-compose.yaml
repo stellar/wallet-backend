@@ -38,7 +38,7 @@ services:
     container_name: api
     image: stellar/wallet-backend:development
     healthcheck:
-      test: "curl --fail --silent --show-error --location 'http://localhost:8001/health' | grep -q '\"status\": \"pass\"'"
+      test: "curl --fail --silent --show-error --location 'http://localhost:8001/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
@@ -95,13 +95,16 @@ services:
   ingest:
     container_name: ingest
     image: stellar/wallet-backend:development
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8002/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
     build:
       context: ./
       dockerfile: Dockerfile
     depends_on:
       db:
-        condition: service_healthy
-      api:
         condition: service_healthy
       stellar-rpc:
         condition: service_started
