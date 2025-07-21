@@ -44,13 +44,15 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	if rpcHealth.LatestLedger-backendLatestLedger > ledgerHealthThreshold {
 		err = errors.New("wallet backend is not in sync with the RPC")
-		httperror.ServiceUnavailable(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
+		httperror.ServiceUnavailable(ctx, err.Error(), err, map[string]interface{}{
+			"rpc_latest_ledger":     rpcHealth.LatestLedger,
+			"backend_latest_ledger": backendLatestLedger,
+		}, h.AppTracker).Render(w)
 		return
 	}
 
 	httpjson.Render(w, map[string]interface{}{
 		"status":                "ok",
-		"rpc_latest_ledger":     rpcHealth.LatestLedger,
 		"backend_latest_ledger": backendLatestLedger,
 	}, httpjson.JSON)
 }

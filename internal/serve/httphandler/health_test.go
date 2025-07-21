@@ -38,117 +38,148 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
-	testCases := []struct {
-		name                    string
-		rpcHealthResult         entities.RPCGetHealthResult
-		rpcHealthError          error
-		backendLatestLedger     uint32
-		hasCursorInDB           bool
-		expectedStatusCode      int
-		expectedResponseStatus  string
-		shouldCheckResponseBody bool
-	}{
-		{
-			name: "healthy - RPC and backend in sync",
-			rpcHealthResult: entities.RPCGetHealthResult{
-				Status:       "healthy",
-				LatestLedger: 100,
-			},
-			rpcHealthError:          nil,
-			backendLatestLedger:     98,
-			hasCursorInDB:           true,
-			expectedStatusCode:      http.StatusOK,
-			expectedResponseStatus:  "ok",
-			shouldCheckResponseBody: true,
-		},
-		{
-			name:                    "unhealthy - RPC service error",
-			rpcHealthResult:         entities.RPCGetHealthResult{},
-			rpcHealthError:          errors.New("RPC connection failed"),
-			backendLatestLedger:     0,
-			hasCursorInDB:           false,
-			expectedStatusCode:      http.StatusInternalServerError,
-			expectedResponseStatus:  "",
-			shouldCheckResponseBody: false,
-		},
-		{
-			name: "unhealthy - RPC status not healthy",
-			rpcHealthResult: entities.RPCGetHealthResult{
-				Status:       "unhealthy",
-				LatestLedger: 100,
-			},
-			rpcHealthError:          nil,
-			backendLatestLedger:     98,
-			hasCursorInDB:           true,
-			expectedStatusCode:      http.StatusServiceUnavailable,
-			expectedResponseStatus:  "",
-			shouldCheckResponseBody: false,
-		},
-		{
-			name: "unhealthy - backend significantly behind",
-			rpcHealthResult: entities.RPCGetHealthResult{
-				Status:       "healthy",
-				LatestLedger: 1000,
-			},
-			rpcHealthError:          nil,
-			backendLatestLedger:     900,
-			hasCursorInDB:           true,
-			expectedStatusCode:      http.StatusServiceUnavailable,
-			expectedResponseStatus:  "",
-			shouldCheckResponseBody: false,
-		},
-	}
+	t.Run("healthy - RPC and backend in sync", func(t *testing.T) {
+		ctx := context.Background()
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('live_ingest_cursor', $1)", uint32(98))
+		require.NoError(t, err)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Setup database state
-			ctx := context.Background()
-			_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
-			require.NoError(t, err)
+		mockRPCService := &services.RPCServiceMock{}
+		mockAppTracker := apptracker.NewMockAppTracker(t)
+		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
+		defer mockAppTracker.AssertExpectations(t)
 
-			if tc.hasCursorInDB {
-				_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('live_ingest_cursor', $1)", tc.backendLatestLedger)
-				require.NoError(t, err)
-			}
+		handler := &HealthHandler{
+			Models:     models,
+			RPCService: mockRPCService,
+			AppTracker: mockAppTracker,
+		}
 
-			// Setup mocks
-			mockRPCService := &services.RPCServiceMock{}
-			mockAppTracker := apptracker.NewMockAppTracker(t)
-			mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
-			defer mockAppTracker.AssertExpectations(t)
+		rpcHealthResult := entities.RPCGetHealthResult{
+			Status:       "healthy",
+			LatestLedger: 100,
+		}
+		mockRPCService.On("GetHealth").Return(rpcHealthResult, nil)
+		defer mockRPCService.AssertExpectations(t)
 
-			handler := &HealthHandler{
-				Models:     models,
-				RPCService: mockRPCService,
-				AppTracker: mockAppTracker,
-			}
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		recorder := httptest.NewRecorder()
+		handler.GetHealth(recorder, req)
+		assert.Equal(t, http.StatusOK, recorder.Code)
 
-			mockRPCService.On("GetHealth").Return(tc.rpcHealthResult, tc.rpcHealthError)
-			defer mockRPCService.AssertExpectations(t)
+		var response map[string]any
+		err = json.Unmarshal(recorder.Body.Bytes(), &response)
+		require.NoError(t, err)
 
-			req := httptest.NewRequest(http.MethodGet, "/health", nil)
-			recorder := httptest.NewRecorder()
-			handler.GetHealth(recorder, req)
-			assert.Equal(t, tc.expectedStatusCode, recorder.Code)
+		assert.Equal(t, "ok", response["status"])
+		assert.Equal(t, float64(98), response["backend_latest_ledger"])
 
-			if tc.shouldCheckResponseBody {
-				var response map[string]interface{}
-				err := json.Unmarshal(recorder.Body.Bytes(), &response)
-				require.NoError(t, err)
+		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, cleanupErr)
+	})
 
-				assert.Equal(t, tc.expectedResponseStatus, response["status"])
-				assert.Equal(t, float64(tc.rpcHealthResult.LatestLedger), response["rpc_latest_ledger"])
+	t.Run("unhealthy - RPC service error", func(t *testing.T) {
+		ctx := context.Background()
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, err)
 
-				expectedBackendLedger := uint32(0)
-				if tc.hasCursorInDB {
-					expectedBackendLedger = tc.backendLatestLedger
-				}
-				assert.Equal(t, float64(expectedBackendLedger), response["backend_latest_ledger"])
-			}
+		mockRPCService := &services.RPCServiceMock{}
+		mockAppTracker := apptracker.NewMockAppTracker(t)
+		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
+		defer mockAppTracker.AssertExpectations(t)
 
-			// Clean up
-			_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
-			require.NoError(t, cleanupErr)
-		})
-	}
+		handler := &HealthHandler{
+			Models:     models,
+			RPCService: mockRPCService,
+			AppTracker: mockAppTracker,
+		}
+
+		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("RPC connection failed"))
+		defer mockRPCService.AssertExpectations(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		recorder := httptest.NewRecorder()
+		handler.GetHealth(recorder, req)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+
+		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, cleanupErr)
+	})
+
+	t.Run("unhealthy - RPC status not healthy", func(t *testing.T) {
+		ctx := context.Background()
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('live_ingest_cursor', $1)", uint32(98))
+		require.NoError(t, err)
+
+		mockRPCService := &services.RPCServiceMock{}
+		mockAppTracker := apptracker.NewMockAppTracker(t)
+		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
+		defer mockAppTracker.AssertExpectations(t)
+
+		handler := &HealthHandler{
+			Models:     models,
+			RPCService: mockRPCService,
+			AppTracker: mockAppTracker,
+		}
+
+		rpcHealthResult := entities.RPCGetHealthResult{
+			Status:       "unhealthy",
+			LatestLedger: 100,
+		}
+		mockRPCService.On("GetHealth").Return(rpcHealthResult, nil)
+		defer mockRPCService.AssertExpectations(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		recorder := httptest.NewRecorder()
+		handler.GetHealth(recorder, req)
+		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+
+		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, cleanupErr)
+	})
+
+	t.Run("unhealthy - backend significantly behind", func(t *testing.T) {
+		ctx := context.Background()
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO ingest_store (key, value) VALUES ('live_ingest_cursor', $1)", uint32(900))
+		require.NoError(t, err)
+
+		mockRPCService := &services.RPCServiceMock{}
+		mockAppTracker := apptracker.NewMockAppTracker(t)
+		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
+		defer mockAppTracker.AssertExpectations(t)
+
+		handler := &HealthHandler{
+			Models:     models,
+			RPCService: mockRPCService,
+			AppTracker: mockAppTracker,
+		}
+
+		rpcHealthResult := entities.RPCGetHealthResult{
+			Status:       "healthy",
+			LatestLedger: 1000,
+		}
+		mockRPCService.On("GetHealth").Return(rpcHealthResult, nil)
+		defer mockRPCService.AssertExpectations(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		recorder := httptest.NewRecorder()
+		handler.GetHealth(recorder, req)
+		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+
+		var response map[string]any
+		err = json.Unmarshal(recorder.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Contains(t, recorder.Body.String(), "wallet backend is not in sync with the RPC")
+		assert.Equal(t, float64(1000), response["extras"].(map[string]any)["rpc_latest_ledger"])
+		assert.Equal(t, float64(900), response["extras"].(map[string]any)["backend_latest_ledger"])
+
+		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
+		require.NoError(t, cleanupErr)
+	})
 }
