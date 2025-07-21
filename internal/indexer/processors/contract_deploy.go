@@ -9,17 +9,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// StateChangeContractDeployProcessor emits state changes for contract deployments.
-type StateChangeContractDeployProcessor struct {
+// ContractDeployProcessor emits state changes for contract deployments.
+type ContractDeployProcessor struct {
 	networkPassphrase string
 }
 
-func NewStateChangeContractDeployProcessor(networkPassphrase string) *StateChangeContractDeployProcessor {
-	return &StateChangeContractDeployProcessor{networkPassphrase: networkPassphrase}
+func NewContractDeployProcessor(networkPassphrase string) *ContractDeployProcessor {
+	return &ContractDeployProcessor{networkPassphrase: networkPassphrase}
 }
 
 // Process emits a state change for each contract deployment (including subinvocations).
-func (p *StateChangeContractDeployProcessor) Process(op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (p *ContractDeployProcessor) Process(op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
 	}

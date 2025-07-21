@@ -15,8 +15,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-func Test_StateChangeContractDeployProcessor_Process_invalidOpType(t *testing.T) {
-	proc := NewStateChangeContractDeployProcessor(network.TestNetworkPassphrase)
+func Test_ContractDeployProcessor_Process_invalidOpType(t *testing.T) {
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 
 	op := &operation_processor.TransactionOperationWrapper{
 		Operation: xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypePayment}},
@@ -26,7 +26,7 @@ func Test_StateChangeContractDeployProcessor_Process_invalidOpType(t *testing.T)
 	assert.Nil(t, changes)
 }
 
-func Test_StateChangeContractDeployProcessor_Process_createContract(t *testing.T) {
+func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 	const (
 		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
 		fromSourceAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
@@ -127,7 +127,7 @@ func Test_StateChangeContractDeployProcessor_Process_createContract(t *testing.T
 		}
 	}
 
-	proc := NewStateChangeContractDeployProcessor(network.TestNetworkPassphrase)
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			stateChanges, err := proc.Process(tc.op)
@@ -138,7 +138,7 @@ func Test_StateChangeContractDeployProcessor_Process_createContract(t *testing.T
 	}
 }
 
-func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T) {
+func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 	const (
 		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
 		argAccountID1     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
@@ -149,7 +149,7 @@ func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T
 		invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
 	)
 
-	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) operation_processor.TransactionOperationWrapper {
+	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *operation_processor.TransactionOperationWrapper {
 		op := makeBasicSorobanOp()
 		op.Operation = xdr.Operation{
 			Body: xdr.OperationBody{
@@ -184,7 +184,7 @@ func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T
 
 	type TestCase struct {
 		name             string
-		op               operation_processor.TransactionOperationWrapper
+		op               *operation_processor.TransactionOperationWrapper
 		wantStateChanges []types.StateChange
 	}
 	testCases := []TestCase{}
@@ -208,11 +208,11 @@ func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T
 			testCases = append(testCases,
 				TestCase{
 					name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
-					op: func() operation_processor.TransactionOperationWrapper {
+					op: func() *operation_processor.TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
 						if withSubinvocations {
-							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-							op = includeSubInvocations(op)
+							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
+							includeSubInvocations(op)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -223,12 +223,12 @@ func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
-					op: func() operation_processor.TransactionOperationWrapper {
+					op: func() *operation_processor.TransactionOperationWrapper {
 						op := makeInvokeContractOp(makeScContract(argContractID1), makeScContract(argContractID2))
 						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 						if withSubinvocations {
-							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, &op, makeScAddress(authSignerAccount))
-							op = includeSubInvocations(op)
+							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
+							includeSubInvocations(op)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -241,7 +241,7 @@ func Test_StateChangeContractDeployProcessor_Process_invokeContract(t *testing.T
 		}
 	}
 
-	proc := NewStateChangeContractDeployProcessor(network.TestNetworkPassphrase)
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			stateChanges, err := proc.Process(tc.op)
