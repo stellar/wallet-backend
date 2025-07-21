@@ -64,6 +64,12 @@ func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *
 	return b
 }
 
+// WithDeployer sets the deployer account ID, usually associated with a contract deployment.
+func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
+	b.base.DeployerAccountID = utils.SQLNullString(deployer)
+	return b
+}
+
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
 	b.base.SponsorAccountID = utils.SQLNullString(sponsor)

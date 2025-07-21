@@ -23,6 +23,7 @@ CREATE TABLE state_changes (
     spender_account_id TEXT,
     sponsored_account_id TEXT,
     sponsor_account_id TEXT,
+    deployer_account_id TEXT,
     thresholds JSONB
 );
 
