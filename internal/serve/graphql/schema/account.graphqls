@@ -1,0 +1,20 @@
+# GraphQL Account type - represents a blockchain account
+# In GraphQL, types define the shape of data that can be queried
+type Account{
+  address: String!
+
+  # GraphQL Relationships - these fields use resolvers for data fetching
+  # Each relationship resolver will be called when the field is requested
+  
+  # All transactions associated with this account
+  # Uses dataloader for efficient batching to prevent N+1 queries
+  transactions:   [Transaction!]!
+  
+  # All operations associated with this account
+  # Uses dataloader for efficient batching to prevent N+1 queries
+  operations:     [Operation!]!
+  
+  # All state changes associated with this account
+  # Uses resolver to fetch related state changes
+  stateChanges:   [StateChange!]!
+}

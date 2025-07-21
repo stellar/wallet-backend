@@ -215,3 +215,248 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		})
 	}
 }
+
+func TestOperationModel_GetAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
+			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Test GetAll without limit
+	operations, err := m.GetAll(ctx, nil)
+	require.NoError(t, err)
+	assert.Len(t, operations, 3)
+
+	// Test GetAll with limit
+	limit := int32(2)
+	operations, err = m.GetAll(ctx, &limit)
+	require.NoError(t, err)
+	assert.Len(t, operations, 2)
+}
+
+func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
+			(3, 'tx1', 'payment', 'xdr3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Test BatchGetByTxHash
+	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"})
+	require.NoError(t, err)
+	assert.Len(t, operations, 3)
+
+	// Verify operations are for correct tx hashes
+	txHashesFound := make(map[string]int)
+	for _, op := range operations {
+		txHashesFound[op.TxHash]++
+	}
+	assert.Equal(t, 2, txHashesFound["tx1"])
+	assert.Equal(t, 1, txHashesFound["tx2"])
+}
+
+func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test accounts
+	address1 := keypair.MustRandom().Address()
+	address2 := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
+			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations_accounts links
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations_accounts (operation_id, account_id)
+		VALUES 
+			(1, $1),
+			(2, $1),
+			(3, $2)
+	`, address1, address2)
+	require.NoError(t, err)
+
+	// Test BatchGetByAccount
+	operations, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
+	require.NoError(t, err)
+	assert.Len(t, operations, 3)
+
+	// Verify operations are for correct accounts
+	accountsFound := make(map[string]int)
+	for _, op := range operations {
+		accountsFound[op.AccountID]++
+	}
+	assert.Equal(t, 2, accountsFound[address1])
+	assert.Equal(t, 1, accountsFound[address2])
+}
+
+func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
+			(3, 'tx3', 'payment', 'xdr3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			('sc1', 'credit', $1, 1, $2, 1, 'tx1'),
+			('sc2', 'debit', $1, 2, $2, 2, 'tx2'),
+			('sc3', 'credit', $1, 3, $2, 1, 'tx3')
+	`, now, address)
+	require.NoError(t, err)
+
+	// Test BatchGetByStateChangeID
+	operations, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"})
+	require.NoError(t, err)
+	assert.Len(t, operations, 3)
+
+	// Verify operations are for correct state change IDs
+	stateChangeIDsFound := make(map[string]int64)
+	for _, op := range operations {
+		stateChangeIDsFound[op.StateChangeID] = op.ID
+	}
+	assert.Equal(t, int64(1), stateChangeIDsFound["sc1"])
+	assert.Equal(t, int64(2), stateChangeIDsFound["sc2"])
+	assert.Equal(t, int64(1), stateChangeIDsFound["sc3"])
+}
