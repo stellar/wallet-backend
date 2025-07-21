@@ -17,7 +17,7 @@ func IngestServerPortOption(configKey *int) *config.ConfigOption {
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 8001,
-		Required:    true,
+		Required:    false,
 	}
 }
 
