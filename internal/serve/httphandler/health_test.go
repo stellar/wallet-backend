@@ -165,4 +165,3 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		})
 	}
 }
-
