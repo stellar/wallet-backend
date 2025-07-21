@@ -32,7 +32,7 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rpcHealth.Status != "healthy" {
-		err := errors.New("rpc is not healthy")
+		err = errors.New("rpc is not healthy")
 		httperror.ServiceUnavailable(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
@@ -43,7 +43,7 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rpcHealth.LatestLedger-backendLatestLedger > ledgerHealthThreshold {
-		err := errors.New("wallet backend is not in sync with the RPC")
+		err = errors.New("wallet backend is not in sync with the RPC")
 		httperror.ServiceUnavailable(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
