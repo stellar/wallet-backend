@@ -10,7 +10,6 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
 	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,39 +26,6 @@ func Test_calculateContractID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD", contractID)
-}
-
-func makeScAddress(accountID string) xdr.ScAddress {
-	return xdr.ScAddress{
-		Type:      xdr.ScAddressTypeScAddressTypeAccount,
-		AccountId: utils.PointOf(xdr.MustAddress(accountID)),
-	}
-}
-
-func makeScContract(contractID string) xdr.ScAddress {
-	decoded := strkey.MustDecode(strkey.VersionByteContract, contractID)
-	return xdr.ScAddress{
-		Type:       xdr.ScAddressTypeScAddressTypeContract,
-		ContractId: utils.PointOf(xdr.ContractId(decoded)),
-	}
-}
-
-// makeFeeBumpOp updates the envelope type to a fee bump envelope and sets the fee source account.
-func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *operation_processor.TransactionOperationWrapper) *operation_processor.TransactionOperationWrapper {
-	op := *baseOp
-	op.Transaction.Envelope.V0 = nil
-	op.Transaction.Envelope.V1 = nil
-	op.Transaction.Envelope.Type = xdr.EnvelopeTypeEnvelopeTypeTxFeeBump
-	op.Transaction.Envelope.FeeBump = &xdr.FeeBumpTransactionEnvelope{
-		Tx: xdr.FeeBumpTransaction{
-			FeeSource: xdr.MustMuxedAddress(feeBumpSourceAccount),
-			InnerTx: xdr.FeeBumpTransactionInnerTx{
-				Type: baseOp.Transaction.Envelope.Type,
-				V1:   baseOp.Transaction.Envelope.V1,
-			},
-		},
-	}
-	return &op
 }
 
 func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
@@ -246,41 +212,22 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 }
 
 func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
-	const (
-		txSourceAccount = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
-		opSourceAccount = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
-	)
+	const opSourceAccount = "GBKV7KN5K2CJA7TC5AUQNI76JBXHLMQSHT426JEAR3TPVKNSMKMG4RZN"
 
 	uploadWasmOp := func() *operation_processor.TransactionOperationWrapper {
-		return &operation_processor.TransactionOperationWrapper{
-			Network:      network.TestNetworkPassphrase,
-			LedgerClosed: time.Now(),
-			Operation: xdr.Operation{
-				Body: xdr.OperationBody{
-					Type: xdr.OperationTypeInvokeHostFunction,
-					InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
-						HostFunction: xdr.HostFunction{
-							Type: xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm,
-							Wasm: &[]byte{1, 2, 3, 4, 5},
-						},
-					},
-				},
-			},
-			Transaction: ingest.LedgerTransaction{
-				Envelope: xdr.TransactionEnvelope{
-					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-					V1: &xdr.TransactionV1Envelope{
-						Tx: xdr.Transaction{
-							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
-							Ext: xdr.TransactionExt{
-								V:           1,
-								SorobanData: &xdr.SorobanTransactionData{},
-							},
-						},
+		op := makeBasicSorobanOp()
+		op.Operation = xdr.Operation{
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypeInvokeHostFunction,
+				InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+					HostFunction: xdr.HostFunction{
+						Type: xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm,
+						Wasm: &[]byte{1, 2, 3, 4, 5},
 					},
 				},
 			},
 		}
+		return op
 	}
 
 	testCases := []struct {
@@ -434,7 +381,6 @@ func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) 
 
 func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.T) {
 	const (
-		txSourceAccount       = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
 		opSourceAccount       = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
 		fromSourceAccount     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
 		authSignerAccount     = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
@@ -442,89 +388,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		constructorAccountID  = "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER"
 		constructorContractID = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
 	)
-	usdcXdrAsset := xdr.Asset{
-		Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
-		AlphaNum4: &xdr.AlphaNum4{
-			AssetCode: [4]byte{'U', 'S', 'D', 'C'},
-			Issuer:    xdr.MustAddress("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
-		},
-	}
-	salt := xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
-
-	basicSorobanOp := func() *operation_processor.TransactionOperationWrapper {
-		return &operation_processor.TransactionOperationWrapper{
-			Network:      network.TestNetworkPassphrase,
-			LedgerClosed: time.Now(),
-			Operation: xdr.Operation{
-				Body: xdr.OperationBody{
-					Type: xdr.OperationTypeInvokeHostFunction,
-					InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
-						HostFunction: xdr.HostFunction{},
-						Auth:         []xdr.SorobanAuthorizationEntry{},
-					},
-				},
-			},
-			Transaction: ingest.LedgerTransaction{
-				Envelope: xdr.TransactionEnvelope{
-					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-					V1: &xdr.TransactionV1Envelope{
-						Tx: xdr.Transaction{
-							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
-							Ext: xdr.TransactionExt{
-								V:           1,
-								SorobanData: &xdr.SorobanTransactionData{},
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	setFromAddress := func(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, fromSourceAccount string) {
-		op.Operation.Body.InvokeHostFunctionOp.HostFunction.Type = hostFnType
-		preimage := xdr.ContractIdPreimage{
-			Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
-			FromAddress: &xdr.ContractIdPreimageFromAddress{
-				Address: makeScAddress(fromSourceAccount),
-				Salt:    salt,
-			},
-		}
-
-		switch hostFnType {
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContract = &xdr.CreateContractArgs{
-				ContractIdPreimage: preimage,
-			}
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2 = &xdr.CreateContractArgsV2{
-				ContractIdPreimage: preimage,
-			}
-		default:
-			require.Fail(t, "unsupported host function type", "host function type: %s", hostFnType)
-		}
-	}
-
-	setFromAsset := func(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, asset xdr.Asset) {
-		op.Operation.Body.InvokeHostFunctionOp.HostFunction.Type = hostFnType
-		preimage := xdr.ContractIdPreimage{
-			Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
-			FromAsset: &asset,
-		}
-
-		switch hostFnType {
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContract = &xdr.CreateContractArgs{
-				ContractIdPreimage: preimage,
-			}
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2 = &xdr.CreateContractArgsV2{
-				ContractIdPreimage: preimage,
-			}
-		default:
-			require.Fail(t, "unsupported host function type", "host function type: %s", hostFnType)
-		}
-	}
 
 	type TestCase struct {
 		name             string
@@ -549,7 +412,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
 						op: func() *operation_processor.TransactionOperationWrapper {
-							op := basicSorobanOp()
+							op := makeBasicSorobanOp()
 							setFromAddress(op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
@@ -565,7 +428,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
 						op: func() *operation_processor.TransactionOperationWrapper {
-							op := basicSorobanOp()
+							op := makeBasicSorobanOp()
 							op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 							setFromAddress(op, hostFnType, fromSourceAccount)
 							if withSubinvocations {
@@ -582,8 +445,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
 						op: func() *operation_processor.TransactionOperationWrapper {
-							op := basicSorobanOp()
-							setFromAsset(op, hostFnType, usdcXdrAsset)
+							op := makeBasicSorobanOp()
+							setFromAsset(op, hostFnType, usdcAssetTestnet)
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
@@ -602,7 +465,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	testCases = append(testCases, TestCase{
 		name: fmt.Sprintf("🟢%s.ConstructorArgs/FromAccount/op.SourceAccount", xdr.HostFunctionTypeHostFunctionTypeCreateContractV2),
 		op: func() *operation_processor.TransactionOperationWrapper {
-			op := basicSorobanOp()
+			op := makeBasicSorobanOp()
 			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, fromSourceAccount)
 			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2.ConstructorArgs = []xdr.ScVal{ // <--- args addresses are not returned
 				{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(constructorAccountID))},
@@ -627,7 +490,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 
 func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.T) {
 	const (
-		txSourceAccount   = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
 		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
 		argAccountID1     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
 		argAccountID2     = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
@@ -638,47 +500,31 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	)
 
 	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *operation_processor.TransactionOperationWrapper {
-		return &operation_processor.TransactionOperationWrapper{
-			Network:      network.TestNetworkPassphrase,
-			LedgerClosed: time.Now(),
-			Operation: xdr.Operation{
-				Body: xdr.OperationBody{
-					Type: xdr.OperationTypeInvokeHostFunction,
-					InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
-						HostFunction: xdr.HostFunction{
-							Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
-
-							InvokeContract: &xdr.InvokeContractArgs{
-								ContractAddress: makeScContract(invokedContractID),
-								FunctionName:    xdr.ScSymbol("authorized_fn"),
-								Args: func() []xdr.ScVal {
-									args := make([]xdr.ScVal, len(argAddresses))
-									for i, argAddress := range argAddresses {
-										args[i] = xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(argAddress)}
-									}
-									return args
-								}(),
-							},
-						},
-						Auth: []xdr.SorobanAuthorizationEntry{},
-					},
-				},
-			},
-			Transaction: ingest.LedgerTransaction{
-				Envelope: xdr.TransactionEnvelope{
-					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-					V1: &xdr.TransactionV1Envelope{
-						Tx: xdr.Transaction{
-							SourceAccount: xdr.MustMuxedAddress(txSourceAccount),
-							Ext: xdr.TransactionExt{
-								V:           1,
-								SorobanData: &xdr.SorobanTransactionData{},
-							},
+		op := makeBasicSorobanOp()
+		op.Operation = xdr.Operation{
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypeInvokeHostFunction,
+				InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+					HostFunction: xdr.HostFunction{
+						Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+						InvokeContract: &xdr.InvokeContractArgs{
+							ContractAddress: makeScContract(invokedContractID),
+							FunctionName:    xdr.ScSymbol("authorized_fn"),
+							Args: func() []xdr.ScVal {
+								args := make([]xdr.ScVal, len(argAddresses))
+								for i, argAddress := range argAddresses {
+									args[i] = xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(argAddress)}
+								}
+								return args
+							}(),
 						},
 					},
+					Auth: []xdr.SorobanAuthorizationEntry{},
 				},
 			},
 		}
+
+		return op
 	}
 
 	type TestCase struct {

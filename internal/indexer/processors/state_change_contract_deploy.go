@@ -19,7 +19,7 @@ func NewStateChangeContractDeployProcessor(networkPassphrase string) *StateChang
 }
 
 // Process emits a state change for each contract deployment (including subinvocations).
-func (p *StateChangeContractDeployProcessor) Process(op operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (p *StateChangeContractDeployProcessor) Process(op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
 	}
