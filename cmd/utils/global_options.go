@@ -10,6 +10,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
+func IngestServerPortOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "ingest-server-port",
+		Usage:       "The port for the ingest server.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 8002,
+		Required:    false,
+	}
+}
+
 func DatabaseURLOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "database-url",
@@ -144,7 +155,7 @@ func DistributionAccountSignatureClientProviderOption(configKey *signing.Signatu
 func StartLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "start-ledger",
-		Usage:       "ledger number to start getting transactions from",
+		Usage:       "ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 0,
