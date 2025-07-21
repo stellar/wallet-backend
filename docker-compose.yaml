@@ -115,7 +115,17 @@ services:
       - -c
       - |
         ./wallet-backend migrate up
-        ./wallet-backend ingest
+        if [ "$STELLAR_ENVIRONMENT" = "GITHUB_WORKFLOW" ]; then
+          HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "${RPC_URL}")
+          LATEST_LEDGER=$(echo "$$HEALTH_RESPONSE" | grep -oE '"latestLedger":[0-9]+' | grep -oE '[0-9]+' || true)
+          if [ -z "$$LATEST_LEDGER" ] || [ "$$LATEST_LEDGER" = "" ]; then
+            ./wallet-backend ingest
+          else
+            ./wallet-backend ingest --start-ledger "$$LATEST_LEDGER"
+          fi
+        else
+          ./wallet-backend ingest
+        fi
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable

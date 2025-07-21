@@ -155,7 +155,7 @@ func DistributionAccountSignatureClientProviderOption(configKey *signing.Signatu
 func StartLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "start-ledger",
-		Usage:       "ledger number to start getting transactions from",
+		Usage:       "ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 0,

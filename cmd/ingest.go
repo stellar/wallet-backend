@@ -38,14 +38,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "live_ingest_cursor",
 			Required:    true,
 		},
-		{
-			Name:        "start",
-			Usage:       "Ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.StartLedger,
-			FlagDefault: 0,
-			Required:    false,
-		},
 	}
 
 	cmd := &cobra.Command{
