@@ -2,6 +2,7 @@ package processors
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -535,7 +536,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	for _, withSubinvocations := range []bool{false, true} {
 		for _, feeBump := range []bool{false, true} {
 			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
-				prefix := hostFnType.String()
+				prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
 				subInvocationsParticipants := set.NewSet[string]()
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
