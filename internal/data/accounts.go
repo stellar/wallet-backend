@@ -5,13 +5,30 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type AccountModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
+}
+
+func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account, error) {
+	const query = `SELECT * FROM accounts WHERE stellar_address = $1`
+	var account types.Account
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &account, query, address)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting account %s: %w", address, err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return &account, nil
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
@@ -62,4 +79,44 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return exists, nil
+}
+
+// BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
+func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.AccountWithTxHash, error) {
+	const query = `
+		SELECT accounts.*, transactions_accounts.tx_hash 
+		FROM transactions_accounts 
+		INNER JOIN accounts 
+		ON transactions_accounts.account_id = accounts.stellar_address 
+		WHERE transactions_accounts.tx_hash = ANY($1)`
+	var accounts []*types.AccountWithTxHash
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting accounts by transaction hashes: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return accounts, nil
+}
+
+// BatchGetByOperationIDs gets the accounts that are associated with the given operation IDs.
+func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.AccountWithOperationID, error) {
+	const query = `
+		SELECT accounts.*, operations_accounts.operation_id 
+		FROM operations_accounts 
+		INNER JOIN accounts 
+		ON operations_accounts.account_id = accounts.stellar_address 
+		WHERE operations_accounts.operation_id = ANY($1)`
+	var accounts []*types.AccountWithOperationID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return accounts, nil
 }

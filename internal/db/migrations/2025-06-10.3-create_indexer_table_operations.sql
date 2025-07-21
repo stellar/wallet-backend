@@ -6,6 +6,7 @@ CREATE TABLE operations (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
     operation_type TEXT NOT NULL,
     operation_xdr TEXT,
+    ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
