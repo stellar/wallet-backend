@@ -16,13 +16,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// Test constants for Soroban operations
+// txSourceAccount is a source account commonly used in this package's tests.
 const txSourceAccount = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
 
-// Common salt used in tests
+// TestSalt is a common salt used in this package's tests.
 var TestSalt = xdr.Uint256{195, 179, 60, 131, 211, 25, 160, 131, 45, 151, 203, 11, 11, 116, 166, 232, 51, 92, 179, 76, 220, 111, 96, 246, 72, 68, 195, 127, 194, 19, 147, 252}
 
-// USDC asset for testing
+// usdcAssetTestnet is the widely known Circle USDC asset, and we use it in this package's tests.
 var usdcAssetTestnet = xdr.Asset{
 	Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
 	AlphaNum4: &xdr.AlphaNum4{
@@ -87,6 +87,8 @@ func makeBasicSorobanOp() *operation_processor.TransactionOperationWrapper {
 }
 
 // setFromAddress configures a Soroban operation with FromAddress contract creation.
+//
+//nolint:unparam
 func setFromAddress(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, fromSourceAccount string) {
 	setFrom(op, hostFnType, xdr.ContractIdPreimage{
 		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,

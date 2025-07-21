@@ -64,6 +64,8 @@ func (p *StateChangeContractDeployProcessor) Process(op *operation_processor.Tra
 					return err
 				}
 			}
+		case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn:
+			// no-op
 		}
 		for _, sub := range inv.SubInvocations {
 			if err := walkInvocation(sub); err != nil {
@@ -89,6 +91,8 @@ func (p *StateChangeContractDeployProcessor) Process(op *operation_processor.Tra
 				return nil, err
 			}
 		}
+	case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm, xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
+		// no-op
 	}
 
 	for _, auth := range invokeHostOp.Auth {
