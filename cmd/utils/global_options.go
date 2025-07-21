@@ -10,6 +10,28 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
+func IngestHealthCheckPortOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "ingest-health-check-port",
+		Usage:       "The port for the ingest health check server.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 8002,
+		Required:    true,
+	}
+}
+
+func IngestMetricsPortOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "ingest-metrics-port",
+		Usage:       "The port for the ingest metrics server.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 8003,
+		Required:    true,
+	}
+}
+
 func DatabaseURLOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "database-url",

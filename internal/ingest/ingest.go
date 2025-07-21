@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -21,6 +22,8 @@ import (
 
 type Configs struct {
 	DatabaseURL       string
+	HealthCheckPort   int
+	MetricsPort       int
 	LedgerCursorName  string
 	StartLedger       int
 	EndLedger         int
@@ -78,9 +81,22 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	http.Handle("/ingest-metrics", promhttp.HandlerFor(metricsService.GetRegistry(), promhttp.HandlerOpts{}))
 	go func() {
-		err := http.ListenAndServe(":8002", nil)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 		if err != nil {
 			log.Ctx(context.Background()).Fatalf("starting ingest metrics server: %v", err)
+		}
+	}()
+
+	healthHandler := httphandler.HealthHandler{
+		Models:     models,
+		RPCService: rpcService,
+		AppTracker: cfg.AppTracker,
+	}
+	http.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))
+	go func() {
+		err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.HealthCheckPort), nil)
+		if err != nil {
+			log.Ctx(context.Background()).Fatalf("starting ingest health check server: %v", err)
 		}
 	}()
 
