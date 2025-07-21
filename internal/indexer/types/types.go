@@ -15,6 +15,16 @@ type Account struct {
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
 }
 
+type AccountWithTxHash struct {
+	Account
+	TxHash string `json:"txHash,omitempty" db:"tx_hash"`
+}
+
+type AccountWithOperationID struct {
+	Account
+	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
+}
+
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"to_id,omitempty" db:"to_id"`
@@ -28,6 +38,21 @@ type Transaction struct {
 	Operations   []Operation   `json:"operations,omitempty" db:"operations"`
 	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
 	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
+}
+
+type TransactionWithAccountID struct {
+	Transaction
+	AccountID string `json:"accountId,omitempty" db:"account_id"`
+}
+
+type TransactionWithStateChangeID struct {
+	Transaction
+	StateChangeID string `json:"stateChangeId,omitempty" db:"state_change_id"`
+}
+
+type TransactionWithOperationID struct {
+	Transaction
+	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
 }
 
 // xdrToOperationTypeMap provides 1:1 mapping between XDR OperationType and custom OperationType
@@ -104,6 +129,7 @@ type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
 	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
@@ -111,6 +137,16 @@ type Operation struct {
 	Transaction  *Transaction  `json:"transaction,omitempty" db:"transaction"`
 	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
 	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
+}
+
+type OperationWithAccountID struct {
+	Operation
+	AccountID string `db:"account_id"`
+}
+
+type OperationWithStateChangeID struct {
+	Operation
+	StateChangeID string `db:"state_change_id"`
 }
 
 type StateChangeCategory string

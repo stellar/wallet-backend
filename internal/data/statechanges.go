@@ -17,6 +17,41 @@ type StateChangeModel struct {
 	MetricsService metrics.MetricsService
 }
 
+// BatchGetByAccountAddresses gets the state changes that are associated with the given account addresses.
+func (m *StateChangeModel) BatchGetByAccountAddresses(
+	ctx context.Context,
+	accountAddresses []string,
+) ([]*types.StateChange, error) {
+	query := `
+		SELECT * FROM state_changes WHERE account_id = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
+	}
+	return stateChanges, nil
+}
+
+func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+	start := time.Now()
+	query := `SELECT * FROM state_changes ORDER BY ledger_created_at DESC`
+	var args []interface{}
+	if limit != nil && *limit > 0 {
+		query += ` LIMIT $1`
+		args = append(args, *limit)
+	}
+	var stateChanges []*types.StateChange
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting all state changes: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}
+
 func (m *StateChangeModel) BatchInsert(
 	ctx context.Context,
 	sqlExecuter db.SQLExecuter,
@@ -204,4 +239,38 @@ func (m *StateChangeModel) BatchInsert(
 	m.MetricsService.IncDBQuery("INSERT", "state_changes")
 
 	return insertedIDs, nil
+}
+
+// BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.StateChange, error) {
+	const query = `
+		SELECT * FROM state_changes WHERE tx_hash = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by transaction hashes: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}
+
+// BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.StateChange, error) {
+	const query = `
+		SELECT * FROM state_changes WHERE operation_id = ANY($1)
+	`
+	var stateChanges []*types.StateChange
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
 }
