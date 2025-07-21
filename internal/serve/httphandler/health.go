@@ -1,6 +1,7 @@
 package httphandler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/stellar/go/support/render/httpjson"
@@ -31,7 +32,8 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rpcHealth.Status != "healthy" {
-		httperror.ServiceUnavailable(ctx, "rpc is not healthy", nil, nil, h.AppTracker).Render(w)
+		err := errors.New("rpc is not healthy")
+		httperror.ServiceUnavailable(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
 
@@ -41,7 +43,8 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rpcHealth.LatestLedger-backendLatestLedger > ledgerHealthThreshold {
-		httperror.ServiceUnavailable(ctx, "wallet backend is not in sync with the RPC", nil, nil, h.AppTracker).Render(w)
+		err := errors.New("wallet backend is not in sync with the RPC")
+		httperror.ServiceUnavailable(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
 
