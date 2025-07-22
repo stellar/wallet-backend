@@ -256,18 +256,6 @@ func handler(deps handlerDeps) http.Handler {
 			r.Handle("/query", srv)
 		})
 
-		r.Route("/accounts", func(r chi.Router) {
-			handler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
-			}
-
-			r.Post("/{address}", handler.RegisterAccount)
-			r.Delete("/{address}", handler.DeregisterAccount)
-		})
-
 		r.Route("/payments", func(r chi.Router) {
 			handler := &httphandler.PaymentHandler{
 				PaymentService: deps.PaymentService,
