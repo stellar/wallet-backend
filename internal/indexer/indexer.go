@@ -7,6 +7,7 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
+	operation_processor "github.com/stellar/go/processors/operation"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -31,6 +32,10 @@ type TokenTransferProcessorInterface interface {
 type ParticipantsProcessorInterface interface {
 	GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error)
 	GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error)
+}
+
+type OperationProcessorInterface interface {
+	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
 }
 
 type Indexer struct {

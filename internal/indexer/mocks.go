@@ -12,10 +12,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-type OperationProcessorInterface interface {
-	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
-}
-
 // Mock implementations for testing
 type MockParticipantsProcessor struct {
 	mock.Mock

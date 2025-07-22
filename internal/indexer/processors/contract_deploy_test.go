@@ -49,10 +49,13 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 	}
 	testCases := []TestCase{}
 
+	// We test with/without subinvocations, which can contain nested invocations to this or another contract.
 	for _, withSubinvocations := range []bool{false, true} {
+		// We test with/without fee bump, to ensure the processor handles both cases.
 		for _, feeBump := range []bool{false, true} {
 			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
 				prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
+
 				subInvocationsStateChanges := []types.StateChange{}
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
@@ -63,9 +66,11 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							Build(),
 					}
 				}
+
 				if feeBump {
 					prefix = fmt.Sprintf("feeBump(%s)", prefix)
 				}
+
 				testCases = append(testCases,
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
@@ -195,9 +200,12 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 	}
 	testCases := []TestCase{}
 
+	// We test with/without subinvocations, which can contain nested invocations to this or another contract.
 	for _, withSubinvocations := range []bool{false, true} {
+		// We test with/without fee bump, to ensure the processor handles both cases.
 		for _, feeBump := range []bool{false, true} {
 			prefix := ""
+
 			subInvocationsStateChanges := []types.StateChange{}
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
@@ -208,9 +216,11 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						Build(),
 				}
 			}
+
 			if feeBump {
 				prefix = fmt.Sprintf("feeBump(%s)", prefix)
 			}
+
 			testCases = append(testCases,
 				TestCase{
 					name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
