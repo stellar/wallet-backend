@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"context"
 	"fmt"
 
 	operation_processor "github.com/stellar/go/processors/operation"
@@ -18,8 +19,8 @@ func NewContractDeployProcessor(networkPassphrase string) *ContractDeployProcess
 	return &ContractDeployProcessor{networkPassphrase: networkPassphrase}
 }
 
-// Process emits a state change for each contract deployment (including subinvocations).
-func (p *ContractDeployProcessor) Process(op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+// ProcessOperation emits a state change for each contract deployment (including subinvocations).
+func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
 	}

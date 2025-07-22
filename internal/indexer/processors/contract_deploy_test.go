@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,12 +17,13 @@ import (
 )
 
 func Test_ContractDeployProcessor_Process_invalidOpType(t *testing.T) {
+	ctx := context.Background()
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 
 	op := &operation_processor.TransactionOperationWrapper{
 		Operation: xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypePayment}},
 	}
-	changes, err := proc.Process(op)
+	changes, err := proc.ProcessOperation(ctx, op)
 	assert.ErrorIs(t, err, ErrInvalidOpType)
 	assert.Nil(t, changes)
 }
@@ -32,6 +34,8 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 		fromSourceAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
 		authSignerAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 	)
+
+	ctx := context.Background()
 
 	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20").
 		WithOperationID(53021371269121).
@@ -130,7 +134,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			stateChanges, err := proc.Process(tc.op)
+			stateChanges, err := proc.ProcessOperation(ctx, tc.op)
 
 			require.NoError(t, err)
 			assertStateChangesElementsMatch(t, tc.wantStateChanges, stateChanges)
@@ -148,6 +152,8 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		authSignerAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 		invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
 	)
+
+	ctx := context.Background()
 
 	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *operation_processor.TransactionOperationWrapper {
 		op := makeBasicSorobanOp()
@@ -244,7 +250,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			stateChanges, err := proc.Process(tc.op)
+			stateChanges, err := proc.ProcessOperation(ctx, tc.op)
 
 			require.NoError(t, err)
 			assertStateChangesElementsMatch(t, tc.wantStateChanges, stateChanges)
