@@ -18,7 +18,7 @@ type HealthHandler struct {
 	AppTracker apptracker.AppTracker
 }
 
-var (
+const (
 	ledgerCursorName      = "live_ingest_cursor"
 	ledgerHealthThreshold = uint32(50)
 )
