@@ -36,11 +36,11 @@ func (m *MockTokenTransferProcessor) ProcessTransaction(ctx context.Context, tx 
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }
 
-type MockOperationProcessor struct {
+type MockOperationStateChangeProcessor struct {
 	mock.Mock
 }
 
-func (m *MockOperationProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (m *MockOperationStateChangeProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	args := m.Called(ctx, opWrapper)
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }
@@ -92,8 +92,8 @@ func (m *MockIndexerBuffer) GetAllStateChanges() []types.StateChange {
 }
 
 var (
-	_ IndexerBufferInterface          = &MockIndexerBuffer{}
-	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
-	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
-	_ OperationProcessorInterface     = &MockOperationProcessor{}
+	_ IndexerBufferInterface                 = &MockIndexerBuffer{}
+	_ ParticipantsProcessorInterface         = &MockParticipantsProcessor{}
+	_ TokenTransferProcessorInterface        = &MockTokenTransferProcessor{}
+	_ OperationStateChangeProcessorInterface = &MockOperationStateChangeProcessor{}
 )
