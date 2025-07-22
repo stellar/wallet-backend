@@ -44,20 +44,12 @@ func (b *IndexerBuffer) PushParticipantTransaction(participant string, transacti
 }
 
 func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction types.Transaction) {
-	if _, ok := b.txByHash[transaction.Hash]; !ok {
-		b.txByHash[transaction.Hash] = transaction
-	}
+	b.txByHash[transaction.Hash] = transaction
+	b.Participants.Add(participant)
 
-	if !b.Participants.Contains(participant) {
-		b.Participants.Add(participant)
-	}
-
-	_, ok := b.txHashesByParticipant[participant]
-	if !ok {
-		b.txHashesByParticipant[participant] = set.NewSet[string]()
-	}
-
-	if !ok || !b.txHashesByParticipant[participant].Contains(transaction.Hash) {
+	if _, ok := b.txHashesByParticipant[participant]; !ok {
+		b.txHashesByParticipant[participant] = set.NewSet[string](transaction.Hash)
+	} else {
 		b.txHashesByParticipant[participant].Add(transaction.Hash)
 	}
 }
@@ -108,20 +100,12 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 }
 
 func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation types.Operation) {
-	if _, ok := b.opByID[operation.ID]; !ok {
-		b.opByID[operation.ID] = operation
-	}
+	b.opByID[operation.ID] = operation
+	b.Participants.Add(participant)
 
-	if !b.Participants.Contains(participant) {
-		b.Participants.Add(participant)
-	}
-
-	_, ok := b.opIDsByParticipant[participant]
-	if !ok {
-		b.opIDsByParticipant[participant] = set.NewSet[int64]()
-	}
-
-	if !ok || !b.opIDsByParticipant[participant].Contains(operation.ID) {
+	if _, ok := b.opIDsByParticipant[participant]; !ok {
+		b.opIDsByParticipant[participant] = set.NewSet[int64](operation.ID)
+	} else {
 		b.opIDsByParticipant[participant].Add(operation.ID)
 	}
 }
