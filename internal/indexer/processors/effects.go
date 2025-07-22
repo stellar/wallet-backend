@@ -7,11 +7,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
-	operation "github.com/stellar/go/processors/operation"
+	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
@@ -73,28 +72,19 @@ func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
 // It processes account state changes like signer modifications, threshold updates, flag changes,
 // home domain updates, data entry changes, and sponsorship relationship modifications.
 // Returns a slice of state changes representing various account state changes.
-func (p *EffectsProcessor) ProcessOperation(ctx context.Context, tx ingest.LedgerTransaction, op xdr.Operation, opIdx uint32) ([]types.StateChange, error) {
-	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
-	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Result.TransactionHash.HexString()
-
-	opWrapper := operation.TransactionOperationWrapper{
-		Index:          opIdx,
-		LedgerSequence: tx.Ledger.LedgerSequence(),
-		LedgerClosed:   time.Unix(tx.Ledger.LedgerCloseTime(), 0),
-		Transaction:    tx,
-		Operation:      op,
-		Network:        p.networkPassphrase,
-	}
+func (p *EffectsProcessor) ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
+	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
+	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 
 	// Extract effects from the operation using Stellar SDK
-	effectOutputs, err := effects.Effects(&opWrapper)
+	effectOutputs, err := effects.Effects(opWrapper)
 	if err != nil {
 		return nil, fmt.Errorf("getting effects for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}
 
 	// Get operation changes to access old values when needed
-	changes, err := tx.GetOperationChanges(opIdx)
+	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
 	}
