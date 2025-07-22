@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -33,18 +34,20 @@ type ParticipantsProcessorInterface interface {
 }
 
 type Indexer struct {
-	Buffer                 IndexerBufferInterface
-	participantsProcessor  ParticipantsProcessorInterface
-	tokenTransferProcessor TokenTransferProcessorInterface
-	effectsProcessor       EffectsProcessorInterface
+	Buffer                  IndexerBufferInterface
+	participantsProcessor   ParticipantsProcessorInterface
+	tokenTransferProcessor  TokenTransferProcessorInterface
+	effectsProcessor        EffectsProcessorInterface
+	contractDeployProcessor *processors.ContractDeployProcessor
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
 	return &Indexer{
-		Buffer:                 NewIndexerBuffer(),
-		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
-		effectsProcessor:       processors.NewEffectsProcessor(networkPassphrase),
+		Buffer:                  NewIndexerBuffer(),
+		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
+		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase),
+		contractDeployProcessor: processors.NewContractDeployProcessor(networkPassphrase),
 	}
 }
 
@@ -88,6 +91,13 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 			return fmt.Errorf("processing effects state changes: %w", err)
 		}
 		i.Buffer.PushStateChanges(effectsStateChanges)
+
+		// 2.2. Index contract deploy state changes
+		contractDeployStateChanges, err := i.contractDeployProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if err != nil && !errors.Is(err, processors.ErrInvalidOpType) {
+			return fmt.Errorf("processing contract deploy state changes: %w", err)
+		}
+		i.Buffer.PushStateChanges(contractDeployStateChanges)
 	}
 
 	// 3. Index token transfer state changes
