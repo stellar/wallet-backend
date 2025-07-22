@@ -74,7 +74,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	var dataOp *types.Operation
-	var effectsStateChanges []types.StateChange
+	var effectsStateChanges, contractDeployStateChanges []types.StateChange
 	for opID, opParticipants := range opsParticipants {
 		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
@@ -93,7 +93,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		i.Buffer.PushStateChanges(effectsStateChanges)
 
 		// 2.2. Index contract deploy state changes
-		contractDeployStateChanges, err := i.contractDeployProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		contractDeployStateChanges, err = i.contractDeployProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if err != nil && !errors.Is(err, processors.ErrInvalidOpType) {
 			return fmt.Errorf("processing contract deploy state changes: %w", err)
 		}
