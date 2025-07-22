@@ -12,7 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-type EffectsProcessorInterface interface {
+type OperationProcessorInterface interface {
 	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
 }
 
@@ -99,5 +99,5 @@ var (
 	_ IndexerBufferInterface          = &MockIndexerBuffer{}
 	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
 	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
-	_ EffectsProcessorInterface       = &MockEffectsProcessor{}
+	_ OperationProcessorInterface     = &MockEffectsProcessor{}
 )

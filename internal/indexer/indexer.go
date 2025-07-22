@@ -37,8 +37,8 @@ type Indexer struct {
 	Buffer                  IndexerBufferInterface
 	participantsProcessor   ParticipantsProcessorInterface
 	tokenTransferProcessor  TokenTransferProcessorInterface
-	effectsProcessor        EffectsProcessorInterface
-	contractDeployProcessor *processors.ContractDeployProcessor
+	effectsProcessor        OperationProcessorInterface
+	contractDeployProcessor OperationProcessorInterface
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
