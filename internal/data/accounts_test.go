@@ -22,27 +22,53 @@ func TestAccountModelInsert(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return()
-	defer mockMetricsService.AssertExpectations(t)
+	t.Run("successful insert", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return()
+		defer mockMetricsService.AssertExpectations(t)
 
-	m := &AccountModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
 
-	ctx := context.Background()
-	address := keypair.MustRandom().Address()
-	err = m.Insert(ctx, address)
-	require.NoError(t, err)
+		ctx := context.Background()
+		address := keypair.MustRandom().Address()
+		err = m.Insert(ctx, address)
+		require.NoError(t, err)
 
-	var dbAddress sql.NullString
-	err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
-	require.NoError(t, err)
+		var dbAddress sql.NullString
+		err = m.DB.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", address)
+		require.NoError(t, err)
 
-	assert.True(t, dbAddress.Valid)
-	assert.Equal(t, address, dbAddress.String)
+		assert.True(t, dbAddress.Valid)
+		assert.Equal(t, address, dbAddress.String)
+	})
+
+	t.Run("duplicate insert fails", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		ctx := context.Background()
+		address := keypair.MustRandom().Address()
+		
+		// First insert should succeed
+		err = m.Insert(ctx, address)
+		require.NoError(t, err)
+
+		// Second insert should fail
+		err = m.Insert(ctx, address)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered")
+	})
 }
 
 func TestAccountModelDelete(t *testing.T) {

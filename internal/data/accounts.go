@@ -34,13 +34,22 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`
 	start := time.Now()
-	_, err := m.DB.ExecContext(ctx, query, address)
+	result, err := m.DB.ExecContext(ctx, query, address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "accounts", duration)
 	if err != nil {
 		return fmt.Errorf("inserting address %s: %w", address, err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "accounts")
+
+	// Check if any rows were affected to determine if account already exists
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected for address %s: %w", address, err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("account %s is already registered", address)
+	}
 
 	return nil
 }

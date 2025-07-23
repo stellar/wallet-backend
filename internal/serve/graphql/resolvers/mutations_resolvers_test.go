@@ -56,6 +56,32 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		mockService.AssertExpectations(t)
 	})
 
+	t.Run("duplicate registration fails", func(t *testing.T) {
+		mockService := &mockAccountService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService: mockService,
+				models:         &data.Models{},
+			},
+		}
+
+		input := graphql.RegisterAccountInput{
+			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+		}
+
+		mockService.On("RegisterAccount", ctx, input.Address).Return(errors.New("account GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX is already registered"))
+
+		result, err := resolver.RegisterAccount(ctx, input)
+
+		require.NoError(t, err)
+		assert.False(t, result.Success)
+		assert.Equal(t, "Failed to register account: account GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX is already registered", *result.Message)
+		assert.Nil(t, result.Account)
+
+		mockService.AssertExpectations(t)
+	})
+
 	t.Run("empty address", func(t *testing.T) {
 		mockService := &mockAccountService{}
 

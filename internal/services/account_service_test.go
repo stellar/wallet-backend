@@ -23,28 +23,57 @@ func TestAccountRegister(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("IncActiveAccount").Return().Once()
-	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Once()
-	mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Once()
-	defer mockMetricsService.AssertExpectations(t)
 
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	accountService, err := NewAccountService(models, mockMetricsService)
-	require.NoError(t, err)
+	t.Run("successful registration", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncActiveAccount").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
 
-	ctx := context.Background()
-	address := keypair.MustRandom().Address()
-	err = accountService.RegisterAccount(ctx, address)
-	require.NoError(t, err)
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		accountService, err := NewAccountService(models, mockMetricsService)
+		require.NoError(t, err)
 
-	var dbAddress sql.NullString
-	err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
-	require.NoError(t, err)
+		ctx := context.Background()
+		address := keypair.MustRandom().Address()
+		err = accountService.RegisterAccount(ctx, address)
+		require.NoError(t, err)
 
-	assert.True(t, dbAddress.Valid)
-	assert.Equal(t, address, dbAddress.String)
+		var dbAddress sql.NullString
+		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts WHERE stellar_address = $1", address)
+		require.NoError(t, err)
+
+		assert.True(t, dbAddress.Valid)
+		assert.Equal(t, address, dbAddress.String)
+	})
+
+	t.Run("duplicate registration fails", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		// First registration succeeds
+		mockMetricsService.On("IncActiveAccount").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(2)
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		accountService, err := NewAccountService(models, mockMetricsService)
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		address := keypair.MustRandom().Address()
+		
+		// First registration should succeed
+		err = accountService.RegisterAccount(ctx, address)
+		require.NoError(t, err)
+
+		// Second registration should fail
+		err = accountService.RegisterAccount(ctx, address)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered")
+	})
 }
 
 func TestAccountDeregister(t *testing.T) {
