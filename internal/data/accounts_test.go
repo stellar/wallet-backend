@@ -59,7 +59,7 @@ func TestAccountModelInsert(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		
+
 		// First insert should succeed
 		err = m.Insert(ctx, address)
 		require.NoError(t, err)

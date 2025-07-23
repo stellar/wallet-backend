@@ -89,7 +89,6 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 	t.Run("address_already_exists", func(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("IncActiveAccount").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		address := keypair.MustRandom().Address()
@@ -107,16 +106,8 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 		rr := httptest.NewRecorder()
 		r.ServeHTTP(rr, req)
 
-		// Assert 200 response
-		assert.Equal(t, http.StatusOK, rr.Code)
-
-		var dbAddress sql.NullString
-		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts")
-		require.NoError(t, err)
-
-		// Assert address persisted in DB
-		assert.True(t, dbAddress.Valid)
-		assert.Equal(t, address, dbAddress.String)
+		// Assert 500 response (internal server error due to duplicate)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 
 		clearAccounts(ctx)
 	})

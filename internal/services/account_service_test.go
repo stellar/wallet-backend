@@ -64,7 +64,7 @@ func TestAccountRegister(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		
+
 		// First registration should succeed
 		err = accountService.RegisterAccount(ctx, address)
 		require.NoError(t, err)

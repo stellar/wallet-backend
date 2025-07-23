@@ -291,7 +291,9 @@ func TestIngestPayments(t *testing.T) {
 		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = models.Account.Insert(context.Background(), srcAccount)
+		// Use unique account for this test case
+		testSrcAccount := keypair.MustRandom().Address()
+		err = models.Account.Insert(context.Background(), testSrcAccount)
 		require.NoError(t, err)
 
 		path := []txnbuild.Asset{
@@ -300,7 +302,7 @@ func TestIngestPayments(t *testing.T) {
 		}
 
 		pathPaymentOp := txnbuild.PathPaymentStrictSend{
-			SourceAccount: srcAccount,
+			SourceAccount: testSrcAccount,
 			Destination:   destAccount,
 			DestMin:       "9",
 			SendAmount:    "10",
@@ -345,14 +347,14 @@ func TestIngestPayments(t *testing.T) {
 		require.NoError(t, err)
 
 		var payments []data.Payment
-		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), testSrcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
 		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
 		assert.Equal(t, payments[0].SrcAmount, int64(100000000))
 		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
 		assert.Equal(t, payments[0].ToAddress, destAccount)
-		assert.Equal(t, payments[0].FromAddress, srcAccount)
+		assert.Equal(t, payments[0].FromAddress, testSrcAccount)
 		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
 		assert.Equal(t, payments[0].DestAssetCode, "XLM")
 	})
@@ -369,7 +371,9 @@ func TestIngestPayments(t *testing.T) {
 		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 1).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
-		err = models.Account.Insert(context.Background(), srcAccount)
+		// Use unique account for this test case
+		testSrcAccount := keypair.MustRandom().Address()
+		err = models.Account.Insert(context.Background(), testSrcAccount)
 		require.NoError(t, err)
 
 		path := []txnbuild.Asset{
@@ -378,7 +382,7 @@ func TestIngestPayments(t *testing.T) {
 		}
 
 		pathPaymentOp := txnbuild.PathPaymentStrictReceive{
-			SourceAccount: srcAccount,
+			SourceAccount: testSrcAccount,
 			Destination:   destAccount,
 			SendMax:       "11",
 			DestAmount:    "10",
@@ -420,13 +424,13 @@ func TestIngestPayments(t *testing.T) {
 		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
 		require.NoError(t, err)
 
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
+		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), testSrcAccount, "", "", data.ASC, 1)
 		require.NoError(t, err)
 		require.NotEmpty(t, payments, "Expected at least one payment")
 		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
 		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
 		assert.Equal(t, payments[0].ToAddress, destAccount)
-		assert.Equal(t, payments[0].FromAddress, srcAccount)
+		assert.Equal(t, payments[0].FromAddress, testSrcAccount)
 		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
 		assert.Equal(t, payments[0].DestAssetCode, "XLM")
 	})
