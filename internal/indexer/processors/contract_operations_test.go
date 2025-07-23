@@ -10,6 +10,7 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
 	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,149 @@ func Test_calculateContractID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD", contractID)
+}
+
+func Test_scAddressesForScVal(t *testing.T) {
+	scAddressAccount1 := makeScAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+
+	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U
+	scAddressAccount2 := makeScAddress("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+	// GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U re-encoded as a C-account
+	accountID2Bytes := strkey.MustDecode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+	scAddressContract2AsAccountID := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: utils.PointOf(xdr.ContractId(accountID2Bytes)),
+	}
+
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+	decodedContractID := strkey.MustDecode(strkey.VersionByteContract, "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+	contractID1 := xdr.ContractId(decodedContractID)
+	scAddressContract1 := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &contractID1,
+	}
+	// CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC re-encoded as a G-account
+	contractID1AsAccountID := strkey.MustEncode(strkey.VersionByteAccountID, scAddressContract1.ContractId[:])
+	scAddressContract1AsAccountID := xdr.ScAddress{
+		Type:      xdr.ScAddressTypeScAddressTypeAccount,
+		AccountId: utils.PointOf(xdr.MustAddress(contractID1AsAccountID)),
+	}
+
+	// CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR
+	scAddressContract2 := makeScContract("CDSMYK7ADPT32KBXPXWSOWMBANDDFG76IVB4HWHOE2SA3DPAKXA4C6ZR")
+
+	testCases := []struct {
+		name          string
+		scVal         xdr.ScVal
+		wantAddresses set.Set[xdr.ScAddress]
+	}{
+		{
+			name:          "🟡unsupported_scv_type",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvI32, I32: utils.PointOf(xdr.Int32(1))},
+			wantAddresses: set.NewSet[xdr.ScAddress](),
+		},
+		{
+			name: "🟢scv_address",
+			scVal: xdr.ScVal{
+				Type:    xdr.ScValTypeScvAddress,
+				Address: &scAddressAccount1,
+			},
+			wantAddresses: set.NewSet(scAddressAccount1),
+		},
+		{
+			name: "🟢scv_vec_with_addresses",
+			scVal: scVecToScVal(xdr.ScVec{
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount2},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+				xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract2},
+			}),
+			wantAddresses: set.NewSet(scAddressAccount1, scAddressAccount2, scAddressContract1, scAddressContract2),
+		},
+		{
+			name: "🟢scv_map_with_addresses",
+			scVal: xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: utils.PointOf(utils.PointOf(xdr.ScMap{
+				xdr.ScMapEntry{
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount1},
+					Val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract1},
+				},
+			}))},
+			wantAddresses: set.NewSet(scAddressAccount1, scAddressContract1),
+		},
+		{
+			name:          "🟢scv_bytes_as_contract_id",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: utils.PointOf(xdr.ScBytes(contractID1[:]))},
+			wantAddresses: set.NewSet(scAddressContract1, scAddressContract1AsAccountID),
+		},
+		{
+			name: "🟢scv_bytes_as_account_id",
+			scVal: func() xdr.ScVal {
+				decoded, err := strkey.Decode(strkey.VersionByteAccountID, "GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U")
+				require.NoError(t, err)
+				scb := xdr.ScBytes(decoded)
+				return xdr.ScVal{Type: xdr.ScValTypeScvBytes, Bytes: &scb}
+			}(),
+			wantAddresses: set.NewSet(scAddressAccount2, scAddressContract2AsAccountID),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := scAddressesForScVal(tc.scVal)
+			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
+			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
+		})
+	}
+}
+
+func Test_participantsForScVal(t *testing.T) {
+	scAddressAccount := makeScAddress("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P")
+	scAddressContract := makeScContract("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+
+	testCases := []struct {
+		name          string
+		scVal         xdr.ScVal
+		wantAddresses set.Set[string]
+	}{
+		{
+			name:          "🟡unsupported_scv_type",
+			scVal:         xdr.ScVal{Type: xdr.ScValTypeScvI32, I32: utils.PointOf(xdr.Int32(1))},
+			wantAddresses: set.NewSet[string](),
+		},
+		{
+			name: "🟢scv_address",
+			scVal: xdr.ScVal{
+				Type:    xdr.ScValTypeScvAddress,
+				Address: &scAddressAccount,
+			},
+			wantAddresses: set.NewSet("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P"),
+		},
+		{
+			name: "🟢scv_map_with_address_and_vector",
+			scVal: func() xdr.ScVal {
+				vec := &xdr.ScVec{
+					xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressAccount},
+				}
+				scMap := utils.PointOf(xdr.ScMap{
+					xdr.ScMapEntry{
+						Key: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddressContract},
+						Val: xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: utils.PointOf(vec)},
+					},
+				})
+				return xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &scMap}
+			}(),
+			wantAddresses: set.NewSet("GDYH62HW5R57ZFCJE77Q32YVUANQPK2A4663BWFVKAIMINNWVV6QEI5P", "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := participantsForScVal(tc.scVal)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantAddresses.Cardinality(), result.Cardinality())
+			assert.ElementsMatch(t, tc.wantAddresses.ToSlice(), result.ToSlice())
+		})
+	}
 }
 
 func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
@@ -315,7 +459,7 @@ const (
 
 // includeSubInvocations will add subInvocations to any existing SorobanAuthorizationEntry. After adding the subinvocations,
 // the following addresses are expected to be present:
-// [deployerAccountID, deployedContractID, contractID1, contractID3, xlmSACID]
+// [deployerAccountID, deployedContractID, accountID1, accountID2, contractID1, contractID2, contractID3, xlmSACID]
 func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) {
 	subInvocations := []xdr.SorobanAuthorizedInvocation{
 		{
@@ -333,7 +477,7 @@ func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) 
 						ContractFn: &xdr.InvokeContractArgs{
 							ContractAddress: makeScContract(contractID1), // <--- contractID1
 							FunctionName:    xdr.ScSymbol("sub_fn"),
-							Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScContract(contractID2))}}, // <--- contractID2 (args addresses are not returned)
+							Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScContract(contractID2))}}, // <--- contractID2
 						},
 					},
 					SubInvocations: nil,
@@ -343,7 +487,7 @@ func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) 
 						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn,
 						CreateContractV2HostFn: &xdr.CreateContractArgsV2{
 							ConstructorArgs: []xdr.ScVal{
-								{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID1))}, // <--- accountID1 (args addresses are not returned)
+								{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID1))}, // <--- accountID1
 							},
 							ContractIdPreimage: xdr.ContractIdPreimage{
 								Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
@@ -364,7 +508,7 @@ func includeSubInvocations(op *operation_processor.TransactionOperationWrapper) 
 				ContractFn: &xdr.InvokeContractArgs{
 					ContractAddress: makeScContract(contractID3),
 					FunctionName:    xdr.ScSymbol("sub_fn"),
-					Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID2))}}, // <--- accountID2 (args addresses are not returned)
+					Args:            xdr.ScVec{xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(accountID2))}}, // <--- accountID2
 				},
 			},
 			SubInvocations: nil,
@@ -403,7 +547,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 				subInvocationsParticipants := set.NewSet[string]()
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
-					subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+					subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID1, contractID1, contractID2, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 				}
 				if feeBump {
 					prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -467,7 +611,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		op: func() *operation_processor.TransactionOperationWrapper {
 			op := makeBasicSorobanOp()
 			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, fromSourceAccount)
-			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2.ConstructorArgs = []xdr.ScVal{ // <--- args addresses are not returned
+			op.Operation.Body.InvokeHostFunctionOp.HostFunction.CreateContractV2.ConstructorArgs = []xdr.ScVal{
 				{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScAddress(constructorAccountID))},
 				{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(makeScContract(constructorContractID))},
 			}
@@ -475,6 +619,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		}(),
 		wantParticipants: set.NewSet(
 			txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF",
+			constructorAccountID, constructorContractID,
 		),
 	})
 
@@ -540,7 +685,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 			subInvocationsParticipants := set.NewSet[string]()
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
-				subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+				subInvocationsParticipants = set.NewSet(deployerAccountID, accountID2, accountID1, contractID1, contractID2, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 			}
 			if feeBump {
 				prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -559,7 +704,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: set.NewSet(txSourceAccount, invokedContractID, argAccountID1, argAccountID2).Union(subInvocationsParticipants),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
@@ -575,7 +720,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: set.NewSet(opSourceAccount, invokedContractID, argContractID1, argContractID2).Union(subInvocationsParticipants),
 				},
 			)
 		}
