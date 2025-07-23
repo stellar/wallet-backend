@@ -79,6 +79,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	var dataOp *types.Operation
+	var opStateChanges []types.StateChange
 	for opID, opParticipants := range opsParticipants {
 		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
@@ -90,7 +91,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		// 3. Index operation state changes from all inner processors
-		opStateChanges, err := i.opStateChangeProcessors.ProcessOperation(ctx, opParticipants.OpWrapper)
+		opStateChanges, err = i.opStateChangeProcessors.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if err != nil {
 			return fmt.Errorf("processing operation state changes: %w", err)
 		}
