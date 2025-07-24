@@ -6,8 +6,14 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
+	"github.com/vektah/gqlparser/v2/gqlerror"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -15,24 +21,29 @@ import (
 func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.RegisterAccountInput) (*graphql1.RegisterAccountPayload, error) {
 	err := r.accountService.RegisterAccount(ctx, input.Address)
 	if err != nil {
-		return &graphql1.RegisterAccountPayload{
-			Success: false,
-			Message: &[]string{fmt.Sprintf("Failed to register account: %s", err.Error())}[0],
-		}, nil
+		if errors.Is(err, data.ErrAccountAlreadyExists) {
+			return nil, &gqlerror.Error{
+				Message: "Account is already registered",
+				Extensions: map[string]interface{}{
+					"code": "ACCOUNT_ALREADY_EXISTS",
+				},
+			}
+		}
+		return nil, &gqlerror.Error{
+			Message: fmt.Sprintf("Failed to register account: %s", err.Error()),
+			Extensions: map[string]interface{}{
+				"code": "ACCOUNT_REGISTRATION_FAILED",
+			},
+		}
 	}
 
-	// Fetch the registered account to return in the payload
-	account, err := r.models.Account.Get(ctx, input.Address)
-	if err != nil {
-		return &graphql1.RegisterAccountPayload{
-			Success: true,
-			Message: &[]string{"Account registered successfully but could not retrieve account details"}[0],
-		}, nil
+	// Return the account data directly since we know the address
+	account := &types.Account{
+		StellarAddress: input.Address,
+		CreatedAt:      time.Now(),
 	}
 
 	return &graphql1.RegisterAccountPayload{
-		Success: true,
-		Message: &[]string{"Account registered successfully"}[0],
 		Account: account,
 	}, nil
 }
@@ -41,10 +52,20 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1.DeregisterAccountInput) (*graphql1.DeregisterAccountPayload, error) {
 	err := r.accountService.DeregisterAccount(ctx, input.Address)
 	if err != nil {
-		return &graphql1.DeregisterAccountPayload{
-			Success: false,
-			Message: &[]string{fmt.Sprintf("Failed to deregister account: %s", err.Error())}[0],
-		}, nil
+		if errors.Is(err, data.ErrAccountNotFound) {
+			return nil, &gqlerror.Error{
+				Message: "Account not found",
+				Extensions: map[string]interface{}{
+					"code": "ACCOUNT_NOT_FOUND",
+				},
+			}
+		}
+		return nil, &gqlerror.Error{
+			Message: fmt.Sprintf("Failed to deregister account: %s", err.Error()),
+			Extensions: map[string]interface{}{
+				"code": "ACCOUNT_DEREGISTRATION_FAILED",
+			},
+		}
 	}
 
 	return &graphql1.DeregisterAccountPayload{

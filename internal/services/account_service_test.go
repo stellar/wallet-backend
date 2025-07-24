@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -54,7 +55,7 @@ func TestAccountRegister(t *testing.T) {
 		// First registration succeeds
 		mockMetricsService.On("IncActiveAccount").Return().Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(1)
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -72,7 +73,7 @@ func TestAccountRegister(t *testing.T) {
 		// Second registration should fail
 		err = accountService.RegisterAccount(ctx, address)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "already registered")
+		assert.True(t, errors.Is(err, data.ErrAccountAlreadyExists))
 	})
 }
 
@@ -83,29 +84,50 @@ func TestAccountDeregister(t *testing.T) {
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("DecActiveAccount").Return().Once()
-	mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
-	mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Once()
-	defer mockMetricsService.AssertExpectations(t)
 
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	accountService, err := NewAccountService(models, mockMetricsService)
-	require.NoError(t, err)
+	t.Run("successful deregistration", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("DecActiveAccount").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
 
-	ctx := context.Background()
-	address := keypair.MustRandom().Address()
-	result, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-	require.NoError(t, err)
-	rowAffected, err := result.RowsAffected()
-	require.NoError(t, err)
-	require.Equal(t, int64(1), rowAffected)
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		accountService, err := NewAccountService(models, mockMetricsService)
+		require.NoError(t, err)
 
-	err = accountService.DeregisterAccount(ctx, address)
-	require.NoError(t, err)
+		ctx := context.Background()
+		address := keypair.MustRandom().Address()
+		result, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		require.NoError(t, err)
+		rowAffected, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowAffected)
 
-	var dbAddress sql.NullString
-	err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+		err = accountService.DeregisterAccount(ctx, address)
+		require.NoError(t, err)
+
+		var dbAddress sql.NullString
+		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts LIMIT 1")
+		assert.ErrorIs(t, err, sql.ErrNoRows)
+	})
+
+	t.Run("deregister non-existent account fails", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		accountService, err := NewAccountService(models, mockMetricsService)
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		nonExistentAddress := keypair.MustRandom().Address()
+
+		err = accountService.DeregisterAccount(ctx, nonExistentAddress)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, data.ErrAccountNotFound))
+	})
 }

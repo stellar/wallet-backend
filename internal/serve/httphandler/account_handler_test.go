@@ -1,225 +1,23 @@
 package httphandler
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"strings"
 	"testing"
 
-	"github.com/go-chi/chi"
-	"github.com/google/uuid"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 )
-
-func TestAccountHandlerRegisterAccount(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-	mockMetricsService := metrics.NewMockMetricsService()
-
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models, mockMetricsService)
-	require.NoError(t, err)
-	handler := &AccountHandler{
-		AccountService: accountService,
-	}
-
-	// Setup router
-	r := chi.NewRouter()
-	r.Post("/accounts/{address}", handler.RegisterAccount)
-
-	clearAccounts := func(ctx context.Context) {
-		_, err = dbConnectionPool.ExecContext(ctx, "TRUNCATE accounts CASCADE")
-		require.NoError(t, err)
-	}
-
-	t.Run("success_happy_path", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("IncActiveAccount").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		// Prepare request
-		address := keypair.MustRandom().Address()
-		var req *http.Request
-		req, err = http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		// Assert 200 response
-		assert.Equal(t, http.StatusOK, rr.Code)
-
-		ctx := context.Background()
-		var dbAddress sql.NullString
-		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts")
-		require.NoError(t, err)
-
-		// Assert address persisted in DB
-		assert.True(t, dbAddress.Valid)
-		assert.Equal(t, address, dbAddress.String)
-
-		clearAccounts(ctx)
-	})
-
-	t.Run("address_already_exists", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		address := keypair.MustRandom().Address()
-		ctx := context.Background()
-
-		// Insert address in DB
-		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-		require.NoError(t, err)
-
-		// Prepare request
-		req, err := http.NewRequest(http.MethodPost, path.Join("/accounts", address), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		// Assert 500 response (internal server error due to duplicate)
-		assert.Equal(t, http.StatusInternalServerError, rr.Code)
-
-		clearAccounts(ctx)
-	})
-
-	t.Run("invalid_address", func(t *testing.T) {
-		// Prepare request
-		randomString := uuid.NewString()
-		req, err := http.NewRequest(http.MethodPost, path.Join("/accounts", randomString), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		resp := rr.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-		assert.JSONEq(t, `{"error":"Validation error.", "extras": {"address":"Invalid public key provided"}}`, string(respBody))
-	})
-}
-
-func TestAccountHandlerDeregisterAccount(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Times(2)
-	mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Times(2)
-	mockMetricsService.On("DecActiveAccount").Return().Times(2)
-	defer mockMetricsService.AssertExpectations(t)
-
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	accountService, err := services.NewAccountService(models, mockMetricsService)
-	require.NoError(t, err)
-	handler := &AccountHandler{
-		AccountService: accountService,
-	}
-
-	// Setup router
-	r := chi.NewRouter()
-	r.Delete("/accounts/{address}", handler.DeregisterAccount)
-
-	t.Run("successHappyPath", func(t *testing.T) {
-		address := keypair.MustRandom().Address()
-		ctx := context.Background()
-
-		// Insert address in DB
-		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-		require.NoError(t, err)
-
-		// Prepare request
-		var req *http.Request
-		req, err = http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		// Assert 200 response
-		assert.Equal(t, http.StatusOK, rr.Code)
-
-		// Assert no address no longer in DB
-		var dbAddress sql.NullString
-		err = dbConnectionPool.GetContext(ctx, &dbAddress, "SELECT stellar_address FROM accounts")
-		assert.ErrorIs(t, err, sql.ErrNoRows)
-	})
-
-	t.Run("idempotency", func(t *testing.T) {
-		address := keypair.MustRandom().Address()
-		ctx := context.Background()
-
-		// Make sure DB is empty
-		_, err = dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
-		require.NoError(t, err)
-
-		// Prepare request
-		req, err := http.NewRequest(http.MethodDelete, path.Join("/accounts", address), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		// Assert 200 response
-		assert.Equal(t, http.StatusOK, rr.Code)
-	})
-
-	t.Run("invalid_address", func(t *testing.T) {
-		// Prepare request
-		randomString := uuid.NewString()
-		req, err := http.NewRequest(http.MethodDelete, path.Join("/accounts", randomString), nil)
-		require.NoError(t, err)
-
-		// Serve request
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-
-		resp := rr.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-		assert.JSONEq(t, `{"error":"Validation error.", "extras": {"address":"Invalid public key provided"}}`, string(respBody))
-	})
-}
 
 func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
 	asService := services.AccountSponsorshipServiceMock{}

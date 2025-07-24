@@ -92,8 +92,6 @@ type ComplexityRoot struct {
 
 	RegisterAccountPayload struct {
 		Account func(childComplexity int) int
-		Message func(childComplexity int) int
-		Success func(childComplexity int) int
 	}
 
 	StateChange struct {
@@ -394,20 +392,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.RegisterAccountPayload.Account(childComplexity), true
-
-	case "RegisterAccountPayload.message":
-		if e.complexity.RegisterAccountPayload.Message == nil {
-			break
-		}
-
-		return e.complexity.RegisterAccountPayload.Message(childComplexity), true
-
-	case "RegisterAccountPayload.success":
-		if e.complexity.RegisterAccountPayload.Success == nil {
-			break
-		}
-
-		return e.complexity.RegisterAccountPayload.Success(childComplexity), true
 
 	case "StateChange.accountId":
 		if e.complexity.StateChange.AccountID == nil {
@@ -879,8 +863,6 @@ input DeregisterAccountInput {
 
 # Payload types for account mutations
 type RegisterAccountPayload {
-    success: Boolean!
-    message: String
     account: Account
 }
 
@@ -1680,10 +1662,6 @@ func (ec *executionContext) fieldContext_Mutation_registerAccount(ctx context.Co
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "success":
-				return ec.fieldContext_RegisterAccountPayload_success(ctx, field)
-			case "message":
-				return ec.fieldContext_RegisterAccountPayload_message(ctx, field)
 			case "account":
 				return ec.fieldContext_RegisterAccountPayload_account(ctx, field)
 			}
@@ -2754,91 +2732,6 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 				return ec.fieldContext___Schema_directives(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type __Schema", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _RegisterAccountPayload_success(ctx context.Context, field graphql.CollectedField, obj *RegisterAccountPayload) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RegisterAccountPayload_success(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Success, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(bool)
-	fc.Result = res
-	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RegisterAccountPayload_success(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RegisterAccountPayload",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Boolean does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _RegisterAccountPayload_message(ctx context.Context, field graphql.CollectedField, obj *RegisterAccountPayload) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_RegisterAccountPayload_message(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Message, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*string)
-	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_RegisterAccountPayload_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "RegisterAccountPayload",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7004,13 +6897,6 @@ func (ec *executionContext) _RegisterAccountPayload(ctx context.Context, sel ast
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("RegisterAccountPayload")
-		case "success":
-			out.Values[i] = ec._RegisterAccountPayload_success(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "message":
-			out.Values[i] = ec._RegisterAccountPayload_message(ctx, field, obj)
 		case "account":
 			out.Values[i] = ec._RegisterAccountPayload_account(ctx, field, obj)
 		default:

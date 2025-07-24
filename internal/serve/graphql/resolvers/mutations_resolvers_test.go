@@ -30,6 +30,32 @@ func (m *mockAccountService) DeregisterAccount(ctx context.Context, address stri
 func TestMutationResolver_RegisterAccount(t *testing.T) {
 	ctx := context.Background()
 
+	t.Run("success", func(t *testing.T) {
+		mockService := &mockAccountService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService: mockService,
+				models:         &data.Models{},
+			},
+		}
+
+		input := graphql.RegisterAccountInput{
+			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+		}
+
+		mockService.On("RegisterAccount", ctx, input.Address).Return(nil)
+
+		result, err := resolver.RegisterAccount(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Account)
+		assert.Equal(t, input.Address, result.Account.StellarAddress)
+
+		mockService.AssertExpectations(t)
+	})
+
 	t.Run("registration fails", func(t *testing.T) {
 		mockService := &mockAccountService{}
 
@@ -48,10 +74,9 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		result, err := resolver.RegisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to register account: registration failed", *result.Message)
-		assert.Nil(t, result.Account)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Failed to register account: registration failed")
 
 		mockService.AssertExpectations(t)
 	})
@@ -70,14 +95,13 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 			Address: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
 		}
 
-		mockService.On("RegisterAccount", ctx, input.Address).Return(errors.New("account GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX is already registered"))
+		mockService.On("RegisterAccount", ctx, input.Address).Return(data.ErrAccountAlreadyExists)
 
 		result, err := resolver.RegisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to register account: account GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX is already registered", *result.Message)
-		assert.Nil(t, result.Account)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Account is already registered")
 
 		mockService.AssertExpectations(t)
 	})
@@ -100,10 +124,9 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		result, err := resolver.RegisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to register account: invalid address", *result.Message)
-		assert.Nil(t, result.Account)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Failed to register account: invalid address")
 
 		mockService.AssertExpectations(t)
 	})
@@ -155,9 +178,9 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		result, err := resolver.DeregisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to deregister account: deregistration failed", *result.Message)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Failed to deregister account: deregistration failed")
 
 		mockService.AssertExpectations(t)
 	})
@@ -180,9 +203,9 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		result, err := resolver.DeregisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to deregister account: invalid address", *result.Message)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Failed to deregister account: invalid address")
 
 		mockService.AssertExpectations(t)
 	})
@@ -201,13 +224,13 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 			Address: "GNONEXISTENTACCOUNTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
 		}
 
-		mockService.On("DeregisterAccount", ctx, input.Address).Return(errors.New("account not found"))
+		mockService.On("DeregisterAccount", ctx, input.Address).Return(data.ErrAccountNotFound)
 
 		result, err := resolver.DeregisterAccount(ctx, input)
 
-		require.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, "Failed to deregister account: account not found", *result.Message)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "Account not found")
 
 		mockService.AssertExpectations(t)
 	})

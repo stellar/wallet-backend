@@ -26,7 +26,5 @@ type RegisterAccountInput struct {
 }
 
 type RegisterAccountPayload struct {
-	Success bool           `json:"success"`
-	Message *string        `json:"message,omitempty"`
 	Account *types.Account `json:"account,omitempty"`
 }
