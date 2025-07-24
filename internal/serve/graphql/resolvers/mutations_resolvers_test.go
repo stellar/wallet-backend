@@ -76,7 +76,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Failed to register account: registration failed")
+		assert.ErrorContains(t, err, "Failed to register account: registration failed")
 
 		mockService.AssertExpectations(t)
 	})
@@ -101,7 +101,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Account is already registered")
+		assert.ErrorContains(t, err, "Account is already registered")
 
 		mockService.AssertExpectations(t)
 	})
@@ -126,7 +126,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Failed to register account: invalid address")
+		assert.ErrorContains(t, err, "Failed to register account: invalid address")
 
 		mockService.AssertExpectations(t)
 	})
@@ -180,7 +180,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Failed to deregister account: deregistration failed")
+		assert.ErrorContains(t, err, "Failed to deregister account: deregistration failed")
 
 		mockService.AssertExpectations(t)
 	})
@@ -205,7 +205,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Failed to deregister account: invalid address")
+		assert.ErrorContains(t, err, "Failed to deregister account: invalid address")
 
 		mockService.AssertExpectations(t)
 	})
@@ -230,7 +230,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "Account not found")
+		assert.ErrorContains(t, err, "Account not found")
 
 		mockService.AssertExpectations(t)
 	})
