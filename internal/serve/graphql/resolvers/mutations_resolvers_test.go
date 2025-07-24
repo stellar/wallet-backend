@@ -51,6 +51,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
+		assert.True(t, result.Success)
 		assert.NotNil(t, result.Account)
 		assert.Equal(t, input.Address, result.Account.StellarAddress)
 

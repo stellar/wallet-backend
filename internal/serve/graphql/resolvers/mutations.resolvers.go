@@ -52,6 +52,7 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 	}
 
 	return &graphql1.RegisterAccountPayload{
+		Success: true,
 		Account: account,
 	}, nil
 }

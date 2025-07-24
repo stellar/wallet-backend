@@ -17,6 +17,7 @@ input DeregisterAccountInput {
 
 # Payload types for account mutations
 type RegisterAccountPayload {
+    success: Boolean!
     account: Account
 }
 
