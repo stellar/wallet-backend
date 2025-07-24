@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 )
 
 type mockAccountService struct {
@@ -127,6 +128,31 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, result)
 		assert.ErrorContains(t, err, "Failed to register account: invalid address")
+
+		mockService.AssertExpectations(t)
+	})
+
+	t.Run("invalid address format", func(t *testing.T) {
+		mockService := &mockAccountService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService: mockService,
+				models:         &data.Models{},
+			},
+		}
+
+		input := graphql.RegisterAccountInput{
+			Address: "invalid-stellar-address",
+		}
+
+		mockService.On("RegisterAccount", ctx, input.Address).Return(services.ErrInvalidAddress)
+
+		result, err := resolver.RegisterAccount(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Invalid address: must be a valid Stellar public key or contract address")
 
 		mockService.AssertExpectations(t)
 	})

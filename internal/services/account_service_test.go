@@ -75,6 +75,28 @@ func TestAccountRegister(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, data.ErrAccountAlreadyExists))
 	})
+
+	t.Run("invalid address fails", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		defer mockMetricsService.AssertExpectations(t)
+
+		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
+		require.NoError(t, err)
+		accountService, err := NewAccountService(models, mockMetricsService)
+		require.NoError(t, err)
+
+		ctx := context.Background()
+
+		// Test with invalid address
+		err = accountService.RegisterAccount(ctx, "invalid-address")
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidAddress))
+
+		// Test with empty address
+		err = accountService.RegisterAccount(ctx, "")
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidAddress))
+	})
 }
 
 func TestAccountDeregister(t *testing.T) {

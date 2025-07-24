@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
@@ -25,6 +26,14 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 				Message: "Account is already registered",
 				Extensions: map[string]interface{}{
 					"code": "ACCOUNT_ALREADY_EXISTS",
+				},
+			}
+		}
+		if errors.Is(err, services.ErrInvalidAddress) {
+			return nil, &gqlerror.Error{
+				Message: "Invalid address: must be a valid Stellar public key or contract address",
+				Extensions: map[string]interface{}{
+					"code": "INVALID_ADDRESS",
 				},
 			}
 		}
