@@ -38,13 +38,13 @@ func NewAccountService(models *data.Models, metricsService metrics.MetricsServic
 	}, nil
 }
 
-// isValidStellarAddress validates that the address is either a valid Stellar public key or contract address
-func isValidStellarAddress(address string) bool {
+// isValidAddress validates that the address is either a valid Stellar public key or contract address
+func isValidAddress(address string) bool {
 	return strkey.IsValidEd25519PublicKey(address) || strkey.IsValidContractAddress(address)
 }
 
 func (s *accountService) RegisterAccount(ctx context.Context, address string) error {
-	if !isValidStellarAddress(address) {
+	if !isValidAddress(address) {
 		return ErrInvalidAddress
 	}
 
