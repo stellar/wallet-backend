@@ -24,8 +24,11 @@ func NewValidator() (*validator.Validate, error) {
 }
 
 func publicKeyValidation(fl validator.FieldLevel) bool {
-	addr := fl.Field().String()
-	return addr == "" || strkey.IsValidEd25519PublicKey(addr) || strkey.IsValidMuxedAccountEd25519PublicKey(addr)
+	addr := strings.TrimSpace(fl.Field().String())
+	return addr == "" ||
+		strkey.IsValidEd25519PublicKey(addr) ||
+		strkey.IsValidMuxedAccountEd25519PublicKey(addr) ||
+		strkey.IsValidContractAddress(addr)
 }
 
 func ParseValidationError(errors validator.ValidationErrors) map[string]interface{} {
