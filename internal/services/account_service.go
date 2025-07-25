@@ -50,9 +50,6 @@ func (s *accountService) RegisterAccount(ctx context.Context, address string) er
 
 	err := s.models.Account.Insert(ctx, address)
 	if err != nil {
-		if errors.Is(err, data.ErrAccountAlreadyExists) {
-			return data.ErrAccountAlreadyExists
-		}
 		return fmt.Errorf("registering account %s: %w", address, err)
 	}
 	s.metricsService.IncActiveAccount()
@@ -62,9 +59,6 @@ func (s *accountService) RegisterAccount(ctx context.Context, address string) er
 func (s *accountService) DeregisterAccount(ctx context.Context, address string) error {
 	err := s.models.Account.Delete(ctx, address)
 	if err != nil {
-		if errors.Is(err, data.ErrAccountNotFound) {
-			return data.ErrAccountNotFound
-		}
 		return fmt.Errorf("deregistering account %s: %w", address, err)
 	}
 	s.metricsService.DecActiveAccount()
