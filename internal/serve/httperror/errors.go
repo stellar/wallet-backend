@@ -79,3 +79,21 @@ func InternalServerError(ctx context.Context, message string, err error, extras 
 		Extras: extras,
 	}
 }
+
+func ServiceUnavailable(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
+	if message == "" {
+		message = "The service is unavailable."
+	}
+	log.Ctx(ctx).Error(err)
+	if appTracker != nil {
+		appTracker.CaptureException(err)
+	} else {
+		log.Warn("App Tracker is nil")
+	}
+
+	return &ErrorResponse{
+		Status: http.StatusServiceUnavailable,
+		Error:  message,
+		Extras: extras,
+	}
+}
