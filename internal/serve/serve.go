@@ -236,7 +236,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService)
 
 			srv := gqlhandler.New(
 				generated.NewExecutableSchema(
@@ -254,18 +254,6 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			r.Handle("/query", srv)
-		})
-
-		r.Route("/accounts", func(r chi.Router) {
-			handler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
-			}
-
-			r.Post("/{address}", handler.RegisterAccount)
-			r.Delete("/{address}", handler.DeregisterAccount)
 		})
 
 		r.Route("/payments", func(r chi.Router) {

@@ -21,48 +21,6 @@ type AccountHandler struct {
 	AppTracker                apptracker.AppTracker
 }
 
-type AccountRegistrationRequest struct {
-	Address string `json:"address" validate:"required,public_key"`
-}
-
-func (h AccountHandler) RegisterAccount(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
-	if httpErr != nil {
-		httpErr.Render(w)
-		return
-	}
-
-	err := h.AccountService.RegisterAccount(ctx, reqParams.Address)
-	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var reqParams AccountRegistrationRequest
-	httpErr := DecodePathAndValidate(ctx, r, &reqParams, h.AppTracker)
-	if httpErr != nil {
-		httpErr.Render(w)
-		return
-	}
-
-	err := h.AccountService.DeregisterAccount(ctx, reqParams.Address)
-	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
 type SponsorAccountCreationRequest struct {
 	Address string            `json:"address" validate:"required,public_key"`
 	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`

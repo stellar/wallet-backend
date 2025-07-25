@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,9 +13,20 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+var (
+	ErrAccountAlreadyExists = errors.New("account already exists")
+	ErrAccountNotFound      = errors.New("account not found")
+)
+
 type AccountModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
+}
+
+// isDuplicateError checks if the error is a PostgreSQL unique violation
+func isDuplicateError(err error) bool {
+	var pqErr *pq.Error
+	return err != nil && errors.As(err, &pqErr) && pqErr.Code == "23505"
 }
 
 func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account, error) {
@@ -32,28 +44,40 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 }
 
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
-	const query = `INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`
+	const query = `INSERT INTO accounts (stellar_address) VALUES ($1)`
 	start := time.Now()
 	_, err := m.DB.ExecContext(ctx, query, address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "accounts", duration)
 	if err != nil {
+		if isDuplicateError(err) {
+			return ErrAccountAlreadyExists
+		}
 		return fmt.Errorf("inserting address %s: %w", address, err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "accounts")
-
 	return nil
 }
 
 func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
 	start := time.Now()
-	_, err := m.DB.ExecContext(ctx, query, address)
+	result, err := m.DB.ExecContext(ctx, query, address)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("DELETE", "accounts", duration)
 	if err != nil {
 		return fmt.Errorf("deleting address %s: %w", address, err)
 	}
+
+	// Check if any rows were affected to determine if account existed
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected for address %s: %w", address, err)
+	}
+	if rowsAffected == 0 {
+		return ErrAccountNotFound
+	}
+
 	m.MetricsService.IncDBQuery("DELETE", "accounts")
 	return nil
 }
