@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -68,7 +67,7 @@ func TestAccountModelInsert(t *testing.T) {
 		// Second insert should fail
 		err = m.Insert(ctx, address)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrAccountAlreadyExists))
+		assert.ErrorIs(t, err, ErrAccountAlreadyExists)
 	})
 }
 
@@ -121,7 +120,7 @@ func TestAccountModelDelete(t *testing.T) {
 
 		err = m.Delete(ctx, nonExistentAddress)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrAccountNotFound))
+		assert.ErrorIs(t, err, ErrAccountNotFound)
 	})
 }
 
