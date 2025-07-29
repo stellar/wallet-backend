@@ -65,7 +65,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 	httpjson.Render(rw, respBody, httpjson.JSON)
 }
 
-func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *http.Request) {
+func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *http.Request) { // HTTP Handler
 	ctx := req.Context()
 
 	var reqBody types.CreateFeeBumpTransactionRequest
@@ -91,7 +91,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 	if err != nil {
 		var opNotAllowedErr *services.OperationNotAllowedError
 		switch {
-		case errors.Is(err, services.ErrAccountNotEligibleForBeingSponsored), errors.Is(err, services.ErrFeeExceedsMaximumBaseFee),
+		case errors.Is(err, services.ErrAccountNotEligibleForBeingSponsored), errors.Is(err, services.ErrFeeExceedsMaximumBaseFee), // TODO: Document the GraphQL error codes these errors correspond to
 			errors.Is(err, services.ErrNoSignaturesProvided), errors.As(err, &opNotAllowedErr):
 			httperror.BadRequest(err.Error(), nil).Render(rw)
 			return

@@ -5,11 +5,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -26,6 +29,20 @@ func (m *mockAccountService) RegisterAccount(ctx context.Context, address string
 func (m *mockAccountService) DeregisterAccount(ctx context.Context, address string) error {
 	args := m.Called(ctx, address)
 	return args.Error(0)
+}
+
+type mockAccountSponsorshipService struct {
+	mock.Mock
+}
+
+func (m *mockAccountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
+	args := m.Called(ctx, tx)
+	return args.String(0), args.String(1), args.Error(2)
+}
+
+func (m *mockAccountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
+	args := m.Called(ctx, address, signers, supportedAssets)
+	return args.String(0), args.String(1), args.Error(2)
 }
 
 func TestMutationResolver_RegisterAccount(t *testing.T) {
@@ -260,5 +277,138 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 		assert.ErrorContains(t, err, "Account not found")
 
 		mockService.AssertExpectations(t)
+	})
+}
+
+func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a valid transaction XDR dynamically
+	sourceAccount := keypair.MustRandom()
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+		IncrementSequenceNum: true,
+		Operations: []txnbuild.Operation{
+			&txnbuild.Payment{
+				Destination: keypair.MustRandom().Address(),
+				Asset:       txnbuild.NativeAsset{},
+				Amount:      "10",
+			},
+		},
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+	})
+	require.NoError(t, err)
+
+	validTransactionXDR, err := tx.Base64()
+	require.NoError(t, err)
+
+	t.Run("success", func(t *testing.T) { // TODO
+		mockAccountService := &mockAccountService{}
+		mockSponsorshipService := &mockAccountSponsorshipService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:            mockAccountService,
+				accountSponsorshipService: mockSponsorshipService,
+				models:                    &data.Models{},
+			},
+		}
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			Transaction: validTransactionXDR,
+		}
+
+		expectedFeeBumpXDR := "AAAABQAAAABkQfakNyGM9UOqzKXmFGHuO8Jk9VFOc+pQCOPpKhHDhAAAAZAAAAACAAAAAgAAAABkQfakNyGM9UOqzKXmFGHuO8Jk9VFOc+pQCOPpKhHDhAAAAGQAAAABAAAAAgAAAAEAAAAAAAAAAAAAAABjUwbKAAAAAAAAAAEAAAABAAAAAGRB9qQ3IYz1Q6rMpeYUYe47wmT1UU5z6lAI4+kqEcOEAAAADgAAAAVoZWxsbwAAAAAAAAEAAAAHd29ybGQhAAAAAAAAAA=="
+		expectedNetworkPassphrase := "Test SDF Network ; September 2015"
+
+		mockSponsorshipService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return(expectedFeeBumpXDR, expectedNetworkPassphrase, nil)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.Equal(t, expectedFeeBumpXDR, result.Transaction)
+		assert.Equal(t, expectedNetworkPassphrase, result.NetworkPassphrase)
+
+		mockSponsorshipService.AssertExpectations(t)
+	})
+
+	t.Run("invalid transaction XDR", func(t *testing.T) { // Tested
+		mockAccountService := &mockAccountService{}
+		mockSponsorshipService := &mockAccountSponsorshipService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:            mockAccountService,
+				accountSponsorshipService: mockSponsorshipService,
+				models:                    &data.Models{},
+			},
+		}
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			Transaction: "invalid-xdr",
+		}
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Could not parse transaction envelope.")
+	})
+
+	t.Run("account not eligible for sponsorship", func(t *testing.T) { // Tested
+		mockAccountService := &mockAccountService{}
+		mockSponsorshipService := &mockAccountSponsorshipService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:            mockAccountService,
+				accountSponsorshipService: mockSponsorshipService,
+				models:                    &data.Models{},
+			},
+		}
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			Transaction: validTransactionXDR,
+		}
+
+		mockSponsorshipService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", services.ErrAccountNotEligibleForBeingSponsored)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrAccountNotEligibleForBeingSponsored.Error())
+
+		mockSponsorshipService.AssertExpectations(t)
+	})
+
+	t.Run("fee exceeds maximum", func(t *testing.T) { // TODO
+		mockAccountService := &mockAccountService{}
+		mockSponsorshipService := &mockAccountSponsorshipService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:            mockAccountService,
+				accountSponsorshipService: mockSponsorshipService,
+				models:                    &data.Models{},
+			},
+		}
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			Transaction: validTransactionXDR,
+		}
+
+		mockSponsorshipService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", services.ErrFeeExceedsMaximumBaseFee)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrFeeExceedsMaximumBaseFee.Error())
+
+		mockSponsorshipService.AssertExpectations(t)
 	})
 }

@@ -6,6 +6,16 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+type CreateFeeBumpTransactionInput struct {
+	Transaction string `json:"transaction"`
+}
+
+type CreateFeeBumpTransactionPayload struct {
+	Success           bool   `json:"success"`
+	Transaction       string `json:"transaction"`
+	NetworkPassphrase string `json:"networkPassphrase"`
+}
+
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
 }

@@ -4,6 +4,9 @@ type Mutation {
     # Account management mutations
     registerAccount(input: RegisterAccountInput!): RegisterAccountPayload!
     deregisterAccount(input: DeregisterAccountInput!): DeregisterAccountPayload!
+    
+    # Transaction mutations
+    createFeeBumpTransaction(input: CreateFeeBumpTransactionInput!): CreateFeeBumpTransactionPayload!
 }
 
 # Input types for account mutations
@@ -24,4 +27,16 @@ type RegisterAccountPayload {
 type DeregisterAccountPayload {
     success: Boolean!
     message: String
+}
+
+# Input types for transaction mutations
+input CreateFeeBumpTransactionInput {
+    transaction: String!
+}
+
+# Payload types for transaction mutations
+type CreateFeeBumpTransactionPayload {
+    success: Boolean!
+    transaction: String!
+    networkPassphrase: String!
 }
