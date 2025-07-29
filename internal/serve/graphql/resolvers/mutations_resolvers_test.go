@@ -2,14 +2,20 @@ package resolvers
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 
+	xdr3 "github.com/stellar/go-xdr/xdr3"
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -26,6 +32,20 @@ func (m *mockAccountService) RegisterAccount(ctx context.Context, address string
 func (m *mockAccountService) DeregisterAccount(ctx context.Context, address string) error {
 	args := m.Called(ctx, address)
 	return args.Error(0)
+}
+
+type mockTransactionService struct {
+	mock.Mock
+}
+
+func (m *mockTransactionService) NetworkPassphrase() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+	args := m.Called(ctx, operations, timeoutInSecs, simulationResult)
+	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
 }
 
 func TestMutationResolver_RegisterAccount(t *testing.T) {
@@ -260,5 +280,151 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 		assert.ErrorContains(t, err, "Account not found")
 
 		mockService.AssertExpectations(t)
+	})
+}
+
+func TestMutationResolver_BuildTransactions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create a valid operation XDR for testing
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+
+		var buf strings.Builder
+		enc := xdr3.NewEncoder(&buf)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
+
+		opXDR := buf.String()
+		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("invalid operations", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{"invalid-xdr"},
+				Timeout:    30,
+			},
+		}
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Invalid operations")
+	})
+
+	t.Run("transaction service error", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a valid operation XDR for this test
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+
+		var buf strings.Builder
+		enc := xdr3.NewEncoder(&buf)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
+
+		opXDR := buf.String()
+		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Failed to build transaction: transaction build failed")
+
+		mockTransactionService.AssertExpectations(t)
 	})
 }
