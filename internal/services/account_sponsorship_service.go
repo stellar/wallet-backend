@@ -170,18 +170,10 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 }
 
 // WrapTransaction wraps a stellar transaction with a fee bump transaction with the configured distribution account as the fee account.
-func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
-	isFeeBumpEligible, err := s.Models.Account.IsAccountFeeBumpEligible(ctx, tx.SourceAccount().AccountID)
-	if err != nil {
-		return "", "", fmt.Errorf("checking if transaction source account is eligible for being fee-bumped: %w", err)
-	}
-	if !isFeeBumpEligible {
-		return "", "", ErrAccountNotEligibleForBeingSponsored
-	}
-
+func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) { // Main handler logic
 	for _, op := range tx.Operations() {
 		operationXDR, innerErr := op.BuildXDR()
-		if innerErr != nil {
+		if innerErr != nil { // Error: { "code": OPERATION_NOT_ALLOWED }
 			return "", "", fmt.Errorf("retrieving xdr for operation: %w", innerErr)
 		}
 
@@ -191,16 +183,16 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		}
 	}
 
-	if tx.BaseFee() > s.BaseFee {
+	if tx.BaseFee() > s.BaseFee { // Error: { "code": "FEE_EXCEEDS_MAXIMUM" }
 		return "", "", ErrFeeExceedsMaximumBaseFee
 	}
 
-	sigs := tx.Signatures()
+	sigs := tx.Signatures() // Error: { "code": "NO_SIGNATURES_PROVIDED" }
 	if len(sigs) == 0 {
 		return "", "", ErrNoSignaturesProvided
 	}
 
-	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx) // Error: { "code": "ACCOUNT_NOT_ELIGIBLE" }
 	if err != nil {
 		return "", "", fmt.Errorf("getting distribution account public key: %w", err)
 	}
@@ -213,15 +205,15 @@ func (s *accountSponsorshipService) WrapTransaction(ctx context.Context, tx *txn
 		},
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("creating fee-bump transaction: %w", err)
+		return "", "", fmt.Errorf("creating fee-bump transaction: %w", err) // Error: { "code": "FEE_BUMP_CREATION_FAILED" }
 	}
 
-	signedFeeBumpTx, err := s.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx)
+	signedFeeBumpTx, err := s.DistributionAccountSignatureClient.SignStellarFeeBumpTransaction(ctx, feeBumpTx) // Error : { "code": "FEE_BUMP_NOT_ALLOWED" }
 	if err != nil {
 		return "", "", fmt.Errorf("signing fee-bump transaction: %w", err)
 	}
 
-	feeBumpTxe, err := signedFeeBumpTx.Base64()
+	feeBumpTxe, err := signedFeeBumpTx.Base64() // Error: { "code": "INVALID_TRANSACTION_XDR" }
 	if err != nil {
 		return "", "", fmt.Errorf("getting transaction envelope: %w", err)
 	}

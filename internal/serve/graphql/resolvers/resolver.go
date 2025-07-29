@@ -21,14 +21,17 @@ type Resolver struct {
 	models *data.Models
 	// accountService provides account management operations
 	accountService services.AccountService
+	// accountSponsorshipService provides transaction sponsorship operations
+	accountSponsorshipService services.AccountSponsorshipService
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, accountSponsorshipService services.AccountSponsorshipService) *Resolver {
 	return &Resolver{
-		models:         models,
-		accountService: accountService,
+		models:                    models,
+		accountService:            accountService,
+		accountSponsorshipService: accountSponsorshipService,
 	}
 }

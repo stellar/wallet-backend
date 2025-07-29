@@ -84,7 +84,7 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
 // eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
-func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
+func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) { // Evaluates account's eligibility
 	const query = `
 		SELECT 
 			EXISTS(

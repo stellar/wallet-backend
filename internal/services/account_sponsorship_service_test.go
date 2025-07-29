@@ -337,12 +337,8 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
+	t.Run("transaction_with_no_signatures", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -363,22 +359,13 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 		require.NoError(t, err)
 
 		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
-		assert.ErrorIs(t, ErrAccountNotEligibleForBeingSponsored, err)
+		assert.ErrorIs(t, ErrNoSignaturesProvided, err)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
 	})
 
 	t.Run("blocked_operations", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
-		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -415,15 +402,6 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
-		require.NoError(t, err)
-
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
 				AccountID: accountToSponsor.Address(),
@@ -450,15 +428,6 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 
 	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
-		require.NoError(t, err)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 			SourceAccount: &txnbuild.SimpleAccount{
@@ -487,15 +456,6 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	t.Run("successfully_wraps_the_transaction_with_fee_bump", func(t *testing.T) {
 		distributionAccount := keypair.MustRandom()
 		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
-		require.NoError(t, err)
 
 		destinationAccount := keypair.MustRandom().Address()
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
