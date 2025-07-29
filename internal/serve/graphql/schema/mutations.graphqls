@@ -4,6 +4,9 @@ type Mutation {
     # Account management mutations
     registerAccount(input: RegisterAccountInput!): RegisterAccountPayload!
     deregisterAccount(input: DeregisterAccountInput!): DeregisterAccountPayload!
+    
+    # Transaction mutations
+    buildTransactions(input: BuildTransactionsInput!): BuildTransactionsPayload!
 }
 
 # Input types for account mutations
@@ -24,4 +27,31 @@ type RegisterAccountPayload {
 type DeregisterAccountPayload {
     success: Boolean!
     message: String
+}
+
+# Input types for transaction mutations
+input BuildTransactionsInput {
+    transaction: TransactionInput!
+}
+
+input TransactionInput {
+    operations: [String!]!
+    timeout: Int!
+    simulationResult: SimulationResultInput
+}
+
+# Optional simulation result input for Soroban transactions
+input SimulationResultInput {
+    transactionData: String
+    events: [String!]
+    minResourceFee: String
+    results: [String!]
+    latestLedger: Int
+    error: String
+}
+
+# Payload types for transaction mutations
+type BuildTransactionsPayload {
+    success: Boolean!
+    transactionXdr: String!
 }
