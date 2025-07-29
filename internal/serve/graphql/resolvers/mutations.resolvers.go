@@ -124,9 +124,9 @@ func (r *mutationResolver) BuildTransactions(ctx context.Context, input graphql1
 		// Handle TransactionData if provided
 		if transaction.SimulationResult.TransactionData != nil {
 			var txData xdr.SorobanTransactionData
-			if err := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); err != nil {
+			if txDataErr := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); txDataErr != nil {
 				return nil, &gqlerror.Error{
-					Message: fmt.Sprintf("Invalid TransactionData: %s", err.Error()),
+					Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
 					Extensions: map[string]interface{}{
 						"code": "INVALID_TRANSACTION_DATA",
 					},
