@@ -2,6 +2,7 @@ package httphandler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/stellar/go/support/render/httpjson"
@@ -28,7 +29,8 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	rpcHealth, err := h.RPCService.GetHealth()
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
+		err = fmt.Errorf("failed to get RPC health: %w", err)
+		httperror.InternalServerError(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
 	if rpcHealth.Status != "healthy" {
@@ -39,7 +41,8 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	backendLatestLedger, err := h.Models.IngestStore.GetLatestLedgerSynced(ctx, ledgerCursorName)
 	if err != nil {
-		httperror.InternalServerError(ctx, "", err, nil, h.AppTracker).Render(w)
+		err = fmt.Errorf("failed to get backend latest ledger: %w", err)
+		httperror.InternalServerError(ctx, err.Error(), err, nil, h.AppTracker).Render(w)
 		return
 	}
 	if rpcHealth.LatestLedger-backendLatestLedger > ledgerHealthThreshold {
@@ -51,7 +54,7 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpjson.Render(w, map[string]interface{}{
+	httpjson.Render(w, map[string]any{
 		"status":                "ok",
 		"backend_latest_ledger": backendLatestLedger,
 	}, httpjson.JSON)

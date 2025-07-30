@@ -102,6 +102,7 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		handler.GetHealth(recorder, req)
 		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "failed to get RPC health")
 
 		_, cleanupErr := dbConnectionPool.ExecContext(ctx, "DELETE FROM ingest_store WHERE key = 'live_ingest_cursor'")
 		require.NoError(t, cleanupErr)
