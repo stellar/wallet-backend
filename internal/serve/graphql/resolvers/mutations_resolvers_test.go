@@ -10,9 +10,11 @@ import (
 	xdr3 "github.com/stellar/go-xdr/xdr3"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -315,7 +317,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Create a valid operation XDR for testing
+		// Create a valid operation XDR
 		srcAccount := keypair.MustRandom().Address()
 		p := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -391,7 +393,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 			},
 		}
 
-		// Create a valid operation XDR for this test
+		// Create a valid operation XDR
 		srcAccount := keypair.MustRandom().Address()
 		p := txnbuild.Payment{
 			Destination:   keypair.MustRandom().Address(),
@@ -426,5 +428,253 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		assert.ErrorContains(t, err, "Failed to build transaction: transaction build failed")
 
 		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("with simulation result", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create a valid operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+
+		var buf strings.Builder
+		enc := xdr3.NewEncoder(&buf)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
+
+		opXDR := buf.String()
+		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+		// Create simulation result
+		latestLedger := int32(12345)
+		minResourceFee := "1000000"
+		errorMsg := "simulation error example"
+		events := []string{"event1", "event2"}
+
+		transactionData := (*string)(nil)
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    45,
+				SimulationResult: &graphql.SimulationResultInput{
+					LatestLedger:    &latestLedger,
+					MinResourceFee:  &minResourceFee,
+					Error:           &errorMsg,
+					Events:          events,
+					TransactionData: transactionData,
+				},
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount",
+			ctx,
+			mock.AnythingOfType("[]txnbuild.Operation"),
+			int64(45),
+			mock.MatchedBy(func(simResult entities.RPCSimulateTransactionResult) bool {
+				// Verify all simulation result fields are properly converted
+				return simResult.LatestLedger == int64(latestLedger) &&
+					simResult.MinResourceFee == minResourceFee &&
+					simResult.Error == errorMsg &&
+					len(simResult.Events) == 2 &&
+					simResult.Events[0] == "event1" &&
+					simResult.Events[1] == "event2"
+			})).Return(tx, nil)
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("with valid transaction data", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create a valid operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+
+		var buf strings.Builder
+		enc := xdr3.NewEncoder(&buf)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
+
+		opXDR := buf.String()
+		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+		// Create a valid SorobanTransactionData
+		validTxData := xdr.SorobanTransactionData{
+			Ext: xdr.SorobanTransactionDataExt{
+				V: 0, // Version 0
+			},
+			Resources: xdr.SorobanResources{
+				Footprint: xdr.LedgerFootprint{
+					ReadOnly:  []xdr.LedgerKey{},
+					ReadWrite: []xdr.LedgerKey{},
+				},
+				Instructions:  1000000,
+				DiskReadBytes: 1000,
+				WriteBytes:    1000,
+			},
+			ResourceFee: 1000000,
+		}
+
+		validTxDataBase64, err := xdr.MarshalBase64(validTxData)
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				SimulationResult: &graphql.SimulationResultInput{
+					TransactionData: &validTxDataBase64,
+					Events:          []string{"test-event"},
+				},
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount",
+			ctx,
+			mock.AnythingOfType("[]txnbuild.Operation"),
+			int64(30),
+			mock.MatchedBy(func(simResult entities.RPCSimulateTransactionResult) bool {
+				// Verify that TransactionData was successfully parsed and matches our original data
+				expectedTxDataBase64, _ := xdr.MarshalBase64(simResult.TransactionData)
+				return expectedTxDataBase64 == validTxDataBase64 &&
+					len(simResult.Events) == 1 &&
+					simResult.Events[0] == "test-event"
+			})).Return(tx, nil)
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("invalid transaction data", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a valid operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+
+		var buf strings.Builder
+		enc := xdr3.NewEncoder(&buf)
+		err = op.EncodeTo(enc)
+		require.NoError(t, err)
+
+		opXDR := buf.String()
+		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
+
+		invalidTransactionData := "invalid-transaction-data-xdr"
+
+		input := graphql.BuildTransactionsInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				SimulationResult: &graphql.SimulationResultInput{
+					TransactionData: &invalidTransactionData,
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransactions(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Invalid TransactionData")
+
+		if gqlErr, ok := err.(*gqlerror.Error); ok {
+			assert.Equal(t, "INVALID_TRANSACTION_DATA", gqlErr.Extensions["code"])
+		}
 	})
 }
