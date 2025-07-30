@@ -8,6 +8,8 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/network"
+	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -99,9 +101,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						Operation:    createAccountOp,
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
+							Index:          0,
+							Operation:      createAccountOp,
+							Network:        network.TestNetworkPassphrase,
+							LedgerSequence: 12345,
+						},
 						Participants: set.NewSet("alice"),
-						OperationIdx: 0,
 					},
 				}
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(opParticipants, nil)
@@ -147,9 +153,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			txParticipants: set.NewSet("alice", "bob"),
 			opsParticipants: map[int64]processors.OperationParticipants{
 				1: {
-					Operation:    createAccountOp,
+					OpWrapper: &operation_processor.TransactionOperationWrapper{
+						Index:          0,
+						Operation:      createAccountOp,
+						Network:        network.TestNetworkPassphrase,
+						LedgerSequence: 12345,
+					},
 					Participants: set.NewSet("alice"),
-					OperationIdx: 0,
 				},
 			},
 		},
@@ -199,9 +209,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				opParticipants := map[int64]processors.OperationParticipants{
 					1: {
-						Operation:    createAccountOp,
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
+							Index:          0,
+							Operation:      createAccountOp,
+							Network:        network.TestNetworkPassphrase,
+							LedgerSequence: 12345,
+						},
 						Participants: set.NewSet("alice"),
-						OperationIdx: 0,
 					},
 				}
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(opParticipants, nil)

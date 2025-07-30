@@ -881,6 +881,7 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), rpcService.HealthCheckTickInterval()*2)
 	defer cancel()
 	mockResponse := &http.Response{
+		StatusCode: http.StatusOK,
 		Body: io.NopCloser(bytes.NewBuffer([]byte(`{
 			"jsonrpc": "2.0",
 			"id": 1,
@@ -954,7 +955,8 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 		}
 	}`
 	mockResponse := &http.Response{
-		Body: io.NopCloser(strings.NewReader(getHealthResponseBody)),
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(getHealthResponseBody)),
 	}
 	mockHTTPClient.On("Post", rpcURL, "application/json", bytes.NewBuffer(getHealthRequestBody)).
 		Return(mockResponse, nil)

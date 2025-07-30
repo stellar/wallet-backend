@@ -252,4 +252,46 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		assert.Len(t, allStateChanges, 3)
 		assert.ElementsMatch(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
+
+	t.Run("🟢sequential_calls_with_ops_and_txs", func(t *testing.T) {
+		indexerBuffer := NewIndexerBuffer()
+
+		tx1 := types.Transaction{Hash: "tx_hash_1"}
+		tx2 := types.Transaction{Hash: "tx_hash_2"}
+		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
+		op2 := types.Operation{ID: 2, TxHash: tx2.Hash}
+		indexerBuffer.PushParticipantOperation("someone", op1, tx1)
+		indexerBuffer.PushParticipantOperation("someone", op2, tx2)
+
+		sc1 := types.StateChange{ID: "sc1", TxHash: tx1.Hash, OperationID: op1.ID, AccountID: "alice"}
+		sc2 := types.StateChange{ID: "sc2", TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "alice"}
+		sc3 := types.StateChange{ID: "sc3", TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "bob"}
+
+		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
+		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+
+		allStateChanges := indexerBuffer.GetAllStateChanges()
+		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
+
+		// Assert transactions
+		wantTxByHash := map[string]types.Transaction{
+			"tx_hash_1": tx1,
+			"tx_hash_2": tx2,
+		}
+		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
+		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
+		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
+
+		// Assert operations
+		wantOpByID := map[int64]types.Operation{
+			1: op1,
+			2: op2,
+		}
+		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
+		assert.Equal(t, map[int64]types.Operation{1: op1, 2: op2}, indexerBuffer.GetParticipantOperations("alice"))
+		assert.Equal(t, map[int64]types.Operation{2: op2}, indexerBuffer.GetParticipantOperations("bob"))
+
+		// Assert participants
+		assert.Equal(t, set.NewSet("alice", "bob", "someone"), indexerBuffer.Participants)
+	})
 }
