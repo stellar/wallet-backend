@@ -29,6 +29,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.StartLedgerOption(&cfg.StartLedger),
 		utils.EndLedgerOption(&cfg.EndLedger),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
+		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
 		{
 			Name:        "ledger-cursor-name",
@@ -37,14 +38,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.LedgerCursorName,
 			FlagDefault: "live_ingest_cursor",
 			Required:    true,
-		},
-		{
-			Name:        "start",
-			Usage:       "Ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.StartLedger,
-			FlagDefault: 0,
-			Required:    false,
 		},
 	}
 

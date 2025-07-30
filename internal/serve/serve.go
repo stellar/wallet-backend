@@ -12,7 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -81,6 +80,7 @@ type handlerDeps struct {
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
 	TransactionService        txservices.TransactionService
+	RPCService                services.RPCService
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -202,6 +202,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
 		MetricsService:            metricsService,
+		RPCService:                rpcService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		RPCURL:                    cfg.RPCURL,
@@ -228,7 +229,11 @@ func handler(deps handlerDeps) http.Handler {
 	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
-	mux.Get("/health", health.PassHandler{}.ServeHTTP)
+	mux.Get("/health", httphandler.HealthHandler{
+		Models:     deps.Models,
+		RPCService: deps.RPCService,
+		AppTracker: deps.AppTracker,
+	}.GetHealth)
 	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Authenticated routes
