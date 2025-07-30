@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -14,13 +17,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
+const (
+	ServerShutdownTimeout = 10 * time.Second
+)
+
 type Configs struct {
 	DatabaseURL       string
+	ServerPort        int
 	LedgerCursorName  string
 	StartLedger       int
 	EndLedger         int
@@ -76,13 +85,49 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
 
-	http.Handle("/ingest-metrics", promhttp.HandlerFor(metricsService.GetRegistry(), promhttp.HandlerOpts{}))
+	// Start ingest server which serves metrics and health check endpoints.
+	server := startServers(cfg, models, rpcService, metricsService)
+
+	// Wait for termination signal to gracefully shut down the server.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		err := http.ListenAndServe(":8002", nil)
-		if err != nil {
-			log.Ctx(context.Background()).Fatalf("starting ingest metrics server: %v", err)
+		<-quit
+		log.Info("Shutting down server...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			log.Errorf("Server forced to shutdown: %v", err)
 		}
+		log.Info("Server gracefully stopped")
 	}()
 
 	return ingestService, nil
+}
+
+// startServers initializes and starts the ingest server which serves metrics and health check endpoints.
+func startServers(cfg Configs, models *data.Models, rpcService services.RPCService, metricsSvc metrics.MetricsService) *http.Server {
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
+		Handler: mux,
+	}
+
+	healthHandler := httphandler.HealthHandler{
+		Models:     models,
+		RPCService: rpcService,
+		AppTracker: cfg.AppTracker,
+	}
+	mux.Handle("/ingest-metrics", promhttp.HandlerFor(metricsSvc.GetRegistry(), promhttp.HandlerOpts{}))
+	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))
+
+	go func() {
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Ctx(context.Background()).Fatalf("starting server on %s: %v", server.Addr, err)
+		}
+	}()
+
+	return server
 }
