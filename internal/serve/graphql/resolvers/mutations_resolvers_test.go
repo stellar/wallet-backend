@@ -608,7 +608,10 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 			int64(30),
 			mock.MatchedBy(func(simResult entities.RPCSimulateTransactionResult) bool {
 				// Verify that TransactionData was successfully parsed and matches our original data
-				expectedTxDataBase64, _ := xdr.MarshalBase64(simResult.TransactionData)
+				expectedTxDataBase64, marshalErr := xdr.MarshalBase64(simResult.TransactionData)
+				if marshalErr != nil {
+					return false
+				}
 				return expectedTxDataBase64 == validTxDataBase64 &&
 					len(simResult.Events) == 1 &&
 					simResult.Events[0] == "test-event"
@@ -673,7 +676,8 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		assert.Nil(t, result)
 		assert.ErrorContains(t, err, "Invalid TransactionData")
 
-		if gqlErr, ok := err.(*gqlerror.Error); ok {
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
 			assert.Equal(t, "INVALID_TRANSACTION_DATA", gqlErr.Extensions["code"])
 		}
 	})
