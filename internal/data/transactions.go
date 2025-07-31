@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -18,8 +19,11 @@ type TransactionModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	const query = `SELECT * FROM transactions WHERE hash = $1`
+func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns []string) (*types.Transaction, error) {
+	if len(columns) == 0 {
+		columns = []string{"*"}
+	}
+	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, strings.Join(columns, ", "))
 	var transaction types.Transaction
 	start := time.Now()
 	err := m.DB.GetContext(ctx, &transaction, query, hash)
@@ -32,8 +36,11 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string) (*types.T
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
-	query := `SELECT * FROM transactions ORDER BY ledger_created_at DESC`
+func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns []string) ([]*types.Transaction, error) {
+	if len(columns) == 0 {
+		columns = []string{"*"}
+	}
+	query := fmt.Sprintf(`SELECT %s FROM transactions ORDER BY ledger_created_at DESC`, strings.Join(columns, ", "))
 	args := []interface{}{}
 
 	if limit != nil && *limit > 0 {
