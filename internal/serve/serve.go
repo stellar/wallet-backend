@@ -241,7 +241,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService)
 
 			srv := gqlhandler.New(
 				generated.NewExecutableSchema(
@@ -283,16 +283,7 @@ func handler(deps handlerDeps) http.Handler {
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 
-		r.Route("/transactions", func(r chi.Router) {
-			handler := &httphandler.TransactionsHandler{
-				TransactionService: deps.TransactionService,
-				AppTracker:         deps.AppTracker,
-				NetworkPassphrase:  deps.NetworkPassphrase,
-				MetricsService:     deps.MetricsService,
-			}
-
-			r.Post("/build", handler.BuildTransactions)
-		})
+		// /transactions/build endpoint has been migrated to GraphQL - mutation: buildTransactions
 	})
 
 	return mux
