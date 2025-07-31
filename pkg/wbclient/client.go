@@ -10,15 +10,41 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/stellar/go/xdr"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 const (
-	buildTransactionsPath        = "/transactions/build"
+	graphqlPath                  = "/graphql/query"
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
 )
+
+// GraphQL request/response types
+type GraphQLRequest struct {
+	Query     string                 `json:"query"`
+	Variables map[string]interface{} `json:"variables,omitempty"`
+}
+
+type GraphQLResponse struct {
+	Data   json.RawMessage `json:"data,omitempty"`
+	Errors []GraphQLError  `json:"errors,omitempty"`
+}
+
+type GraphQLError struct {
+	Message    string                 `json:"message"`
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
+}
+
+type BuildTransactionsPayload struct {
+	Success        bool   `json:"success"`
+	TransactionXdr string `json:"transactionXdr"`
+}
+
+type BuildTransactionsData struct {
+	BuildTransactions BuildTransactionsPayload `json:"buildTransactions"`
+}
 
 type Client struct {
 	HTTPClient    *http.Client
@@ -35,9 +61,82 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 }
 
 func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Transaction) (*types.BuildTransactionsResponse, error) {
-	buildTxRequest := types.BuildTransactionsRequest{Transactions: transactions}
+	if len(transactions) == 0 {
+		return nil, fmt.Errorf("at least one transaction is required")
+	}
 
-	resp, err := c.request(ctx, http.MethodPost, buildTransactionsPath, buildTxRequest)
+	// We only support building one transaction at a time
+	if len(transactions) > 1 {
+		return nil, fmt.Errorf("GraphQL buildTransactions mutation supports only one transaction at a time")
+	}
+
+	transaction := transactions[0]
+
+	query := `
+		mutation BuildTransactions($input: BuildTransactionsInput!) {
+			buildTransactions(input: $input) {
+				success
+				transactionXdr
+			}
+		}
+	`
+
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"transaction": map[string]interface{}{
+				"operations": transaction.Operations,
+				"timeout":    transaction.Timeout,
+			},
+		},
+	}
+
+	// Add simulation result if provided
+	if !utils.IsEmpty(transaction.SimulationResult.TransactionData) ||
+		len(transaction.SimulationResult.Events) > 0 ||
+		transaction.SimulationResult.MinResourceFee != "" ||
+		len(transaction.SimulationResult.Results) > 0 ||
+		transaction.SimulationResult.LatestLedger != 0 ||
+		transaction.SimulationResult.Error != "" {
+
+		simulationResult := map[string]interface{}{}
+
+		if !utils.IsEmpty(transaction.SimulationResult.TransactionData) {
+			txDataStr, err := xdr.MarshalBase64(transaction.SimulationResult.TransactionData)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling transaction data: %w", err)
+			}
+			simulationResult["transactionData"] = txDataStr
+		}
+
+		if len(transaction.SimulationResult.Events) > 0 {
+			simulationResult["events"] = transaction.SimulationResult.Events
+		}
+
+		if transaction.SimulationResult.MinResourceFee != "" {
+			simulationResult["minResourceFee"] = transaction.SimulationResult.MinResourceFee
+		}
+
+		if len(transaction.SimulationResult.Results) > 0 {
+			simulationResult["results"] = transaction.SimulationResult.Results
+		}
+
+		if transaction.SimulationResult.LatestLedger != 0 {
+			simulationResult["latestLedger"] = transaction.SimulationResult.LatestLedger
+		}
+
+		if transaction.SimulationResult.Error != "" {
+			simulationResult["error"] = transaction.SimulationResult.Error
+		}
+
+		variables["input"].(map[string]interface{})["transaction"].(map[string]interface{})["simulationResult"] = simulationResult
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     query,
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, http.MethodPost, graphqlPath, gqlRequest)
 	if err != nil {
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
@@ -46,12 +145,24 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, c.logHTTPError(ctx, resp)
 	}
 
-	buildTxResponse, err := parseResponseBody[types.BuildTransactionsResponse](ctx, resp.Body)
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("parsing response body: %w", err)
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
 	}
 
-	return buildTxResponse, nil
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data BuildTransactionsData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	// Convert to the expected response format
+	return &types.BuildTransactionsResponse{
+		TransactionXDRs: []string{data.BuildTransactions.TransactionXdr},
+	}, nil
 }
 
 func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, error) {
