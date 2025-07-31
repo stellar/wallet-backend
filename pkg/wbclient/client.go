@@ -117,7 +117,16 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		}
 
 		if len(transaction.SimulationResult.Results) > 0 {
-			simulationResult["results"] = transaction.SimulationResult.Results
+			// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
+			results := make([]string, len(transaction.SimulationResult.Results))
+			for i, result := range transaction.SimulationResult.Results {
+				resultJSON, err := json.Marshal(result)
+				if err != nil {
+					return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
+				}
+				results[i] = string(resultJSON)
+			}
+			simulationResult["results"] = results
 		}
 
 		if transaction.SimulationResult.LatestLedger != 0 {
