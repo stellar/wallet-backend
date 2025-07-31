@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -21,7 +22,6 @@ const (
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
 )
 
-// GraphQL request/response types
 type GraphQLRequest struct {
 	Query     string                 `json:"query"`
 	Variables map[string]interface{} `json:"variables,omitempty"`
