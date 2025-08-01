@@ -83,13 +83,16 @@ func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accou
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
-func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.TransactionWithOperationID, error) {
-	const query = `
-		SELECT t.*, o.id as operation_id
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
+	if columns == "" {
+		columns = "transactions.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, o.id as operation_id
 		FROM operations o
-		INNER JOIN transactions t
-		ON o.tx_hash = t.hash 
-		WHERE o.id = ANY($1)`
+		INNER JOIN transactions
+		ON o.tx_hash = transactions.hash 
+		WHERE o.id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithOperationID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
@@ -103,13 +106,16 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 }
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string) ([]*types.TransactionWithStateChangeID, error) {
-	const query = `
-		SELECT t.*, sc.id as state_change_id
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.TransactionWithStateChangeID, error) {
+	if columns == "" {
+		columns = "transactions.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, sc.id as state_change_id
 		FROM state_changes sc
-		INNER JOIN transactions t ON t.hash = sc.tx_hash 
+		INNER JOIN transactions ON transactions.hash = sc.tx_hash 
 		WHERE sc.id = ANY($1)
-		`
+		`, columns)
 	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))

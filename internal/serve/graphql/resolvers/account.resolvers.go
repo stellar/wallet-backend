@@ -65,9 +65,14 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 // StateChanges is the resolver for the stateChanges field.
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
 
 	// Use dataloader to batch-load state changes for this account
-	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, obj.StellarAddress)
+	loaderKey := dataloaders.StateChangeColumnsKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
+	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

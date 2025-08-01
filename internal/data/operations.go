@@ -18,8 +18,11 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	query := `SELECT * FROM operations ORDER BY ledger_created_at DESC`
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
 	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`

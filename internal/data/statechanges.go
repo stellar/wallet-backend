@@ -21,10 +21,14 @@ type StateChangeModel struct {
 func (m *StateChangeModel) BatchGetByAccountAddresses(
 	ctx context.Context,
 	accountAddresses []string,
+	columns string,
 ) ([]*types.StateChange, error) {
-	query := `
-		SELECT * FROM state_changes WHERE account_id = ANY($1)
-	`
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s FROM state_changes WHERE account_id = ANY($1)
+	`, columns)	
 	var stateChanges []*types.StateChange
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
 	if err != nil {
@@ -33,15 +37,18 @@ func (m *StateChangeModel) BatchGetByAccountAddresses(
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	start := time.Now()
-	query := `SELECT * FROM state_changes ORDER BY ledger_created_at DESC`
+func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.StateChange, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY ledger_created_at DESC`, columns)
 	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`
 		args = append(args, *limit)
 	}
 	var stateChanges []*types.StateChange
+	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
@@ -236,10 +243,13 @@ func (m *StateChangeModel) BatchInsert(
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.StateChange, error) {
-	const query = `
-		SELECT * FROM state_changes WHERE tx_hash = ANY($1)
-	`
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, tx_hash FROM state_changes WHERE tx_hash = ANY($1)
+	`, columns)
 	var stateChanges []*types.StateChange
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
@@ -253,10 +263,13 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 }
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
-func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.StateChange, error) {
-	const query = `
-		SELECT * FROM state_changes WHERE operation_id = ANY($1)
-	`
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.StateChange, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, operation_id FROM state_changes WHERE operation_id = ANY($1)
+	`, columns)
 	var stateChanges []*types.StateChange
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))

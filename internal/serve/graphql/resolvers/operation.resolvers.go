@@ -6,7 +6,7 @@ package resolvers
 
 import (
 	"context"
-
+	"strings"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -21,10 +21,16 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 	// Extract dataloaders from GraphQL context
 	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+
+	loaderKey := dataloaders.TransactionColumnsKey{
+		OperationID: obj.ID,
+		Columns:     strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to efficiently batch-load transaction for this operation
 	// This prevents N+1 queries when multiple operations request their transaction
-	transaction, err := loaders.TransactionsByOperationIDLoader.Load(ctx, obj.ID)
+	transaction, err := loaders.TransactionsByOperationIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -36,13 +42,17 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 // gqlgen calls this when a GraphQL query requests the accounts field on an Operation
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error) {
-	// Extract dataloaders from GraphQL context
-	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
+
+	loaderKey := dataloaders.AccountColumnsKey{
+		OperationID: obj.ID,
+		Columns:     strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to efficiently batch-load accounts for this operation
 	// This prevents N+1 queries when multiple operations request their accounts
-	accounts, err := loaders.AccountsByOperationIDLoader.Load(ctx, obj.ID)
+	accounts, err := loaders.AccountsByOperationIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -54,13 +64,17 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // gqlgen calls this when a GraphQL query requests the stateChanges field on an Operation
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation) ([]*types.StateChange, error) {
-	// Extract dataloaders from GraphQL context
-	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+
+	loaderKey := dataloaders.StateChangeColumnsKey{
+		OperationID: obj.ID,
+		Columns:     strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to efficiently batch-load state changes for this operation
 	// This prevents N+1 queries when multiple operations request their state changes
-	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, obj.ID)
+	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

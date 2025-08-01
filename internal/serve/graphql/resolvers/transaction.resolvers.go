@@ -38,11 +38,16 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 // It's called when a GraphQL query requests the accounts within a transaction
 func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
 
 	// Use dataloader to batch-load accounts for this transaction
 	// This prevents N+1 queries when multiple transactions request their operations
 	// The loader groups multiple requests and executes them in a single database query
-	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, obj.Hash)
+	loaderKey := dataloaders.AccountColumnsKey{
+		TxHash: obj.Hash,
+		Columns: strings.Join(dbColumns, ", "),
+	}
+	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +59,15 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+
+	loaderKey := dataloaders.StateChangeColumnsKey{
+		TxHash: obj.Hash,
+		Columns: strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to batch-load state changes for this transaction
-	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, obj.Hash)
+	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 type Account struct {
-	StellarAddress string    `json:"stellarAddress,omitempty" db:"stellar_address"`
+	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
 }
 
@@ -27,7 +27,7 @@ type AccountWithOperationID struct {
 
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
-	ToID            int64     `json:"to_id,omitempty" db:"to_id"`
+	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
 	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
@@ -134,9 +134,9 @@ type Operation struct {
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
 	TxHash       string        `json:"txHash,omitempty" db:"tx_hash"`
-	Transaction  *Transaction  `json:"transaction,omitempty" db:"transaction"`
-	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
-	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
+	Transaction  *Transaction  `json:"transaction,omitempty"`
+	Accounts     []Account     `json:"accounts,omitempty"`
+	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
 type OperationWithAccountID struct {
@@ -213,11 +213,11 @@ type StateChange struct {
 	KeyValue      NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
-	Account     *Account     `json:"account,omitempty" db:"account"`
+	Account     *Account     `json:"account,omitempty"`
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
-	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
+	Operation   *Operation   `json:"operation,omitempty"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
-	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
+	Transaction *Transaction `json:"transaction,omitempty"`
 }
 
 type NullableJSONB map[string]any

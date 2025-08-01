@@ -8,7 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"strings"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -149,7 +149,13 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 // Operation is the resolver for the operation field.
 func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, obj.ID)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+
+	loaderKey := dataloaders.OperationColumnsKey{
+		StateChangeID: obj.ID,
+		Columns:       strings.Join(dbColumns, ", "),
+	}
+	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +165,17 @@ func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateCha
 // Transaction is the resolver for the transaction field.
 func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	transactions, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, obj.ID)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+
+	loaderKey := dataloaders.TransactionColumnsKey{
+		StateChangeID: obj.ID,
+		Columns:       strings.Join(dbColumns, ", "),
+	}
+	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
-	return transactions, nil
+	return transaction, nil
 }
 
 // StateChange returns graphql1.StateChangeResolver implementation.

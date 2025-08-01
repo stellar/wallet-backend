@@ -369,7 +369,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
-	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{1, 2, 3})
+	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{1, 2, 3}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -429,7 +429,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	transactions, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"})
+	transactions, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 

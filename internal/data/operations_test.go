@@ -257,13 +257,13 @@ func TestOperationModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	operations, err := m.GetAll(ctx, nil)
+	operations, err := m.GetAll(ctx, nil, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	operations, err = m.GetAll(ctx, &limit)
+	operations, err = m.GetAll(ctx, &limit, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
 }

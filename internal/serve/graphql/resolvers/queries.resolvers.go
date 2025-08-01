@@ -37,12 +37,14 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	return r.models.Operations.GetAll(ctx, limit)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	return r.models.StateChanges.GetAll(ctx, limit)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // Query returns graphql1.QueryResolver implementation.

@@ -193,7 +193,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash function
-	accounts, err := m.BatchGetByTxHashes(ctx, []string{txHash1, txHash2})
+	accounts, err := m.BatchGetByTxHashes(ctx, []string{txHash1, txHash2}, "")
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 
@@ -246,7 +246,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID function
-	accounts, err := m.BatchGetByOperationIDs(ctx, []int64{operationID1, operationID2})
+	accounts, err := m.BatchGetByOperationIDs(ctx, []int64{operationID1, operationID2}, "")
 	require.NoError(t, err)
 	assert.Len(t, accounts, 2)
 
