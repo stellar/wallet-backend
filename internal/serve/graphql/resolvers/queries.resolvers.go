@@ -15,7 +15,7 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	dbColumns := GetDBColumnsForQuery(ctx, types.Transaction{})
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetByHash(ctx, hash, dbColumns)
 }
 
@@ -23,7 +23,7 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
-	dbColumns := GetDBColumnsForQuery(ctx, types.Transaction{})
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetAll(ctx, limit, dbColumns)
 }
 

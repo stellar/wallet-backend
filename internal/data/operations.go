@@ -38,8 +38,11 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Ope
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
-	const query = `SELECT * FROM operations WHERE tx_hash = ANY($1)`
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
+	if len(columns) == 0 {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
 	var operations []*types.Operation
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))

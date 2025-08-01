@@ -6,7 +6,7 @@ package resolvers
 
 import (
 	"context"
-
+	"strings"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -18,9 +18,15 @@ import (
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+
+	loaderKey := dataloaders.OperationColumnsWithTxHashKey{
+		TxHash: obj.Hash,
+		Columns: strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to batch-load operations for this transaction
-	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, obj.Hash)
+	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

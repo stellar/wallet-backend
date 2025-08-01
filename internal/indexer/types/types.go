@@ -35,9 +35,9 @@ type Transaction struct {
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// Relationships:
-	Operations   []Operation   `json:"operations,omitempty" db:"operations"`
-	Accounts     []Account     `json:"accounts,omitempty" db:"accounts"`
-	StateChanges []StateChange `json:"stateChanges,omitempty" db:"state_changes"`
+	Operations   []Operation   `json:"operations,omitempty"`
+	Accounts     []Account     `json:"accounts,omitempty"`
+	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
 type TransactionWithAccountID struct {
