@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/99designs/gqlgen/graphql"
-	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vikstrous/dataloadgen"
@@ -19,30 +17,6 @@ import (
 func TestTransactionResolver_Operations(t *testing.T) {
 	resolver := &transactionResolver{&Resolver{}}
 	parentTx := &types.Transaction{Hash: "test-tx-hash"}
-	getCtx := func() context.Context {
-		opCtx := &graphql.OperationContext{
-			Operation: &ast.OperationDefinition{
-				SelectionSet: ast.SelectionSet{
-					&ast.Field{
-						Name: "operations",
-						SelectionSet: ast.SelectionSet{},
-					},
-				},
-			},
-		}
-		ctx := graphql.WithOperationContext(context.Background(), opCtx)
-		var selections ast.SelectionSet
-		for _, fieldName := range []string{"id"} {
-			selections = append(selections, &ast.Field{Name: fieldName})
-		}
-		fieldCtx := &graphql.FieldContext{
-			Field: graphql.CollectedField{
-				Selections: selections,
-			},
-		}
-		ctx = graphql.WithFieldContext(ctx, fieldCtx)
-		return ctx
-	}
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsWithTxHashKey) ([][]*types.Operation, []error) {
@@ -62,7 +36,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(getCtx(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		operations, err := resolver.Operations(ctx, parentTx)
 
@@ -81,7 +55,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(getCtx(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Operations(ctx, parentTx)
 
