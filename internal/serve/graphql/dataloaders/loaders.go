@@ -18,6 +18,11 @@ type OperationColumnsWithTxHashKey struct {
 	Columns string
 }
 
+type TransactionColumnsWithAccountKey struct {
+	AccountID string
+	Columns string
+}
+
 // Dataloaders struct holds all dataloader instances for GraphQL resolvers
 // Each dataloader batches requests for a specific type of data relationship
 // GraphQL resolvers use these to efficiently load related data
@@ -28,7 +33,7 @@ type Dataloaders struct {
 
 	// TransactionsByAccountLoader batches requests for transactions by account address
 	// Used by Account.transactions field resolver to prevent N+1 queries
-	TransactionsByAccountLoader *dataloadgen.Loader[string, []*types.Transaction]
+	TransactionsByAccountLoader *dataloadgen.Loader[TransactionColumnsWithAccountKey, []*types.Transaction]
 
 	// OperationsByAccountLoader batches requests for operations by account address
 	// Used by Account.operations field resolver to prevent N+1 queries
@@ -74,7 +79,7 @@ type Dataloaders struct {
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
 		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
-		// TransactionsByAccountLoader:      transactionsByAccountLoader(models),
+		TransactionsByAccountLoader:      transactionsByAccountLoader(models),
 		// OperationsByAccountLoader:        operationsByAccountLoader(models),
 		// StateChangesByAccountLoader:      stateChangesByAccountLoader(models),
 		// AccountsByTxHashLoader:           accountsByTxHashLoader(models),
@@ -218,19 +223,27 @@ func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[Operation
 // txByAccountLoader creates a dataloader for fetching transactions by account address
 // This prevents N+1 queries when multiple accounts request their transactions
 // The loader batches multiple account addresses into a single database query
-// func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[string, []*types.Transaction] {
-// 	return newOneToManyLoader(
-// 		func(ctx context.Context, keys []string) ([]*types.TransactionWithAccountID, error) {
-// 			return models.Transactions.BatchGetByAccountAddresses(ctx, keys)
-// 		},
-// 		func(item *types.TransactionWithAccountID) string {
-// 			return item.AccountID
-// 		},
-// 		func(item *types.TransactionWithAccountID) types.Transaction {
-// 			return item.Transaction
-// 		},
-// 	)
-// }
+func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsWithAccountKey, []*types.Transaction] {
+	return newOneToManyLoader(
+		func(ctx context.Context, keys []TransactionColumnsWithAccountKey) ([]*types.TransactionWithAccountID, error) {
+			accountIDs := make([]string, len(keys))
+			columns := keys[0].Columns
+			for i, key := range keys {
+				accountIDs[i] = key.AccountID
+			}
+			return models.Transactions.BatchGetByAccountAddresses(ctx, accountIDs, columns)
+		},
+		func(item *types.TransactionWithAccountID) string {
+			return item.AccountID
+		},
+		func(key TransactionColumnsWithAccountKey) string {
+			return key.AccountID
+		},
+		func(item *types.TransactionWithAccountID) types.Transaction {
+			return item.Transaction
+		},
+	)
+}
 
 // // opByAccountLoader creates a dataloader for fetching operations by account address
 // // This prevents N+1 queries when multiple accounts request their operations

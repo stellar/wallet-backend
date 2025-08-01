@@ -18,7 +18,7 @@ import (
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
 	loaderKey := dataloaders.OperationColumnsWithTxHashKey{
 		TxHash: obj.Hash,

@@ -8,9 +8,9 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 )
 
-func GetDBColumnsForFields(ctx context.Context, model any) []string {
+func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []string {
 	fields := graphql.CollectFieldsCtx(ctx, nil)
-	return getDBColumns(model, fields)
+	return prefixDBColumns(prefix, getDBColumns(model, fields))
 }
 
 func getDBColumns(model any, fields []graphql.CollectedField) []string {
@@ -22,6 +22,17 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		}
 	}
 	return dbColumns
+}
+
+func prefixDBColumns(prefix string, cols []string) []string {
+	if prefix == "" {
+		return cols
+	}
+	prefixedCols := make([]string, len(cols))
+	for i, col := range cols {
+		prefixedCols[i] = prefix + "." + col
+	}
+	return prefixedCols
 }
 
 func getColumnMap(model any) map[string]string {

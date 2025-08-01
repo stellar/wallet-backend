@@ -6,7 +6,7 @@ package resolvers
 
 import (
 	"context"
-
+	"strings"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -26,10 +26,16 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 	// Extract dataloaders from GraphQL context
 	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+
+	loaderKey := dataloaders.TransactionColumnsWithAccountKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to efficiently batch-load transactions for this account
 	// This prevents N+1 queries when multiple accounts request their transactions
-	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, obj.StellarAddress)
+	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

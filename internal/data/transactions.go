@@ -61,13 +61,16 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns []s
 }
 
 // BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
-func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string) ([]*types.TransactionWithAccountID, error) {
-	const query = `
-		SELECT transactions.*, transactions_accounts.account_id 
+func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.TransactionWithAccountID, error) {
+	if len(columns) == 0 {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, transactions_accounts.account_id 
 		FROM transactions_accounts 
 		INNER JOIN transactions 
 		ON transactions_accounts.tx_hash = transactions.hash 
-		WHERE transactions_accounts.account_id = ANY($1)`
+		WHERE transactions_accounts.account_id = ANY($1)`, columns)
 	var transactions []*types.TransactionWithAccountID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))
