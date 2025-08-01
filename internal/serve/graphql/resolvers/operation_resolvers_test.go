@@ -110,7 +110,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "state_changes.id"}}, keys)
+			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "id"}}, keys)
 			results := [][]*types.StateChange{
 				{
 					{ID: "sc1"},
