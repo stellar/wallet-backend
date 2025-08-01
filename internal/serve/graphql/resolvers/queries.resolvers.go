@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -15,14 +16,16 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	return r.models.Transactions.GetByHash(ctx, hash)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
 
 // Transactions is the resolver for the transactions field.
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
-	return r.models.Transactions.GetAll(ctx, limit)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // Account is the resolver for the account field.
@@ -35,12 +38,14 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	return r.models.Operations.GetAll(ctx, limit)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	return r.models.StateChanges.GetAll(ctx, limit)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // Query returns graphql1.QueryResolver implementation.

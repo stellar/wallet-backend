@@ -19,8 +19,8 @@ func TestOperationResolver_Transaction(t *testing.T) {
 	parentOperation := &types.Operation{ID: 123}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([]*types.Transaction, []error) {
-			assert.Equal(t, []int64{123}, keys)
+		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
+			assert.Equal(t, []dataloaders.TransactionColumnsKey{{OperationID: 123, Columns: "transactions.hash"}}, keys)
 			results := []*types.Transaction{
 				{Hash: "tx1"},
 			}
@@ -31,7 +31,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, parentOperation)
 
@@ -41,7 +41,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([]*types.Transaction, []error) {
+		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
 			return nil, []error{errors.New("something went wrong")}
 		}
 
@@ -49,7 +49,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Transaction(ctx, parentOperation)
 
@@ -63,8 +63,8 @@ func TestOperationResolver_Accounts(t *testing.T) {
 	parentOperation := &types.Operation{ID: 123}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([][]*types.Account, []error) {
-			assert.Equal(t, []int64{123}, keys)
+		mockFetch := func(ctx context.Context, keys []dataloaders.AccountColumnsKey) ([][]*types.Account, []error) {
+			assert.Equal(t, []dataloaders.AccountColumnsKey{{OperationID: 123, Columns: "accounts.stellar_address"}}, keys)
 			results := [][]*types.Account{
 				{
 					{StellarAddress: "G-ACCOUNT1"},
@@ -77,7 +77,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentOperation)
 
@@ -88,14 +88,14 @@ func TestOperationResolver_Accounts(t *testing.T) {
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([][]*types.Account, []error) {
+		mockFetch := func(ctx context.Context, keys []dataloaders.AccountColumnsKey) ([][]*types.Account, []error) {
 			return nil, []error{errors.New("account fetch error")}
 		}
 		loader := dataloadgen.NewLoader(mockFetch)
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Accounts(ctx, parentOperation)
 
@@ -109,8 +109,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	parentOperation := &types.Operation{ID: 123}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([][]*types.StateChange, []error) {
-			assert.Equal(t, []int64{123}, keys)
+		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
+			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "id"}}, keys)
 			results := [][]*types.StateChange{
 				{
 					{ID: "sc1"},
@@ -123,7 +123,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation)
 
@@ -134,14 +134,14 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []int64) ([][]*types.StateChange, []error) {
+		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
 			return nil, []error{errors.New("sc fetch error")}
 		}
 		loader := dataloadgen.NewLoader(mockFetch)
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(context.Background(), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentOperation)
 

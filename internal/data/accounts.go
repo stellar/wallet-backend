@@ -106,13 +106,16 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 }
 
 // BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
-func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.AccountWithTxHash, error) {
-	const query = `
-		SELECT accounts.*, transactions_accounts.tx_hash 
+func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
+	if columns == "" {
+		columns = "accounts.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, transactions_accounts.tx_hash 
 		FROM transactions_accounts 
 		INNER JOIN accounts 
 		ON transactions_accounts.account_id = accounts.stellar_address 
-		WHERE transactions_accounts.tx_hash = ANY($1)`
+		WHERE transactions_accounts.tx_hash = ANY($1)`, columns)
 	var accounts []*types.AccountWithTxHash
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
@@ -126,13 +129,16 @@ func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string
 }
 
 // BatchGetByOperationIDs gets the accounts that are associated with the given operation IDs.
-func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64) ([]*types.AccountWithOperationID, error) {
-	const query = `
-		SELECT accounts.*, operations_accounts.operation_id 
+func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.AccountWithOperationID, error) {
+	if columns == "" {
+		columns = "accounts.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, operations_accounts.operation_id 
 		FROM operations_accounts 
 		INNER JOIN accounts 
 		ON operations_accounts.account_id = accounts.stellar_address 
-		WHERE operations_accounts.operation_id = ANY($1)`
+		WHERE operations_accounts.operation_id = ANY($1)`, columns)
 	var accounts []*types.AccountWithOperationID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
