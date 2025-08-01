@@ -7,6 +7,7 @@ package resolvers
 import (
 	"context"
 	"strings"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -21,7 +22,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
 	loaderKey := dataloaders.OperationColumnsKey{
-		TxHash: obj.Hash,
+		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
 	}
 
@@ -44,7 +45,7 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 	// This prevents N+1 queries when multiple transactions request their operations
 	// The loader groups multiple requests and executes them in a single database query
 	loaderKey := dataloaders.AccountColumnsKey{
-		TxHash: obj.Hash,
+		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
 	}
 	accounts, err := loaders.AccountsByTxHashLoader.Load(ctx, loaderKey)
@@ -62,7 +63,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		TxHash: obj.Hash,
+		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
 	}
 

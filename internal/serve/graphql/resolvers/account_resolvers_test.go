@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/99designs/gqlgen/graphql"
-	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vikstrous/dataloadgen"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -21,7 +21,7 @@ func GetTestCtx(table string, columns []string) context.Context {
 		Operation: &ast.OperationDefinition{
 			SelectionSet: ast.SelectionSet{
 				&ast.Field{
-					Name: table,
+					Name:         table,
 					SelectionSet: ast.SelectionSet{},
 				},
 			},

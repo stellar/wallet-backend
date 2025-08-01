@@ -111,7 +111,7 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 				return nil, errors
 			}
 
-			// An item is the actual data from the database that we want to return. 
+			// An item is the actual data from the database that we want to return.
 			// The key contains the primary key and the set of columns to return.
 			//
 			// For e.g. if we want to get all operations for a transaction, the key will

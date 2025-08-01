@@ -3,15 +3,16 @@ package dataloaders
 import (
 	"context"
 
+	"github.com/vikstrous/dataloadgen"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/vikstrous/dataloadgen"
 )
 
 type AccountColumnsKey struct {
-	TxHash string
+	TxHash      string
 	OperationID int64
-	Columns string
+	Columns     string
 }
 
 // accountsByTxHashLoader creates a dataloader for fetching accounts by transaction hash

@@ -28,7 +28,7 @@ func (m *StateChangeModel) BatchGetByAccountAddresses(
 	}
 	query := fmt.Sprintf(`
 		SELECT %s FROM state_changes WHERE account_id = ANY($1)
-	`, columns)	
+	`, columns)
 	var stateChanges []*types.StateChange
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
 	if err != nil {

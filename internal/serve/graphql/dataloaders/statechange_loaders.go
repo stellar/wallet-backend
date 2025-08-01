@@ -3,16 +3,17 @@ package dataloaders
 import (
 	"context"
 
+	"github.com/vikstrous/dataloadgen"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/vikstrous/dataloadgen"
 )
 
 type StateChangeColumnsKey struct {
-	AccountID string
+	AccountID   string
 	OperationID int64
-	TxHash string
-	Columns string
+	TxHash      string
+	Columns     string
 }
 
 // stateChangesByAccountLoader creates a dataloader for fetching state changes by account address
