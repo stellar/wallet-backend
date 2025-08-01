@@ -42,7 +42,7 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
-	if len(columns) == 0 {
+	if columns == "" {
 		columns = "*"
 	}
 	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
