@@ -19,8 +19,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	parentTx := &types.Transaction{Hash: "test-tx-hash"}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsWithTxHashKey) ([][]*types.Operation, []error) {
-			assert.Equal(t, []dataloaders.OperationColumnsWithTxHashKey{
+		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([][]*types.Operation, []error) {
+			assert.Equal(t, []dataloaders.OperationColumnsKey{
 				{TxHash: "test-tx-hash", Columns: "id"},
 			}, keys)
 			results := [][]*types.Operation{
@@ -47,7 +47,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsWithTxHashKey) ([][]*types.Operation, []error) {
+		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([][]*types.Operation, []error) {
 			return nil, []error{errors.New("op fetch error")}
 		}
 

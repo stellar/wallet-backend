@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -19,11 +18,11 @@ type TransactionModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns []string) (*types.Transaction, error) {
-	if len(columns) == 0 {
-		columns = []string{"*"}
+func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
+	if columns == "" {
+		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, strings.Join(columns, ", "))
+	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	var transaction types.Transaction
 	start := time.Now()
 	err := m.DB.GetContext(ctx, &transaction, query, hash)
@@ -36,11 +35,11 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns [
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns []string) ([]*types.Transaction, error) {
-	if len(columns) == 0 {
-		columns = []string{"*"}
+func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Transaction, error) {
+	if columns == "" {
+		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM transactions ORDER BY ledger_created_at DESC`, strings.Join(columns, ", "))
+	query := fmt.Sprintf(`SELECT %s FROM transactions ORDER BY ledger_created_at DESC`, columns)
 	args := []interface{}{}
 
 	if limit != nil && *limit > 0 {
@@ -62,8 +61,8 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns []s
 
 // BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
 func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.TransactionWithAccountID, error) {
-	if len(columns) == 0 {
-		columns = "*"
+	if columns == "" {
+		columns = "transactions.*"
 	}
 	query := fmt.Sprintf(`
 		SELECT %s, transactions_accounts.account_id 

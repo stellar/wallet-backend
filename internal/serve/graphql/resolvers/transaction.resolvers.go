@@ -20,7 +20,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
-	loaderKey := dataloaders.OperationColumnsWithTxHashKey{
+	loaderKey := dataloaders.OperationColumnsKey{
 		TxHash: obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
 	}

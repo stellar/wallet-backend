@@ -6,7 +6,7 @@ package resolvers
 
 import (
 	"context"
-
+	"strings"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -16,7 +16,7 @@ import (
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	return r.models.Transactions.GetByHash(ctx, hash, dbColumns)
+	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
 
 // Transactions is the resolver for the transactions field.
@@ -24,7 +24,7 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	return r.models.Transactions.GetAll(ctx, limit, dbColumns)
+	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // Account is the resolver for the account field.

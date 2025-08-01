@@ -28,7 +28,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
 
-	loaderKey := dataloaders.TransactionColumnsWithAccountKey{
+	loaderKey := dataloaders.TransactionColumnsKey{
 		AccountID: obj.StellarAddress,
 		Columns:   strings.Join(dbColumns, ", "),
 	}
@@ -47,9 +47,15 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 // Demonstrates the same dataloader pattern as Transactions resolver
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+
+	loaderKey := dataloaders.OperationColumnsKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to batch-load operations for this account
-	operations, err := loaders.OperationsByAccountLoader.Load(ctx, obj.StellarAddress)
+	operations, err := loaders.OperationsByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}

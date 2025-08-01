@@ -219,7 +219,7 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetByHash
-	transaction, err := m.GetByHash(ctx, txHash)
+	transaction, err := m.GetByHash(ctx, txHash, "")
 	require.NoError(t, err)
 	assert.Equal(t, txHash, transaction.Hash)
 	assert.Equal(t, int64(1), transaction.ToID)
@@ -257,13 +257,13 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	transactions, err := m.GetAll(ctx, nil)
+	transactions, err := m.GetAll(ctx, nil, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	transactions, err = m.GetAll(ctx, &limit)
+	transactions, err = m.GetAll(ctx, &limit, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 }
@@ -315,7 +315,7 @@ func TestTransactionModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
+	transactions, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
