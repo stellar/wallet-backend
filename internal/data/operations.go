@@ -18,8 +18,11 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	query := `SELECT * FROM operations ORDER BY ledger_created_at DESC`
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
 	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`
@@ -38,8 +41,11 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32) ([]*types.Ope
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string) ([]*types.Operation, error) {
-	const query = `SELECT * FROM operations WHERE tx_hash = ANY($1)`
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
+	if columns == "" {
+		columns = "*"
+	}
+	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
 	var operations []*types.Operation
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
@@ -53,14 +59,17 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 }
 
 // BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
-func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string) ([]*types.OperationWithAccountID, error) {
-	const query = `
-		SELECT o.*, oa.account_id
-		FROM operations o
-		INNER JOIN operations_accounts oa ON o.id = oa.operation_id
-		WHERE oa.account_id = ANY($1)
-		ORDER BY o.ledger_created_at DESC
-	`
+func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.OperationWithAccountID, error) {
+	if columns == "" {
+		columns = "operations.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, operations_accounts.account_id
+		FROM operations
+		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
+		WHERE operations_accounts.account_id = ANY($1)
+		ORDER BY operations.ledger_created_at DESC
+	`, columns)
 
 	var operationsWithAccounts []*types.OperationWithAccountID
 	start := time.Now()
@@ -76,14 +85,17 @@ func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, account
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string) ([]*types.OperationWithStateChangeID, error) {
-	const query = `
-		SELECT o.*, sc.id as state_change_id
-		FROM operations o
-		INNER JOIN state_changes sc ON o.id = sc.operation_id
-		WHERE sc.id = ANY($1)
-		ORDER BY o.ledger_created_at DESC
-	`
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.OperationWithStateChangeID, error) {
+	if columns == "" {
+		columns = "operations.*"
+	}
+	query := fmt.Sprintf(`
+		SELECT %s, state_changes.id AS state_change_id
+		FROM operations
+		INNER JOIN state_changes ON operations.id = state_changes.operation_id
+		WHERE state_changes.id = ANY($1)
+		ORDER BY operations.ledger_created_at DESC
+	`, columns)
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(stateChangeIDs))

@@ -257,13 +257,13 @@ func TestOperationModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	operations, err := m.GetAll(ctx, nil)
+	operations, err := m.GetAll(ctx, nil, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	operations, err = m.GetAll(ctx, &limit)
+	operations, err = m.GetAll(ctx, &limit, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
 }
@@ -308,7 +308,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash
-	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"})
+	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
@@ -378,7 +378,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	operations, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2})
+	operations, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2}, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
@@ -447,7 +447,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	operations, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"})
+	operations, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"}, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 

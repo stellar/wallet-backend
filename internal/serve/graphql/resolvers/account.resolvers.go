@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -26,10 +27,16 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 	// Extract dataloaders from GraphQL context
 	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+
+	loaderKey := dataloaders.TransactionColumnsKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to efficiently batch-load transactions for this account
 	// This prevents N+1 queries when multiple accounts request their transactions
-	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, obj.StellarAddress)
+	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -41,9 +48,15 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) 
 // Demonstrates the same dataloader pattern as Transactions resolver
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+
+	loaderKey := dataloaders.OperationColumnsKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
 
 	// Use dataloader to batch-load operations for this account
-	operations, err := loaders.OperationsByAccountLoader.Load(ctx, obj.StellarAddress)
+	operations, err := loaders.OperationsByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +66,14 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([
 // StateChanges is the resolver for the stateChanges field.
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
 
 	// Use dataloader to batch-load state changes for this account
-	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, obj.StellarAddress)
+	loaderKey := dataloaders.StateChangeColumnsKey{
+		AccountID: obj.StellarAddress,
+		Columns:   strings.Join(dbColumns, ", "),
+	}
+	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
