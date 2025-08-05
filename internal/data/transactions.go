@@ -35,7 +35,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, first *int32, columns string, after *int64) ([]*types.Transaction, error) {
+func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.Transaction, error) {
 	if columns == "" {
 		columns = "*"
 	}
@@ -46,9 +46,9 @@ func (m *TransactionModel) GetAll(ctx context.Context, first *int32, columns str
 	}
 	query += ` ORDER BY to_id DESC`
 
-	if first != nil && *first > 0 {
+	if limit != nil && *limit > 0 {
 		// Fetch one more item to check if there's a next page.
-		query += fmt.Sprintf(` LIMIT %d`, *first+1)
+		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
 	}
 
 	var transactions []*types.Transaction

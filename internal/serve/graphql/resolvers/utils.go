@@ -9,18 +9,67 @@ import (
 	"strings"
 
 	"github.com/99designs/gqlgen/graphql"
+
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
+
+// GenericEdge is a generic wrapper for a GraphQL edge.
+type GenericEdge[T any] struct {
+	Node   T
+	Cursor string
+}
+
+// GenericConnection is a generic wrapper for a GraphQL connection.
+type GenericConnection[T any] struct {
+	Edges    []*GenericEdge[T]
+	PageInfo *generated.PageInfo
+}
+
+// NewConnection builds a generic GraphQL connection from a slice of nodes.
+func NewConnection[T any](nodes []T, limit int32, after *string, getCursorID func(T) int64) *GenericConnection[T] {
+	hasNextPage := false
+	if int32(len(nodes)) > limit {
+		hasNextPage = true
+		nodes = nodes[:limit]
+	}
+
+	edges := make([]*GenericEdge[T], len(nodes))
+	for i, node := range nodes {
+		edges[i] = &GenericEdge[T]{
+			Node:   node,
+			Cursor: EncodeCursor(getCursorID(node)),
+		}
+	}
+
+	var startCursor, endCursor *string
+	if len(edges) > 0 {
+		startCursor = &edges[0].Cursor
+		endCursor = &edges[len(edges)-1].Cursor
+	}
+
+	pageInfo := &generated.PageInfo{
+		StartCursor:     startCursor,
+		EndCursor:       endCursor,
+		HasNextPage:     hasNextPage,
+		HasPreviousPage: after != nil,
+	}
+
+	return &GenericConnection[T]{
+		Edges:    edges,
+		PageInfo: pageInfo,
+	}
+}
 
 func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []string {
 	fields := graphql.CollectFieldsCtx(ctx, nil)
 	return prefixDBColumns(prefix, getDBColumns(model, fields))
 }
 
-func encodeCursor(i int64) string {
+func EncodeCursor(i int64) string {
 	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(i, 10)))
 }
 
-func decodeCursor(s *string) (*int64, error) {
+func DecodeCursor(s *string) (*int64, error) {
 	if s == nil {
 		return nil, nil
 	}

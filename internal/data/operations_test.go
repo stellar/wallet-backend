@@ -257,15 +257,22 @@ func TestOperationModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	operations, err := m.GetAll(ctx, nil, "")
+	operations, err := m.GetAll(ctx, nil, "", nil)
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	operations, err = m.GetAll(ctx, &limit, "")
+	operations, err = m.GetAll(ctx, &limit, "", nil)
 	require.NoError(t, err)
-	assert.Len(t, operations, 2)
+	assert.Len(t, operations, 3) // We get 3 operations because we fetch one more than the limit to check if there's a next page
+
+	// Test GetAll with limit and after cursor
+	limit = int32(2)
+	after := operations[1].ID
+	operations, err = m.GetAll(ctx, &limit, "", &after)
+	require.NoError(t, err)
+	assert.Len(t, operations, 1)
 }
 
 func TestOperationModel_BatchGetByTxHashes(t *testing.T) {

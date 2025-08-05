@@ -18,19 +18,25 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.Operation, error) {
 	if columns == "" {
 		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+	query := fmt.Sprintf(`SELECT %s FROM operations`, columns)
+
+	if after != nil {
+		query += fmt.Sprintf(` WHERE id < %d`, *after)
 	}
+	query += ` ORDER BY id DESC`
+
+	if limit != nil && *limit > 0 {
+		// Fetch one more item to check if there's a next page.
+		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
+	}
+
 	var operations []*types.Operation
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	err := m.DB.SelectContext(ctx, &operations, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {

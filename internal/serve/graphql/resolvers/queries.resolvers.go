@@ -25,7 +25,7 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string) (*graphql1.TransactionConnection, error) {
-	afterCursor, err := decodeCursor(after)
+	afterCursor, err := DecodeCursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -41,34 +41,21 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
 
-	hasNextPage := false
-	if int32(len(transactions)) > limit {
-		hasNextPage = true
-		transactions = transactions[:limit]
-	}
+	conn := NewConnection(transactions, limit, after, func(tx *types.Transaction) int64 {
+		return tx.ToID
+	})
 
-	edges := make([]*graphql1.TransactionsEdge, len(transactions))
-	for i, transaction := range transactions {
+	edges := make([]*graphql1.TransactionsEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
 		edges[i] = &graphql1.TransactionsEdge{
-			Node:   transaction,
-			Cursor: encodeCursor(transaction.ToID),
+			Node:   edge.Node,
+			Cursor: edge.Cursor,
 		}
 	}
 
-	var startCursor, endCursor *string
-	if len(edges) > 0 {
-		startCursor = &edges[0].Cursor
-		endCursor = &edges[len(edges)-1].Cursor
-	}
-
 	return &graphql1.TransactionConnection{
-		Edges: edges,
-		PageInfo: &graphql1.PageInfo{
-			StartCursor:     startCursor,
-			EndCursor:       endCursor,
-			HasNextPage:     hasNextPage,
-			HasPreviousPage: after != nil,
-		},
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
 	}, nil
 }
 
@@ -81,9 +68,39 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
-func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string) (*graphql1.OperationConnection, error) {
+	afterCursor, err := DecodeCursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	operations, err := r.models.Operations.GetAll(ctx, &limit, strings.Join(dbColumns, ", "), afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations from db: %w", err)
+	}
+
+	conn := NewConnection(operations, limit, after, func(op *types.Operation) int64 {
+		return op.ID
+	})
+
+	edges := make([]*graphql1.OperationsEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationsEdge{
+			Node:   edge.Node,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.

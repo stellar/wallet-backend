@@ -18,6 +18,16 @@ type DeregisterAccountPayload struct {
 type Mutation struct {
 }
 
+type OperationConnection struct {
+	Edges    []*OperationsEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo         `json:"pageInfo"`
+}
+
+type OperationsEdge struct {
+	Node   *types.Operation `json:"node,omitempty"`
+	Cursor string           `json:"cursor"`
+}
+
 type PageInfo struct {
 	StartCursor     *string `json:"startCursor,omitempty"`
 	EndCursor       *string `json:"endCursor,omitempty"`

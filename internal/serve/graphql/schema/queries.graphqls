@@ -4,7 +4,7 @@ type Query {
     transactionByHash(hash: String!):                           Transaction
     transactions(first: Int, after: String):                    TransactionConnection
     account(address: String!):                                  Account
-    operations(limit: Int):                                     [Operation!]!
+    operations(first: Int, after: String):                      OperationConnection
     stateChanges(limit: Int):                                   [StateChange!]!
 }
 
@@ -15,6 +15,16 @@ type TransactionConnection {
 
 type TransactionsEdge {
     node: Transaction
+    cursor: String!
+}
+
+type OperationConnection {
+    edges: [OperationsEdge!]
+    pageInfo: PageInfo!
+}
+
+type OperationsEdge {
+    node: Operation
     cursor: String!
 }
 

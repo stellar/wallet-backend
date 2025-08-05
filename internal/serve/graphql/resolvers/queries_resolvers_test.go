@@ -286,46 +286,66 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 	require.NoError(t, dbErr)
 
-	op1 := &types.Operation{
-		ID:              1,
-		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "op1_xdr",
-		TxHash:          "tx1",
-		LedgerNumber:    1,
-		LedgerCreatedAt: time.Now(),
-	}
-	op2 := &types.Operation{
-		ID:              2,
-		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "op2_xdr",
-		TxHash:          "tx1",
-		LedgerNumber:    1,
-		LedgerCreatedAt: time.Now(),
+	operations := make([]*types.Operation, 0, 4)
+	for i := 0; i < 4; i++ {
+		operations = append(operations, &types.Operation{
+			ID:              int64(i + 1),
+			OperationType:   types.OperationTypePayment,
+			OperationXDR:    fmt.Sprintf("op%d_xdr", i+1),
+			TxHash:          "tx1",
+			LedgerNumber:    1,
+			LedgerCreatedAt: time.Now(),
+		})
 	}
 
 	dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO operations (id, operation_type, operation_xdr, tx_hash, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6), ($7, $8, $9, $10, $11, $12)`,
-			op1.ID, op1.OperationType, op1.OperationXDR, op1.TxHash, op1.LedgerNumber, op1.LedgerCreatedAt,
-			op2.ID, op2.OperationType, op2.OperationXDR, op2.TxHash, op2.LedgerNumber, op2.LedgerCreatedAt)
-		require.NoError(t, err)
+		for _, op := range operations {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO operations (id, operation_type, operation_xdr, tx_hash, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+				op.ID, op.OperationType, op.OperationXDR, op.TxHash, op.LedgerNumber, op.LedgerCreatedAt)
+			require.NoError(t, err)
+		}
 		return nil
 	})
 	require.NoError(t, dbErr)
 
 	t.Run("get all", func(t *testing.T) {
 		ctx := GetTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
-		ops, err := resolver.Operations(ctx, nil)
+		ops, err := resolver.Operations(ctx, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, ops, 2)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, operations[3].ID, ops.Edges[0].Node.ID)
+		assert.Equal(t, operations[2].ID, ops.Edges[1].Node.ID)
+		assert.Equal(t, operations[1].ID, ops.Edges[2].Node.ID)
+		assert.Equal(t, operations[0].ID, ops.Edges[3].Node.ID)
 	})
 
 	t.Run("get with limit", func(t *testing.T) {
 		ctx := GetTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
 		limit := int32(1)
-		ops, err := resolver.Operations(ctx, &limit)
+		ops, err := resolver.Operations(ctx, &limit, nil)
 		require.NoError(t, err)
-		assert.Len(t, ops, 1)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, operations[3].ID, ops.Edges[0].Node.ID)
+	})
+
+	t.Run("get with cursor", func(t *testing.T) {
+		ctx := GetTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
+		limit := int32(2)
+		ops, err := resolver.Operations(ctx, &limit, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, operations[3].ID, ops.Edges[0].Node.ID)
+		assert.Equal(t, operations[2].ID, ops.Edges[1].Node.ID)
+
+		// Get the next cursor
+		nextCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, operations[1].ID, ops.Edges[0].Node.ID)
+		assert.Equal(t, operations[0].ID, ops.Edges[1].Node.ID)
 	})
 
 	cleanUpDB()
