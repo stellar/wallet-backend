@@ -35,11 +35,11 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.Transaction, error) {
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.TransactionWithCursor, error) {
 	if columns == "" {
 		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM transactions`, columns)
+	query := fmt.Sprintf(`SELECT %s, transactions.to_id as tx_cursor FROM transactions`, columns)
 
 	if after != nil {
 		query += fmt.Sprintf(` WHERE to_id < %d`, *after)
@@ -51,7 +51,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
 	}
 
-	var transactions []*types.Transaction
+	var transactions []*types.TransactionWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query)
 	duration := time.Since(start).Seconds()

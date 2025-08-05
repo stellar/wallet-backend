@@ -41,14 +41,14 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
 
-	conn := NewConnection(transactions, limit, after, func(tx *types.Transaction) int64 {
-		return tx.ToID
+	conn := NewConnection(transactions, limit, after, func(tx *types.TransactionWithCursor) int64 {
+		return tx.Cursor
 	})
 
 	edges := make([]*graphql1.TransactionsEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
 		edges[i] = &graphql1.TransactionsEdge{
-			Node:   edge.Node,
+			Node:   &edge.Node.Transaction,
 			Cursor: edge.Cursor,
 		}
 	}
@@ -85,14 +85,14 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}
 
-	conn := NewConnection(operations, limit, after, func(op *types.Operation) int64 {
-		return op.ID
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
 	})
 
 	edges := make([]*graphql1.OperationsEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
 		edges[i] = &graphql1.OperationsEdge{
-			Node:   edge.Node,
+			Node:   &edge.Node.Operation,
 			Cursor: edge.Cursor,
 		}
 	}

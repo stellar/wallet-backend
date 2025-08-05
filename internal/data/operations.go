@@ -18,11 +18,11 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.Operation, error) {
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
 		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM operations`, columns)
+	query := fmt.Sprintf(`SELECT %s, operations.id as op_cursor FROM operations`, columns)
 
 	if after != nil {
 		query += fmt.Sprintf(` WHERE id < %d`, *after)
@@ -34,7 +34,7 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
 	}
 
-	var operations []*types.Operation
+	var operations []*types.OperationWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query)
 	duration := time.Since(start).Seconds()
