@@ -2,7 +2,10 @@ package resolvers
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/99designs/gqlgen/graphql"
@@ -11,6 +14,28 @@ import (
 func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []string {
 	fields := graphql.CollectFieldsCtx(ctx, nil)
 	return prefixDBColumns(prefix, getDBColumns(model, fields))
+}
+
+func encodeCursor(i int64) string {
+	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(i, 10)))
+}
+
+func decodeCursor(s *string) (*int64, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(*s)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor string %s: %w", *s, err)
+	}
+
+	id, err := strconv.ParseInt(string(decoded), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing cursor %s: %w", string(decoded), err)
+	}
+
+	return &id, nil
 }
 
 func getDBColumns(model any, fields []graphql.CollectedField) []string {

@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -110,48 +111,73 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		},
 	}
 
-	tx1 := &types.Transaction{
-		Hash:            "tx1",
-		ToID:            1,
-		EnvelopeXDR:     "envelope1",
-		ResultXDR:       "result1",
-		MetaXDR:         "meta1",
-		LedgerNumber:    1,
-		LedgerCreatedAt: time.Now(),
-	}
-	tx2 := &types.Transaction{
-		Hash:            "tx2",
-		ToID:            2,
-		EnvelopeXDR:     "envelope2",
-		ResultXDR:       "result2",
-		MetaXDR:         "meta2",
-		LedgerNumber:    2,
-		LedgerCreatedAt: time.Now(),
+	txns := make([]*types.Transaction, 0, 4)
+	for i := 0; i < 4; i++ {
+		txns = append(txns, &types.Transaction{
+			Hash:            fmt.Sprintf("tx%d", i+1),
+			ToID:            int64(i + 1),
+			EnvelopeXDR:     fmt.Sprintf("envelope%d", i+1),
+			ResultXDR:       fmt.Sprintf("result%d", i+1),
+			MetaXDR:         fmt.Sprintf("meta%d", i+1),
+			LedgerNumber:    1,
+			LedgerCreatedAt: time.Now(),
+		})
 	}
 
 	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
-			tx1.Hash, tx1.ToID, tx1.EnvelopeXDR, tx1.ResultXDR, tx1.MetaXDR, tx1.LedgerNumber, tx1.LedgerCreatedAt,
-			tx2.Hash, tx2.ToID, tx2.EnvelopeXDR, tx2.ResultXDR, tx2.MetaXDR, tx2.LedgerNumber, tx2.LedgerCreatedAt)
-		require.NoError(t, err)
+		for _, txn := range txns {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.ResultXDR, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt)
+			require.NoError(t, err)
+		}
 		return nil
 	})
 	require.NoError(t, dbErr)
 
 	t.Run("get all", func(t *testing.T) {
 		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
-		txs, err := resolver.Transactions(ctx, nil)
+		txs, err := resolver.Transactions(ctx, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, txs, 2)
+		assert.Len(t, txs.Edges, 4)
+		assert.Equal(t, txns[3].ToID, txs.Edges[0].Node.ToID)
+		assert.Equal(t, txns[2].ToID, txs.Edges[1].Node.ToID)
+		assert.Equal(t, txns[1].ToID, txs.Edges[2].Node.ToID)
+		assert.Equal(t, txns[0].ToID, txs.Edges[3].Node.ToID)
 	})
 
 	t.Run("get with limit", func(t *testing.T) {
 		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
 		limit := int32(1)
-		txs, err := resolver.Transactions(ctx, &limit)
+		txs, err := resolver.Transactions(ctx, &limit, nil)
 		require.NoError(t, err)
-		assert.Len(t, txs, 1)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, txns[3].ToID, txs.Edges[0].Node.ToID)
+	})
+
+	t.Run("get with cursor", func(t *testing.T) {
+		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		limit := int32(2)
+		txs, err := resolver.Transactions(ctx, &limit, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, txns[3].ToID, txs.Edges[0].Node.ToID)
+		assert.Equal(t, txns[2].ToID, txs.Edges[1].Node.ToID)
+
+		// Get the next cursor
+		nextCursor := txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, txns[1].ToID, txs.Edges[0].Node.ToID)
+		assert.Equal(t, txns[0].ToID, txs.Edges[1].Node.ToID)
+
+		hasNextPage := txs.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
+
+		hasPreviousPage := txs.PageInfo.HasPreviousPage
+		assert.True(t, hasPreviousPage)
 	})
 
 	cleanUpDB()

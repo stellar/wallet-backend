@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -23,9 +24,52 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // Transactions is the resolver for the transactions field.
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
-func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string) (*graphql1.TransactionConnection, error) {
+	afterCursor, err := decodeCursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	transactions, err := r.models.Transactions.GetAll(ctx, &limit, strings.Join(dbColumns, ", "), afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions from db: %w", err)
+	}
+
+	hasNextPage := false
+	if int32(len(transactions)) > limit {
+		hasNextPage = true
+		transactions = transactions[:limit]
+	}
+
+	edges := make([]*graphql1.TransactionsEdge, len(transactions))
+	for i, transaction := range transactions {
+		edges[i] = &graphql1.TransactionsEdge{
+			Node:   transaction,
+			Cursor: encodeCursor(transaction.ToID),
+		}
+	}
+
+	var startCursor, endCursor *string
+	if len(edges) > 0 {
+		startCursor = &edges[0].Cursor
+		endCursor = &edges[len(edges)-1].Cursor
+	}
+
+	return &graphql1.TransactionConnection{
+		Edges: edges,
+		PageInfo: &graphql1.PageInfo{
+			StartCursor:     startCursor,
+			EndCursor:       endCursor,
+			HasNextPage:     hasNextPage,
+			HasPreviousPage: after != nil,
+		},
+	}, nil
 }
 
 // Account is the resolver for the account field.
