@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/assert"
@@ -151,54 +151,128 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	cleanUpDB()
 }
 
-// func TestAccountResolver_Operations(t *testing.T) {
-// 	resolver := &accountResolver{&Resolver{}}
-// 	parentAccount := &types.Account{StellarAddress: "test-account"}
+func TestAccountResolver_Operations(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: "test-account"}
+	ctx := context.Background()
 
-// 	t.Run("success", func(t *testing.T) {
-// 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([][]*types.Operation, []error) {
-// 			assert.Equal(t, []dataloaders.OperationColumnsKey{
-// 				{AccountID: "test-account", Columns: "operations.id"},
-// 			}, keys)
-// 			results := [][]*types.Operation{
-// 				{
-// 					{ID: 1, TxHash: "tx1"},
-// 					{ID: 2, TxHash: "tx2"},
-// 				},
-// 			}
-// 			return results, nil
-// 		}
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
 
-// 		loader := dataloadgen.NewLoader(mockFetch)
-// 		loaders := &dataloaders.Dataloaders{
-// 			OperationsByAccountLoader: loader,
-// 		}
-// 		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations_accounts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM operations`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
+		require.NoError(t, err)
+	}
 
-// 		operations, err := resolver.Operations(ctx, parentAccount)
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
 
-// 		require.NoError(t, err)
-// 		require.Len(t, operations, 2)
-// 		assert.Equal(t, "tx1", operations[0].TxHash)
-// 		assert.Equal(t, "tx2", operations[1].TxHash)
-// 	})
-// 	t.Run("dataloader error", func(t *testing.T) {
-// 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([][]*types.Operation, []error) {
-// 			return nil, []error{errors.New("something went wrong")}
-// 		}
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			Operations: &data.OperationModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
 
-// 		loader := dataloadgen.NewLoader(mockFetch)
-// 		loaders := &dataloaders.Dataloaders{
-// 			OperationsByAccountLoader: loader,
-// 		}
-// 		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+	txns := make([]*types.Transaction, 0, 4)
+	for i := 0; i < 4; i++ {
+		txns = append(txns, &types.Transaction{
+			Hash:            fmt.Sprintf("tx%d", i+1),
+			ToID:            int64(i + 1),
+			EnvelopeXDR:     fmt.Sprintf("envelope%d", i+1),
+			ResultXDR:       fmt.Sprintf("result%d", i+1),
+			MetaXDR:         fmt.Sprintf("meta%d", i+1),
+			LedgerNumber:    1,
+			LedgerCreatedAt: time.Now(),
+		})
+	}
 
-// 		_, err := resolver.Operations(ctx, parentAccount)
+	ops := make([]*types.Operation, 0, 4)
+	for i := 0; i < 4; i++ {
+		ops = append(ops, &types.Operation{
+			ID:              int64(i + 1),
+			TxHash:          fmt.Sprintf("tx%d", i+1),
+			OperationType:   "payment",
+			OperationXDR:    fmt.Sprintf("opxdr%d", i+1),
+			LedgerNumber:    1,
+			LedgerCreatedAt: time.Now(),
+		})
+	}
 
-// 		require.Error(t, err)
-// 		assert.EqualError(t, err, "something went wrong")
-// 	})
-// }
+	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO accounts (stellar_address) VALUES ($1)`,
+			parentAccount.StellarAddress)
+		require.NoError(t, err)
+
+		for _, txn := range txns {
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				txn.Hash, txn.ToID, txn.EnvelopeXDR, txn.ResultXDR, txn.MetaXDR, txn.LedgerNumber, txn.LedgerCreatedAt)
+			require.NoError(t, err)
+		}
+
+		for _, op := range ops {
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+				op.ID, op.TxHash, op.OperationType, op.OperationXDR, op.LedgerNumber, op.LedgerCreatedAt)
+			require.NoError(t, err)
+
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2)`,
+				op.ID, parentAccount.StellarAddress)
+			require.NoError(t, err)
+		}
+		return nil
+	})
+	require.NoError(t, dbErr)
+
+	t.Run("success", func(t *testing.T) {
+		ctx = GetTestCtx("operations", []string{"tx_hash"})
+		operations, err := resolver.Operations(ctx, parentAccount, nil, nil)
+
+		require.NoError(t, err)
+		require.Len(t, operations.Edges, 4)
+		assert.Equal(t, "tx4", operations.Edges[0].Node.TxHash)
+		assert.Equal(t, "tx3", operations.Edges[1].Node.TxHash)
+		assert.Equal(t, "tx2", operations.Edges[2].Node.TxHash)
+		assert.Equal(t, "tx1", operations.Edges[3].Node.TxHash)
+	})
+
+	t.Run("get with cursor", func(t *testing.T) {
+		ctx = GetTestCtx("operations", []string{"tx_hash"})
+		limit := int32(2)
+		ops, err := resolver.Operations(ctx, parentAccount, &limit, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, "tx4", ops.Edges[0].Node.TxHash)
+		assert.Equal(t, "tx3", ops.Edges[1].Node.TxHash)
+
+		// Get the next cursor
+		nextCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, "tx2", ops.Edges[0].Node.TxHash)
+		assert.Equal(t, "tx1", ops.Edges[1].Node.TxHash)
+
+		hasNextPage := ops.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
+	})
+
+	cleanUpDB()
+}
 
 func TestAccountResolver_StateChanges(t *testing.T) {
 	resolver := &accountResolver{&Resolver{}}
