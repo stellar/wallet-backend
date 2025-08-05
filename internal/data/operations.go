@@ -64,7 +64,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
-// GetByAccountAddress gets the operations that are associated with the given account addresses.
+// BatchGetByAccountAddress gets the operations that are associated with the given account addresses.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
 		columns = "operations.*"
@@ -80,7 +80,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	if after != nil {
 		query += fmt.Sprintf(` AND operations.id < %d`, *after)
 	}
-	query += fmt.Sprintf(` ORDER BY operations.id DESC`)
+	query += ` ORDER BY operations.id DESC`
 
 	if limit != nil && *limit > 0 {
 		// Fetch one more item to check if there's a next page.

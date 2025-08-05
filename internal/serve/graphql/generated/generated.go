@@ -14,10 +14,11 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -861,11 +862,9 @@ type Account{
   # Each relationship resolver will be called when the field is requested
   
   # All transactions associated with this account
-  # Uses dataloader for efficient batching to prevent N+1 queries
   transactions(first: Int, after: String):   TransactionConnection
   
   # All operations associated with this account
-  # Uses dataloader for efficient batching to prevent N+1 queries
   operations(first: Int, after: String):     OperationConnection
   
   # All state changes associated with this account

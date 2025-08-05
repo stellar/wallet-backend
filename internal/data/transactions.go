@@ -63,7 +63,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	return transactions, nil
 }
 
-// GetByAccountAddress gets the transactions that are associated with the given account address.
+// BatchGetByAccountAddress gets the transactions that are associated with the given account address.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, after *int64) ([]*types.TransactionWithCursor, error) {
 	if columns == "" {
 		columns = "transactions.*"

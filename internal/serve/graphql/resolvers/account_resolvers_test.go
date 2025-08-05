@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stretchr/testify/mock"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/assert"
