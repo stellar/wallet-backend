@@ -73,6 +73,7 @@ type handlerDeps struct {
 	RequestAuthVerifier auth.HTTPRequestVerifier
 	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
+	RPCURL              string
 
 	// Services
 	AccountService            services.AccountService
@@ -203,6 +204,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		MetricsService:            metricsService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
+		RPCURL:                    cfg.RPCURL,
 		TransactionService:        txService,
 	}, nil
 }
@@ -299,6 +301,15 @@ func handler(deps handlerDeps) http.Handler {
 			}
 
 			r.Post("/build", handler.BuildTransactions)
+		})
+
+		r.Route("/rpc", func(r chi.Router) {
+			handler := &httphandler.RPCHandler{
+				RPCURL:     deps.RPCURL,
+				HTTPClient: &http.Client{Timeout: 30 * time.Second},
+			}
+
+			r.Post("/", handler.ForwardRPCRequest)
 		})
 	})
 
