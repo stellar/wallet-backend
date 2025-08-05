@@ -36,7 +36,7 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	transactions, err := r.models.Transactions.GetAll(ctx, &limit, strings.Join(dbColumns, ", "), afterCursor)
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &limit, afterCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}

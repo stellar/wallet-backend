@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -23,44 +24,77 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) ([]*types.Transaction, error) {
-	// Extract dataloaders from GraphQL context
-	// Dataloaders are injected by middleware to batch database queries
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
-
-	loaderKey := dataloaders.TransactionColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-
-	// Use dataloader to efficiently batch-load transactions for this account
-	// This prevents N+1 queries when multiple accounts request their transactions
-	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.TransactionConnection, error) {
+	afterCursor, err := DecodeCursor(after)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
-	return transactions, nil
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &limit, afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions from db: %w", err)
+	}
+
+	conn := NewConnection(transactions, limit, after, func(tx *types.TransactionWithCursor) int64 {
+		return tx.Cursor
+	})
+
+	edges := make([]*graphql1.TransactionsEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.TransactionsEdge{
+			Node:   &edge.Node.Transaction,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.TransactionConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
 // Demonstrates the same dataloader pattern as Transactions resolver
-func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
-
-	loaderKey := dataloaders.OperationColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-
-	// Use dataloader to batch-load operations for this account
-	operations, err := loaders.OperationsByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.OperationConnection, error) {
+	afterCursor, err := DecodeCursor(after)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
-	return operations, nil
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &limit, afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations from db: %w", err)
+	}
+
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
+	})
+
+	edges := make([]*graphql1.OperationsEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationsEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.

@@ -35,7 +35,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.Transaction, error) {
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.Transaction, error) {
 	if columns == "" {
 		columns = "*"
 	}
@@ -63,24 +63,36 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns str
 	return transactions, nil
 }
 
-// BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
-func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.TransactionWithAccountID, error) {
+// GetByAccountAddress gets the transactions that are associated with the given account address.
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, after *int64) ([]*types.TransactionWithCursor, error) {
 	if columns == "" {
 		columns = "transactions.*"
 	}
 	query := fmt.Sprintf(`
-		SELECT %s, transactions_accounts.account_id 
-		FROM transactions_accounts 
-		INNER JOIN transactions 
-		ON transactions_accounts.tx_hash = transactions.hash 
-		WHERE transactions_accounts.account_id = ANY($1)`, columns)
-	var transactions []*types.TransactionWithAccountID
+		SELECT %s, transactions.to_id as tx_cursor
+		FROM transactions 
+		INNER JOIN transactions_accounts 
+		ON transactions.hash = transactions_accounts.tx_hash 
+		WHERE transactions_accounts.account_id = $1
+	`, columns)
+
+	if after != nil {
+		query += fmt.Sprintf(` AND transactions.to_id < %d`, *after)
+	}
+	query += ` ORDER BY transactions.to_id DESC`
+
+	if limit != nil && *limit > 0 {
+		// Fetch one more item to check if there's a next page.
+		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
+	}
+
+	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &transactions, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting transactions by accounts: %w", err)
+		return nil, fmt.Errorf("getting transactions for account %s: %w", accountAddress, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
 	return transactions, nil

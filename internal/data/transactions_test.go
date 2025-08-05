@@ -257,13 +257,13 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	transactions, err := m.GetAll(ctx, nil, "", nil)
+	transactions, err := m.GetAll(ctx, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	transactions, err = m.GetAll(ctx, &limit, "", nil)
+	transactions, err = m.GetAll(ctx, "", &limit, nil)
 	require.NoError(t, err)
 	// We get 3 transactions because we fetch one more than the limit to check if there's a next page
 	assert.Len(t, transactions, 3)
@@ -271,13 +271,13 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	// Test GetAll with limit and after cursor
 	limit = int32(2)
 	after := transactions[1].ToID
-	transactions, err = m.GetAll(ctx, &limit, "", &after)
+	transactions, err = m.GetAll(ctx, "", &limit, &after)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 1)
 	assert.Equal(t, transactions[0].ToID, int64(1))
 }
 
-func TestTransactionModel_BatchGetByAccountAddresses(t *testing.T) {
+func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -324,17 +324,12 @@ func TestTransactionModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2}, "")
+	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil)
 	require.NoError(t, err)
-	assert.Len(t, transactions, 3)
+	assert.Len(t, transactions, 2)
 
-	// Verify transactions are for correct accounts
-	accountsFound := make(map[string]int)
-	for _, tx := range transactions {
-		accountsFound[tx.AccountID]++
-	}
-	assert.Equal(t, 2, accountsFound[address1])
-	assert.Equal(t, 1, accountsFound[address2])
+	assert.Equal(t, int64(2), transactions[0].Cursor)
+	assert.Equal(t, int64(1), transactions[1].Cursor)
 }
 
 func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {

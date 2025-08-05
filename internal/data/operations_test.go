@@ -328,7 +328,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	assert.Equal(t, 1, txHashesFound["tx2"])
 }
 
-func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
+func TestOperationModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -385,17 +385,11 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	operations, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2}, "")
+	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil)
 	require.NoError(t, err)
-	assert.Len(t, operations, 3)
-
-	// Verify operations are for correct accounts
-	accountsFound := make(map[string]int)
-	for _, op := range operations {
-		accountsFound[op.AccountID]++
-	}
-	assert.Equal(t, 2, accountsFound[address1])
-	assert.Equal(t, 1, accountsFound[address2])
+	assert.Len(t, operations, 2)
+	assert.Equal(t, int64(2), operations[0].Cursor)
+	assert.Equal(t, int64(1), operations[1].Cursor)
 }
 
 func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {

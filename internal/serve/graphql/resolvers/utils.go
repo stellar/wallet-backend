@@ -61,7 +61,21 @@ func NewConnection[T any](nodes []T, limit int32, after *string, getCursorID fun
 }
 
 func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []string {
+	opCtx := graphql.GetOperationContext(ctx)
 	fields := graphql.CollectFieldsCtx(ctx, nil)
+
+	for _, field := range fields {
+		if field.Name == "edges" {
+			edgeFields := graphql.CollectFields(opCtx, field.Selections, nil)
+			for _, edgeField := range edgeFields {
+				if edgeField.Name == "node" {
+					nodeFields := graphql.CollectFields(opCtx, edgeField.Selections, nil)
+					return prefixDBColumns(prefix, getDBColumns(model, nodeFields))
+				}
+			}
+		}
+	}
+
 	return prefixDBColumns(prefix, getDBColumns(model, fields))
 }
 
