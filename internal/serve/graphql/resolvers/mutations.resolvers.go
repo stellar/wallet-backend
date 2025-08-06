@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/xdr"
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -23,6 +21,7 @@ import (
 	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // RegisterAccount is the resolver for the registerAccount field.
@@ -91,8 +90,8 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 	}, nil
 }
 
-// BuildTransactions is the resolver for the buildTransactions field.
-func (r *mutationResolver) BuildTransactions(ctx context.Context, input graphql1.BuildTransactionsInput) (*graphql1.BuildTransactionsPayload, error) {
+// BuildTransaction is the resolver for the buildTransaction field.
+func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.BuildTransactionInput) (*graphql1.BuildTransactionPayload, error) {
 	transaction := input.Transaction
 
 	ops, err := transactionsUtils.BuildOperations(transaction.Operations)
@@ -189,7 +188,7 @@ func (r *mutationResolver) BuildTransactions(ctx context.Context, input graphql1
 		}
 	}
 
-	return &graphql1.BuildTransactionsPayload{
+	return &graphql1.BuildTransactionPayload{
 		Success:        true,
 		TransactionXdr: txXdrStr,
 	}, nil

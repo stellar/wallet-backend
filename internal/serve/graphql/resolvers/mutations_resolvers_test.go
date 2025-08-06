@@ -285,7 +285,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 	})
 }
 
-func TestMutationResolver_BuildTransactions(t *testing.T) {
+func TestMutationResolver_BuildTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success", func(t *testing.T) {
@@ -336,7 +336,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		opXDR := buf.String()
 		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{operationXDR},
 				Timeout:    30,
@@ -345,7 +345,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 
 		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
@@ -367,14 +367,14 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 			},
 		}
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{"invalid-xdr"},
 				Timeout:    30,
 			},
 		}
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -412,7 +412,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		opXDR := buf.String()
 		operationXDR := base64.StdEncoding.EncodeToString([]byte(opXDR))
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{operationXDR},
 				Timeout:    30,
@@ -421,7 +421,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 
 		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.Error(t, err)
 		assert.Nil(t, result)
@@ -486,7 +486,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 
 		transactionData := (*string)(nil)
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{operationXDR},
 				Timeout:    45,
@@ -514,7 +514,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 					simResult.Events[1] == "event2"
 			})).Return(tx, nil)
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
@@ -591,7 +591,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 		validTxDataBase64, err := xdr.MarshalBase64(validTxData)
 		require.NoError(t, err)
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{operationXDR},
 				Timeout:    30,
@@ -617,7 +617,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 					simResult.Events[0] == "test-event"
 			})).Return(tx, nil)
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.NoError(t, err)
 		assert.NotNil(t, result)
@@ -660,7 +660,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 
 		invalidTransactionData := "invalid-transaction-data-xdr"
 
-		input := graphql.BuildTransactionsInput{
+		input := graphql.BuildTransactionInput{
 			Transaction: &graphql.TransactionInput{
 				Operations: []string{operationXDR},
 				Timeout:    30,
@@ -670,7 +670,7 @@ func TestMutationResolver_BuildTransactions(t *testing.T) {
 			},
 		}
 
-		result, err := resolver.BuildTransactions(ctx, input)
+		result, err := resolver.BuildTransaction(ctx, input)
 
 		require.Error(t, err)
 		assert.Nil(t, result)

@@ -86,7 +86,7 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 
 	log.Ctx(ctx).Debugf("👀 useCases: %+v", useCases)
 
-	// Step 2: call GraphQL buildTransactions mutation
+	// Step 2: call GraphQL buildTransaction mutation
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	for _, useCase := range useCases {

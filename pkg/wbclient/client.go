@@ -37,13 +37,13 @@ type GraphQLError struct {
 	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
-type BuildTransactionsPayload struct {
+type BuildTransactionPayload struct {
 	Success        bool   `json:"success"`
 	TransactionXdr string `json:"transactionXdr"`
 }
 
-type BuildTransactionsData struct {
-	BuildTransactions BuildTransactionsPayload `json:"buildTransactions"`
+type BuildTransactionData struct {
+	BuildTransaction BuildTransactionPayload `json:"buildTransaction"`
 }
 
 type Client struct {
@@ -67,14 +67,14 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 
 	// We only support building one transaction at a time
 	if len(transactions) > 1 {
-		return nil, fmt.Errorf("GraphQL buildTransactions mutation supports only one transaction at a time")
+		return nil, fmt.Errorf("GraphQL buildTransaction mutation supports only one transaction at a time")
 	}
 
 	transaction := transactions[0]
 
 	query := `
-		mutation BuildTransactions($input: BuildTransactionsInput!) {
-			buildTransactions(input: $input) {
+		mutation BuildTransaction($input: BuildTransactionInput!) {
+			buildTransaction(input: $input) {
 				success
 				transactionXdr
 			}
@@ -163,14 +163,14 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
 	}
 
-	var data BuildTransactionsData
+	var data BuildTransactionData
 	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
 		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
 	}
 
 	// Convert to the expected response format
 	return &types.BuildTransactionsResponse{
-		TransactionXDRs: []string{data.BuildTransactions.TransactionXdr},
+		TransactionXDRs: []string{data.BuildTransaction.TransactionXdr},
 	}, nil
 }
 
