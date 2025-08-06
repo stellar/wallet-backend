@@ -408,31 +408,26 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	})
 	require.NoError(t, dbErr)
 
-	sc1 := &types.StateChange{
-		ID:                  "sc1",
-		StateChangeCategory: types.StateChangeCategoryCredit,
-		TxHash:              "tx1",
-		OperationID:         1,
-		AccountID:           "account1",
-		LedgerCreatedAt:     time.Now(),
-		LedgerNumber:        1,
-	}
-	sc2 := &types.StateChange{
-		ID:                  "sc2",
-		StateChangeCategory: types.StateChangeCategoryDebit,
-		TxHash:              "tx1",
-		OperationID:         1,
-		AccountID:           "account2",
-		LedgerCreatedAt:     time.Now(),
-		LedgerNumber:        1,
+	stateChanges := make([]*types.StateChange, 0, 4)
+	for i := 0; i < 4; i++ {
+		stateChanges = append(stateChanges, &types.StateChange{
+			ID:                  fmt.Sprintf("sc%d", i+1),
+			StateChangeCategory: types.StateChangeCategoryCredit,
+			TxHash:              "tx1",
+			OperationID:         int64(i + 1),
+			AccountID:           "account1",
+			LedgerCreatedAt:     time.Now(),
+			LedgerNumber:        1,
+		})
 	}
 
 	dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO state_changes (id, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
-			sc1.ID, sc1.StateChangeCategory, sc1.TxHash, sc1.OperationID, sc1.AccountID, sc1.LedgerCreatedAt, sc1.LedgerNumber,
-			sc2.ID, sc2.StateChangeCategory, sc2.TxHash, sc2.OperationID, sc2.AccountID, sc2.LedgerCreatedAt, sc2.LedgerNumber)
-		require.NoError(t, err)
+		for _, sc := range stateChanges {
+			_, err := tx.ExecContext(ctx,
+				`INSERT INTO state_changes (id, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+				sc.ID, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+			require.NoError(t, err)
+		}
 		return nil
 	})
 	require.NoError(t, dbErr)
@@ -443,11 +438,13 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
 		ctx := GetTestCtx("state_changes", []string{"id", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, nil)
+		scs, err := resolver.StateChanges(ctx, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 2)
-		assert.Contains(t, []string{"sc1", "sc2"}, scs[0].ID)
-		assert.Contains(t, []string{"sc1", "sc2"}, scs[1].ID)
+		assert.Len(t, scs.Edges, 4)
+		assert.Equal(t, "sc4", scs.Edges[0].Node.ID)
+		assert.Equal(t, "sc3", scs.Edges[1].Node.ID)
+		assert.Equal(t, "sc2", scs.Edges[2].Node.ID)
+		assert.Equal(t, "sc1", scs.Edges[3].Node.ID)
 		mockMetricsService.AssertExpectations(t)
 	})
 
@@ -456,11 +453,24 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		resolver.models.StateChanges.MetricsService = mockMetricsService
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-		limit := int32(1)
+		limit := int32(2)
 		ctx := GetTestCtx("state_changes", []string{"id", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, &limit)
+		scs, err := resolver.StateChanges(ctx, &limit, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 1)
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, "sc4", scs.Edges[0].Node.ID)
+		assert.Equal(t, "sc3", scs.Edges[1].Node.ID)
+
+		nextCursor := scs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		scs, err = resolver.StateChanges(ctx, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, "sc2", scs.Edges[0].Node.ID)
+		assert.Equal(t, "sc1", scs.Edges[1].Node.ID)
+
+		hasNextPage := scs.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
 		mockMetricsService.AssertExpectations(t)
 	})
 

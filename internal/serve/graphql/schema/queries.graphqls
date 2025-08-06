@@ -5,26 +5,36 @@ type Query {
     transactions(first: Int, after: String):                    TransactionConnection
     account(address: String!):                                  Account
     operations(first: Int, after: String):                      OperationConnection
-    stateChanges(limit: Int):                                   [StateChange!]!
+    stateChanges(first: Int, after: String):                    StateChangeConnection
 }
 
 type TransactionConnection {
-    edges: [TransactionsEdge!]
+    edges: [TransactionEdge!]
     pageInfo: PageInfo!
 }
 
-type TransactionsEdge {
+type TransactionEdge {
     node: Transaction
     cursor: String!
 }
 
 type OperationConnection {
-    edges: [OperationsEdge!]
+    edges: [OperationEdge!]
     pageInfo: PageInfo!
 }
 
-type OperationsEdge {
+type OperationEdge {
     node: Operation
+    cursor: String!
+}
+
+type StateChangeConnection {
+    edges: [StateChangeEdge!]
+    pageInfo: PageInfo!
+}
+
+type StateChangeEdge {
+    node: StateChange
     cursor: String!
 }
 

@@ -19,11 +19,11 @@ type Mutation struct {
 }
 
 type OperationConnection struct {
-	Edges    []*OperationsEdge `json:"edges,omitempty"`
-	PageInfo *PageInfo         `json:"pageInfo"`
+	Edges    []*OperationEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo        `json:"pageInfo"`
 }
 
-type OperationsEdge struct {
+type OperationEdge struct {
 	Node   *types.Operation `json:"node,omitempty"`
 	Cursor string           `json:"cursor"`
 }
@@ -47,12 +47,22 @@ type RegisterAccountPayload struct {
 	Account *types.Account `json:"account,omitempty"`
 }
 
-type TransactionConnection struct {
-	Edges    []*TransactionsEdge `json:"edges,omitempty"`
-	PageInfo *PageInfo           `json:"pageInfo"`
+type StateChangeConnection struct {
+	Edges    []*StateChangeEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
 }
 
-type TransactionsEdge struct {
+type StateChangeEdge struct {
+	Node   *types.StateChange `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
+}
+
+type TransactionConnection struct {
+	Edges    []*TransactionEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type TransactionEdge struct {
 	Node   *types.Transaction `json:"node,omitempty"`
 	Cursor string             `json:"cursor"`
 }

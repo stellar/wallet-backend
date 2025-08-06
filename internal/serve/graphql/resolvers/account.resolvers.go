@@ -45,9 +45,9 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 		return tx.Cursor
 	})
 
-	edges := make([]*graphql1.TransactionsEdge, len(conn.Edges))
+	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.TransactionsEdge{
+		edges[i] = &graphql1.TransactionEdge{
 			Node:   &edge.Node.Transaction,
 			Cursor: edge.Cursor,
 		}
@@ -83,9 +83,9 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 		return op.Cursor
 	})
 
-	edges := make([]*graphql1.OperationsEdge, len(conn.Edges))
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.OperationsEdge{
+		edges[i] = &graphql1.OperationEdge{
 			Node:   &edge.Node.Operation,
 			Cursor: edge.Cursor,
 		}

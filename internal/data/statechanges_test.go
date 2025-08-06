@@ -297,15 +297,20 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	stateChanges, err := m.GetAll(ctx, nil, "")
+	stateChanges, err := m.GetAll(ctx, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
+	assert.Equal(t, "sc3", stateChanges[0].StateChange.ID)
+	assert.Equal(t, "sc2", stateChanges[1].StateChange.ID)
+	assert.Equal(t, "sc1", stateChanges[2].StateChange.ID)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	stateChanges, err = m.GetAll(ctx, &limit, "")
+	stateChanges, err = m.GetAll(ctx, "", &limit, nil)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
+	assert.Equal(t, "sc3", stateChanges[0].StateChange.ID)
+	assert.Equal(t, "sc2", stateChanges[1].StateChange.ID)
 }
 
 func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {

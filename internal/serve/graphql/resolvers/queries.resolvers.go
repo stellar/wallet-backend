@@ -45,9 +45,9 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 		return tx.Cursor
 	})
 
-	edges := make([]*graphql1.TransactionsEdge, len(conn.Edges))
+	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.TransactionsEdge{
+		edges[i] = &graphql1.TransactionEdge{
 			Node:   &edge.Node.Transaction,
 			Cursor: edge.Cursor,
 		}
@@ -89,9 +89,9 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 		return op.Cursor
 	})
 
-	edges := make([]*graphql1.OperationsEdge, len(conn.Edges))
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.OperationsEdge{
+		edges[i] = &graphql1.OperationEdge{
 			Node:   &edge.Node.Operation,
 			Cursor: edge.Cursor,
 		}
@@ -104,9 +104,40 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
+	afterCursor, err := DecodeCursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
-	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	queryLimit := limit + 1
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db: %w", err)
+	}
+
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) int64 {
+		return sc.Cursor
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

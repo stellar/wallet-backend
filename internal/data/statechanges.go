@@ -37,19 +37,23 @@ func (m *StateChangeModel) BatchGetByAccountAddresses(
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.StateChange, error) {
+func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY ledger_created_at DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+	query := fmt.Sprintf(`SELECT %s, operation_id as sc_cursor FROM state_changes`, columns)
+	
+	if after != nil {
+		query += fmt.Sprintf(` WHERE operation_id < %d`, *after)
 	}
-	var stateChanges []*types.StateChange
+	query += ` ORDER BY operation_id DESC`
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
+	}
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	err := m.DB.SelectContext(ctx, &stateChanges, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
