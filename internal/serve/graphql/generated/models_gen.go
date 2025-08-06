@@ -6,11 +6,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-type BuildTransactionsInput struct {
+type BuildTransactionInput struct {
 	Transaction *TransactionInput `json:"transaction"`
 }
 
-type BuildTransactionsPayload struct {
+type BuildTransactionPayload struct {
 	Success        bool   `json:"success"`
 	TransactionXdr string `json:"transactionXdr"`
 }

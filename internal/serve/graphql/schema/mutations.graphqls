@@ -6,7 +6,7 @@ type Mutation {
     deregisterAccount(input: DeregisterAccountInput!): DeregisterAccountPayload!
     
     # Transaction mutations
-    buildTransactions(input: BuildTransactionsInput!): BuildTransactionsPayload!
+    buildTransaction(input: BuildTransactionInput!): BuildTransactionPayload!
 }
 
 # Input types for account mutations
@@ -30,7 +30,7 @@ type DeregisterAccountPayload {
 }
 
 # Input types for transaction mutations
-input BuildTransactionsInput {
+input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
@@ -51,7 +51,7 @@ input SimulationResultInput {
 }
 
 # Payload types for transaction mutations
-type BuildTransactionsPayload {
+type BuildTransactionPayload {
     success: Boolean!
     transactionXdr: String!
 }
