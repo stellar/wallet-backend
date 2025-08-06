@@ -10,9 +10,7 @@ import (
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // Address is the resolver for the address field.
@@ -98,20 +96,40 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
-
-	// Use dataloader to batch-load state changes for this account
-	loaderKey := dataloaders.StateChangeColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
+	afterCursor, err := DecodeCursor(after)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
-	return stateChanges, nil
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db: %w", err)
+	}
+
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) int64 {
+		return sc.Cursor
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Account returns graphql1.AccountResolver implementation.

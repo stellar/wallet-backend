@@ -196,7 +196,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	}
 }
 
-func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
+func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -205,6 +205,12 @@ func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	ctx := context.Background()
 	now := time.Now()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.
+		On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once().
+		On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+	defer mockMetricsService.AssertExpectations(t)
 
 	// Create test accounts
 	address1 := keypair.MustRandom().Address()
@@ -234,21 +240,15 @@ func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	m := &StateChangeModel{
 		DB:             dbConnectionPool,
-		MetricsService: metrics.NewMockMetricsService(),
+		MetricsService: mockMetricsService,
 	}
 
 	// Test BatchGetByAccount
-	stateChanges, err := m.BatchGetByAccountAddresses(ctx, []string{address1, address2}, "")
+	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil)
 	require.NoError(t, err)
-	assert.Len(t, stateChanges, 3)
-
-	// Verify state changes are for correct accounts
-	accountsFound := make(map[string]int)
-	for _, sc := range stateChanges {
-		accountsFound[sc.AccountID]++
-	}
-	assert.Equal(t, 2, accountsFound[address1])
-	assert.Equal(t, 1, accountsFound[address2])
+	assert.Len(t, stateChanges, 2)
+	assert.Equal(t, "sc2", stateChanges[0].StateChange.ID)
+	assert.Equal(t, "sc1", stateChanges[1].StateChange.ID)
 }
 
 func TestStateChangeModel_GetAll(t *testing.T) {

@@ -21,10 +21,6 @@ type Dataloaders struct {
 	// Used by Transaction.operations field resolver to prevent N+1 queries
 	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
 
-	// StateChangesByAccountLoader batches requests for state changes by account address
-	// Used by Account.statechanges field resolver to prevent N+1 queries
-	StateChangesByAccountLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
-
 	// AccountsByTxHashLoader batches requests for accounts by transaction hash
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
 	AccountsByTxHashLoader *dataloadgen.Loader[AccountColumnsKey, []*types.Account]
@@ -64,7 +60,6 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByAccountLoader:      stateChangesByAccountLoader(models),
 		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByTxHashLoader:           accountsByTxHashLoader(models),
