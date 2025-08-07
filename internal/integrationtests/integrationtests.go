@@ -20,7 +20,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
-	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 const txTimeout = 45 * time.Second
@@ -90,13 +89,12 @@ func (it *IntegrationTests) Run(ctx context.Context) error {
 	fmt.Println("")
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	for _, useCase := range useCases {
-		buildTxRequest := types.BuildTransactionsRequest{Transactions: []types.Transaction{useCase.requestedTransaction}}
-		builtTxResponse, err := it.WBClient.BuildTransactions(ctx, buildTxRequest.Transactions...)
+		builtTxResponse, err := it.WBClient.BuildTransaction(ctx, useCase.requestedTransaction)
 		if err != nil {
-			return fmt.Errorf("calling buildTransactions: %w", err)
+			return fmt.Errorf("calling buildTransaction: %w", err)
 		}
 		log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", useCase.Name(), builtTxResponse)
-		useCase.builtTransactionXDR = builtTxResponse.TransactionXDRs[0]
+		useCase.builtTransactionXDR = builtTxResponse.TransactionXDR
 
 		txString, err := txString(useCase.builtTransactionXDR)
 		if err != nil {
