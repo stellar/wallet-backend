@@ -31,7 +31,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, parentOperation)
 
@@ -49,7 +49,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Transaction(ctx, parentOperation)
 
@@ -77,7 +77,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentOperation)
 
@@ -95,7 +95,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Accounts(ctx, parentOperation)
 
@@ -123,7 +123,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation)
 
@@ -141,7 +141,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentOperation)
 

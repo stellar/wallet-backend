@@ -6,11 +6,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/vektah/gqlparser/v2/ast"
 )
+
+func getTestCtx(table string, columns []string) context.Context {
+	opCtx := &graphql.OperationContext{
+		Operation: &ast.OperationDefinition{
+			SelectionSet: ast.SelectionSet{
+				&ast.Field{
+					Name:         table,
+					SelectionSet: ast.SelectionSet{},
+				},
+			},
+		},
+	}
+	ctx := graphql.WithOperationContext(context.Background(), opCtx)
+	var selections ast.SelectionSet
+	for _, fieldName := range columns {
+		selections = append(selections, &ast.Field{Name: fieldName})
+	}
+	fieldCtx := &graphql.FieldContext{
+		Field: graphql.CollectedField{
+			Selections: selections,
+		},
+	}
+	ctx = graphql.WithFieldContext(ctx, fieldCtx)
+	return ctx
+}
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}

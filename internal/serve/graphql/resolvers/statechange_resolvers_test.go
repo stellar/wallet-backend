@@ -161,7 +161,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationByStateChangeIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		op, err := resolver.Operation(ctx, parentSC)
 		require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationByStateChangeIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Operation(ctx, parentSC)
 		require.Error(t, err)
@@ -199,7 +199,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionByStateChangeIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		tx, err := resolver.Transaction(ctx, parentSC)
 		require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionByStateChangeIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Transaction(ctx, parentSC)
 		require.Error(t, err)
