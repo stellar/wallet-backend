@@ -7,17 +7,18 @@ import (
 
 	"github.com/stretchr/testify/mock"
 
-	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vikstrous/dataloadgen"
 
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
-	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 func TestTransactionResolver_Operations(t *testing.T) {

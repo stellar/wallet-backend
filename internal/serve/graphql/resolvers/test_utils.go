@@ -9,9 +9,10 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vektah/gqlparser/v2/ast"
+
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/vektah/gqlparser/v2/ast"
 )
 
 func getTestCtx(table string, columns []string) context.Context {

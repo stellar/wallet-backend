@@ -14,7 +14,7 @@ type OperationColumnsKey struct {
 	AccountID     string
 	StateChangeID string
 	Columns       string
-	Cursor       *int64
+	Cursor        *int64
 	Limit         *int32
 }
 

@@ -55,7 +55,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	if columns == "" {
 		columns = operationColumns
 	}
-	
+
 	query := `
 		WITH
 			inputs (tx_hash, cursor) AS (
