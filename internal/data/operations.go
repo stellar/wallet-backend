@@ -117,8 +117,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	query += ` ORDER BY operations.id DESC`
 
 	if limit != nil && *limit > 0 {
-		// Fetch one more item to check if there's a next page.
-		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
 	}
 
 	var operations []*types.OperationWithCursor

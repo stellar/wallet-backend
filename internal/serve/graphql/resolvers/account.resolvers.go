@@ -34,7 +34,8 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
-	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &limit, afterCursor)
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
@@ -72,7 +73,8 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &limit, afterCursor)
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
+	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}

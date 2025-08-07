@@ -32,10 +32,11 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
 	loaderKey := dataloaders.OperationColumnsKey{
 		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
-		Limit:   &limit,
+		Limit:   &queryLimit,
 		Cursor:  afterCursor,
 	}
 
