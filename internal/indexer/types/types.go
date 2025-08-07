@@ -182,6 +182,9 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
+	// Internal IDs used for sorting state changes within an operation.
+	SortID string `json:"-"`
+	TxID   int64  `json:"-"`
 }
 
 type NullableJSONB map[string]any

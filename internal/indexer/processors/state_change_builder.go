@@ -16,13 +16,14 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
 			TxHash:          txHash,
+			TxID:            txID,
 		},
 	}
 }
@@ -114,7 +115,7 @@ func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.ID = b.generateID()
+	b.base.SortID = b.generateSortID()
 	return b.base
 }
 
@@ -125,6 +126,10 @@ func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	}
 }
 
-func (b *StateChangeBuilder) generateID() string {
-	return fmt.Sprintf("%d-%s", b.base.OperationID, b.base.AccountID)
+func (b *StateChangeBuilder) generateSortID() string {
+	// Fee state changes are not associated with an operation.
+	if b.base.OperationID == 0 {
+		return fmt.Sprintf("%d-%s-%s-%s", b.base.TxID, b.base.StateChangeCategory, *b.base.StateChangeReason, b.base.AccountID)
+	}
+	return fmt.Sprintf("%d-%s-%s-%s", b.base.OperationID, b.base.StateChangeCategory, *b.base.StateChangeReason, b.base.AccountID)
 }
