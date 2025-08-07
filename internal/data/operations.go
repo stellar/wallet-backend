@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -13,9 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-const (
-	operationColumns = "id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at"
-)
+var operationColumns = getDBColumns(types.Operation{})
 
 type OperationModel struct {
 	DB             db.ConnectionPool
@@ -24,7 +23,7 @@ type OperationModel struct {
 
 func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = operationColumns
+		columns = strings.Join(operationColumns, ", ")
 	}
 	query := fmt.Sprintf(`SELECT %s, operations.id as op_cursor FROM operations`, columns)
 
@@ -53,7 +52,7 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = operationColumns
+		columns = strings.Join(operationColumns, ", ")
 	}
 
 	query := `
@@ -64,12 +63,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 			
 			ranked_operations_per_tx_hash AS (
 				SELECT
-					o.id,
-					o.tx_hash,
-					o.operation_type,
-					o.operation_xdr,
-					o.ledger_number,
-					o.ledger_created_at,
+					o.*,
 					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id DESC) AS rn
 				FROM 
 					operations o

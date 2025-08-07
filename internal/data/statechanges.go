@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -11,6 +12,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+var stateChangeColumns = getDBColumns(types.StateChange{})
 
 type StateChangeModel struct {
 	DB             db.ConnectionPool
@@ -26,7 +29,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 	after *int64,
 ) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = strings.Join(stateChangeColumns, ", ")
 	}
 
 	query := fmt.Sprintf(`
@@ -55,7 +58,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = strings.Join(stateChangeColumns, ", ")
 	}
 	query := fmt.Sprintf(`SELECT %s, operation_id as sc_cursor FROM state_changes`, columns)
 
@@ -263,16 +266,39 @@ func (m *StateChangeModel) BatchInsert(
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*int64) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = strings.Join(stateChangeColumns, ", ")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s, tx_hash FROM state_changes WHERE tx_hash = ANY($1)
-	`, columns)
-	var stateChanges []*types.StateChange
+
+	query := `
+		WITH
+			inputs (tx_hash, cursor) AS (
+				SELECT * FROM UNNEST($1::text[], $2::bigint[])
+			),
+			
+			ranked_state_changes_per_tx_hash AS (
+				SELECT
+					sc.*,
+					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.operation_id DESC, sc.id DESC) AS rn
+				FROM 
+					state_changes sc
+				JOIN 
+					inputs i ON sc.tx_hash = i.tx_hash
+				WHERE 
+					(i.cursor IS NULL OR sc.operation_id < i.cursor OR (sc.operation_id = i.cursor AND sc.id < i.cursor))
+			)
+		SELECT %s, tx_hash, operation_id as sc_cursor FROM ranked_state_changes_per_tx_hash
+	`
+	query = fmt.Sprintf(query, columns)
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` WHERE rn <= %d`, *limit)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes), pq.Array(cursors))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
