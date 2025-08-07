@@ -139,11 +139,53 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), simulationResult)
 	if err != nil {
 		switch {
-		case errors.Is(err, transactionservices.ErrInvalidArguments):
+		case errors.Is(err, transactionservices.ErrInvalidTimeout):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
-					"code": "INVALID_ARGUMENTS",
+					"code": "INVALID_TIMEOUT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_OPERATION_MISSING_SOURCE",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_OPERATION_COUNT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_OPERATION_TYPE",
 				},
 			}
 		case errors.Is(err, signing.ErrUnavailableChannelAccounts):
