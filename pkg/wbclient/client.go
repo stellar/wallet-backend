@@ -60,18 +60,7 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	}
 }
 
-func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Transaction) (*types.BuildTransactionsResponse, error) {
-	if len(transactions) == 0 {
-		return nil, fmt.Errorf("at least one transaction is required")
-	}
-
-	// We only support building one transaction at a time
-	if len(transactions) > 1 {
-		return nil, fmt.Errorf("GraphQL buildTransaction mutation supports only one transaction at a time")
-	}
-
-	transaction := transactions[0]
-
+func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
 	query := `
 		mutation BuildTransaction($input: BuildTransactionInput!) {
 			buildTransaction(input: $input) {
@@ -168,9 +157,8 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
 	}
 
-	// Convert to the expected response format
-	return &types.BuildTransactionsResponse{
-		TransactionXDRs: []string{data.BuildTransaction.TransactionXdr},
+	return &types.BuildTransactionResponse{
+		TransactionXDR: data.BuildTransaction.TransactionXdr,
 	}, nil
 }
 
