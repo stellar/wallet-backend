@@ -144,9 +144,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		RPCService:                         rpcService,
-		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
 		BlockedOperationsTypes:             blockedOperationTypes,
@@ -270,16 +267,12 @@ func handler(deps handlerDeps) http.Handler {
 			r.Get("/", handler.GetPayments)
 		})
 
-		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
 		r.Route("/tx", func(r chi.Router) {
 			accountHandler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
 				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
 				AppTracker:                deps.AppTracker,
 			}
 
-			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 
