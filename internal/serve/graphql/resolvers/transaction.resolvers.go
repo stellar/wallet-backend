@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -17,13 +18,25 @@ import (
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
-func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
+func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.OperationConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	afterCursor, err := DecodeCursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
 	loaderKey := dataloaders.OperationColumnsKey{
 		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
+		Limit:   &limit,
+		Cursor:  afterCursor,
 	}
 
 	// Use dataloader to batch-load operations for this transaction
@@ -31,7 +44,23 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	if err != nil {
 		return nil, err
 	}
-	return operations, nil
+
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Accounts is the resolver for the accounts field.

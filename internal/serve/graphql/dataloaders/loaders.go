@@ -19,7 +19,7 @@ import (
 type Dataloaders struct {
 	// OperationsByTxHashLoader batches requests for operations by transaction hash
 	// Used by Transaction.operations field resolver to prevent N+1 queries
-	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
+	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor]
 
 	// AccountsByTxHashLoader batches requests for accounts by transaction hash
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
@@ -56,7 +56,7 @@ type Dataloaders struct {
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
+		OperationsByTxHashLoader:         OperationsByTxHashLoader(models),
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),

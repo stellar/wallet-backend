@@ -107,34 +107,38 @@ func TestAccountResolver_Operations(t *testing.T) {
 	setupDB(ctx, t, dbConnectionPool)
 
 	t.Run("success", func(t *testing.T) {
-		ctx = getTestCtx("operations", []string{"tx_hash"})
+		ctx = getTestCtx("operations", []string{"id"})
 		operations, err := resolver.Operations(ctx, parentAccount, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, operations.Edges, 4)
-		assert.Equal(t, "tx4", operations.Edges[0].Node.TxHash)
-		assert.Equal(t, "tx3", operations.Edges[1].Node.TxHash)
-		assert.Equal(t, "tx2", operations.Edges[2].Node.TxHash)
-		assert.Equal(t, "tx1", operations.Edges[3].Node.TxHash)
+		require.Len(t, operations.Edges, 8)
+		assert.Equal(t, int64(8), operations.Edges[0].Node.ID)
+		assert.Equal(t, int64(7), operations.Edges[1].Node.ID)
+		assert.Equal(t, int64(6), operations.Edges[2].Node.ID)
+		assert.Equal(t, int64(5), operations.Edges[3].Node.ID)
 	})
 
 	t.Run("get with cursor", func(t *testing.T) {
-		ctx = getTestCtx("operations", []string{"tx_hash"})
-		limit := int32(2)
+		ctx = getTestCtx("operations", []string{"id"})
+		limit := int32(4)
 		ops, err := resolver.Operations(ctx, parentAccount, &limit, nil)
 		require.NoError(t, err)
-		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "tx4", ops.Edges[0].Node.TxHash)
-		assert.Equal(t, "tx3", ops.Edges[1].Node.TxHash)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, int64(8), ops.Edges[0].Node.ID)
+		assert.Equal(t, int64(7), ops.Edges[1].Node.ID)
+		assert.Equal(t, int64(6), ops.Edges[2].Node.ID)
+		assert.Equal(t, int64(5), ops.Edges[3].Node.ID)
 
 		// Get the next cursor
 		nextCursor := ops.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		ops, err = resolver.Operations(ctx, parentAccount, &limit, nextCursor)
 		require.NoError(t, err)
-		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, "tx2", ops.Edges[0].Node.TxHash)
-		assert.Equal(t, "tx1", ops.Edges[1].Node.TxHash)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, int64(4), ops.Edges[0].Node.ID)
+		assert.Equal(t, int64(3), ops.Edges[1].Node.ID)
+		assert.Equal(t, int64(2), ops.Edges[2].Node.ID)
+		assert.Equal(t, int64(1), ops.Edges[3].Node.ID)
 
 		hasNextPage := ops.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)

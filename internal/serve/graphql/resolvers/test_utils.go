@@ -42,7 +42,9 @@ func getTestCtx(table string, columns []string) context.Context {
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 	txns := make([]*types.Transaction, 0, 4)
-	for i := 0; i < 4; i++ {
+	ops := make([]*types.Operation, 0, 8)
+	opIdx := 0
+	for i := range 4 {
 		txns = append(txns, &types.Transaction{
 			Hash:            fmt.Sprintf("tx%d", i+1),
 			ToID:            int64(i + 1),
@@ -52,22 +54,23 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
 		})
-	}
 
-	ops := make([]*types.Operation, 0, 4)
-	for i := 0; i < 4; i++ {
-		ops = append(ops, &types.Operation{
-			ID:              int64(i + 1),
-			TxHash:          fmt.Sprintf("tx%d", i+1),
-			OperationType:   "payment",
-			OperationXDR:    fmt.Sprintf("opxdr%d", i+1),
-			LedgerNumber:    1,
-			LedgerCreatedAt: time.Now(),
-		})
+		// Append 4 operations for each transaction
+		for range 2 {
+			ops = append(ops, &types.Operation{
+				ID:              int64(opIdx + 1),
+				TxHash:          fmt.Sprintf("tx%d", i+1),
+				OperationType:   "payment",
+				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx+1),
+				LedgerNumber:    1,
+				LedgerCreatedAt: time.Now(),
+			})
+			opIdx++
+		}
 	}
 
 	stateChanges := make([]*types.StateChange, 0, 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ID:                  fmt.Sprintf("sc%d", i+1),
 			StateChangeCategory: types.StateChangeCategoryCredit,

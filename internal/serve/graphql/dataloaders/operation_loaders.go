@@ -14,28 +14,33 @@ type OperationColumnsKey struct {
 	AccountID     string
 	StateChangeID string
 	Columns       string
+	Cursor       *int64
+	Limit         *int32
 }
 
-// opByTxHashLoader creates a dataloader for fetching operations by transaction hash
+// OperationsByTxHashLoader creates a dataloader for fetching operations by transaction hash
 // This prevents N+1 queries when multiple transactions request their operations
 // The loader batches multiple transaction hashes into a single database query
-func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+func OperationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.Operation, error) {
-			txHashes := make([]string, len(keys))
+		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
+			txHashes := make([]string, 0, len(keys))
 			columns := keys[0].Columns
-			for i, key := range keys {
-				txHashes[i] = key.TxHash
+			cursors := make([]*int64, 0, len(keys))
+			limit := keys[0].Limit
+			for _, key := range keys {
+				txHashes = append(txHashes, key.TxHash)
+				cursors = append(cursors, key.Cursor)
 			}
-			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns)
+			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns, limit, cursors)
 		},
-		func(item *types.Operation) string {
+		func(item *types.OperationWithCursor) string {
 			return item.TxHash
 		},
 		func(key OperationColumnsKey) string {
 			return key.TxHash
 		},
-		func(item *types.Operation) types.Operation {
+		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
 		},
 	)

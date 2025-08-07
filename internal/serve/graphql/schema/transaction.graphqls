@@ -12,7 +12,7 @@ type Transaction{
   # GraphQL Relationships - these fields require resolvers
   # @goField(forceResolver: true) tells gqlgen to always generate a resolver
   # even if the Go struct has a matching field
-  operations:      [Operation!]! @goField(forceResolver: true)
+  operations(first: Int, after: String):      OperationConnection @goField(forceResolver: true)
   
   # Related accounts - uses resolver with dataloader for efficiency
   accounts:        [Account!]! @goField(forceResolver: true)

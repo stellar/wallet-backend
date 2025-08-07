@@ -13,6 +13,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+const (
+	operationColumns = "id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at"
+)
+
 type OperationModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
@@ -20,7 +24,7 @@ type OperationModel struct {
 
 func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = operationColumns
 	}
 	query := fmt.Sprintf(`SELECT %s, operations.id as op_cursor FROM operations`, columns)
 
@@ -47,14 +51,44 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = operationColumns
 	}
-	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
-	var operations []*types.Operation
+	
+	query := `
+		WITH
+			inputs (tx_hash, cursor) AS (
+				SELECT * FROM UNNEST($1::text[], $2::bigint[])
+			),
+			
+			ranked_operations_per_tx_hash AS (
+				SELECT
+					o.id,
+					o.tx_hash,
+					o.operation_type,
+					o.operation_xdr,
+					o.ledger_number,
+					o.ledger_created_at,
+					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id DESC) AS rn
+				FROM 
+					operations o
+				JOIN 
+					inputs i ON o.tx_hash = i.tx_hash
+				WHERE 
+					(i.cursor IS NULL OR o.id < i.cursor)
+			)
+		SELECT %s, tx_hash, id as op_cursor FROM ranked_operations_per_tx_hash
+	`
+	query = fmt.Sprintf(query, columns)
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` WHERE rn <= %d`, *limit)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes), pq.Array(cursors))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
