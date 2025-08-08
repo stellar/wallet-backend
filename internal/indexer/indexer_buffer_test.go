@@ -215,9 +215,9 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 	t.Run("🟢sequential_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		sc1 := types.StateChange{ID: "sc1"}
-		sc2 := types.StateChange{ID: "sc2"}
-		sc3 := types.StateChange{ID: "sc3"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
 
 		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
 		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
@@ -229,9 +229,9 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 	t.Run("🟢concurrent_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		sc1 := types.StateChange{ID: "sc1"}
-		sc2 := types.StateChange{ID: "sc2"}
-		sc3 := types.StateChange{ID: "sc3"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
@@ -263,9 +263,9 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		indexerBuffer.PushParticipantOperation("someone", op1, tx1)
 		indexerBuffer.PushParticipantOperation("someone", op2, tx2)
 
-		sc1 := types.StateChange{ID: "sc1", TxHash: tx1.Hash, OperationID: op1.ID, AccountID: "alice"}
-		sc2 := types.StateChange{ID: "sc2", TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "alice"}
-		sc3 := types.StateChange{ID: "sc3", TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "bob"}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, TxHash: tx1.Hash, OperationID: op1.ID, AccountID: "alice"}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "alice"}
+		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "bob"}
 
 		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
 		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
