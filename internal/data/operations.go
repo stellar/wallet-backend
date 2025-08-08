@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -85,20 +86,28 @@ func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, account
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	if columns == "" {
 		columns = "operations.*"
 	}
+
+	// Build tuples for the IN clause
+	tuples := make([]string, len(scOrders))
+	for i := range scOrders {
+		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+	}
+
 	query := fmt.Sprintf(`
-		SELECT %s, state_changes.id AS state_change_id
+		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
 		FROM operations
 		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE state_changes.id = ANY($1)
+		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
 		ORDER BY operations.ledger_created_at DESC
-	`, columns)
+	`, columns, strings.Join(tuples, ", "))
+
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(stateChangeIDs))
+	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {

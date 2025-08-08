@@ -2,7 +2,7 @@ package dataloaders
 
 import (
 	"context"
-
+	"fmt"
 	"github.com/vikstrous/dataloadgen"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -72,12 +72,16 @@ func transactionByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Tra
 func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithStateChangeID, error) {
-			stateChangeIDs := make([]string, len(keys))
 			columns := keys[0].Columns
+			scIDs := make([]string, len(keys))
 			for i, key := range keys {
-				stateChangeIDs[i] = key.StateChangeID
+				scIDs[i] = key.StateChangeID
 			}
-			return models.Transactions.BatchGetByStateChangeIDs(ctx, stateChangeIDs, columns)
+			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			if err != nil {
+				return nil, fmt.Errorf("parsing state change IDs: %w", err)
+			}
+			return models.Transactions.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
 		},
 		func(item *types.TransactionWithStateChangeID) string {
 			return item.StateChangeID
