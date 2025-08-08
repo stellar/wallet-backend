@@ -6,8 +6,10 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -17,13 +19,26 @@ import (
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
-func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
+func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.OperationConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	afterCursor, err := DecodeInt64Cursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
 	loaderKey := dataloaders.OperationColumnsKey{
 		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
+		Limit:   &queryLimit,
+		Cursor:  afterCursor,
 	}
 
 	// Use dataloader to batch-load operations for this transaction
@@ -31,7 +46,23 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	if err != nil {
 		return nil, err
 	}
-	return operations, nil
+
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Accounts is the resolver for the accounts field.
@@ -58,21 +89,58 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // StateChanges is the resolver for the stateChanges field.
 // This is a field resolver for the "stateChanges" field on a Transaction object
 // It's called when a GraphQL query requests the state changes within a transaction
-func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
+func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+
+	var scCursor *data.StateChangeCursor
+	if after != nil {
+		cursor, err := DecodeStringCursor(after)
+		if err != nil {
+			return nil, fmt.Errorf("decoding cursor: %w", err)
+		}
+		scCursor, err = decodeStateChangeCursor(cursor)
+		if err != nil {
+			return nil, fmt.Errorf("decoding state change cursor: %w", err)
+		}
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
 	loaderKey := dataloaders.StateChangeColumnsKey{
 		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
+		Limit:   &queryLimit,
+		Cursor:  scCursor,
 	}
 
-	// Use dataloader to batch-load state changes for this transaction
+	// Use dataloader to batch-load operations for this transaction
 	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
-	return stateChanges, nil
+
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) string {
+		return sc.Cursor
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.

@@ -38,6 +38,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Result.TransactionHash.HexString()
+	txID := tx.ID()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
@@ -46,7 +47,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID)
 
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)

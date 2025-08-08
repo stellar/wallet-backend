@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, parentOperation)
 
@@ -49,7 +50,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Transaction(ctx, parentOperation)
 
@@ -77,7 +78,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentOperation)
 
@@ -95,7 +96,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Accounts(ctx, parentOperation)
 
@@ -113,8 +114,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "id"}}, keys)
 			results := [][]*types.StateChange{
 				{
-					{ID: "sc1"},
-					{ID: "sc2"},
+					{ToID: 1, StateChangeOrder: 1},
+					{ToID: 2, StateChangeOrder: 1},
 				},
 			}
 			return results, nil
@@ -123,14 +124,14 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", stateChanges[0].ID)
-		assert.Equal(t, "sc2", stateChanges[1].ID)
+		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
@@ -141,7 +142,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByOperationIDLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentOperation)
 

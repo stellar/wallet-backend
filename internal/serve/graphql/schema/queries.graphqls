@@ -1,9 +1,46 @@
 # GraphQL Query root type - defines all available queries in the API
 # In GraphQL, the Query type is the entry point for read operations
 type Query {
-    transactionByHash(hash: String!): Transaction
-    transactions(limit: Int):         [Transaction!]!
-    account(address: String!):        Account
-    operations(limit: Int):           [Operation!]!
-    stateChanges(limit: Int):         [StateChange!]!
+    transactionByHash(hash: String!):                           Transaction
+    transactions(first: Int, after: String):                    TransactionConnection
+    account(address: String!):                                  Account
+    operations(first: Int, after: String):                      OperationConnection
+    stateChanges(first: Int, after: String):                    StateChangeConnection
+}
+
+type TransactionConnection {
+    edges: [TransactionEdge!]
+    pageInfo: PageInfo!
+}
+
+type TransactionEdge {
+    node: Transaction
+    cursor: String!
+}
+
+type OperationConnection {
+    edges: [OperationEdge!]
+    pageInfo: PageInfo!
+}
+
+type OperationEdge {
+    node: Operation
+    cursor: String!
+}
+
+type StateChangeConnection {
+    edges: [StateChangeEdge!]
+    pageInfo: PageInfo!
+}
+
+type StateChangeEdge {
+    node: StateChange
+    cursor: String!
+}
+
+type PageInfo {
+    startCursor: String
+    endCursor: String
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
 }

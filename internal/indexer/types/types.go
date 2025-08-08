@@ -40,14 +40,14 @@ type Transaction struct {
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
-type TransactionWithAccountID struct {
+type TransactionWithCursor struct {
 	Transaction
-	AccountID string `json:"accountId,omitempty" db:"account_id"`
+	Cursor int64 `json:"cursor,omitempty" db:"tx_cursor"`
 }
 
 type TransactionWithStateChangeID struct {
 	Transaction
-	StateChangeID string `json:"stateChangeId,omitempty" db:"state_change_id"`
+	StateChangeID string `json:"stateChangeId,omitempty" db:"sc_id"`
 }
 
 type TransactionWithOperationID struct {
@@ -139,14 +139,14 @@ type Operation struct {
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
-type OperationWithAccountID struct {
+type OperationWithCursor struct {
 	Operation
-	AccountID string `db:"account_id"`
+	Cursor int64 `json:"cursor,omitempty" db:"op_cursor"`
 }
 
 type OperationWithStateChangeID struct {
 	Operation
-	StateChangeID string `db:"state_change_id"`
+	StateChangeID string `db:"sc_id"`
 }
 
 type StateChangeCategory string
@@ -190,7 +190,8 @@ const (
 )
 
 type StateChange struct {
-	ID                  string              `json:"id,omitempty" db:"id"`
+	ToID                int64               `json:"toId,omitempty" db:"to_id"`
+	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
@@ -218,6 +219,14 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
+	// Internal IDs used for sorting state changes within an operation.
+	SortKey string `json:"-"`
+	TxID    int64  `json:"-"`
+}
+
+type StateChangeWithCursor struct {
+	StateChange
+	Cursor string `json:"cursor,omitempty" db:"sc_cursor"`
 }
 
 type NullableJSONB map[string]any

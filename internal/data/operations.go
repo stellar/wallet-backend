@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -13,24 +14,31 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+var operationColumns = getDBColumns(types.Operation{})
+
 type OperationModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
+func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = strings.Join(operationColumns, ", ")
 	}
-	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
-	var args []interface{}
+	query := fmt.Sprintf(`SELECT %s, operations.id as op_cursor FROM operations`, columns)
+
+	if after != nil {
+		query += fmt.Sprintf(` WHERE id < %d`, *after)
+	}
+	query += ` ORDER BY id DESC`
+
 	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
 	}
-	var operations []*types.Operation
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	err := m.DB.SelectContext(ctx, &operations, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
@@ -41,14 +49,39 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
-		columns = "*"
+		columns = strings.Join(operationColumns, ", ")
 	}
-	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
-	var operations []*types.Operation
+
+	query := `
+		WITH
+			inputs (tx_hash, cursor) AS (
+				SELECT * FROM UNNEST($1::text[], $2::bigint[])
+			),
+			
+			ranked_operations_per_tx_hash AS (
+				SELECT
+					o.*,
+					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id DESC) AS rn
+				FROM 
+					operations o
+				JOIN 
+					inputs i ON o.tx_hash = i.tx_hash
+				WHERE 
+					(i.cursor IS NULL OR o.id < i.cursor)
+			)
+		SELECT %s, tx_hash, id as op_cursor FROM ranked_operations_per_tx_hash
+	`
+	query = fmt.Sprintf(query, columns)
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` WHERE rn <= %d`, *limit)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
+	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes), pq.Array(cursors))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
@@ -58,47 +91,56 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
-// BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
-func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.OperationWithAccountID, error) {
+// BatchGetByAccountAddress gets the operations that are associated with the given account addresses.
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, after *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
 		columns = "operations.*"
 	}
 	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.account_id
-		FROM operations
-		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
-		WHERE operations_accounts.account_id = ANY($1)
-		ORDER BY operations.ledger_created_at DESC
+		SELECT %s, operations.id as op_cursor
+		FROM operations 
+		INNER JOIN operations_accounts 
+		ON operations.id = operations_accounts.operation_id 
+		WHERE operations_accounts.account_id = $1
 	`, columns)
 
-	var operationsWithAccounts []*types.OperationWithAccountID
+	if after != nil {
+		query += fmt.Sprintf(` AND operations.id < %d`, *after)
+	}
+	query += ` ORDER BY operations.id DESC`
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithAccounts, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &operations, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting operations by account addresses: %w", err)
+		return nil, fmt.Errorf("getting operations for account %s: %w", accountAddress, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
 
-	return operationsWithAccounts, nil
+	return operations, nil
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	if columns == "" {
 		columns = "operations.*"
 	}
 	query := fmt.Sprintf(`
-		SELECT %s, state_changes.id AS state_change_id
+		SELECT %s, CONCAT(sc.to_id, ':', sc.state_change_order) AS sc_id
 		FROM operations
-		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE state_changes.id = ANY($1)
-		ORDER BY operations.ledger_created_at DESC
+		INNER JOIN state_changes sc ON operations.id = sc.operation_id
+		WHERE sc.to_id = ANY($1)
+		ORDER BY operations.id DESC
 	`, columns)
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(stateChangeIDs))
+	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(scToIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {

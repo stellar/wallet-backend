@@ -2,6 +2,9 @@ package dataloaders
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -14,54 +17,34 @@ type OperationColumnsKey struct {
 	AccountID     string
 	StateChangeID string
 	Columns       string
+	Cursor        *int64
+	Limit         *int32
 }
 
-// opByTxHashLoader creates a dataloader for fetching operations by transaction hash
+// OperationsByTxHashLoader creates a dataloader for fetching operations by transaction hash
 // This prevents N+1 queries when multiple transactions request their operations
 // The loader batches multiple transaction hashes into a single database query
-func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+func OperationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.Operation, error) {
-			txHashes := make([]string, len(keys))
+		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
+			txHashes := make([]string, 0, len(keys))
 			columns := keys[0].Columns
-			for i, key := range keys {
-				txHashes[i] = key.TxHash
+			cursors := make([]*int64, 0, len(keys))
+			limit := keys[0].Limit
+			for _, key := range keys {
+				txHashes = append(txHashes, key.TxHash)
+				cursors = append(cursors, key.Cursor)
 			}
-			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns)
+			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns, limit, cursors)
 		},
-		func(item *types.Operation) string {
+		func(item *types.OperationWithCursor) string {
 			return item.TxHash
 		},
 		func(key OperationColumnsKey) string {
 			return key.TxHash
 		},
-		func(item *types.Operation) types.Operation {
+		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
-		},
-	)
-}
-
-// opByAccountLoader creates a dataloader for fetching operations by account address
-// This prevents N+1 queries when multiple accounts request their operations
-// The loader batches multiple account addresses into a single database query
-func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithAccountID, error) {
-			accountIDs := make([]string, len(keys))
-			columns := keys[0].Columns
-			for i, key := range keys {
-				accountIDs[i] = key.AccountID
-			}
-			return models.Operations.BatchGetByAccountAddresses(ctx, accountIDs, columns)
-		},
-		func(item *types.OperationWithAccountID) string {
-			return item.AccountID
-		},
-		func(key OperationColumnsKey) string {
-			return key.AccountID
-		},
-		func(item *types.OperationWithAccountID) types.Operation {
-			return item.Operation
 		},
 	)
 }
@@ -72,12 +55,22 @@ func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[Operatio
 func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithStateChangeID, error) {
-			stateChangeIDs := make([]string, len(keys))
+			scToIDs := make([]int64, len(keys))
 			columns := keys[0].Columns
 			for i, key := range keys {
-				stateChangeIDs[i] = key.StateChangeID
+				parts := strings.Split(key.StateChangeID, ":")
+				if len(parts) != 2 {
+					return nil, fmt.Errorf("invalid state change ID format: %s", key.StateChangeID)
+				}
+
+				toID, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid toID in state change ID %s: %w", key.StateChangeID, err)
+				}
+
+				scToIDs[i] = toID
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, stateChangeIDs, columns)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID

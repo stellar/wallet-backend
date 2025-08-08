@@ -18,6 +18,23 @@ type DeregisterAccountPayload struct {
 type Mutation struct {
 }
 
+type OperationConnection struct {
+	Edges    []*OperationEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo        `json:"pageInfo"`
+}
+
+type OperationEdge struct {
+	Node   *types.Operation `json:"node,omitempty"`
+	Cursor string           `json:"cursor"`
+}
+
+type PageInfo struct {
+	StartCursor     *string `json:"startCursor,omitempty"`
+	EndCursor       *string `json:"endCursor,omitempty"`
+	HasNextPage     bool    `json:"hasNextPage"`
+	HasPreviousPage bool    `json:"hasPreviousPage"`
+}
+
 type Query struct {
 }
 
@@ -28,4 +45,24 @@ type RegisterAccountInput struct {
 type RegisterAccountPayload struct {
 	Success bool           `json:"success"`
 	Account *types.Account `json:"account,omitempty"`
+}
+
+type StateChangeConnection struct {
+	Edges    []*StateChangeEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type StateChangeEdge struct {
+	Node   *types.StateChange `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
+}
+
+type TransactionConnection struct {
+	Edges    []*TransactionEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type TransactionEdge struct {
+	Node   *types.Transaction `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
 }

@@ -6,8 +6,10 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -23,9 +25,39 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // Transactions is the resolver for the transactions field.
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
-func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string) (*graphql1.TransactionConnection, error) {
+	afterCursor, err := DecodeInt64Cursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &limit, afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions from db: %w", err)
+	}
+
+	conn := NewConnection(transactions, limit, after, func(tx *types.TransactionWithCursor) int64 {
+		return tx.Cursor
+	})
+
+	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.TransactionEdge{
+			Node:   &edge.Node.Transaction,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.TransactionConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Account is the resolver for the account field.
@@ -37,15 +69,86 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
-func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string) (*graphql1.OperationConnection, error) {
+	afterCursor, err := DecodeInt64Cursor(after)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
+	operations, err := r.models.Operations.GetAll(ctx, &queryLimit, strings.Join(dbColumns, ", "), afterCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations from db: %w", err)
+	}
+
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
+	var scCursor *data.StateChangeCursor
+	if after != nil {
+		cursor, err := DecodeStringCursor(after)
+		if err != nil {
+			return nil, fmt.Errorf("decoding cursor for state changes: %w", err)
+		}
+
+		scCursor, err = decodeStateChangeCursor(cursor)
+		if err != nil {
+			return nil, fmt.Errorf("decoding state change cursor: %w", err)
+		}
+	}
+
+	limit := int32(50)
+	if first != nil {
+		limit = *first
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
-	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	queryLimit := limit + 1
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, scCursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db: %w", err)
+	}
+
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) string {
+		return sc.Cursor
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

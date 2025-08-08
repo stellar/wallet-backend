@@ -2,6 +2,9 @@ package dataloaders
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -14,31 +17,8 @@ type TransactionColumnsKey struct {
 	OperationID   int64
 	StateChangeID string
 	Columns       string
-}
-
-// txByAccountLoader creates a dataloader for fetching transactions by account address
-// This prevents N+1 queries when multiple accounts request their transactions
-// The loader batches multiple account addresses into a single database query
-func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, []*types.Transaction] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithAccountID, error) {
-			accountIDs := make([]string, len(keys))
-			columns := keys[0].Columns
-			for i, key := range keys {
-				accountIDs[i] = key.AccountID
-			}
-			return models.Transactions.BatchGetByAccountAddresses(ctx, accountIDs, columns)
-		},
-		func(item *types.TransactionWithAccountID) string {
-			return item.AccountID
-		},
-		func(key TransactionColumnsKey) string {
-			return key.AccountID
-		},
-		func(item *types.TransactionWithAccountID) types.Transaction {
-			return item.Transaction
-		},
-	)
+	Limit         *int32
+	After         *int64
 }
 
 // txByOperationIDLoader creates a dataloader for fetching transactions by operation ID
@@ -72,12 +52,22 @@ func transactionByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Tra
 func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithStateChangeID, error) {
-			stateChangeIDs := make([]string, len(keys))
+			scToIDs := make([]int64, len(keys))
 			columns := keys[0].Columns
 			for i, key := range keys {
-				stateChangeIDs[i] = key.StateChangeID
+				parts := strings.Split(key.StateChangeID, ":")
+				if len(parts) != 2 {
+					return nil, fmt.Errorf("invalid state change ID format: %s", key.StateChangeID)
+				}
+
+				toID, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid toID in state change ID %s: %w", key.StateChangeID, err)
+				}
+
+				scToIDs[i] = toID
 			}
-			return models.Transactions.BatchGetByStateChangeIDs(ctx, stateChangeIDs, columns)
+			return models.Transactions.BatchGetByStateChangeIDs(ctx, scToIDs, columns)
 		},
 		func(item *types.TransactionWithStateChangeID) string {
 			return item.StateChangeID

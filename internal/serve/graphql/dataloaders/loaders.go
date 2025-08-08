@@ -19,19 +19,7 @@ import (
 type Dataloaders struct {
 	// OperationsByTxHashLoader batches requests for operations by transaction hash
 	// Used by Transaction.operations field resolver to prevent N+1 queries
-	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
-
-	// TransactionsByAccountLoader batches requests for transactions by account address
-	// Used by Account.transactions field resolver to prevent N+1 queries
-	TransactionsByAccountLoader *dataloadgen.Loader[TransactionColumnsKey, []*types.Transaction]
-
-	// OperationsByAccountLoader batches requests for operations by account address
-	// Used by Account.operations field resolver to prevent N+1 queries
-	OperationsByAccountLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
-
-	// StateChangesByAccountLoader batches requests for state changes by account address
-	// Used by Account.statechanges field resolver to prevent N+1 queries
-	StateChangesByAccountLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
+	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor]
 
 	// AccountsByTxHashLoader batches requests for accounts by transaction hash
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
@@ -39,7 +27,7 @@ type Dataloaders struct {
 
 	// StateChangesByTxHashLoader batches requests for state changes by transaction hash
 	// Used by Transaction.stateChanges field resolver to prevent N+1 queries
-	StateChangesByTxHashLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
+	StateChangesByTxHashLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor]
 
 	// TransactionsByOperationIDLoader batches requests for transactions by operation ID
 	// Used by Operation.transaction field resolver to prevent N+1 queries
@@ -68,14 +56,11 @@ type Dataloaders struct {
 // GraphQL resolvers access these loaders to batch database queries efficiently
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
-		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
-		OperationsByAccountLoader:        operationsByAccountLoader(models),
+		OperationsByTxHashLoader:         OperationsByTxHashLoader(models),
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
-		TransactionsByAccountLoader:      transactionsByAccountLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByAccountLoader:      stateChangesByAccountLoader(models),
-		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
+		StateChangesByTxHashLoader:       StateChangesByTxHashLoader(models),
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByTxHashLoader:           accountsByTxHashLoader(models),
 		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
