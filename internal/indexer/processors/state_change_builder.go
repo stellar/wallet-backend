@@ -132,11 +132,23 @@ func (b *StateChangeBuilder) generateSortKey() string {
 		reason = string(*b.base.StateChangeReason)
 	}
 
-	// For JSON fields, marshal to get a canonical string. Errors are ignored as this is for internal sorting.
-	signerWeights, _ := json.Marshal(b.base.SignerWeights)
-	thresholds, _ := json.Marshal(b.base.Thresholds)
-	flags, _ := json.Marshal(b.base.Flags)
-	keyValue, _ := json.Marshal(b.base.KeyValue)
+	// For JSON fields, marshal to get a canonical string
+	signerWeights, err := json.Marshal(b.base.SignerWeights)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal signer weights: %v", err))
+	}
+	thresholds, err := json.Marshal(b.base.Thresholds)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal thresholds: %v", err))
+	}
+	flags, err := json.Marshal(b.base.Flags)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal flags: %v", err))
+	}
+	keyValue, err := json.Marshal(b.base.KeyValue)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal key value: %v", err))
+	}
 
 	return fmt.Sprintf(
 		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",

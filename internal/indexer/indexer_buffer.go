@@ -1,12 +1,11 @@
 package indexer
 
 import (
-	"encoding/binary"
-	"hash/fnv"
 	"sort"
 	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -179,20 +178,4 @@ func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 	stateChangesCopy := make([]types.StateChange, len(b.stateChanges))
 	copy(stateChangesCopy, b.stateChanges)
 	return stateChangesCopy
-}
-
-func makeStateChangeID(groupKey int64, idx int) int64 {
-	h := fnv.New64a()
-
-	var buf [8]byte
-	// Mix the group key (operation ID or TxID) into the hash
-	binary.LittleEndian.PutUint64(buf[:], uint64(groupKey))
-	_, _ = h.Write(buf[:])
-
-	// Mix the per-group index into the hash
-	binary.LittleEndian.PutUint64(buf[:], uint64(idx))
-	_, _ = h.Write(buf[:])
-
-	// Return a non-negative BIGINT from the 64-bit hash
-	return int64(h.Sum64() & 0x7fffffffffffffff)
 }
