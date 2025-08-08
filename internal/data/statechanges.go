@@ -280,11 +280,14 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 		columns = strings.Join(stateChangeColumns, ", ")
 	}
 
-	toIDs := make([]int64, len(cursors))
-	stateChangeOrders := make([]int64, len(cursors))
+	toIDs := make([]*int64, len(cursors))
+	stateChangeOrders := make([]*int64, len(cursors))
 	for i, cursor := range cursors {
-		toIDs[i] = cursor.ToID
-		stateChangeOrders[i] = cursor.StateChangeOrder
+		if cursor == nil {
+			continue
+		}
+		toIDs[i] = &cursor.ToID
+		stateChangeOrders[i] = &cursor.StateChangeOrder
 	}
 
 	query := `
@@ -302,7 +305,7 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 				JOIN 
 					inputs i ON sc.tx_hash = i.tx_hash
 				WHERE 
-					(i.to_id IS NULL OR sc.to_id < i.to_id OR (sc.to_id = i.to_id AND sc.state_change_order < i.state_change_order))
+					((i.to_id IS NULL AND i.state_change_order IS NULL) OR sc.to_id < i.to_id OR (sc.to_id = i.to_id AND sc.state_change_order < i.state_change_order))
 			)
 		SELECT %s, tx_hash, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM ranked_state_changes_per_tx_hash
 	`

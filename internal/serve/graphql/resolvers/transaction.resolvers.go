@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -90,13 +91,17 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	cursor, err := DecodeStringCursor(after)
-	if err != nil {
-		return nil, fmt.Errorf("decoding cursor: %w", err)
-	}
-	scCursor, err := decodeStateChangeCursor(cursor)
-	if err != nil {
-		return nil, fmt.Errorf("decoding state change cursor: %w", err)
+
+	var scCursor *data.StateChangeCursor
+	if after != nil {
+		cursor, err := DecodeStringCursor(after)
+		if err != nil {
+			return nil, fmt.Errorf("decoding cursor: %w", err)
+		}
+		scCursor, err = decodeStateChangeCursor(cursor)
+		if err != nil {
+			return nil, fmt.Errorf("decoding state change cursor: %w", err)
+		}
 	}
 
 	limit := int32(50)
