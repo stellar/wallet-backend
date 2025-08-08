@@ -16,7 +16,7 @@ import (
 var stateChangeColumns = getDBColumns(types.StateChange{})
 
 type StateChangeCursor struct {
-	ToID int64
+	ToID             int64
 	StateChangeOrder int64
 }
 

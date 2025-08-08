@@ -172,7 +172,7 @@ func decodeStateChangeCursor(s *string) (*data.StateChangeCursor, error) {
 		return nil, fmt.Errorf("parsing state change order for state changes: %w", err)
 	}
 	return &data.StateChangeCursor{
-		ToID: toID,
+		ToID:             toID,
 		StateChangeOrder: scOrder,
 	}, nil
 }
