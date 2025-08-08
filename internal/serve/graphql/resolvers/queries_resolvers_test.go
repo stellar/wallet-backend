@@ -442,10 +442,10 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 4)
-		assert.Equal(t, "sc4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, "sc3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
-		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", scs.Edges[2].Node.ToID, scs.Edges[2].Node.StateChangeOrder))
-		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", scs.Edges[3].Node.ToID, scs.Edges[3].Node.StateChangeOrder))
+		assert.Equal(t, "4:4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "3:3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, "2:2", fmt.Sprintf("%d:%d", scs.Edges[2].Node.ToID, scs.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, "1:1", fmt.Sprintf("%d:%d", scs.Edges[3].Node.ToID, scs.Edges[3].Node.StateChangeOrder))
 		mockMetricsService.AssertExpectations(t)
 	})
 
@@ -459,16 +459,16 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, &limit, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, "sc4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, "sc3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, "4:4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "3:3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
 
 		nextCursor := scs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		scs, err = resolver.StateChanges(ctx, &limit, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, "2:2", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "1:1", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
 
 		hasNextPage := scs.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)

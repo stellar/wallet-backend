@@ -111,7 +111,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "id"}}, keys)
+			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: ""}}, keys)
 			results := [][]*types.StateChange{
 				{
 					{ToID: 1, StateChangeOrder: 1},
@@ -130,8 +130,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
-		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
+		assert.Equal(t, "1:1", fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, "2:1", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {

@@ -153,7 +153,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([]*types.Operation, []error) {
-			assert.Equal(t, []dataloaders.OperationColumnsKey{{StateChangeID: "test-sc-id", Columns: "operations.id"}}, keys)
+			assert.Equal(t, []dataloaders.OperationColumnsKey{{StateChangeID: "1:1", Columns: "operations.id"}}, keys)
 			return []*types.Operation{{ID: 99}}, nil
 		}
 
@@ -191,7 +191,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
-			assert.Equal(t, []dataloaders.TransactionColumnsKey{{StateChangeID: "test-sc-id", Columns: "transactions.hash"}}, keys)
+			assert.Equal(t, []dataloaders.TransactionColumnsKey{{StateChangeID: "1:1", Columns: "transactions.hash"}}, keys)
 			return []*types.Transaction{{Hash: "tx-abc"}}, nil
 		}
 

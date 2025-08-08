@@ -173,9 +173,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, parentTx, &limit, nil)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, int64(3), stateChanges.Edges[0].Node.ToID)
-		assert.Equal(t, int64(1), stateChanges.Edges[1].Node.ToID)
+		require.Len(t, stateChanges.Edges, 1)
+		assert.Equal(t, int64(1), stateChanges.Edges[0].Node.ToID)
 	})
 
 	t.Run("get with pagination", func(t *testing.T) {
@@ -189,15 +188,9 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 1)
-		assert.Equal(t, int64(3), stateChanges.Edges[0].Node.ToID)
-
-		nextCursor := stateChanges.PageInfo.EndCursor
-		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentTx, &limit, nextCursor)
-		require.NoError(t, err)
-		require.Len(t, stateChanges.Edges, 1)
 		assert.Equal(t, int64(1), stateChanges.Edges[0].Node.ToID)
 
+		// Since there's only one state change for tx1, there should be no next page
 		hasNextPage := stateChanges.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)
 	})

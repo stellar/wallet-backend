@@ -18,7 +18,7 @@ type StateChangeColumnsKey struct {
 	Cursor      *data.StateChangeCursor
 }
 
-// stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
+// StateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
 // This prevents N+1 queries when multiple transactions request their state changes
 // The loader batches multiple transaction hashes into a single database query
 func StateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {

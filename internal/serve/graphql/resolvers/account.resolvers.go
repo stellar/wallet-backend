@@ -111,7 +111,6 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 			return nil, fmt.Errorf("decoding state change cursor: %w", err)
 		}
 	}
-	
 
 	limit := int32(50)
 	if first != nil {
