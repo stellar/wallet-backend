@@ -154,7 +154,8 @@ const (
 )
 
 type StateChange struct {
-	ID                  string              `json:"id,omitempty" db:"id"`
+	ToID                int64               `json:"toId,omitempty" db:"to_id"`
+	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
 	StateChangeCategory StateChangeCategory `json:"stateChangeCategory,omitempty" db:"state_change_category"`
 	StateChangeReason   *StateChangeReason  `json:"stateChangeReason,omitempty" db:"state_change_reason"`
 	IngestedAt          time.Time           `json:"ingestedAt,omitempty" db:"ingested_at"`
@@ -182,6 +183,9 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty" db:"operation"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty" db:"transaction"`
+	// Internal IDs used for sorting state changes within an operation.
+	SortKey string `json:"-"`
+	TxID    int64  `json:"-"`
 }
 
 type NullableJSONB map[string]any
