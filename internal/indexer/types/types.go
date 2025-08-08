@@ -219,14 +219,14 @@ type StateChange struct {
 	Operation   *Operation   `json:"operation,omitempty"`
 	TxHash      string       `json:"txHash,omitempty" db:"tx_hash"`
 	Transaction *Transaction `json:"transaction,omitempty"`
+	// Internal IDs used for sorting state changes within an operation.
+	SortKey string `json:"-"`
+	TxID    int64  `json:"-"`
 }
 
 type StateChangeWithCursor struct {
 	StateChange
 	Cursor int64 `json:"cursor,omitempty" db:"sc_cursor"`
-	// Internal IDs used for sorting state changes within an operation.
-	SortKey string `json:"-"`
-	TxID    int64  `json:"-"`
 }
 
 type NullableJSONB map[string]any
