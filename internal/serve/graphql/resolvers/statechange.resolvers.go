@@ -16,12 +16,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-// ID is the resolver for the id field.
-// Generates a composite ID from ToID and StateChangeOrder for compatibility
-func (r *stateChangeResolver) ID(ctx context.Context, obj *types.StateChange) (string, error) {
-	return fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder), nil
-}
-
 // TokenID is the resolver for the tokenId field.
 // This resolver handles nullable string fields from the database
 // GraphQL nullable fields return null when the database value is not valid

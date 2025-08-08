@@ -119,7 +119,7 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{
-				{TxHash: "test-tx-hash", Columns: "to_id, state_change_order"},
+				{TxHash: "test-tx-hash", Columns: "account_id, state_change_category"},
 			}, keys)
 			results := [][]*types.StateChange{
 				{
@@ -133,7 +133,7 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"toId", "stateChangeOrder"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentTx)
 

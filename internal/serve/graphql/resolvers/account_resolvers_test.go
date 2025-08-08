@@ -147,7 +147,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{
-				{AccountID: "test-account", Columns: "state_changes.to_id, state_changes.state_change_order"},
+				{AccountID: "test-account", Columns: "state_changes.account_id, state_changes.state_change_category"},
 			}, keys)
 			results := [][]*types.StateChange{
 				{
@@ -161,7 +161,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByAccountLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"toId", "stateChangeOrder"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount)
 
@@ -181,7 +181,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByAccountLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"toId", "stateChangeOrder"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentAccount)
 

@@ -100,7 +100,6 @@ type ComplexityRoot struct {
 		Amount              func(childComplexity int) int
 		ClaimableBalanceID  func(childComplexity int) int
 		Flags               func(childComplexity int) int
-		ID                  func(childComplexity int) int
 		IngestedAt          func(childComplexity int) int
 		KeyValue            func(childComplexity int) int
 		LedgerCreatedAt     func(childComplexity int) int
@@ -157,8 +156,6 @@ type QueryResolver interface {
 	StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error)
 }
 type StateChangeResolver interface {
-	ID(ctx context.Context, obj *types.StateChange) (string, error)
-
 	TokenID(ctx context.Context, obj *types.StateChange) (*string, error)
 	Amount(ctx context.Context, obj *types.StateChange) (*string, error)
 	ClaimableBalanceID(ctx context.Context, obj *types.StateChange) (*string, error)
@@ -430,13 +427,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StateChange.Flags(childComplexity), true
-
-	case "StateChange.id":
-		if e.complexity.StateChange.ID == nil {
-			break
-		}
-
-		return e.complexity.StateChange.ID(childComplexity), true
 
 	case "StateChange.ingestedAt":
 		if e.complexity.StateChange.IngestedAt == nil {
@@ -936,7 +926,6 @@ scalar Int64
 # This type has many nullable fields to handle various state change scenarios
 # TODO: Break state change type into interface design and add sub types that implement the interface
 type StateChange{
-  id:                         String! @goField(forceResolver: true)
   accountId:                  String!           
   stateChangeCategory:        StateChangeCategory!
   stateChangeReason:          StateChangeReason
@@ -1498,8 +1487,6 @@ func (ec *executionContext) fieldContext_Account_stateChanges(_ context.Context,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_StateChange_id(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
 			case "stateChangeCategory":
@@ -2179,8 +2166,6 @@ func (ec *executionContext) fieldContext_Operation_stateChanges(_ context.Contex
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_StateChange_id(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
 			case "stateChangeCategory":
@@ -2557,8 +2542,6 @@ func (ec *executionContext) fieldContext_Query_stateChanges(ctx context.Context,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_StateChange_id(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
 			case "stateChangeCategory":
@@ -2840,50 +2823,6 @@ func (ec *executionContext) fieldContext_RegisterAccountPayload_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _StateChange_id(ctx context.Context, field graphql.CollectedField, obj *types.StateChange) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_StateChange_id(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.StateChange().ID(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_StateChange_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "StateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4278,8 +4217,6 @@ func (ec *executionContext) fieldContext_Transaction_stateChanges(_ context.Cont
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_StateChange_id(ctx, field)
 			case "accountId":
 				return ec.fieldContext_StateChange_accountId(ctx, field)
 			case "stateChangeCategory":
@@ -6995,42 +6932,6 @@ func (ec *executionContext) _StateChange(ctx context.Context, sel ast.SelectionS
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("StateChange")
-		case "id":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._StateChange_id(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "accountId":
 			out.Values[i] = ec._StateChange_accountId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

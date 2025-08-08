@@ -2,7 +2,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -399,12 +398,14 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		resolver.models.StateChanges.MetricsService = mockMetricsService
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-		ctx := GetTestCtx("state_changes", []string{"toId", "stateChangeOrder", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
+		ctx := GetTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs, 2)
-		assert.Contains(t, []string{"1-1", "1-2"}, fmt.Sprintf("%d-%d", scs[0].ToID, scs[0].StateChangeOrder))
-		assert.Contains(t, []string{"1-1", "1-2"}, fmt.Sprintf("%d-%d", scs[1].ToID, scs[1].StateChangeOrder))
+		// Verify the state changes have the expected account IDs
+		accountIDs := []string{scs[0].AccountID, scs[1].AccountID}
+		assert.Contains(t, accountIDs, "account1")
+		assert.Contains(t, accountIDs, "account2")
 		mockMetricsService.AssertExpectations(t)
 	})
 
