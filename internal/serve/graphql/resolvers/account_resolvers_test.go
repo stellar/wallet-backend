@@ -147,12 +147,12 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{
-				{AccountID: "test-account", Columns: "state_changes.id"},
+				{AccountID: "test-account", Columns: "state_changes.to_id, state_changes.state_change_order"},
 			}, keys)
 			results := [][]*types.StateChange{
 				{
-					{ID: "sc1", TxHash: "tx1"},
-					{ID: "sc2", TxHash: "tx1"},
+					{ToID: 1, StateChangeOrder: 1, TxHash: "tx1"},
+					{ToID: 1, StateChangeOrder: 2, TxHash: "tx1"},
 				},
 			}
 			return results, nil
@@ -161,14 +161,16 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByAccountLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"toId", "stateChangeOrder"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", stateChanges[0].ID)
-		assert.Equal(t, "sc2", stateChanges[1].ID)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[1].ToID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
@@ -179,7 +181,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByAccountLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"toId", "stateChangeOrder"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentAccount)
 

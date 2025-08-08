@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -363,7 +364,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	require.NoError(t, dbErr)
 
 	sc1 := &types.StateChange{
-		ID:                  "sc1",
+		ToID:                1,
+		StateChangeOrder:    1,
 		StateChangeCategory: types.StateChangeCategoryCredit,
 		TxHash:              "tx1",
 		OperationID:         1,
@@ -372,7 +374,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		LedgerNumber:        1,
 	}
 	sc2 := &types.StateChange{
-		ID:                  "sc2",
+		ToID:                1,
+		StateChangeOrder:    2,
 		StateChangeCategory: types.StateChangeCategoryDebit,
 		TxHash:              "tx1",
 		OperationID:         1,
@@ -383,9 +386,9 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 
 	dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO state_changes (id, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7), ($8, $9, $10, $11, $12, $13, $14)`,
-			sc1.ID, sc1.StateChangeCategory, sc1.TxHash, sc1.OperationID, sc1.AccountID, sc1.LedgerCreatedAt, sc1.LedgerNumber,
-			sc2.ID, sc2.StateChangeCategory, sc2.TxHash, sc2.OperationID, sc2.AccountID, sc2.LedgerCreatedAt, sc2.LedgerNumber)
+			`INSERT INTO state_changes (to_id, state_change_order, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)`,
+			sc1.ToID, sc1.StateChangeOrder, sc1.StateChangeCategory, sc1.TxHash, sc1.OperationID, sc1.AccountID, sc1.LedgerCreatedAt, sc1.LedgerNumber,
+			sc2.ToID, sc2.StateChangeOrder, sc2.StateChangeCategory, sc2.TxHash, sc2.OperationID, sc2.AccountID, sc2.LedgerCreatedAt, sc2.LedgerNumber)
 		require.NoError(t, err)
 		return nil
 	})
@@ -396,12 +399,12 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		resolver.models.StateChanges.MetricsService = mockMetricsService
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-		ctx := GetTestCtx("state_changes", []string{"id", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
+		ctx := GetTestCtx("state_changes", []string{"toId", "stateChangeOrder", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs, 2)
-		assert.Contains(t, []string{"sc1", "sc2"}, scs[0].ID)
-		assert.Contains(t, []string{"sc1", "sc2"}, scs[1].ID)
+		assert.Contains(t, []string{"1-1", "1-2"}, fmt.Sprintf("%d-%d", scs[0].ToID, scs[0].StateChangeOrder))
+		assert.Contains(t, []string{"1-1", "1-2"}, fmt.Sprintf("%d-%d", scs[1].ToID, scs[1].StateChangeOrder))
 		mockMetricsService.AssertExpectations(t)
 	})
 

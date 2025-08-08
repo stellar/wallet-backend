@@ -16,6 +16,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
+// ID is the resolver for the id field.
+// Generates a composite ID from ToID and StateChangeOrder for compatibility
+func (r *stateChangeResolver) ID(ctx context.Context, obj *types.StateChange) (string, error) {
+	return fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder), nil
+}
+
 // TokenID is the resolver for the tokenId field.
 // This resolver handles nullable string fields from the database
 // GraphQL nullable fields return null when the database value is not valid
@@ -152,8 +158,9 @@ func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateCha
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
 
+	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
 	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: obj.ID,
+		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
@@ -168,8 +175,9 @@ func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateC
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
 
+	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
 	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: obj.ID,
+		StateChangeID: stateChangeID,
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
