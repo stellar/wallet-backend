@@ -30,7 +30,7 @@ type StateChange{
   
   # GraphQL Relationships - these fields use resolvers
   # Related operation
-  operation:                  Operation! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
   
   # Related transaction
   transaction:                Transaction! @goField(forceResolver: true)
