@@ -23,7 +23,7 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.TransactionConnection, error) {
-	afterCursor, err := DecodeCursor(after)
+	afterCursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -62,7 +62,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 // This field resolver handles the "operations" field on an Account object
 // Demonstrates the same dataloader pattern as Transactions resolver
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.OperationConnection, error) {
-	afterCursor, err := DecodeCursor(after)
+	afterCursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -99,9 +99,13 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
-	afterCursor, err := DecodeCursor(after)
+	cursor, err := DecodeStringCursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+	scCursor, err := decodeStateChangeCursor(cursor)
+	if err != nil {
+		return nil, fmt.Errorf("decoding state change cursor: %w", err)
 	}
 
 	limit := int32(50)
@@ -111,12 +115,12 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, scCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db: %w", err)
 	}
 
-	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) int64 {
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) string {
 		return sc.Cursor
 	})
 

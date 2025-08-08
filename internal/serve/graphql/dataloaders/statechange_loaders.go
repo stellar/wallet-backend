@@ -15,7 +15,7 @@ type StateChangeColumnsKey struct {
 	TxHash      string
 	Columns     string
 	Limit       *int32
-	Cursor      *int64
+	Cursor      *data.StateChangeCursor
 }
 
 // stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
@@ -27,7 +27,7 @@ func StateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateCh
 			txHashes := make([]string, 0, len(keys))
 			columns := keys[0].Columns
 			limit := keys[0].Limit
-			cursors := make([]*int64, 0, len(keys))
+			cursors := make([]*data.StateChangeCursor, 0, len(keys))
 			for _, key := range keys {
 				txHashes = append(txHashes, key.TxHash)
 				cursors = append(cursors, key.Cursor)

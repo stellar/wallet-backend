@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -26,7 +27,7 @@ type GenericConnection[T any] struct {
 }
 
 // NewConnection builds a generic GraphQL connection from a slice of nodes.
-func NewConnection[T any](nodes []T, limit int32, after *string, getCursorID func(T) int64) *GenericConnection[T] {
+func NewConnection[T any, C int64 | string](nodes []T, limit int32, after *string, getCursorID func(T) C) *GenericConnection[T] {
 	hasNextPage := false
 	if int32(len(nodes)) > limit {
 		hasNextPage = true
@@ -79,11 +80,18 @@ func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []stri
 	return prefixDBColumns(prefix, getDBColumns(model, fields))
 }
 
-func EncodeCursor(i int64) string {
-	return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(i, 10)))
+func EncodeCursor[T int64 | string](i T) string {
+	switch v := any(i).(type) {
+	case int64:
+		return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(v, 10)))
+	case string:
+		return base64.StdEncoding.EncodeToString([]byte(v))
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", i))
+	}
 }
 
-func DecodeCursor(s *string) (*int64, error) {
+func DecodeInt64Cursor(s *string) (*int64, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -99,6 +107,20 @@ func DecodeCursor(s *string) (*int64, error) {
 	}
 
 	return &id, nil
+}
+
+func DecodeStringCursor(s *string) (*string, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(*s)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor string %s: %w", *s, err)
+	}
+	decodedStr := string(decoded)
+
+	return &decodedStr, nil
 }
 
 func getDBColumns(model any, fields []graphql.CollectedField) []string {
@@ -137,4 +159,20 @@ func getColumnMap(model any) map[string]string {
 		}
 	}
 	return fieldToColumnMap
+}
+
+func decodeStateChangeCursor(s *string) (*data.StateChangeCursor, error) {
+	parts := strings.Split(*s, ":")
+	toID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing toID for state changes: %w", err)
+	}
+	scOrder, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing state change order for state changes: %w", err)
+	}
+	return &data.StateChangeCursor{
+		ToID: toID,
+		StateChangeOrder: scOrder,
+	}, nil
 }

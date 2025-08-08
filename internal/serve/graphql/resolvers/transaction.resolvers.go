@@ -20,7 +20,7 @@ import (
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.OperationConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	afterCursor, err := DecodeCursor(after)
+	afterCursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -90,9 +90,13 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	cursor, err := DecodeCursor(after)
+	cursor, err := DecodeStringCursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+	scCursor, err := decodeStateChangeCursor(cursor)
+	if err != nil {
+		return nil, fmt.Errorf("decoding state change cursor: %w", err)
 	}
 
 	limit := int32(50)
@@ -107,7 +111,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 		TxHash:  obj.Hash,
 		Columns: strings.Join(dbColumns, ", "),
 		Limit:   &queryLimit,
-		Cursor:  cursor,
+		Cursor:  scCursor,
 	}
 
 	// Use dataloader to batch-load operations for this transaction
@@ -116,7 +120,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 		return nil, err
 	}
 
-	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) int64 {
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) string {
 		return sc.Cursor
 	})
 

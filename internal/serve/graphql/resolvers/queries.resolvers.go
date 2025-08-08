@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -25,7 +26,7 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string) (*graphql1.TransactionConnection, error) {
-	afterCursor, err := DecodeCursor(after)
+	afterCursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -69,7 +70,7 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string) (*graphql1.OperationConnection, error) {
-	afterCursor, err := DecodeCursor(after)
+	afterCursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, fmt.Errorf("decoding cursor: %w", err)
 	}
@@ -105,9 +106,17 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
-	afterCursor, err := DecodeCursor(after)
-	if err != nil {
-		return nil, fmt.Errorf("decoding cursor: %w", err)
+	var scCursor *data.StateChangeCursor
+	if after != nil {
+		cursor, err := DecodeStringCursor(after)
+		if err != nil {
+			return nil, fmt.Errorf("decoding cursor for state changes: %w", err)
+		}
+
+		scCursor, err = decodeStateChangeCursor(cursor)
+		if err != nil {
+			return nil, fmt.Errorf("decoding state change cursor: %w", err)
+		}
 	}
 
 	limit := int32(50)
@@ -117,12 +126,12 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 	queryLimit := limit + 1
-	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, afterCursor)
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, scCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db: %w", err)
 	}
 
-	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) int64 {
+	conn := NewConnection(stateChanges, limit, after, func(sc *types.StateChangeWithCursor) string {
 		return sc.Cursor
 	})
 

@@ -15,6 +15,11 @@ import (
 
 var stateChangeColumns = getDBColumns(types.StateChange{})
 
+type StateChangeCursor struct {
+	ToID int64
+	StateChangeOrder int64
+}
+
 type StateChangeModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
@@ -26,7 +31,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 	accountAddress string,
 	columns string,
 	limit *int32,
-	after *int64,
+	cursor *StateChangeCursor,
 ) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = strings.Join(stateChangeColumns, ", ")
@@ -35,8 +40,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 	query := fmt.Sprintf(`
 		SELECT %s, operation_id as sc_cursor FROM state_changes WHERE account_id = $1
 	`, columns)
-	if after != nil {
-		query += fmt.Sprintf(` AND operation_id < %d`, *after)
+	if cursor != nil {
+		query += fmt.Sprintf(` AND to_id < %d AND state_change_order < %d`, cursor.ToID, cursor.StateChangeOrder)
 	}
 	query += ` ORDER BY operation_id DESC`
 
@@ -56,14 +61,14 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, after *int64) ([]*types.StateChangeWithCursor, error) {
+func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *StateChangeCursor) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = strings.Join(stateChangeColumns, ", ")
 	}
-	query := fmt.Sprintf(`SELECT %s, to_id as sc_cursor FROM state_changes`, columns)
+	query := fmt.Sprintf(`SELECT %s, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM state_changes`, columns)
 
-	if after != nil {
-		query += fmt.Sprintf(` WHERE operation_id < %d`, *after)
+	if cursor != nil {
+		query += fmt.Sprintf(` WHERE to_id < %d OR (to_id = %d AND state_change_order < %d)`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder)
 	}
 	query += ` ORDER BY to_id DESC, state_change_order DESC`
 
@@ -270,29 +275,36 @@ func (m *StateChangeModel) BatchInsert(
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*int64) ([]*types.StateChangeWithCursor, error) {
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, cursors []*StateChangeCursor) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = strings.Join(stateChangeColumns, ", ")
 	}
 
+	toIDs := make([]int64, len(cursors))
+	stateChangeOrders := make([]int64, len(cursors))
+	for i, cursor := range cursors {
+		toIDs[i] = cursor.ToID
+		stateChangeOrders[i] = cursor.StateChangeOrder
+	}
+
 	query := `
 		WITH
-			inputs (tx_hash, cursor) AS (
-				SELECT * FROM UNNEST($1::text[], $2::bigint[])
+			inputs (tx_hash, to_id, state_change_order) AS (
+				SELECT * FROM UNNEST($1::text[], $2::bigint[], $3::bigint[])
 			),
 			
 			ranked_state_changes_per_tx_hash AS (
 				SELECT
 					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.operation_id DESC, sc.id DESC) AS rn
+					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id DESC, sc.state_change_order DESC) AS rn
 				FROM 
 					state_changes sc
 				JOIN 
 					inputs i ON sc.tx_hash = i.tx_hash
 				WHERE 
-					(i.cursor IS NULL OR sc.operation_id < i.cursor OR (sc.operation_id = i.cursor AND sc.id < i.cursor))
+					(i.to_id IS NULL OR sc.to_id < i.to_id OR (sc.to_id = i.to_id AND sc.state_change_order < i.state_change_order))
 			)
-		SELECT %s, tx_hash, operation_id as sc_cursor FROM ranked_state_changes_per_tx_hash
+		SELECT %s, tx_hash, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM ranked_state_changes_per_tx_hash
 	`
 	query = fmt.Sprintf(query, columns)
 
@@ -302,7 +314,7 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes), pq.Array(cursors))
+	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes), pq.Array(toIDs), pq.Array(stateChangeOrders))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {

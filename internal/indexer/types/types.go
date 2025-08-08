@@ -226,7 +226,7 @@ type StateChange struct {
 
 type StateChangeWithCursor struct {
 	StateChange
-	Cursor int64 `json:"cursor,omitempty" db:"sc_cursor"`
+	Cursor string `json:"cursor,omitempty" db:"sc_cursor"`
 }
 
 type NullableJSONB map[string]any
