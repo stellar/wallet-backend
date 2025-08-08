@@ -81,7 +81,9 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	operations, err := r.models.Operations.GetAll(ctx, &limit, strings.Join(dbColumns, ", "), afterCursor)
+
+	queryLimit := limit + 1 // Fetching one more item to check if there's a next page.
+	operations, err := r.models.Operations.GetAll(ctx, &queryLimit, strings.Join(dbColumns, ", "), afterCursor)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}

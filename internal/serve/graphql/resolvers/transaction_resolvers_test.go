@@ -138,49 +138,69 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 }
 
 func TestTransactionResolver_StateChanges(t *testing.T) {
-	resolver := &transactionResolver{&Resolver{}}
-	parentTx := &types.Transaction{Hash: "test-tx-hash"}
+	parentTx := &types.Transaction{Hash: "tx1"}
+	ctx := context.Background()
 
-	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			assert.Equal(t, []dataloaders.StateChangeColumnsKey{
-				{TxHash: "test-tx-hash", Columns: "id"},
-			}, keys)
-			results := [][]*types.StateChange{
-				{
-					{ID: "sc1"},
-					{ID: "sc2"},
-				},
-			}
-			return results, nil
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &transactionResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	setupDB(ctx, t, dbConnectionPool)
+
+	t.Run("get without pagination", func(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
-			StateChangesByTxHashLoader: loader,
+			StateChangesByTxHashLoader: dataloaders.StateChangesByTxHashLoader(resolver.models),
 		}
 		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
-		stateChanges, err := resolver.StateChanges(ctx, parentTx)
+		limit := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, &limit, nil)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", stateChanges[0].ID)
-		assert.Equal(t, "sc2", stateChanges[1].ID)
+		require.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, int64(3), stateChanges.Edges[0].Node.ToID)
+		assert.Equal(t, int64(1), stateChanges.Edges[1].Node.ToID)
 	})
 
-	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			return nil, []error{errors.New("sc fetch error")}
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
+	t.Run("get with pagination", func(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
-			StateChangesByTxHashLoader: loader,
+			StateChangesByTxHashLoader: dataloaders.StateChangesByTxHashLoader(resolver.models),
 		}
 		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
-		_, err := resolver.StateChanges(ctx, parentTx)
+		limit := int32(1)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, &limit, nil)
 
-		require.Error(t, err)
-		assert.EqualError(t, err, "sc fetch error")
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 1)
+		assert.Equal(t, int64(3), stateChanges.Edges[0].Node.ToID)
+
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentTx, &limit, nextCursor)
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 1)
+		assert.Equal(t, int64(1), stateChanges.Edges[0].Node.ToID)
+
+		hasNextPage := stateChanges.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
 	})
+
+	cleanUpDB(ctx, t, dbConnectionPool)
 }

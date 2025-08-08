@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,8 +114,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "id"}}, keys)
 			results := [][]*types.StateChange{
 				{
-					{ID: "sc1"},
-					{ID: "sc2"},
+					{ToID: 1, StateChangeOrder: 1},
+					{ToID: 2, StateChangeOrder: 1},
 				},
 			}
 			return results, nil
@@ -129,8 +130,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", stateChanges[0].ID)
-		assert.Equal(t, "sc2", stateChanges[1].ID)
+		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {

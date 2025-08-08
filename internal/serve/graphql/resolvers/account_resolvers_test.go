@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -179,10 +180,10 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 4)
-		assert.Equal(t, "sc4", stateChanges.Edges[0].Node.ID)
-		assert.Equal(t, "sc3", stateChanges.Edges[1].Node.ID)
-		assert.Equal(t, "sc2", stateChanges.Edges[2].Node.ID)
-		assert.Equal(t, "sc1", stateChanges.Edges[3].Node.ID)
+		assert.Equal(t, "4:1", fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "3:1", fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, "2:1", fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, "1:1", fmt.Sprintf("%d:%d", stateChanges.Edges[3].Node.ToID, stateChanges.Edges[3].Node.StateChangeOrder))
 	})
 
 	t.Run("get with cursor", func(t *testing.T) {
@@ -192,16 +193,16 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, "sc4", stateChanges.Edges[0].Node.ID)
-		assert.Equal(t, "sc3", stateChanges.Edges[1].Node.ID)
+		assert.Equal(t, "4:1", fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "3:1", fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
 
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		stateChanges, err = resolver.StateChanges(ctx, parentAccount, &limit, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, "sc2", stateChanges.Edges[0].Node.ID)
-		assert.Equal(t, "sc1", stateChanges.Edges[1].Node.ID)
+		assert.Equal(t, "2:1", fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "1:1", fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
 
 		hasNextPage := stateChanges.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)

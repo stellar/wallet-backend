@@ -38,12 +38,12 @@ func (m *StateChangeModel) BatchGetByAccountAddress(
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s, operation_id as sc_cursor FROM state_changes WHERE account_id = $1
+		SELECT %s, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM state_changes WHERE account_id = $1
 	`, columns)
 	if cursor != nil {
-		query += fmt.Sprintf(` AND to_id < %d AND state_change_order < %d`, cursor.ToID, cursor.StateChangeOrder)
+		query += fmt.Sprintf(` AND (to_id < %d OR (to_id = %d AND state_change_order < %d))`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder)
 	}
-	query += ` ORDER BY operation_id DESC`
+	query += ` ORDER BY to_id DESC, state_change_order DESC`
 
 	if limit != nil && *limit > 0 {
 		query += fmt.Sprintf(` LIMIT %d`, *limit)

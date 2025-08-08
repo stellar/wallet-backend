@@ -411,7 +411,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	stateChanges := make([]*types.StateChange, 0, 4)
 	for i := 0; i < 4; i++ {
 		stateChanges = append(stateChanges, &types.StateChange{
-			ID:                  fmt.Sprintf("sc%d", i+1),
+			ToID:                int64(i + 1),
+			StateChangeOrder:    int64(i + 1),
 			StateChangeCategory: types.StateChangeCategoryCredit,
 			TxHash:              "tx1",
 			OperationID:         int64(i + 1),
@@ -424,8 +425,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 		for _, sc := range stateChanges {
 			_, err := tx.ExecContext(ctx,
-				`INSERT INTO state_changes (id, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				sc.ID, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil
@@ -441,10 +442,10 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 4)
-		assert.Equal(t, "sc4", scs.Edges[0].Node.ID)
-		assert.Equal(t, "sc3", scs.Edges[1].Node.ID)
-		assert.Equal(t, "sc2", scs.Edges[2].Node.ID)
-		assert.Equal(t, "sc1", scs.Edges[3].Node.ID)
+		assert.Equal(t, "sc4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "sc3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", scs.Edges[2].Node.ToID, scs.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", scs.Edges[3].Node.ToID, scs.Edges[3].Node.StateChangeOrder))
 		mockMetricsService.AssertExpectations(t)
 	})
 
@@ -458,16 +459,16 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, &limit, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, "sc4", scs.Edges[0].Node.ID)
-		assert.Equal(t, "sc3", scs.Edges[1].Node.ID)
+		assert.Equal(t, "sc4", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "sc3", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
 
 		nextCursor := scs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		scs, err = resolver.StateChanges(ctx, &limit, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, "sc2", scs.Edges[0].Node.ID)
-		assert.Equal(t, "sc1", scs.Edges[1].Node.ID)
+		assert.Equal(t, "sc2", fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, "sc1", fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
 
 		hasNextPage := scs.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)

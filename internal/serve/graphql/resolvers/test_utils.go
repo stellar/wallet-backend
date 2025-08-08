@@ -74,7 +74,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	for i := range 4 {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                int64(i + 1),
-			StateChangeOrder:    int64(i + 1),
+			StateChangeOrder:    1,
 			StateChangeCategory: types.StateChangeCategoryCredit,
 			TxHash:              fmt.Sprintf("tx%d", i+1),
 			OperationID:         int64(i + 1),

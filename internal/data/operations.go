@@ -33,8 +33,7 @@ func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns strin
 	query += ` ORDER BY id DESC`
 
 	if limit != nil && *limit > 0 {
-		// Fetch one more item to check if there's a next page.
-		query += fmt.Sprintf(` LIMIT %d`, *limit+1)
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
 	}
 
 	var operations []*types.OperationWithCursor

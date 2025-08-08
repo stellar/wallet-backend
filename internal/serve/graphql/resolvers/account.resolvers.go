@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -99,14 +100,18 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.StateChangeConnection, error) {
-	cursor, err := DecodeStringCursor(after)
-	if err != nil {
-		return nil, fmt.Errorf("decoding cursor: %w", err)
+	var scCursor *data.StateChangeCursor
+	if after != nil {
+		cursor, err := DecodeStringCursor(after)
+		if err != nil {
+			return nil, fmt.Errorf("decoding cursor: %w", err)
+		}
+		scCursor, err = decodeStateChangeCursor(cursor)
+		if err != nil {
+			return nil, fmt.Errorf("decoding state change cursor: %w", err)
+		}
 	}
-	scCursor, err := decodeStateChangeCursor(cursor)
-	if err != nil {
-		return nil, fmt.Errorf("decoding state change cursor: %w", err)
-	}
+	
 
 	limit := int32(50)
 	if first != nil {
