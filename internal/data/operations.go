@@ -128,20 +128,22 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
-func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.OperationWithStateChangeID, error) {
+func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
 	if columns == "" {
 		columns = "operations.*"
 	}
+
 	query := fmt.Sprintf(`
-		SELECT %s, state_changes.id AS state_change_id
+		SELECT %s, CONCAT(sc.to_id, ':', sc.state_change_order) AS sc_id
 		FROM operations
-		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE CONCAT(state_changes.to_id, ':', state_changes.state_change_order) = ANY($1)
-		ORDER BY operations.ledger_created_at DESC
+		INNER JOIN state_changes sc ON operations.id = sc.operation_id
+		WHERE sc.to_id = ANY($1)
+		ORDER BY operations.id DESC
 	`, columns)
+
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(stateChangeIDs))
+	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(scToIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {

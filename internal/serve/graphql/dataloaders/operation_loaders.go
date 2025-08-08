@@ -2,6 +2,9 @@ package dataloaders
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -52,12 +55,22 @@ func OperationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[Operation
 func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithStateChangeID, error) {
-			stateChangeIDs := make([]string, len(keys))
+			scToIDs := make([]int64, len(keys))
 			columns := keys[0].Columns
 			for i, key := range keys {
-				stateChangeIDs[i] = key.StateChangeID
+				parts := strings.Split(key.StateChangeID, ":")
+				if len(parts) != 2 {
+					return nil, fmt.Errorf("invalid state change ID format: %s", key.StateChangeID)
+				}
+
+				toID, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid toID in state change ID %s: %w", key.StateChangeID, err)
+				}
+
+				scToIDs[i] = toID
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, stateChangeIDs, columns)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID

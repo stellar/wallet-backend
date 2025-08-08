@@ -146,7 +146,7 @@ type OperationWithCursor struct {
 
 type OperationWithStateChangeID struct {
 	Operation
-	StateChangeID string `db:"state_change_id"`
+	StateChangeID string `db:"sc_id"`
 }
 
 type StateChangeCategory string

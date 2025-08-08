@@ -65,7 +65,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	if columns == "" {
 		columns = strings.Join(stateChangeColumns, ", ")
 	}
-	query := fmt.Sprintf(`SELECT %s, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM state_changes`, columns)
+	query := fmt.Sprintf(`SELECT %s, to_id, state_change_order, CONCAT(to_id, ':', state_change_order) as sc_cursor FROM state_changes`, columns)
 
 	if cursor != nil {
 		query += fmt.Sprintf(` WHERE to_id < %d OR (to_id = %d AND state_change_order < %d)`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder)
