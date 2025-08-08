@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -9,6 +10,17 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+func buildStateChange(toID int64, stateChangeCategory types.StateChangeCategory, accountID string, txHash string, operationID int64) types.StateChange {
+	return types.StateChange{
+		ToID:                toID,
+		StateChangeCategory: stateChangeCategory,
+		AccountID:           accountID,
+		TxHash:              txHash,
+		OperationID:         operationID,
+		SortKey:             fmt.Sprintf("%d:%s:%s", toID, stateChangeCategory, accountID),
+	}
+}
 
 func Test_IndexerBuffer_PushParticipantTransaction_and_Getters(t *testing.T) {
 	t.Run("🟢sequential_calls", func(t *testing.T) {
@@ -256,22 +268,26 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 	t.Run("🟢sequential_calls_with_ops_and_txs", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
-		tx1 := types.Transaction{Hash: "tx_hash_1"}
-		tx2 := types.Transaction{Hash: "tx_hash_2"}
-		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
-		op2 := types.Operation{ID: 2, TxHash: tx2.Hash}
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		op1 := types.Operation{ID: 3, TxHash: tx1.Hash}
+		op2 := types.Operation{ID: 4, TxHash: tx2.Hash}
 		indexerBuffer.PushParticipantOperation("someone", op1, tx1)
 		indexerBuffer.PushParticipantOperation("someone", op2, tx2)
 
-		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, TxHash: tx1.Hash, OperationID: op1.ID, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "alice"}
-		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1, TxHash: tx2.Hash, OperationID: op2.ID, AccountID: "bob"}
+		sc1 := buildStateChange(3, types.StateChangeCategoryCredit, "alice", tx1.Hash, op1.ID)
+		sc2 := buildStateChange(4, types.StateChangeCategoryDebit, "alice", tx2.Hash, op2.ID)
+		sc3 := buildStateChange(4, types.StateChangeCategoryCredit, "eve", tx2.Hash, op2.ID)
+		// These are fee state changes, so they don't have an operation ID.
+		sc4 := buildStateChange(1, types.StateChangeCategoryDebit, "bob", tx2.Hash, 0)
+		sc5 := buildStateChange(2, types.StateChangeCategoryDebit, "bob", tx2.Hash, 0)
 
 		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
-		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3, sc4})
+		indexerBuffer.PushStateChanges([]types.StateChange{sc5})
 
 		allStateChanges := indexerBuffer.GetAllStateChanges()
-		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
+		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
 
 		// Assert transactions
 		wantTxByHash := map[string]types.Transaction{
@@ -284,14 +300,28 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 
 		// Assert operations
 		wantOpByID := map[int64]types.Operation{
-			1: op1,
-			2: op2,
+			3: op1,
+			4: op2,
 		}
 		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
-		assert.Equal(t, map[int64]types.Operation{1: op1, 2: op2}, indexerBuffer.GetParticipantOperations("alice"))
-		assert.Equal(t, map[int64]types.Operation{2: op2}, indexerBuffer.GetParticipantOperations("bob"))
+		assert.Equal(t, map[int64]types.Operation{3: op1, 4: op2}, indexerBuffer.GetParticipantOperations("alice"))
+		assert.Nil(t, indexerBuffer.GetParticipantOperations("bob"))
 
 		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob", "someone"), indexerBuffer.Participants)
+		assert.Equal(t, set.NewSet("alice", "bob", "eve", "someone"), indexerBuffer.Participants)
+
+		// Assert state change order
+		indexerBuffer.CalculateStateChangeOrder()
+		allStateChanges = indexerBuffer.GetAllStateChanges()
+		assert.Equal(t, int64(1), allStateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1), allStateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(1), allStateChanges[2].StateChangeOrder)
+
+		// For state changes with same operation ID, the order is calculated using the 
+		// sort key and the credit state change comes before the debit one.
+		assert.Equal(t, int64(1), allStateChanges[3].StateChangeOrder)
+		assert.Equal(t, types.StateChangeCategoryCredit, allStateChanges[3].StateChangeCategory)
+		assert.Equal(t, int64(2), allStateChanges[4].StateChangeOrder)
+		assert.Equal(t, types.StateChangeCategoryDebit, allStateChanges[4].StateChangeCategory)
 	})
 }

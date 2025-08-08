@@ -159,13 +159,12 @@ func (b *IndexerBuffer) CalculateStateChangeOrder() {
 	for i := range b.stateChanges {
 		sc := &b.stateChanges[i]
 
-		// State changes are 1-indexed within an operation.
+		// State changes are 1-indexed within an operation/transaction.
 		if sc.OperationID != 0 {
 			perOpIdx[sc.OperationID]++
 			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
 		} else {
-			// Fee state changes are 0-indexed.
-			sc.StateChangeOrder = 0
+			sc.StateChangeOrder = 1
 		}
 	}
 }
