@@ -6,7 +6,6 @@ package processors
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -813,7 +812,6 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
 	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, fmt.Sprintf("%d-%s", change.OperationID, expectedAccount), change.ID)
 	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
 }
 

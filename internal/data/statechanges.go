@@ -27,7 +27,8 @@ func (m *StateChangeModel) BatchInsert(
 	}
 
 	// Flatten the state changes into parallel slices
-	ids := make([]string, len(stateChanges))
+	stateChangeOrders := make([]int64, len(stateChanges))
+	toIDs := make([]int64, len(stateChanges))
 	categories := make([]string, len(stateChanges))
 	reasons := make([]*string, len(stateChanges))
 	ledgerCreatedAts := make([]time.Time, len(stateChanges))
@@ -50,7 +51,8 @@ func (m *StateChangeModel) BatchInsert(
 	keyValues := make([]*types.NullableJSONB, len(stateChanges))
 
 	for i, sc := range stateChanges {
-		ids[i] = sc.ID
+		stateChangeOrders[i] = sc.StateChangeOrder
+		toIDs[i] = sc.ToID
 		categories[i] = string(sc.StateChangeCategory)
 		ledgerCreatedAts[i] = sc.LedgerCreatedAt
 		ledgerNumbers[i] = int(sc.LedgerNumber)
@@ -107,33 +109,34 @@ func (m *StateChangeModel) BatchInsert(
 	const insertQuery = `
 		-- STEP 1: Get existing accounts
 		WITH existing_accounts AS (
-			SELECT stellar_address FROM accounts WHERE stellar_address=ANY($6)
+			SELECT stellar_address FROM accounts WHERE stellar_address=ANY($7)
 		),
 
 		-- STEP 2: Create properly aligned data from arrays
 		input_data AS (
 			SELECT
-				UNNEST($1::text[]) AS id,
-				UNNEST($2::text[]) AS state_change_category,
-				UNNEST($3::text[]) AS state_change_reason,
-				UNNEST($4::timestamptz[]) AS ledger_created_at,
-				UNNEST($5::integer[]) AS ledger_number,
-				UNNEST($6::text[]) AS account_id,
-				UNNEST($7::bigint[]) AS operation_id,
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS token_id,
-				UNNEST($10::text[]) AS amount,
-				UNNEST($11::text[]) AS claimable_balance_id,
-				UNNEST($12::text[]) AS liquidity_pool_id,
-				UNNEST($13::text[]) AS offer_id,
-				UNNEST($14::text[]) AS signer_account_id,
-				UNNEST($15::text[]) AS spender_account_id,
-				UNNEST($16::text[]) AS sponsored_account_id,
-				UNNEST($17::text[]) AS sponsor_account_id,
-				UNNEST($18::jsonb[]) AS signer_weights,
-				UNNEST($19::jsonb[]) AS thresholds,
-				UNNEST($20::jsonb[]) AS flags,
-				UNNEST($21::jsonb[]) AS key_value
+				UNNEST($1::bigint[]) AS state_change_order,
+				UNNEST($2::bigint[]) AS to_id,
+				UNNEST($3::text[]) AS state_change_category,
+				UNNEST($4::text[]) AS state_change_reason,
+				UNNEST($5::timestamptz[]) AS ledger_created_at,
+				UNNEST($6::integer[]) AS ledger_number,
+				UNNEST($7::text[]) AS account_id,
+				UNNEST($8::bigint[]) AS operation_id,
+				UNNEST($9::text[]) AS tx_hash,
+				UNNEST($10::text[]) AS token_id,
+				UNNEST($11::text[]) AS amount,
+				UNNEST($12::text[]) AS claimable_balance_id,
+				UNNEST($13::text[]) AS liquidity_pool_id,
+				UNNEST($14::text[]) AS offer_id,
+				UNNEST($15::text[]) AS signer_account_id,
+				UNNEST($16::text[]) AS spender_account_id,
+				UNNEST($17::text[]) AS sponsored_account_id,
+				UNNEST($18::text[]) AS sponsor_account_id,
+				UNNEST($19::jsonb[]) AS signer_weights,
+				UNNEST($20::jsonb[]) AS thresholds,
+				UNNEST($21::jsonb[]) AS flags,
+				UNNEST($22::jsonb[]) AS key_value
 		),
 
 		-- STEP 3: Get state changes that reference existing accounts
@@ -146,29 +149,30 @@ func (m *StateChangeModel) BatchInsert(
 		-- STEP 4: Insert the valid state changes
 		inserted_state_changes AS (
 			INSERT INTO state_changes
-				(id, state_change_category, state_change_reason, ledger_created_at,
+				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				claimable_balance_id, liquidity_pool_id, offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				signer_weights, thresholds, flags, key_value)
 			SELECT
-				id, state_change_category, state_change_reason, ledger_created_at,
+				state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				claimable_balance_id, liquidity_pool_id, offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				signer_weights, thresholds, flags, key_value
 			FROM valid_state_changes
-			ON CONFLICT (id) DO NOTHING
-			RETURNING id
+			ON CONFLICT (to_id, state_change_order) DO NOTHING
+			RETURNING to_id, state_change_order
 		)
 
-		SELECT id FROM inserted_state_changes;
+		SELECT CONCAT(to_id, '-', state_change_order) FROM inserted_state_changes;
 	`
 
 	start := time.Now()
 	var insertedIDs []string
 	err := sqlExecuter.SelectContext(ctx, &insertedIDs, insertQuery,
-		pq.Array(ids),
+		pq.Array(stateChangeOrders),
+		pq.Array(toIDs),
 		pq.Array(categories),
 		pq.Array(reasons),
 		pq.Array(ledgerCreatedAts),

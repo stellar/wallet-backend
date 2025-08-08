@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -115,21 +116,51 @@ func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	b.base.SortID = b.generateSortID()
+	if b.base.OperationID != 0 {
+		b.base.ToID = b.base.OperationID
+	} else {
+		b.base.ToID = b.base.TxID
+	}
+	b.base.SortKey = b.generateSortKey()
 	return b.base
 }
 
-// Clone creates a new builder with the same base state change fields
-func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
-	return &StateChangeBuilder{
-		base: b.base,
+// generateSortKey creates a deterministic string representation of a state change for sorting purposes.
+func (b *StateChangeBuilder) generateSortKey() string {
+	reason := ""
+	if b.base.StateChangeReason != nil {
+		reason = string(*b.base.StateChangeReason)
 	}
+
+	// For JSON fields, marshal to get a canonical string. Errors are ignored as this is for internal sorting.
+	signerWeights, _ := json.Marshal(b.base.SignerWeights)
+	thresholds, _ := json.Marshal(b.base.Thresholds)
+	flags, _ := json.Marshal(b.base.Flags)
+	keyValue, _ := json.Marshal(b.base.KeyValue)
+
+	return fmt.Sprintf(
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+		b.base.ToID,
+		b.base.StateChangeCategory,
+		reason,
+		b.base.AccountID,
+		b.base.TokenID.String,
+		b.base.Amount.String,
+		b.base.ClaimableBalanceID.String,
+		b.base.LiquidityPoolID.String,
+		b.base.OfferID.String,
+		b.base.SignerAccountID.String,
+		b.base.SpenderAccountID.String,
+		b.base.SponsoredAccountID.String,
+		b.base.SponsorAccountID.String,
+		string(signerWeights),
+		string(thresholds),
+		string(flags),
+		string(keyValue),
+	)
 }
 
-func (b *StateChangeBuilder) generateSortID() string {
-	// Fee state changes are not associated with an operation.
-	if b.base.OperationID == 0 {
-		return fmt.Sprintf("%d-%s-%s-%s", b.base.TxID, b.base.StateChangeCategory, *b.base.StateChangeReason, b.base.AccountID)
-	}
-	return fmt.Sprintf("%d-%s-%s-%s", b.base.OperationID, b.base.StateChangeCategory, *b.base.StateChangeReason, b.base.AccountID)
+func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
+	clone := *b
+	return &clone
 }
