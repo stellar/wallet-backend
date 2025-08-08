@@ -317,7 +317,7 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		assert.Equal(t, int64(1), allStateChanges[1].StateChangeOrder)
 		assert.Equal(t, int64(1), allStateChanges[2].StateChangeOrder)
 
-		// For state changes with same operation ID, the order is calculated using the 
+		// For state changes with same operation ID, the order is calculated using the
 		// sort key and the credit state change comes before the debit one.
 		assert.Equal(t, int64(1), allStateChanges[3].StateChangeOrder)
 		assert.Equal(t, types.StateChangeCategoryCredit, allStateChanges[3].StateChangeCategory)
