@@ -121,19 +121,20 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 }
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.TransactionWithStateChangeID, error) {
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	if columns == "" {
 		columns = "transactions.*"
 	}
 	query := fmt.Sprintf(`
-		SELECT %s, sc.id as state_change_id
-		FROM state_changes sc
-		INNER JOIN transactions ON transactions.hash = sc.tx_hash 
-		WHERE sc.id = ANY($1)
+		SELECT %s, CONCAT(sc.to_id, ':', sc.state_change_order) as sc_id
+		FROM transactions
+		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
+		WHERE sc.to_id = ANY($1)
+		ORDER BY transactions.to_id DESC
 		`, columns)
 	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))
+	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(scToIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {

@@ -132,7 +132,6 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	if columns == "" {
 		columns = "operations.*"
 	}
-
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(sc.to_id, ':', sc.state_change_order) AS sc_id
 		FROM operations
@@ -140,7 +139,6 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 		WHERE sc.to_id = ANY($1)
 		ORDER BY operations.id DESC
 	`, columns)
-
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operationsWithStateChanges, query, pq.Array(scToIDs))

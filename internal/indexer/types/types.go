@@ -47,7 +47,7 @@ type TransactionWithCursor struct {
 
 type TransactionWithStateChangeID struct {
 	Transaction
-	StateChangeID string `json:"stateChangeId,omitempty" db:"state_change_id"`
+	StateChangeID string `json:"stateChangeId,omitempty" db:"sc_id"`
 }
 
 type TransactionWithOperationID struct {
