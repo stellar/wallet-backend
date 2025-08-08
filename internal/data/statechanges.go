@@ -60,12 +60,12 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	if columns == "" {
 		columns = strings.Join(stateChangeColumns, ", ")
 	}
-	query := fmt.Sprintf(`SELECT %s, operation_id as sc_cursor FROM state_changes`, columns)
+	query := fmt.Sprintf(`SELECT %s, to_id as sc_cursor FROM state_changes`, columns)
 
 	if after != nil {
 		query += fmt.Sprintf(` WHERE operation_id < %d`, *after)
 	}
-	query += ` ORDER BY operation_id DESC`
+	query += ` ORDER BY to_id DESC, state_change_order DESC`
 
 	if limit != nil && *limit > 0 {
 		query += fmt.Sprintf(` LIMIT %d`, *limit)

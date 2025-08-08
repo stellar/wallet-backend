@@ -73,7 +73,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	stateChanges := make([]*types.StateChange, 0, 4)
 	for i := range 4 {
 		stateChanges = append(stateChanges, &types.StateChange{
-			ID:                  fmt.Sprintf("sc%d", i+1),
+			ToID:                int64(i + 1),
+			StateChangeOrder:    int64(i + 1),
 			StateChangeCategory: types.StateChangeCategoryCredit,
 			TxHash:              fmt.Sprintf("tx%d", i+1),
 			OperationID:         int64(i + 1),
@@ -115,8 +116,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, sc := range stateChanges {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO state_changes (id, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				sc.ID, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil

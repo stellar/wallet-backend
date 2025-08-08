@@ -149,7 +149,7 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 
 func TestStateChangeResolver_Operation(t *testing.T) {
 	resolver := &stateChangeResolver{&Resolver{}}
-	parentSC := &types.StateChange{ID: "test-sc-id"}
+	parentSC := &types.StateChange{ToID: 1, StateChangeOrder: 1}
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([]*types.Operation, []error) {
@@ -187,7 +187,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 func TestStateChangeResolver_Transaction(t *testing.T) {
 	resolver := &stateChangeResolver{&Resolver{}}
-	parentSC := &types.StateChange{ID: "test-sc-id"}
+	parentSC := &types.StateChange{ToID: 1, StateChangeOrder: 1}
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {

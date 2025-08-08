@@ -153,7 +153,7 @@ func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateCha
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
 
 	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: obj.ID,
+		StateChangeID: fmt.Sprintf("%d:%d", obj.ToID, obj.StateChangeOrder),
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
@@ -169,7 +169,7 @@ func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateC
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
 
 	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: obj.ID,
+		StateChangeID: fmt.Sprintf("%d:%d", obj.ToID, obj.StateChangeOrder),
 		Columns:       strings.Join(dbColumns, ", "),
 	}
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)

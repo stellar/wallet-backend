@@ -136,7 +136,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, stateChan
 		SELECT %s, state_changes.id AS state_change_id
 		FROM operations
 		INNER JOIN state_changes ON operations.id = state_changes.operation_id
-		WHERE state_changes.id = ANY($1)
+		WHERE CONCAT(state_changes.to_id, ':', state_changes.state_change_order) = ANY($1)
 		ORDER BY operations.ledger_created_at DESC
 	`, columns)
 	var operationsWithStateChanges []*types.OperationWithStateChangeID
