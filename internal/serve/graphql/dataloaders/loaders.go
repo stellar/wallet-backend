@@ -69,12 +69,12 @@ type Dataloaders struct {
 func NewDataloaders(models *data.Models) *Dataloaders {
 	return &Dataloaders{
 		OperationsByTxHashLoader:         operationsByTxHashLoader(models),
-		OperationsByAccountLoader:        operationsByAccountLoader(models),
+		OperationsByAccountLoader:        OperationsByAccountLoader(models),
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
-		TransactionsByAccountLoader:      transactionsByAccountLoader(models),
+		TransactionsByAccountLoader:      TransactionsByAccountLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByAccountLoader:      stateChangesByAccountLoader(models),
+		StateChangesByAccountLoader:      StateChangesByAccountLoader(models),
 		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByTxHashLoader:           accountsByTxHashLoader(models),

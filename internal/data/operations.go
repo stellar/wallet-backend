@@ -69,7 +69,7 @@ func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, account
 		FROM operations
 		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
 		WHERE operations_accounts.account_id = ANY($1)
-		ORDER BY operations.ledger_created_at DESC
+		ORDER BY operations.id DESC
 	`, columns)
 
 	var operationsWithAccounts []*types.OperationWithAccountID

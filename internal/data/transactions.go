@@ -70,7 +70,8 @@ func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accou
 		FROM transactions_accounts 
 		INNER JOIN transactions 
 		ON transactions_accounts.tx_hash = transactions.hash 
-		WHERE transactions_accounts.account_id = ANY($1)`, columns)
+		WHERE transactions_accounts.account_id = ANY($1)
+		ORDER BY transactions.to_id DESC`, columns)
 	var transactions []*types.TransactionWithAccountID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))

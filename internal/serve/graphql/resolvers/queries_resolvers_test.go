@@ -66,7 +66,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		})
 		require.NoError(t, dbErr)
 
-		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
 		tx, err := resolver.TransactionByHash(ctx, "tx1")
 
 		require.NoError(t, err)
@@ -140,14 +140,14 @@ func TestQueryResolver_Transactions(t *testing.T) {
 	require.NoError(t, dbErr)
 
 	t.Run("get all", func(t *testing.T) {
-		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
 		txs, err := resolver.Transactions(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs, 2)
 	})
 
 	t.Run("get with limit", func(t *testing.T) {
-		ctx := GetTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
 		limit := int32(1)
 		txs, err := resolver.Transactions(ctx, &limit)
 		require.NoError(t, err)
@@ -288,14 +288,14 @@ func TestQueryResolver_Operations(t *testing.T) {
 	require.NoError(t, dbErr)
 
 	t.Run("get all", func(t *testing.T) {
-		ctx := GetTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
 		ops, err := resolver.Operations(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops, 2)
 	})
 
 	t.Run("get with limit", func(t *testing.T) {
-		ctx := GetTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
+		ctx := getTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
 		limit := int32(1)
 		ops, err := resolver.Operations(ctx, &limit)
 		require.NoError(t, err)
@@ -398,7 +398,7 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		resolver.models.StateChanges.MetricsService = mockMetricsService
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-		ctx := GetTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
+		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs, 2)
@@ -415,7 +415,7 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
 		limit := int32(1)
-		ctx := GetTestCtx("state_changes", []string{"id", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
+		ctx := getTestCtx("state_changes", []string{"id", "stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, &limit)
 		require.NoError(t, err)
 		assert.Len(t, scs, 1)

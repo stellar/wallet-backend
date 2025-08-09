@@ -17,10 +17,10 @@ type TransactionColumnsKey struct {
 	Columns       string
 }
 
-// txByAccountLoader creates a dataloader for fetching transactions by account address
+// TransactionsByAccountLoader creates a dataloader for fetching transactions by account address
 // This prevents N+1 queries when multiple accounts request their transactions
 // The loader batches multiple account addresses into a single database query
-func transactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, []*types.Transaction] {
+func TransactionsByAccountLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, []*types.Transaction] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithAccountID, error) {
 			accountIDs := make([]string, len(keys))

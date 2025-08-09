@@ -36,7 +36,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		operations, err := resolver.Operations(ctx, parentTx)
 
@@ -55,7 +55,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Operations(ctx, parentTx)
 
@@ -85,7 +85,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentTx)
 
@@ -103,7 +103,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			AccountsByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.Accounts(ctx, parentTx)
 
@@ -133,7 +133,7 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentTx)
 
@@ -153,7 +153,7 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
 
 		_, err := resolver.StateChanges(ctx, parentTx)
 

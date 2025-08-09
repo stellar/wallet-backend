@@ -28,12 +28,17 @@ func (m *StateChangeModel) BatchGetByAccountAddresses(
 	}
 	query := fmt.Sprintf(`
 		SELECT %s FROM state_changes WHERE account_id = ANY($1)
+		ORDER BY to_id DESC, state_change_order DESC
 	`, columns)
 	var stateChanges []*types.StateChange
+	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
 	return stateChanges, nil
 }
 
