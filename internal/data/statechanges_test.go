@@ -229,11 +229,11 @@ func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
 		VALUES 
-			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
-			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
-			('sc3', 'credit', $1, 3, $3, 789, 'tx3')
+			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
+			(3, 1, 'credit', $1, 3, $3, 789, 'tx3')
 	`, now, address1, address2)
 	require.NoError(t, err)
 
@@ -293,11 +293,11 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
 		VALUES 
-			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
-			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
-			('sc3', 'credit', $1, 3, $2, 789, 'tx3')
+			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
+			(3, 1, 'credit', $1, 3, $2, 789, 'tx3')
 	`, now, address)
 	require.NoError(t, err)
 
@@ -349,11 +349,11 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
 		VALUES 
-			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
-			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
-			('sc3', 'credit', $1, 3, $2, 789, 'tx1')
+			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
+			(3, 1, 'credit', $1, 3, $2, 789, 'tx1')
 	`, now, address)
 	require.NoError(t, err)
 
@@ -408,11 +408,11 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
 		VALUES 
-			('sc1', 'credit', $1, 1, $2, 123, 'tx1'),
-			('sc2', 'debit', $1, 2, $2, 456, 'tx2'),
-			('sc3', 'credit', $1, 3, $2, 123, 'tx3')
+			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
+			(3, 1, 'credit', $1, 3, $2, 123, 'tx3')
 	`, now, address)
 	require.NoError(t, err)
 

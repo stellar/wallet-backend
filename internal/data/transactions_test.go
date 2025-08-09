@@ -420,16 +420,16 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO state_changes (id, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
 		VALUES 
-			('sc1', 'credit', $1, 1, $2, 1, 'tx1'),
-			('sc2', 'debit', $1, 2, $2, 2, 'tx2'),
-			('sc3', 'credit', $1, 3, $2, 3, 'tx1')
+			(1, 1, 'credit', $1, 1, $2, 1, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 2, 'tx2'),
+			(3, 1, 'credit', $1, 3, $2, 3, 'tx1')
 	`, now, address)
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	transactions, err := m.BatchGetByStateChangeIDs(ctx, []string{"sc1", "sc2", "sc3"}, "")
+	transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{1, 2, 3}, []int64{1, 1, 1}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -438,7 +438,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	for _, tx := range transactions {
 		stateChangeIDsFound[tx.StateChangeID] = tx.Hash
 	}
-	assert.Equal(t, "tx1", stateChangeIDsFound["sc1"])
-	assert.Equal(t, "tx2", stateChangeIDsFound["sc2"])
-	assert.Equal(t, "tx1", stateChangeIDsFound["sc3"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["1-1"])
+	assert.Equal(t, "tx2", stateChangeIDsFound["2-1"])
+	assert.Equal(t, "tx1", stateChangeIDsFound["3-1"])
 }

@@ -41,7 +41,10 @@ func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns str
 	if columns == "" {
 		columns = "*"
 	}
-	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY ledger_created_at DESC`, columns)
+
+	// We always return the to_id, state_change_order since those are the primary keys.
+	// This is used for subsequent queries for operation and transactions of a state change.
+	query := fmt.Sprintf(`SELECT to_id, state_change_order, %s FROM state_changes ORDER BY to_id DESC, state_change_order DESC`, columns)
 	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`

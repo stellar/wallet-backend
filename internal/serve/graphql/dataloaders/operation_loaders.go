@@ -2,6 +2,7 @@ package dataloaders
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -72,12 +73,16 @@ func operationsByAccountLoader(models *data.Models) *dataloadgen.Loader[Operatio
 func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithStateChangeID, error) {
-			stateChangeIDs := make([]string, len(keys))
 			columns := keys[0].Columns
+			scIDs := make([]string, len(keys))
 			for i, key := range keys {
-				stateChangeIDs[i] = key.StateChangeID
+				scIDs[i] = key.StateChangeID
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, stateChangeIDs, columns)
+			scToIDs, scOrders, err := parseStateChangeIDs(scIDs)
+			if err != nil {
+				return nil, fmt.Errorf("parsing state change IDs: %w", err)
+			}
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID
