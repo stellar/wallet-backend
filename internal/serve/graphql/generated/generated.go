@@ -952,7 +952,7 @@ type StateChange{
   keyValue:                   String             
   
   # GraphQL Relationships - these fields use resolvers
-  # Related operation
+  # Related operation - nullable since fee state changes do not have operations associated with them
   operation:                  Operation @goField(forceResolver: true)
   
   # Related transaction

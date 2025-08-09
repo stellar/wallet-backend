@@ -173,6 +173,7 @@ func (b *StateChangeBuilder) generateSortKey() string {
 }
 
 func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
-	clone := *b
-	return &clone
+	return &StateChangeBuilder{
+		base: b.base,
+	}
 }
