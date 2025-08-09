@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+
 	"github.com/vikstrous/dataloadgen"
 
 	"github.com/stellar/wallet-backend/internal/data"
