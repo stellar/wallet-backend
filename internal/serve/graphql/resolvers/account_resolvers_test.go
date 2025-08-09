@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -14,19 +15,40 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	godbtest "github.com/stellar/go/support/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 )
 
+var (
+	testCtx              context.Context
+	testDBConnectionPool db.ConnectionPool
+	testDBT             *godbtest.DB
+)
+
+func TestMain(m *testing.M) {
+	testCtx = context.Background()
+	
+	testDBT = dbtest.Open(&testing.T{})
+	var err error
+	testDBConnectionPool, err = db.OpenDBConnectionPool(testDBT.DSN)
+	if err != nil {
+		panic(err)
+	}
+	
+	setupDB(testCtx, &testing.T{}, testDBConnectionPool)
+	
+	code := m.Run()
+	
+	cleanUpDB(testCtx, &testing.T{}, testDBConnectionPool)
+	testDBConnectionPool.Close()
+	testDBT.Close()
+	
+	os.Exit(code)
+}
+
 func TestAccountResolver_Transactions(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
@@ -36,21 +58,18 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 				Transactions: &data.TransactionModel{
-					DB:             dbConnectionPool,
+					DB:             testDBConnectionPool,
 					MetricsService: mockMetricsService,
 				},
 			},
 		},
 	}
 
-	setupDB(ctx, t, dbConnectionPool)
-	defer cleanUpDB(ctx, t, dbConnectionPool)
-
 	t.Run("success", func(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
 		}
-		ctx = context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 		transactions, err := resolver.Transactions(ctx, parentAccount)
 
 		require.NoError(t, err)
@@ -64,13 +83,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 func TestAccountResolver_Operations(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
@@ -80,20 +92,17 @@ func TestAccountResolver_Operations(t *testing.T) {
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
-				DB:             dbConnectionPool,
+				DB:             testDBConnectionPool,
 				MetricsService: mockMetricsService,
 			},
 		},
 	}}
 
-	setupDB(ctx, t, dbConnectionPool)
-	defer cleanUpDB(ctx, t, dbConnectionPool)
-
 	t.Run("success", func(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
 		}
-		ctx = context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 		operations, err := resolver.Operations(ctx, parentAccount)
 
 		require.NoError(t, err)
@@ -107,13 +116,6 @@ func TestAccountResolver_Operations(t *testing.T) {
 
 func TestAccountResolver_StateChanges(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
-	ctx := context.Background()
-
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
 
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
@@ -123,20 +125,17 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	resolver := &accountResolver{&Resolver{
 		models: &data.Models{
 			StateChanges: &data.StateChangeModel{
-				DB:             dbConnectionPool,
+				DB:             testDBConnectionPool,
 				MetricsService: mockMetricsService,
 			},
 		},
 	}}
 
-	setupDB(ctx, t, dbConnectionPool)
-	defer cleanUpDB(ctx, t, dbConnectionPool)
-
 	t.Run("success", func(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
 		}
-		ctx = context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
 		stateChanges, err := resolver.StateChanges(ctx, parentAccount)
 
 		require.NoError(t, err)
