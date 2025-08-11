@@ -151,7 +151,7 @@ func TestAccountResolver_Operations(t *testing.T) {
 		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil)
 
 		require.NoError(t, err)
-		assert.Empty(t, operations)
+		assert.Empty(t, operations.Edges)
 	})
 }
 

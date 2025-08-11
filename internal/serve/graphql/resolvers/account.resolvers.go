@@ -25,14 +25,9 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.TransactionConnection, error) {
-	cursor, err := DecodeInt64Cursor(after)
+	cursor, limit, err := parseCursorAndLimit(after, first, 100)
 	if err != nil {
 		return nil, err
-	}
-
-	limit := int32(100)
-	if first != nil {
-		limit = *first
 	}
 	queryLimit := limit + 1 // +1 to check if there is a next page
 
@@ -63,17 +58,12 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.OperationConnection, error) {
-	cursor, err := DecodeInt64Cursor(after)
+	cursor, limit, err := parseCursorAndLimit(after, first, 100)
 	if err != nil {
 		return nil, err
 	}
-
-	limit := int32(100)
-	if first != nil {
-		limit = *first
-	}
 	queryLimit := limit + 1 // +1 to check if there is a next page
-
+	
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
 	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, cursor)
 	if err != nil {

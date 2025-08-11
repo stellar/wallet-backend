@@ -37,7 +37,7 @@ func NewConnection[T any, C int64 | string](nodes []T, limit int32, after *strin
 	for i, node := range nodes {
 		edges[i] = &GenericEdge[T]{
 			Node:   node,
-			Cursor: EncodeCursor(getCursorID(node)),
+			Cursor: encodeCursor(getCursorID(node)),
 		}
 	}
 
@@ -79,7 +79,7 @@ func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []stri
 	return prefixDBColumns(prefix, getDBColumns(model, fields))
 }
 
-func EncodeCursor[T int64 | string](i T) string {
+func encodeCursor[T int64 | string](i T) string {
 	switch v := any(i).(type) {
 	case int64:
 		return base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(v, 10)))
@@ -90,7 +90,7 @@ func EncodeCursor[T int64 | string](i T) string {
 	}
 }
 
-func DecodeInt64Cursor(s *string) (*int64, error) {
+func decodeInt64Cursor(s *string) (*int64, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -144,4 +144,18 @@ func getColumnMap(model any) map[string]string {
 		}
 	}
 	return fieldToColumnMap
+}
+
+func parseCursorAndLimit(cursor *string, limit *int32, defaultLimit int32) (*int64, int32, error) {
+	cursorInt, err := decodeInt64Cursor(cursor)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	limitInt := defaultLimit
+	if limit != nil {
+		limitInt = *limit
+	}
+
+	return cursorInt, limitInt, nil
 }
