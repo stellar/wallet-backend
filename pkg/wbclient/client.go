@@ -12,6 +12,7 @@ import (
 
 	"github.com/stellar/go/xdr"
 
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
@@ -68,57 +69,64 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	}
 }
 
+func buildSimulationResultMap(simResult entities.RPCSimulateTransactionResult) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	if !utils.IsEmpty(simResult.TransactionData) {
+		if txDataStr, err := xdr.MarshalBase64(simResult.TransactionData); err != nil {
+			return nil, fmt.Errorf("marshaling transaction data: %w", err)
+		} else {
+			result["transactionData"] = txDataStr
+		}
+	}
+
+	if len(simResult.Events) > 0 {
+		result["events"] = simResult.Events
+	}
+
+	if simResult.MinResourceFee != "" {
+		result["minResourceFee"] = simResult.MinResourceFee
+	}
+
+	if len(simResult.Results) > 0 {
+		// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
+		results := make([]string, len(simResult.Results))
+		for i, result := range simResult.Results {
+			if resultJSON, err := json.Marshal(result); err != nil {
+				return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
+			} else {
+				results[i] = string(resultJSON)
+			}
+		}
+		result["results"] = results
+	}
+
+	if simResult.LatestLedger != 0 {
+		result["latestLedger"] = simResult.LatestLedger
+	}
+
+	if simResult.Error != "" {
+		result["error"] = simResult.Error
+	}
+
+	return result, nil
+}
+
 func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
+	simulationResult, err := buildSimulationResultMap(transaction.SimulationResult)
+	if err != nil {
+		return nil, err
+	}
+
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
 			"transaction": map[string]interface{}{
-				"operations": transaction.Operations,
-				"timeout":    transaction.Timeout,
+				"operations":       transaction.Operations,
+				"timeout":          transaction.Timeout,
+				"simulationResult": simulationResult,
 			},
 		},
 	}
-
-	// Add simulation result
-	simulationResult := map[string]interface{}{}
-
-	if !utils.IsEmpty(transaction.SimulationResult.TransactionData) {
-		txDataStr, err := xdr.MarshalBase64(transaction.SimulationResult.TransactionData)
-		if err != nil {
-			return nil, fmt.Errorf("marshaling transaction data: %w", err)
-		}
-		simulationResult["transactionData"] = txDataStr
-	}
-
-	if len(transaction.SimulationResult.Events) > 0 {
-		simulationResult["events"] = transaction.SimulationResult.Events
-	}
-
-	if transaction.SimulationResult.MinResourceFee != "" {
-		simulationResult["minResourceFee"] = transaction.SimulationResult.MinResourceFee
-	}
-
-	if len(transaction.SimulationResult.Results) > 0 {
-		// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
-		results := make([]string, len(transaction.SimulationResult.Results))
-		for i, result := range transaction.SimulationResult.Results {
-			resultJSON, err := json.Marshal(result)
-			if err != nil {
-				return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
-			}
-			results[i] = string(resultJSON)
-		}
-		simulationResult["results"] = results
-	}
-
-	if transaction.SimulationResult.LatestLedger != 0 {
-		simulationResult["latestLedger"] = transaction.SimulationResult.LatestLedger
-	}
-
-	if transaction.SimulationResult.Error != "" {
-		simulationResult["error"] = transaction.SimulationResult.Error
-	}
-
-	variables["input"].(map[string]interface{})["transaction"].(map[string]interface{})["simulationResult"] = simulationResult
 
 	gqlRequest := GraphQLRequest{
 		Query:     buildTransactionQuery,
