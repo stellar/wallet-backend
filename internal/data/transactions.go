@@ -112,7 +112,8 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 		columns = "transactions.*"
 	}
 
-	// Build tuples for the IN clause
+	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// it will be faster to search on this tuple.
 	tuples := make([]string, len(scOrders))
 	for i := range scOrders {
 		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
