@@ -34,6 +34,7 @@ input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
+# TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
     timeout: Int!

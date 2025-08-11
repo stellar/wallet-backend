@@ -10,6 +10,8 @@ package resolvers
 import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/services"
+
+	// TODO: Move TransactionService under /services
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
 

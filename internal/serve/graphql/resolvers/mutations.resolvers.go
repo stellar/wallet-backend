@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -189,11 +190,11 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 					"code": "INVALID_SOROBAN_OPERATION_TYPE",
 				},
 			}
-		case errors.Is(err, signing.ErrUnavailableChannelAccounts):
+		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
 			return nil, &gqlerror.Error{
-				Message: err.Error(),
+				Message: "unable to assign a channel account",
 				Extensions: map[string]interface{}{
-					"code": "UNAVAILABLE_CHANNEL_ACCOUNTS",
+					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
 				},
 			}
 		case errors.Is(err, sorobanauth.ErrForbiddenSigner):
@@ -203,16 +204,10 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 					"code": "FORBIDDEN_SIGNER",
 				},
 			}
-		case errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "NO_IDLE_CHANNEL_ACCOUNT",
-				},
-			}
 		default:
+			log.Error("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
-				Message: fmt.Sprintf("Failed to build transaction: %s", err.Error()),
+				Message: "Failed to build transaction",
 				Extensions: map[string]interface{}{
 					"code": "TRANSACTION_BUILD_FAILED",
 				},

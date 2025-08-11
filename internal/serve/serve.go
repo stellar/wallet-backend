@@ -283,7 +283,6 @@ func handler(deps handlerDeps) http.Handler {
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 
-		// /transactions/build endpoint has been migrated to GraphQL - mutation: buildTransactions
 	})
 
 	return mux
