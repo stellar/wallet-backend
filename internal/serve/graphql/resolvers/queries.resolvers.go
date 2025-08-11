@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -24,6 +25,12 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
+	if limit != nil && *limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+	}
+	if limit != nil && *limit == 0 {
+		return []*types.Transaction{}, nil
+	}
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
 	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
@@ -38,12 +45,24 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
+	if limit != nil && *limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+	}
+	if limit != nil && *limit == 0 {
+		return []*types.Operation{}, nil
+	}
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
 	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
 
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
+	if limit != nil && *limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+	}
+	if limit != nil && *limit == 0 {
+		return []*types.StateChange{}, nil
+	}
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
 }
