@@ -91,8 +91,8 @@ func TestAccountModelDelete(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-		require.NoError(t, err)
+		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		require.NoError(t, insertErr)
 		rowAffected, err := result.RowsAffected()
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowAffected)
