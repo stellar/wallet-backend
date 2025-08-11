@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -23,24 +24,40 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account) ([]*types.Transaction, error) {
-	// Extract dataloaders from GraphQL context
-	// Dataloaders are injected by middleware to batch database queries
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
-
-	loaderKey := dataloaders.TransactionColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-
-	// Use dataloader to efficiently batch-load transactions for this account
-	// This prevents N+1 queries when multiple accounts request their transactions
-	transactions, err := loaders.TransactionsByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.TransactionConnection, error) {
+	cursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, err
 	}
-	return transactions, nil
+
+	limit := int32(100)
+	if first != nil {
+		limit = *first
+	}
+	queryLimit := limit + 1 // +1 to check if there is a next page
+
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, cursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
+	}
+
+	conn := NewConnection(transactions, limit, after, func(tx *types.TransactionWithCursor) int64 {
+		return tx.Cursor
+	})
+
+	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.TransactionEdge{
+			Node:   &edge.Node.Transaction,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.TransactionConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Operations is the resolver for the operations field.

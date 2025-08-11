@@ -40,9 +40,9 @@ type Transaction struct {
 	StateChanges []StateChange `json:"stateChanges,omitempty"`
 }
 
-type TransactionWithAccountID struct {
+type TransactionWithCursor struct {
 	Transaction
-	AccountID string `json:"accountId,omitempty" db:"account_id"`
+	Cursor int64 `json:"cursor,omitempty" db:"cursor"`
 }
 
 type TransactionWithStateChangeID struct {

@@ -35,42 +35,47 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		},
 	}
 
-	t.Run("success", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
-		transactions, err := resolver.Transactions(ctx, parentAccount)
+	t.Run("get all transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, transactions, 4)
-		assert.Equal(t, "tx4", transactions[0].Hash)
-		assert.Equal(t, "tx3", transactions[1].Hash)
-		assert.Equal(t, "tx2", transactions[2].Hash)
-		assert.Equal(t, "tx1", transactions[3].Hash)
+		require.Len(t, transactions.Edges, 4)
+		assert.Equal(t, "tx4", transactions.Edges[0].Node.Hash)
+		assert.Equal(t, "tx3", transactions.Edges[1].Node.Hash)
+		assert.Equal(t, "tx2", transactions.Edges[2].Node.Hash)
+		assert.Equal(t, "tx1", transactions.Edges[3].Node.Hash)
 	})
 
-	t.Run("nil account panics", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+	t.Run("get transactions with limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		limit := int32(2)
+		txs, err := resolver.Transactions(ctx, parentAccount, &limit, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx3", txs.Edges[1].Node.Hash)
 
-		assert.Panics(t, func() {
-			_, _ = resolver.Transactions(ctx, nil) //nolint:errcheck
-		})
+		// Get the next cursor
+		nextCursor := txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx1", txs.Edges[1].Node.Hash)
+
+		hasNextPage := txs.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
 	})
 
 	t.Run("account with no transactions", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
-		loaders := &dataloaders.Dataloaders{
-			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
-		transactions, err := resolver.Transactions(ctx, nonExistentAccount)
+		ctx := getTestCtx("transactions", []string{"hash"})
+		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil)
 
 		require.NoError(t, err)
-		assert.Empty(t, transactions)
+		assert.Empty(t, transactions.Edges)
 	})
 }
 

@@ -12,7 +12,7 @@ type Account{
   
   # All operations associated with this account
   # Uses dataloader for efficient batching to prevent N+1 queries
-  operations(first: Int, after: String):     OperationConnection
+  operations:     [Operation!]!
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
