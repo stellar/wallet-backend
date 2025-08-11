@@ -178,7 +178,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
-			resolver.Operation(ctx, nil)
+			_, _ = resolver.Operation(ctx, nil) //nolint:errcheck
 		})
 	})
 
@@ -223,7 +223,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
-			resolver.Transaction(ctx, nil)
+			_, _ = resolver.Transaction(ctx, nil) //nolint:errcheck
 		})
 	})
 

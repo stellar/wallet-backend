@@ -55,9 +55,9 @@ func TestAccountResolver_Transactions(t *testing.T) {
 			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
 		}
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
-		
+
 		assert.Panics(t, func() {
-			resolver.Transactions(ctx, nil)
+			_, _ = resolver.Transactions(ctx, nil) //nolint:errcheck
 		})
 	})
 
@@ -111,9 +111,9 @@ func TestAccountResolver_Operations(t *testing.T) {
 			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
 		}
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
-		
+
 		assert.Panics(t, func() {
-			resolver.Operations(ctx, nil)
+			_, _ = resolver.Operations(ctx, nil) //nolint:errcheck
 		})
 	})
 
@@ -168,9 +168,9 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
 		}
 		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
-		
+
 		assert.Panics(t, func() {
-			resolver.StateChanges(ctx, nil)
+			_, _ = resolver.StateChanges(ctx, nil) //nolint:errcheck
 		})
 	})
 
