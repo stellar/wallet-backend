@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 func TestAccountResolver_Transactions(t *testing.T) {
@@ -24,8 +24,9 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &accountResolver{&Resolver{
-		models: &data.Models{
+	resolver := &accountResolver{
+		&Resolver{
+			models: &data.Models{
 				Transactions: &data.TransactionModel{
 					DB:             testDBConnectionPool,
 					MetricsService: mockMetricsService,

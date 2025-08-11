@@ -17,7 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-
 func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	resolver := &stateChangeResolver{&Resolver{}}
 	ctx := context.Background()

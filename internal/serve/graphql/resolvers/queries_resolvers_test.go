@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-
 func TestQueryResolver_TransactionByHash(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockMetricsService := &metrics.MockMetricsService{}
@@ -143,7 +142,7 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		&Resolver{
 			models: &data.Models{
 				StateChanges: &data.StateChangeModel{
-					DB: testDBConnectionPool,
+					DB:             testDBConnectionPool,
 					MetricsService: mockMetricsService,
 				},
 			},

@@ -15,7 +15,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-
 func TestTransactionResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
