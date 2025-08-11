@@ -20,6 +20,14 @@ import (
 const (
 	graphqlPath                  = "/graphql/query"
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
+	buildTransactionQuery        = `
+		mutation BuildTransaction($input: BuildTransactionInput!) {
+			buildTransaction(input: $input) {
+				success
+				transactionXdr
+			}
+		}
+	`
 )
 
 type GraphQLRequest struct {
@@ -61,15 +69,6 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 }
 
 func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
-	query := `
-		mutation BuildTransaction($input: BuildTransactionInput!) {
-			buildTransaction(input: $input) {
-				success
-				transactionXdr
-			}
-		}
-	`
-
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
 			"transaction": map[string]interface{}{
@@ -79,58 +78,50 @@ func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transac
 		},
 	}
 
-	// Add simulation result if provided
-	if !utils.IsEmpty(transaction.SimulationResult.TransactionData) ||
-		len(transaction.SimulationResult.Events) > 0 ||
-		transaction.SimulationResult.MinResourceFee != "" ||
-		len(transaction.SimulationResult.Results) > 0 ||
-		transaction.SimulationResult.LatestLedger != 0 ||
-		transaction.SimulationResult.Error != "" {
+	// Add simulation result
+	simulationResult := map[string]interface{}{}
 
-		simulationResult := map[string]interface{}{}
-
-		if !utils.IsEmpty(transaction.SimulationResult.TransactionData) {
-			txDataStr, err := xdr.MarshalBase64(transaction.SimulationResult.TransactionData)
-			if err != nil {
-				return nil, fmt.Errorf("marshaling transaction data: %w", err)
-			}
-			simulationResult["transactionData"] = txDataStr
+	if !utils.IsEmpty(transaction.SimulationResult.TransactionData) {
+		txDataStr, err := xdr.MarshalBase64(transaction.SimulationResult.TransactionData)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling transaction data: %w", err)
 		}
-
-		if len(transaction.SimulationResult.Events) > 0 {
-			simulationResult["events"] = transaction.SimulationResult.Events
-		}
-
-		if transaction.SimulationResult.MinResourceFee != "" {
-			simulationResult["minResourceFee"] = transaction.SimulationResult.MinResourceFee
-		}
-
-		if len(transaction.SimulationResult.Results) > 0 {
-			// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
-			results := make([]string, len(transaction.SimulationResult.Results))
-			for i, result := range transaction.SimulationResult.Results {
-				resultJSON, err := json.Marshal(result)
-				if err != nil {
-					return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
-				}
-				results[i] = string(resultJSON)
-			}
-			simulationResult["results"] = results
-		}
-
-		if transaction.SimulationResult.LatestLedger != 0 {
-			simulationResult["latestLedger"] = transaction.SimulationResult.LatestLedger
-		}
-
-		if transaction.SimulationResult.Error != "" {
-			simulationResult["error"] = transaction.SimulationResult.Error
-		}
-
-		variables["input"].(map[string]interface{})["transaction"].(map[string]interface{})["simulationResult"] = simulationResult
+		simulationResult["transactionData"] = txDataStr
 	}
 
+	if len(transaction.SimulationResult.Events) > 0 {
+		simulationResult["events"] = transaction.SimulationResult.Events
+	}
+
+	if transaction.SimulationResult.MinResourceFee != "" {
+		simulationResult["minResourceFee"] = transaction.SimulationResult.MinResourceFee
+	}
+
+	if len(transaction.SimulationResult.Results) > 0 {
+		// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
+		results := make([]string, len(transaction.SimulationResult.Results))
+		for i, result := range transaction.SimulationResult.Results {
+			resultJSON, err := json.Marshal(result)
+			if err != nil {
+				return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
+			}
+			results[i] = string(resultJSON)
+		}
+		simulationResult["results"] = results
+	}
+
+	if transaction.SimulationResult.LatestLedger != 0 {
+		simulationResult["latestLedger"] = transaction.SimulationResult.LatestLedger
+	}
+
+	if transaction.SimulationResult.Error != "" {
+		simulationResult["error"] = transaction.SimulationResult.Error
+	}
+
+	variables["input"].(map[string]interface{})["transaction"].(map[string]interface{})["simulationResult"] = simulationResult
+
 	gqlRequest := GraphQLRequest{
-		Query:     query,
+		Query:     buildTransactionQuery,
 		Variables: variables,
 	}
 

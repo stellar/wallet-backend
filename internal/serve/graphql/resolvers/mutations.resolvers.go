@@ -205,7 +205,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 				},
 			}
 		default:
-			log.Error("Failed to build transaction: %v", err)
+			log.Errorf("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
 				Message: "Failed to build transaction",
 				Extensions: map[string]interface{}{

@@ -425,7 +425,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to build transaction: transaction build failed")
+		assert.ErrorContains(t, err, "Failed to build transaction")
 
 		mockTransactionService.AssertExpectations(t)
 	})

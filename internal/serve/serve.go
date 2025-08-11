@@ -282,7 +282,6 @@ func handler(deps handlerDeps) http.Handler {
 			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
-
 	})
 
 	return mux
