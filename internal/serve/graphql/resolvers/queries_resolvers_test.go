@@ -134,40 +134,42 @@ func TestQueryResolver_Operations(t *testing.T) {
 }
 
 func TestQueryResolver_StateChanges(t *testing.T) {
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
 	resolver := &queryResolver{
 		&Resolver{
 			models: &data.Models{
 				StateChanges: &data.StateChangeModel{
 					DB: testDBConnectionPool,
+					MetricsService: mockMetricsService,
 				},
 			},
 		},
 	}
 
 	t.Run("get all", func(t *testing.T) {
-		mockMetricsService := &metrics.MockMetricsService{}
-		resolver.models.StateChanges.MetricsService = mockMetricsService
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
 		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 4)
+		assert.Len(t, scs, 20)
 		// Verify the state changes have the expected account ID
 		assert.Equal(t, "test-account", scs[0].AccountID)
-		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("get with limit", func(t *testing.T) {
-		mockMetricsService := &metrics.MockMetricsService{}
-		resolver.models.StateChanges.MetricsService = mockMetricsService
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-		limit := int32(1)
+		limit := int32(3)
 		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
 		scs, err := resolver.StateChanges(ctx, &limit)
 		require.NoError(t, err)
-		assert.Len(t, scs, 1)
-		mockMetricsService.AssertExpectations(t)
+		assert.Len(t, scs, 3)
+		assert.Equal(t, int64(1008), scs[0].ToID)
+		assert.Equal(t, int64(2), scs[0].StateChangeOrder)
+		assert.Equal(t, int64(1008), scs[1].ToID)
+		assert.Equal(t, int64(1), scs[1].StateChangeOrder)
+		assert.Equal(t, int64(1007), scs[2].ToID)
+		assert.Equal(t, int64(2), scs[2].StateChangeOrder)
 	})
 }

@@ -163,7 +163,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := &types.StateChange{ToID: 1, StateChangeOrder: 1}
+	parentSC := &types.StateChange{ToID: 1001, StateChangeOrder: 1}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -171,7 +171,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 		op, err := resolver.Operation(ctx, parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1), op.ID)
+		assert.Equal(t, int64(1001), op.ID)
 	})
 }
 

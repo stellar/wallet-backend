@@ -44,7 +44,6 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
-	opIdx := 0
 	for i := range 4 {
 		txns = append(txns, &types.Transaction{
 			Hash:            fmt.Sprintf("tx%d", i+1),
@@ -55,14 +54,17 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
 		})
+	}
 
-		// Append 4 operations for each transaction
+	// Add 2 operations for each transaction
+	opIdx := 1
+	for _, txn := range txns {
 		for range 2 {
 			ops = append(ops, &types.Operation{
-				ID:              int64(opIdx + 1),
-				TxHash:          fmt.Sprintf("tx%d", i+1),
+				ID:              int64(opIdx + 1000),
+				TxHash:          txn.Hash,
 				OperationType:   "payment",
-				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx+1),
+				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
 				LedgerNumber:    1,
 				LedgerCreatedAt: time.Now(),
 			})
@@ -70,14 +72,29 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		}
 	}
 
-	stateChanges := make([]*types.StateChange, 0, 4)
-	for i := range 4 {
+	// Create 2 state changes per operation (20 total: 2 per operation × 8 operations + 4 fee state changes)
+	stateChanges := make([]*types.StateChange, 0, 20)
+	for _, op := range ops {
+		for scOrder := range 2 {
+			stateChanges = append(stateChanges, &types.StateChange{
+				ToID:                op.ID,
+				StateChangeOrder:    int64(scOrder + 1),
+				StateChangeCategory: types.StateChangeCategoryCredit,
+				TxHash:              op.TxHash,
+				OperationID:         op.ID,
+				AccountID:           parentAccount.StellarAddress,
+				LedgerCreatedAt:     time.Now(),
+				LedgerNumber:        1,
+			})
+		}
+	}
+	// Create fee state changes per transaction
+	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
-			ToID:                int64(i + 1),
-			StateChangeOrder:    1,
+			ToID:                txn.ToID,
+			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryCredit,
-			TxHash:              fmt.Sprintf("tx%d", i+1),
-			OperationID:         int64(i + 1),
+			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
 			LedgerNumber:        1,

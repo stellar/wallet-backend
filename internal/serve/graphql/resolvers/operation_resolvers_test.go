@@ -15,7 +15,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-
 func TestOperationResolver_Transaction(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
@@ -30,7 +29,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -58,7 +57,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -90,7 +89,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -99,8 +98,10 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 1)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		require.Len(t, stateChanges, 2)
+		assert.Equal(t, int64(1001), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1001), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[1].StateChangeOrder)
 	})
 }

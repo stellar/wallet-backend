@@ -40,8 +40,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations, 2)
-		assert.Equal(t, int64(1), operations[0].ID)
-		assert.Equal(t, int64(2), operations[1].ID)
+		assert.Equal(t, int64(1001), operations[0].ID)
+		assert.Equal(t, int64(1002), operations[1].ID)
 	})
 }
 
@@ -100,9 +100,17 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, parentTx)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 1)
-		// The first state change for tx1 has ToID=1, StateChangeOrder=1
-		assert.Equal(t, int64(1), stateChanges[0].ToID)  
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		require.Len(t, stateChanges, 5)
+		// For tx1: operations 1 and 2, each with 2 state changes and 1 fee change
+		assert.Equal(t, int64(1002), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1002), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(1001), stateChanges[2].ToID)
+		assert.Equal(t, int64(2), stateChanges[2].StateChangeOrder)
+		assert.Equal(t, int64(1001), stateChanges[3].ToID)
+		assert.Equal(t, int64(1), stateChanges[3].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[4].ToID)
+		assert.Equal(t, int64(1), stateChanges[4].StateChangeOrder)
 	})
 }
