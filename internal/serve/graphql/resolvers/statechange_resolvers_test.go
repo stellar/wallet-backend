@@ -172,6 +172,25 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(1001), op.ID)
 	})
+
+	t.Run("nil state change panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			resolver.Operation(ctx, nil)
+		})
+	})
+
+	t.Run("state change with non-existent operation", func(t *testing.T) {
+		nonExistentSC := &types.StateChange{ToID: 9999, StateChangeOrder: 1}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+
+		op, err := resolver.Operation(ctx, nonExistentSC)
+		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		assert.Nil(t, op)
+	})
 }
 
 func TestStateChangeResolver_Transaction(t *testing.T) {
@@ -197,5 +216,24 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		tx, err := resolver.Transaction(ctx, parentSC)
 		require.NoError(t, err)
 		assert.Equal(t, "tx1", tx.Hash)
+	})
+
+	t.Run("nil state change panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			resolver.Transaction(ctx, nil)
+		})
+	})
+
+	t.Run("state change with non-existent transaction", func(t *testing.T) {
+		nonExistentSC := &types.StateChange{ToID: 9999, StateChangeOrder: 1, TxHash: "non-existent-tx"}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+
+		tx, err := resolver.Transaction(ctx, nonExistentSC)
+		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		assert.Nil(t, tx)
 	})
 }

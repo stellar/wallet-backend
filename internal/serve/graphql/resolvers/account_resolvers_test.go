@@ -49,6 +49,29 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, "tx2", transactions[2].Hash)
 		assert.Equal(t, "tx1", transactions[3].Hash)
 	})
+
+	t.Run("nil account panics", func(t *testing.T) {
+		loaders := &dataloaders.Dataloaders{
+			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		
+		assert.Panics(t, func() {
+			resolver.Transactions(ctx, nil)
+		})
+	})
+
+	t.Run("account with no transactions", func(t *testing.T) {
+		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		loaders := &dataloaders.Dataloaders{
+			TransactionsByAccountLoader: dataloaders.TransactionsByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		transactions, err := resolver.Transactions(ctx, nonExistentAccount)
+
+		require.NoError(t, err)
+		assert.Empty(t, transactions)
+	})
 }
 
 func TestAccountResolver_Operations(t *testing.T) {
@@ -81,6 +104,29 @@ func TestAccountResolver_Operations(t *testing.T) {
 		assert.Equal(t, int64(1007), operations[1].ID)
 		assert.Equal(t, int64(1006), operations[2].ID)
 		assert.Equal(t, int64(1005), operations[3].ID)
+	})
+
+	t.Run("nil account panics", func(t *testing.T) {
+		loaders := &dataloaders.Dataloaders{
+			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		
+		assert.Panics(t, func() {
+			resolver.Operations(ctx, nil)
+		})
+	})
+
+	t.Run("account with no operations", func(t *testing.T) {
+		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		loaders := &dataloaders.Dataloaders{
+			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		operations, err := resolver.Operations(ctx, nonExistentAccount)
+
+		require.NoError(t, err)
+		assert.Empty(t, operations)
 	})
 }
 
@@ -115,5 +161,28 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		assert.Equal(t, "1008:1", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
 		assert.Equal(t, "1007:2", fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
 		assert.Equal(t, "1007:1", fmt.Sprintf("%d:%d", stateChanges[3].ToID, stateChanges[3].StateChangeOrder))
+	})
+
+	t.Run("nil account panics", func(t *testing.T) {
+		loaders := &dataloaders.Dataloaders{
+			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
+		
+		assert.Panics(t, func() {
+			resolver.StateChanges(ctx, nil)
+		})
+	})
+
+	t.Run("account with no state changes", func(t *testing.T) {
+		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		loaders := &dataloaders.Dataloaders{
+			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
+		}
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount)
+
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
 	})
 }

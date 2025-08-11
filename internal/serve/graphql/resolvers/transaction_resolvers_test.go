@@ -42,6 +42,26 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		assert.Equal(t, int64(1001), operations[0].ID)
 		assert.Equal(t, int64(1002), operations[1].ID)
 	})
+
+	t.Run("nil transaction panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			resolver.Operations(ctx, nil)
+		})
+	})
+
+	t.Run("transaction with no operations", func(t *testing.T) {
+		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+
+		operations, err := resolver.Operations(ctx, nonExistentTx)
+
+		require.NoError(t, err)
+		assert.Empty(t, operations)
+	})
 }
 
 func TestTransactionResolver_Accounts(t *testing.T) {
@@ -69,6 +89,26 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, accounts, 1)
 		assert.Equal(t, "test-account", accounts[0].StellarAddress)
+	})
+
+	t.Run("nil transaction panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			resolver.Accounts(ctx, nil)
+		})
+	})
+
+	t.Run("transaction with no associated accounts", func(t *testing.T) {
+		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+
+		accounts, err := resolver.Accounts(ctx, nonExistentTx)
+
+		require.NoError(t, err)
+		assert.Empty(t, accounts)
 	})
 }
 
@@ -111,5 +151,25 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		assert.Equal(t, int64(1), stateChanges[3].StateChangeOrder)
 		assert.Equal(t, int64(1), stateChanges[4].ToID)
 		assert.Equal(t, int64(1), stateChanges[4].StateChangeOrder)
+	})
+
+	t.Run("nil transaction panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			resolver.StateChanges(ctx, nil)
+		})
+	})
+
+	t.Run("transaction with no state changes", func(t *testing.T) {
+		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentTx)
+
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
 	})
 }
