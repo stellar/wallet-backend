@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -106,19 +107,28 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 }
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, stateChangeIDs []string, columns string) ([]*types.TransactionWithStateChangeID, error) {
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
 	if columns == "" {
 		columns = "transactions.*"
 	}
+
+	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// it will be faster to search on this tuple.
+	tuples := make([]string, len(scOrders))
+	for i := range scOrders {
+		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+	}
+
 	query := fmt.Sprintf(`
-		SELECT %s, sc.id as state_change_id
+		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
 		FROM state_changes sc
 		INNER JOIN transactions ON transactions.hash = sc.tx_hash 
-		WHERE sc.id = ANY($1)
-		`, columns)
+		WHERE (sc.to_id, sc.state_change_order) IN (%s)
+		`, columns, strings.Join(tuples, ", "))
+
 	var transactions []*types.TransactionWithStateChangeID
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(stateChangeIDs))
+	err := m.DB.SelectContext(ctx, &transactions, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {

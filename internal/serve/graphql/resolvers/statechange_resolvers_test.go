@@ -149,11 +149,12 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 
 func TestStateChangeResolver_Operation(t *testing.T) {
 	resolver := &stateChangeResolver{&Resolver{}}
-	parentSC := &types.StateChange{ID: "test-sc-id"}
+	parentSC := &types.StateChange{ToID: 1, StateChangeOrder: 1}
+	expectedStateChangeID := "1-1"
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.OperationColumnsKey) ([]*types.Operation, []error) {
-			assert.Equal(t, []dataloaders.OperationColumnsKey{{StateChangeID: "test-sc-id", Columns: "operations.id"}}, keys)
+			assert.Equal(t, []dataloaders.OperationColumnsKey{{StateChangeID: expectedStateChangeID, Columns: "operations.id"}}, keys)
 			return []*types.Operation{{ID: 99}}, nil
 		}
 
@@ -187,11 +188,12 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 func TestStateChangeResolver_Transaction(t *testing.T) {
 	resolver := &stateChangeResolver{&Resolver{}}
-	parentSC := &types.StateChange{ID: "test-sc-id"}
+	parentSC := &types.StateChange{ToID: 2, StateChangeOrder: 3}
+	expectedStateChangeID := "2-3"
 
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
-			assert.Equal(t, []dataloaders.TransactionColumnsKey{{StateChangeID: "test-sc-id", Columns: "transactions.hash"}}, keys)
+			assert.Equal(t, []dataloaders.TransactionColumnsKey{{StateChangeID: expectedStateChangeID, Columns: "transactions.hash"}}, keys)
 			return []*types.Transaction{{Hash: "tx-abc"}}, nil
 		}
 

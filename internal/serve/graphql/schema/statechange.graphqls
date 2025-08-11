@@ -2,7 +2,6 @@
 # This type has many nullable fields to handle various state change scenarios
 # TODO: Break state change type into interface design and add sub types that implement the interface
 type StateChange{
-  id:                         String!
   accountId:                  String!           
   stateChangeCategory:        StateChangeCategory!
   stateChangeReason:          StateChangeReason
@@ -30,8 +29,8 @@ type StateChange{
   keyValue:                   String             
   
   # GraphQL Relationships - these fields use resolvers
-  # Related operation
-  operation:                  Operation! @goField(forceResolver: true)
+  # Related operation - nullable since fee state changes do not have operations associated with them
+  operation:                  Operation @goField(forceResolver: true)
   
   # Related transaction
   transaction:                Transaction! @goField(forceResolver: true)

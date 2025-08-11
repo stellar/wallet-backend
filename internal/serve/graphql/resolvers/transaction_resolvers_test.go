@@ -119,12 +119,12 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
 			assert.Equal(t, []dataloaders.StateChangeColumnsKey{
-				{TxHash: "test-tx-hash", Columns: "id"},
+				{TxHash: "test-tx-hash", Columns: "account_id, state_change_category"},
 			}, keys)
 			results := [][]*types.StateChange{
 				{
-					{ID: "sc1"},
-					{ID: "sc2"},
+					{ToID: 1, StateChangeOrder: 1},
+					{ToID: 1, StateChangeOrder: 2},
 				},
 			}
 			return results, nil
@@ -133,14 +133,16 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		loaders := &dataloaders.Dataloaders{
 			StateChangesByTxHashLoader: loader,
 		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentTx)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, "sc1", stateChanges[0].ID)
-		assert.Equal(t, "sc2", stateChanges[1].ID)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1), stateChanges[1].ToID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
 	})
 
 	t.Run("dataloader error", func(t *testing.T) {
