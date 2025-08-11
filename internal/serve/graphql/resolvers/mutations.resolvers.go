@@ -216,15 +216,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	}
 
 	// Convert transaction to XDR string
-	txXdrStr, err := tx.Base64()
-	if err != nil {
-		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf("Failed to encode transaction to XDR: %s", err.Error()),
-			Extensions: map[string]interface{}{
-				"code": "XDR_ENCODING_FAILED",
-			},
-		}
-	}
+	txXdrStr, _ := tx.Base64()
 
 	return &graphql1.BuildTransactionPayload{
 		Success:        true,
