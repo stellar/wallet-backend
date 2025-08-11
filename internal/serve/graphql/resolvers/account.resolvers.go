@@ -62,22 +62,40 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
-// Demonstrates the same dataloader pattern as Transactions resolver
-func (r *accountResolver) Operations(ctx context.Context, obj *types.Account) ([]*types.Operation, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
-
-	loaderKey := dataloaders.OperationColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-
-	// Use dataloader to batch-load operations for this account
-	operations, err := loaders.OperationsByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.OperationConnection, error) {
+	cursor, err := DecodeInt64Cursor(after)
 	if err != nil {
 		return nil, err
 	}
-	return operations, nil
+
+	limit := int32(100)
+	if first != nil {
+		limit = *first
+	}
+	queryLimit := limit + 1 // +1 to check if there is a next page
+
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, cursor)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations from db for account %s: %w", obj.StellarAddress, err)
+	}
+
+	conn := NewConnection(operations, limit, after, func(op *types.OperationWithCursor) int64 {
+		return op.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.

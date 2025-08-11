@@ -68,8 +68,8 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	query := fmt.Sprintf(`
 		SELECT %s, transactions.to_id as cursor
-		FROM transactions_accounts 
-		INNER JOIN transactions 
+		FROM transactions 
+		INNER JOIN transactions_accounts 
 		ON transactions_accounts.tx_hash = transactions.hash 
 		WHERE transactions_accounts.account_id = $1`, columns)
 

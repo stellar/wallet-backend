@@ -10,12 +10,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // RegisterAccount is the resolver for the registerAccount field.

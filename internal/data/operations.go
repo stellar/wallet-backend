@@ -59,30 +59,38 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
-// BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
-func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.OperationWithAccountID, error) {
+// BatchGetByAccountAddress gets the operations that are associated with a single account address.
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
 		columns = "operations.*"
 	}
-	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.account_id
-		FROM operations
-		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
-		WHERE operations_accounts.account_id = ANY($1)
-		ORDER BY operations.id DESC
-	`, columns)
 
-	var operationsWithAccounts []*types.OperationWithAccountID
+	query := fmt.Sprintf(`
+		SELECT %s, operations.id as cursor
+		FROM operations 
+		INNER JOIN operations_accounts 
+		ON operations_accounts.operation_id = operations.id 
+		WHERE operations_accounts.account_id = $1`, columns)
+
+	if cursor != nil {
+		query += fmt.Sprintf(` AND operations.id < %d`, *cursor)
+	}
+	query += " ORDER BY operations.id DESC"
+
+	if limit != nil && *limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, *limit)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithAccounts, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &operations, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting operations by account addresses: %w", err)
+		return nil, fmt.Errorf("getting operations by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
-
-	return operationsWithAccounts, nil
+	return operations, nil
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.

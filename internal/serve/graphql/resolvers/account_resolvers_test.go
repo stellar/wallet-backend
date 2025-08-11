@@ -96,39 +96,59 @@ func TestAccountResolver_Operations(t *testing.T) {
 		},
 	}}
 
-	t.Run("success", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
-		operations, err := resolver.Operations(ctx, parentAccount)
+	t.Run("get all operations", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		operations, err := resolver.Operations(ctx, parentAccount, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, operations, 8)
-		assert.Equal(t, int64(1008), operations[0].ID)
-		assert.Equal(t, int64(1007), operations[1].ID)
-		assert.Equal(t, int64(1006), operations[2].ID)
-		assert.Equal(t, int64(1005), operations[3].ID)
+		require.Len(t, operations.Edges, 8)
+		assert.Equal(t, int64(1008), operations.Edges[0].Node.ID)
+		assert.Equal(t, int64(1007), operations.Edges[1].Node.ID)
+		assert.Equal(t, int64(1006), operations.Edges[2].Node.ID)
+		assert.Equal(t, int64(1005), operations.Edges[3].Node.ID)
 	})
 
-	t.Run("nil account panics", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+	t.Run("get operations with limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		limit := int32(2)
+		ops, err := resolver.Operations(ctx, parentAccount, &limit, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, int64(1008), ops.Edges[0].Node.ID)
+		assert.Equal(t, int64(1007), ops.Edges[1].Node.ID)
 
-		assert.Panics(t, func() {
-			_, _ = resolver.Operations(ctx, nil) //nolint:errcheck
-		})
+		// Get the next cursor
+		nextCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, int64(1006), ops.Edges[0].Node.ID)
+		assert.Equal(t, int64(1005), ops.Edges[1].Node.ID)
+
+		hasNextPage := ops.PageInfo.HasNextPage
+		assert.True(t, hasNextPage)
+
+		// Get the next cursor
+		limit = 4
+		nextCursor = ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, &limit, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, int64(1004), ops.Edges[0].Node.ID)
+		assert.Equal(t, int64(1003), ops.Edges[1].Node.ID)
+		assert.Equal(t, int64(1002), ops.Edges[2].Node.ID)
+		assert.Equal(t, int64(1001), ops.Edges[3].Node.ID)
+
+		hasNextPage = ops.PageInfo.HasNextPage
+		assert.False(t, hasNextPage)
 	})
 
 	t.Run("account with no operations", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
-		loaders := &dataloaders.Dataloaders{
-			OperationsByAccountLoader: dataloaders.OperationsByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
-		operations, err := resolver.Operations(ctx, nonExistentAccount)
+		ctx := getTestCtx("operations", []string{"id"})
+		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, operations)
