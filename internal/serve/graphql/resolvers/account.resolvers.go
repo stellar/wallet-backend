@@ -63,7 +63,7 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 		return nil, err
 	}
 	queryLimit := limit + 1 // +1 to check if there is a next page
-	
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
 	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, cursor)
 	if err != nil {
