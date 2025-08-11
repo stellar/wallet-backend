@@ -21,7 +21,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	validTimestamp := time.Now().Add(time.Second * 2)
 	tooLongTimestamp := time.Now().Add(DefaultMaxTimeout * 2)
 
-
 	validMethodAndPath := "GET /valid-route"
 	invalidMethodAndPath := "GET /invalid-route"
 

@@ -185,7 +185,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-
 	return handlerDeps{
 		Models:                    models,
 		RequestAuthVerifier:       requestAuthVerifier,

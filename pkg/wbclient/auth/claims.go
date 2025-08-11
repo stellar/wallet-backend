@@ -39,7 +39,6 @@ func (c *customClaims) Validate(methodAndPath string, body []byte, maxTimeout ti
 		return errors.New("the JWT subject is not a valid Stellar public key")
 	}
 
-
 	if c.MethodAndPath != strings.TrimSpace(methodAndPath) {
 		return fmt.Errorf("the JWT method-and-path %q does not match the expected method-and-path %q", c.MethodAndPath, methodAndPath)
 	}
