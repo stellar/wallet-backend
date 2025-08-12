@@ -1,10 +1,8 @@
 -- +migrate Up
 
-CREATE TABLE ingest_store (
-  key varchar(255) NOT NULL,
-  value varchar(255) NOT NULL,
-  PRIMARY KEY (key)
-);
+DROP TABLE IF EXISTS ingest_payments CASCADE;
+
+-- +migrate Down
 
 CREATE TABLE ingest_payments (
   operation_id bigint NOT NULL,
@@ -26,9 +24,3 @@ CREATE TABLE ingest_payments (
 
 CREATE INDEX from_address_idx ON ingest_payments (from_address);
 CREATE INDEX to_address_idx ON ingest_payments (to_address);
-
--- +migrate Down
-
-DROP TABLE ingest_payments;
-
-DROP TABLE ingest_store;

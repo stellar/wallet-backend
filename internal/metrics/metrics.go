@@ -13,7 +13,6 @@ import (
 type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool *pond.WorkerPool)
 	GetRegistry() *prometheus.Registry
-	SetNumPaymentOpsIngestedPerLedger(operationType string, value int)
 	SetLatestLedgerIngested(value float64)
 	ObserveIngestionDuration(ingestionType string, duration float64)
 	IncActiveAccount()
@@ -37,9 +36,8 @@ type metricsService struct {
 	db       *sqlx.DB
 
 	// Ingest Service Metrics
-	numPaymentOpsIngestedPerLedger *prometheus.GaugeVec
-	latestLedgerIngested           prometheus.Gauge
-	ingestionDuration              *prometheus.SummaryVec
+	latestLedgerIngested prometheus.Gauge
+	ingestionDuration    *prometheus.SummaryVec
 
 	// Account Metrics
 	activeAccounts prometheus.Gauge
@@ -72,13 +70,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	}
 
 	// Ingest Service Metrics
-	m.numPaymentOpsIngestedPerLedger = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "num_payment_ops_ingested_per_ledger",
-			Help: "Number of payment operations ingested per ledger",
-		},
-		[]string{"operation_type"},
-	)
 	m.latestLedgerIngested = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "latest_ledger_ingested",
@@ -196,7 +187,6 @@ func (m *metricsService) registerMetrics() {
 	collector := sqlstats.NewStatsCollector("wallet-backend-db", m.db)
 	m.registry.MustRegister(
 		collector,
-		m.numPaymentOpsIngestedPerLedger,
 		m.latestLedgerIngested,
 		m.ingestionDuration,
 		m.activeAccounts,
@@ -300,9 +290,6 @@ func (m *metricsService) GetRegistry() *prometheus.Registry {
 }
 
 // Ingest Service Metrics
-func (m *metricsService) SetNumPaymentOpsIngestedPerLedger(operationType string, value int) {
-	m.numPaymentOpsIngestedPerLedger.WithLabelValues(operationType).Set(float64(value))
-}
 
 func (m *metricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)

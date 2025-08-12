@@ -74,13 +74,12 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
+
 	AccountService     services.AccountService
 	FeeBumpService     services.FeeBumpService
-	PaymentService     services.PaymentService
 	MetricsService     metrics.MetricsService
 	TransactionService txservices.TransactionService
 	RPCService         services.RPCService
-
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -152,11 +151,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
-	}
-
 	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
@@ -196,7 +190,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		SupportedAssets:     cfg.SupportedAssets,
 		AccountService:      accountService,
 		FeeBumpService:      feeBumpService,
-		PaymentService:      paymentService,
 		MetricsService:      metricsService,
 		RPCService:          rpcService,
 		AppTracker:          cfg.AppTracker,
@@ -256,15 +249,6 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			r.Handle("/query", srv)
-		})
-
-		r.Route("/payments", func(r chi.Router) {
-			handler := &httphandler.PaymentHandler{
-				PaymentService: deps.PaymentService,
-				AppTracker:     deps.AppTracker,
-			}
-
-			r.Get("/", handler.GetPayments)
 		})
 
 		r.Route("/tx", func(r chi.Router) {
