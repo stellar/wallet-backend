@@ -37,7 +37,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 	t.Run("get all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil)
+		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
@@ -47,32 +47,54 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, "tx1", transactions.Edges[3].Node.Hash)
 	})
 
-	t.Run("get transactions with limit and cursor", func(t *testing.T) {
+	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		limit := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, &limit, nil)
+		first := int32(2)
+		after := encodeCursor(int64(4))
+		txs, err := resolver.Transactions(ctx, parentAccount, &first, &after, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx3", txs.Edges[1].Node.Hash)
+		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
 
 		// Get the next cursor
 		nextCursor := txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		txs, err = resolver.Transactions(ctx, parentAccount, &limit, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx1", txs.Edges[1].Node.Hash)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
 
 		hasNextPage := txs.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)
 	})
 
+	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		last := int32(2)
+		before := encodeCursor(int64(1))
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &last, &before)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+
+		// Get the next cursor
+		nextCursor := txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &last, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
+
+		hasPreviousPage := txs.PageInfo.HasPreviousPage
+		assert.False(t, hasPreviousPage)
+	})
+
 	t.Run("account with no transactions", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil)
+		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, transactions.Edges)

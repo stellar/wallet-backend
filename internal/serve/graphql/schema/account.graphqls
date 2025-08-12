@@ -7,7 +7,7 @@ type Account{
   # Each relationship resolver will be called when the field is requested
   
   # All transactions associated with this account
-  transactions(first: Int, after: String):   TransactionConnection
+  transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
   
   # All operations associated with this account
   operations(first: Int, after: String):     OperationConnection

@@ -25,12 +25,30 @@ type GenericConnection[T any] struct {
 	PageInfo *generated.PageInfo
 }
 
-// NewConnection builds a generic GraphQL connection from a slice of nodes.
-func NewConnection[T any, C int64 | string](nodes []T, limit int32, after *string, getCursorID func(T) C) *GenericConnection[T] {
+type PaginationParams struct {
+	Limit     *int32
+	Cursor     *int64
+	IsForward bool
+}
+
+// NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
+func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params PaginationParams, getCursorID func(T) C) *GenericConnection[T] {
 	hasNextPage := false
-	if int32(len(nodes)) > limit {
-		hasNextPage = true
-		nodes = nodes[:limit]
+	hasPreviousPage := false
+
+	if params.IsForward {
+		if int32(len(nodes)) > *params.Limit {
+			hasNextPage = true
+			nodes = nodes[:*params.Limit]
+		}
+		hasPreviousPage = params.Cursor != nil
+	} else {
+		if int32(len(nodes)) > *params.Limit {
+			hasPreviousPage = true
+			nodes = nodes[1:]
+		}
+		// In backward pagination, presence of a before-cursor implies there may be newer items (a "next page")
+		hasNextPage = params.Cursor != nil
 	}
 
 	edges := make([]*GenericEdge[T], len(nodes))
@@ -44,14 +62,18 @@ func NewConnection[T any, C int64 | string](nodes []T, limit int32, after *strin
 	var startCursor, endCursor *string
 	if len(edges) > 0 {
 		startCursor = &edges[0].Cursor
-		endCursor = &edges[len(edges)-1].Cursor
+		if params.IsForward {
+			endCursor = &edges[len(edges)-1].Cursor
+		} else {
+			endCursor = &edges[0].Cursor
+		}
 	}
 
 	pageInfo := &generated.PageInfo{
 		StartCursor:     startCursor,
 		EndCursor:       endCursor,
 		HasNextPage:     hasNextPage,
-		HasPreviousPage: after != nil,
+		HasPreviousPage: hasPreviousPage,
 	}
 
 	return &GenericConnection[T]{
@@ -146,16 +168,38 @@ func getColumnMap(model any) map[string]string {
 	return fieldToColumnMap
 }
 
-func parseCursorAndLimit(cursor *string, limit *int32, defaultLimit int32) (*int64, int32, error) {
-	cursorInt, err := decodeInt64Cursor(cursor)
+func parsePaginationParams(first *int32, after *string, last *int32, before *string, defaultLimit int32) (PaginationParams, error) {
+	if first != nil && last != nil {
+		return PaginationParams{}, fmt.Errorf("first and last cannot be used together")
+	}
+
+	if after != nil && before != nil {
+		return PaginationParams{}, fmt.Errorf("after and before cannot be used together")
+	}
+	
+	var cursor *string
+	var limit int32
+	var isForward bool
+	if first != nil {
+		cursor = after
+		limit = *first
+		isForward = true
+	} else if last != nil {
+		cursor = before
+		limit = *last
+		isForward = false
+	} else {
+		limit = defaultLimit
+	}
+
+	decodedCursor, err := decodeInt64Cursor(cursor)
 	if err != nil {
-		return nil, 0, err
+		return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
 	}
 
-	limitInt := defaultLimit
-	if limit != nil {
-		limitInt = *limit
-	}
-
-	return cursorInt, limitInt, nil
+	return PaginationParams{
+		Cursor:     decodedCursor,
+		Limit:      &limit,
+		IsForward:  isForward,
+	}, nil
 }
