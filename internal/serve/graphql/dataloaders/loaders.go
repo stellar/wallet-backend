@@ -72,7 +72,6 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
 		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
 		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByAccountLoader:      StateChangesByAccountLoader(models),
 		StateChangesByTxHashLoader:       stateChangesByTxHashLoader(models),
 		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
 		AccountsByTxHashLoader:           accountsByTxHashLoader(models),
