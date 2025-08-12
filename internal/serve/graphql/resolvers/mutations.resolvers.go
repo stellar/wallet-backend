@@ -10,12 +10,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/signing/store"
+	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
+	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
 // RegisterAccount is the resolver for the registerAccount field.
@@ -81,6 +89,138 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 	return &graphql1.DeregisterAccountPayload{
 		Success: true,
 		Message: &[]string{"Account deregistered successfully"}[0],
+	}, nil
+}
+
+// BuildTransaction is the resolver for the buildTransaction field.
+func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.BuildTransactionInput) (*graphql1.BuildTransactionPayload, error) {
+	transaction := input.Transaction
+
+	ops, err := transactionsUtils.BuildOperations(transaction.Operations)
+	if err != nil {
+		return nil, &gqlerror.Error{
+			Message: fmt.Sprintf("Invalid operations: %s", err.Error()),
+			Extensions: map[string]interface{}{
+				"code": "INVALID_OPERATIONS",
+			},
+		}
+	}
+
+	// Convert simulation result if provided
+	var simulationResult entities.RPCSimulateTransactionResult
+	if transaction.SimulationResult != nil {
+		simulationResult = entities.RPCSimulateTransactionResult{
+			Events: transaction.SimulationResult.Events,
+		}
+
+		if transaction.SimulationResult.MinResourceFee != nil {
+			simulationResult.MinResourceFee = *transaction.SimulationResult.MinResourceFee
+		}
+		if transaction.SimulationResult.Error != nil {
+			simulationResult.Error = *transaction.SimulationResult.Error
+		}
+		if transaction.SimulationResult.LatestLedger != nil {
+			simulationResult.LatestLedger = int64(*transaction.SimulationResult.LatestLedger)
+		}
+
+		// Handle TransactionData if provided
+		if transaction.SimulationResult.TransactionData != nil {
+			var txData xdr.SorobanTransactionData
+			if txDataErr := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); txDataErr != nil {
+				return nil, &gqlerror.Error{
+					Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
+					Extensions: map[string]interface{}{
+						"code": "INVALID_TRANSACTION_DATA",
+					},
+				}
+			}
+			simulationResult.TransactionData = txData
+		}
+	}
+
+	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), simulationResult)
+	if err != nil {
+		switch {
+		case errors.Is(err, transactionservices.ErrInvalidTimeout):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_TIMEOUT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_OPERATION_MISSING_SOURCE",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_OPERATION_COUNT",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
+				},
+			}
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_SOROBAN_OPERATION_TYPE",
+				},
+			}
+		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
+			return nil, &gqlerror.Error{
+				Message: "unable to assign a channel account",
+				Extensions: map[string]interface{}{
+					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
+				},
+			}
+		case errors.Is(err, sorobanauth.ErrForbiddenSigner):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "FORBIDDEN_SIGNER",
+				},
+			}
+		default:
+			log.Errorf("Failed to build transaction: %v", err)
+			return nil, &gqlerror.Error{
+				Message: "Failed to build transaction",
+				Extensions: map[string]interface{}{
+					"code": "TRANSACTION_BUILD_FAILED",
+				},
+			}
+		}
+	}
+
+	// Convert transaction to XDR string
+	txXdrStr, _ := tx.Base64()
+
+	return &graphql1.BuildTransactionPayload{
+		Success:        true,
+		TransactionXdr: txXdrStr,
 	}, nil
 }
 
