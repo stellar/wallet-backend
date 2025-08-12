@@ -246,7 +246,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	t.Run("🔴timeout_must_be_smaller_than_max_timeout", func(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1, entities.RPCSimulateTransactionResult{})
 		assert.Empty(t, tx)
-		assert.ErrorContains(t, err, fmt.Sprintf("cannot be greater than %d seconds", MaxTimeoutInSeconds))
+		assert.ErrorContains(t, err, fmt.Sprintf("invalid timeout: timeout cannot be greater than maximum allowed seconds (maximum: %d seconds)", MaxTimeoutInSeconds))
 	})
 
 	t.Run("🔴handle_GetAccountPublicKey_err", func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.ErrorContains(t, err, "operation source account cannot be the channel account public key")
+		assert.ErrorContains(t, err, "invalid operation: operation source account cannot be the channel account")
 	})
 
 	t.Run("🚨operation_source_account_cannot_be_empty", func(t *testing.T) {
@@ -292,7 +292,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
-		assert.ErrorContains(t, err, "operation source account cannot be empty")
+		assert.ErrorContains(t, err, "invalid operation: operation source account cannot be empty for non-Soroban operations")
 	})
 
 	t.Run("🔴handle_GetAccountLedgerSequence_err", func(t *testing.T) {
@@ -536,7 +536,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				buildPaymentOp(t),
 				buildInvokeContractOp(t),
 			},
-			wantErrContains: "Soroban transactions require exactly one operation but 2 were provided",
+			wantErrContains: "invalid Soroban transaction: must have exactly one operation (2 provided)",
 		},
 		{
 			name:    "🔴multiple_ops_where_all_are_soroban",
@@ -545,7 +545,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				buildInvokeContractOp(t),
 				buildInvokeContractOp(t),
 			},
-			wantErrContains: "Soroban transactions require exactly one operation but 2 were provided",
+			wantErrContains: "invalid Soroban transaction: must have exactly one operation (2 provided)",
 		},
 		{
 			name:    "🔴handle_simulateTransaction_err",
@@ -554,7 +554,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 				buildInvokeContractOp(t),
 			},
 			simulationResponse: entities.RPCSimulateTransactionResult{},
-			wantErrContains:    "invalid arguments: simulation response cannot be empty",
+			wantErrContains:    "invalid Soroban transaction: simulation response cannot be empty",
 		},
 		{
 			name:    "🔴handle_simulateTransaction_error_in_payload",
@@ -565,7 +565,7 @@ func Test_transactionService_adjustParamsForSoroban(t *testing.T) {
 			simulationResponse: entities.RPCSimulateTransactionResult{
 				Error: "simulate transaction failed because fooBar",
 			},
-			wantErrContains: "transaction simulation failed with error=simulate transaction failed because fooBar",
+			wantErrContains: "invalid Soroban transaction: simulation failed: simulate transaction failed because fooBar",
 		},
 		{
 			name:    "🚨catch_txSource=channelAccount(AuthEntry)",

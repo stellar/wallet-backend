@@ -6,6 +6,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+type BuildTransactionInput struct {
+	Transaction *TransactionInput `json:"transaction"`
+}
+
+type BuildTransactionPayload struct {
+	Success        bool   `json:"success"`
+	TransactionXdr string `json:"transactionXdr"`
+}
+
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
 }
@@ -47,12 +56,17 @@ type RegisterAccountPayload struct {
 	Account *types.Account `json:"account,omitempty"`
 }
 
-type TransactionConnection struct {
-	Edges    []*TransactionEdge `json:"edges,omitempty"`
-	PageInfo *PageInfo          `json:"pageInfo"`
+type SimulationResultInput struct {
+	TransactionData *string  `json:"transactionData,omitempty"`
+	Events          []string `json:"events,omitempty"`
+	MinResourceFee  *string  `json:"minResourceFee,omitempty"`
+	Results         []string `json:"results,omitempty"`
+	LatestLedger    *int32   `json:"latestLedger,omitempty"`
+	Error           *string  `json:"error,omitempty"`
 }
 
-type TransactionEdge struct {
-	Node   *types.Transaction `json:"node,omitempty"`
-	Cursor string             `json:"cursor"`
+type TransactionInput struct {
+	Operations       []string               `json:"operations"`
+	Timeout          int32                  `json:"timeout"`
+	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
 }
