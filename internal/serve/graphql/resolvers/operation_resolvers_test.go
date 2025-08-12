@@ -2,36 +2,38 @@ package resolvers
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/vikstrous/dataloadgen"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 func TestOperationResolver_Transaction(t *testing.T) {
-	resolver := &operationResolver{&Resolver{}}
-	parentOperation := &types.Operation{ID: 123}
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &operationResolver{&Resolver{
+		models: &data.Models{
+			Transactions: &data.TransactionModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
-			assert.Equal(t, []dataloaders.TransactionColumnsKey{{OperationID: 123, Columns: "transactions.hash"}}, keys)
-			results := []*types.Transaction{
-				{Hash: "tx1"},
-			}
-			return results, nil
-		}
-
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			TransactionsByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, parentOperation)
 
@@ -40,114 +42,126 @@ func TestOperationResolver_Transaction(t *testing.T) {
 		assert.Equal(t, "tx1", transaction.Hash)
 	})
 
-	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.TransactionColumnsKey) ([]*types.Transaction, []error) {
-			return nil, []error{errors.New("something went wrong")}
-		}
+	t.Run("nil operation panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			TransactionsByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+		assert.Panics(t, func() {
+			_, _ = resolver.Transaction(ctx, nil) //nolint:errcheck
+		})
+	})
 
-		_, err := resolver.Transaction(ctx, parentOperation)
+	t.Run("operation with non-existent transaction", func(t *testing.T) {
+		nonExistentOperation := &types.Operation{ID: 9999, TxHash: "non-existent-tx"}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
-		require.Error(t, err)
-		assert.EqualError(t, err, "something went wrong")
+		transaction, err := resolver.Transaction(ctx, nonExistentOperation)
+
+		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		assert.Nil(t, transaction)
 	})
 }
 
 func TestOperationResolver_Accounts(t *testing.T) {
-	resolver := &operationResolver{&Resolver{}}
-	parentOperation := &types.Operation{ID: 123}
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &operationResolver{&Resolver{
+		models: &data.Models{
+			Account: &data.AccountModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.AccountColumnsKey) ([][]*types.Account, []error) {
-			assert.Equal(t, []dataloaders.AccountColumnsKey{{OperationID: 123, Columns: "accounts.stellar_address"}}, keys)
-			results := [][]*types.Account{
-				{
-					{StellarAddress: "G-ACCOUNT1"},
-					{StellarAddress: "G-ACCOUNT2"},
-				},
-			}
-			return results, nil
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			AccountsByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentOperation)
 
 		require.NoError(t, err)
-		require.Len(t, accounts, 2)
-		assert.Equal(t, "G-ACCOUNT1", accounts[0].StellarAddress)
-		assert.Equal(t, "G-ACCOUNT2", accounts[1].StellarAddress)
+		require.Len(t, accounts, 1)
+		assert.Equal(t, "test-account", accounts[0].StellarAddress)
 	})
 
-	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.AccountColumnsKey) ([][]*types.Account, []error) {
-			return nil, []error{errors.New("account fetch error")}
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			AccountsByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+	t.Run("nil operation panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
-		_, err := resolver.Accounts(ctx, parentOperation)
+		assert.Panics(t, func() {
+			_, _ = resolver.Accounts(ctx, nil) //nolint:errcheck
+		})
+	})
 
-		require.Error(t, err)
-		assert.EqualError(t, err, "account fetch error")
+	t.Run("operation with no associated accounts", func(t *testing.T) {
+		nonExistentOperation := &types.Operation{ID: 9999}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
+
+		accounts, err := resolver.Accounts(ctx, nonExistentOperation)
+
+		require.NoError(t, err)
+		assert.Empty(t, accounts)
 	})
 }
 
 func TestOperationResolver_StateChanges(t *testing.T) {
-	resolver := &operationResolver{&Resolver{}}
-	parentOperation := &types.Operation{ID: 123}
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &operationResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+			Operations: &data.OperationModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+	parentOperation := &types.Operation{ID: 1001}
 
 	t.Run("success", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			assert.Equal(t, []dataloaders.StateChangeColumnsKey{{OperationID: 123, Columns: "account_id, state_change_category"}}, keys)
-			results := [][]*types.StateChange{
-				{
-					{ToID: 1, StateChangeOrder: 1},
-					{ToID: 1, StateChangeOrder: 2},
-				},
-			}
-			return results, nil
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			StateChangesByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, int64(1), stateChanges[0].ToID)
-		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(1), stateChanges[1].ToID)
-		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, int64(1001), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
+		assert.Equal(t, int64(1001), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[1].StateChangeOrder)
 	})
 
-	t.Run("dataloader error", func(t *testing.T) {
-		mockFetch := func(ctx context.Context, keys []dataloaders.StateChangeColumnsKey) ([][]*types.StateChange, []error) {
-			return nil, []error{errors.New("sc fetch error")}
-		}
-		loader := dataloadgen.NewLoader(mockFetch)
-		loaders := &dataloaders.Dataloaders{
-			StateChangesByOperationIDLoader: loader,
-		}
-		ctx := context.WithValue(GetTestCtx("state_changes", []string{"id"}), middleware.LoadersKey, loaders)
+	t.Run("nil operation panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
-		_, err := resolver.StateChanges(ctx, parentOperation)
+		assert.Panics(t, func() {
+			_, _ = resolver.StateChanges(ctx, nil) //nolint:errcheck
+		})
+	})
 
-		require.Error(t, err)
-		assert.EqualError(t, err, "sc fetch error")
+	t.Run("operation with no state changes", func(t *testing.T) {
+		nonExistentOperation := &types.Operation{ID: 9999}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentOperation)
+
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
 	})
 }

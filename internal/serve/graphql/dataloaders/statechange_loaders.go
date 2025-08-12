@@ -16,8 +16,8 @@ type StateChangeColumnsKey struct {
 	Columns     string
 }
 
-// stateChangesByAccountLoader creates a dataloader for fetching state changes by account address
-func stateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+// StateChangesByAccountLoader creates a dataloader for fetching state changes by account address
+func StateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
 			accountIDs := make([]string, len(keys))
