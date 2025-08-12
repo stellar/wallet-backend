@@ -27,7 +27,7 @@ type GenericConnection[T any] struct {
 
 type PaginationParams struct {
 	Limit     *int32
-	Cursor     *int64
+	Cursor    *int64
 	IsForward bool
 }
 
@@ -176,7 +176,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	if after != nil && before != nil {
 		return PaginationParams{}, fmt.Errorf("after and before cannot be used together")
 	}
-	
+
 	var cursor *string
 	var limit int32
 	var isForward bool
@@ -198,8 +198,8 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	return PaginationParams{
-		Cursor:     decodedCursor,
-		Limit:      &limit,
-		IsForward:  isForward,
+		Cursor:    decodedCursor,
+		Limit:     &limit,
+		IsForward: isForward,
 	}, nil
 }

@@ -62,46 +62,25 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns str
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, forward bool) ([]*types.TransactionWithCursor, error) {
-	if columns == "" {
-		columns = "transactions.*"
-	} else {
-		// Always return ID of transactions as it is the primary key and can be used
-		// to build further queries e.g. getting a transaction's operations, state changes etc...
-		columns += ", transactions.to_id"
-	}
+	// Prepare columns, ensuring transactions.to_id is always included
+	columns = prepareColumnsWithID(columns, "transactions", "to_id")
 
-	query := fmt.Sprintf(`
-		SELECT %s, transactions.to_id as cursor
-		FROM transactions 
-		INNER JOIN transactions_accounts 
-		ON transactions_accounts.tx_hash = transactions.hash 
-		WHERE transactions_accounts.account_id = $1`, columns)
-
-	if cursor != nil {
-		if forward {
-			query += fmt.Sprintf(` AND transactions.to_id < %d`, *cursor)
-		} else {
-			query += fmt.Sprintf(` AND transactions.to_id > %d`, *cursor)
-		}
-	}
-
-	if forward {
-		query += " ORDER BY transactions.to_id DESC"
-	} else {
-		query += " ORDER BY transactions.to_id ASC"
-	}
-
-	if limit != nil && *limit > 0 {
-		query += fmt.Sprintf(` LIMIT %d`, *limit)
-	}
-
-	if !forward {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS t ORDER BY t.to_id DESC`, query)
-	}
+	// Build paginated query using shared utility
+	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
+		TableName:      "transactions",
+		CursorColumn:   "to_id",
+		JoinTable:      "transactions_accounts",
+		JoinCondition:  "transactions_accounts.tx_hash = transactions.hash",
+		Columns:        columns,
+		AccountAddress: accountAddress,
+		Limit:          limit,
+		Cursor:         cursor,
+		Forward:        forward,
+	})
 
 	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, accountAddress)
+	err := m.DB.SelectContext(ctx, &transactions, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {

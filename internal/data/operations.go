@@ -61,45 +61,25 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, forward bool) ([]*types.OperationWithCursor, error) {
-	if columns == "" {
-		columns = "operations.*"
-	} else {
-		// Always return ID of operations as it is the primary key and can be used
-		// to build further queries e.g. getting an operation's state changes, txn etc...
-		columns += ", operations.id"
-	}
+	// Prepare columns, ensuring operations.id is always included
+	columns = prepareColumnsWithID(columns, "operations", "id")
 
-	query := fmt.Sprintf(`
-		SELECT %s, operations.id as cursor
-		FROM operations
-		INNER JOIN operations_accounts 
-		ON operations_accounts.operation_id = operations.id 
-		WHERE operations_accounts.account_id = $1`, columns)
-
-	if cursor != nil {
-		if forward {
-			query += fmt.Sprintf(` AND operations.id < %d`, *cursor)
-		} else {
-			query += fmt.Sprintf(` AND operations.id > %d`, *cursor)
-		}
-	}
-	if forward {
-		query += " ORDER BY operations.id DESC"
-	} else {
-		query += " ORDER BY operations.id ASC"
-	}
-
-	if limit != nil && *limit > 0 {
-		query += fmt.Sprintf(` LIMIT %d`, *limit)
-	}
-
-	if !forward {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS o ORDER BY o.id DESC`, query)
-	}
+	// Build paginated query using shared utility
+	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
+		TableName:      "operations",
+		CursorColumn:   "id",
+		JoinTable:      "operations_accounts",
+		JoinCondition:  "operations_accounts.operation_id = operations.id",
+		Columns:        columns,
+		AccountAddress: accountAddress,
+		Limit:          limit,
+		Cursor:         cursor,
+		Forward:        forward,
+	})
 
 	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, accountAddress)
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
