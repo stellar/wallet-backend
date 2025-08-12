@@ -378,7 +378,7 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil)
+	operations, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, true)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
 	assert.Equal(t, int64(2), operations[0].Operation.ID)

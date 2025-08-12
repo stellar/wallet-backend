@@ -57,8 +57,8 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
-func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, nil, nil, 100)
+func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, 100)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}

@@ -60,29 +60,41 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 }
 
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
-func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, asc bool) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, forward bool) ([]*types.OperationWithCursor, error) {
 	if columns == "" {
 		columns = "operations.*"
+	} else {
+		// Always return ID of operations as it is the primary key and can be used
+		// to build further queries e.g. getting an operation's state changes, txn etc...
+		columns += ", operations.id"
 	}
 
 	query := fmt.Sprintf(`
 		SELECT %s, operations.id as cursor
-		FROM operations 
+		FROM operations
 		INNER JOIN operations_accounts 
 		ON operations_accounts.operation_id = operations.id 
 		WHERE operations_accounts.account_id = $1`, columns)
 
 	if cursor != nil {
-		if asc {
-			query += fmt.Sprintf(` AND operations.id > %d`, *cursor)
-		} else {
+		if forward {
 			query += fmt.Sprintf(` AND operations.id < %d`, *cursor)
+		} else {
+			query += fmt.Sprintf(` AND operations.id > %d`, *cursor)
 		}
 	}
-	query += " ORDER BY operations.id DESC"
+	if forward {
+		query += " ORDER BY operations.id DESC"
+	} else {
+		query += " ORDER BY operations.id ASC"
+	}
 
 	if limit != nil && *limit > 0 {
 		query += fmt.Sprintf(` LIMIT %d`, *limit)
+	}
+
+	if !forward {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS o ORDER BY o.id DESC`, query)
 	}
 
 	var operations []*types.OperationWithCursor

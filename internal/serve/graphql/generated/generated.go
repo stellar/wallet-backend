@@ -54,7 +54,7 @@ type DirectiveRoot struct {
 type ComplexityRoot struct {
 	Account struct {
 		Address      func(childComplexity int) int
-		Operations   func(childComplexity int, first *int32, after *string) int
+		Operations   func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges func(childComplexity int) int
 		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
@@ -162,7 +162,7 @@ type ComplexityRoot struct {
 type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
 	Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
-	Operations(ctx context.Context, obj *types.Account, first *int32, after *string) (*OperationConnection, error)
+	Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error)
 }
 type MutationResolver interface {
@@ -240,7 +240,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Account.Operations(childComplexity, args["first"].(*int32), args["after"].(*string)), true
+		return e.complexity.Account.Operations(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Account.stateChanges":
 		if e.complexity.Account.StateChanges == nil {
@@ -856,7 +856,7 @@ type Account{
   transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
   
   # All operations associated with this account
-  operations(first: Int, after: String):     OperationConnection
+  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
@@ -1148,6 +1148,16 @@ func (ec *executionContext) field_Account_operations_args(ctx context.Context, r
 		return nil, err
 	}
 	args["after"] = arg1
+	arg2, err := ec.field_Account_operations_argsLast(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := ec.field_Account_operations_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
 	return args, nil
 }
 func (ec *executionContext) field_Account_operations_argsFirst(
@@ -1169,6 +1179,32 @@ func (ec *executionContext) field_Account_operations_argsAfter(
 ) (*string, error) {
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("after"))
 	if tmp, ok := rawArgs["after"]; ok {
+		return ec.unmarshalOString2ᚖstring(ctx, tmp)
+	}
+
+	var zeroVal *string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_operations_argsLast(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int32, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("last"))
+	if tmp, ok := rawArgs["last"]; ok {
+		return ec.unmarshalOInt2ᚖint32(ctx, tmp)
+	}
+
+	var zeroVal *int32
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_operations_argsBefore(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("before"))
+	if tmp, ok := rawArgs["before"]; ok {
 		return ec.unmarshalOString2ᚖstring(ctx, tmp)
 	}
 
@@ -1653,7 +1689,7 @@ func (ec *executionContext) _Account_operations(ctx context.Context, field graph
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().Operations(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string))
+		return ec.resolvers.Account().Operations(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)

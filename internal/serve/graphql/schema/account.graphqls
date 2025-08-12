@@ -10,7 +10,7 @@ type Account{
   transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
   
   # All operations associated with this account
-  operations(first: Int, after: String):     OperationConnection
+  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes

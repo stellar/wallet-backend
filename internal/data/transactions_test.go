@@ -315,7 +315,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil)
+	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, true)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 

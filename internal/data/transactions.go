@@ -64,6 +64,10 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns str
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, forward bool) ([]*types.TransactionWithCursor, error) {
 	if columns == "" {
 		columns = "transactions.*"
+	} else {
+		// Always return ID of transactions as it is the primary key and can be used
+		// to build further queries e.g. getting a transaction's operations, state changes etc...
+		columns += ", transactions.to_id"
 	}
 
 	query := fmt.Sprintf(`
@@ -81,10 +85,18 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		}
 	}
 
-	query += " ORDER BY transactions.to_id DESC"
+	if forward {
+		query += " ORDER BY transactions.to_id DESC"
+	} else {
+		query += " ORDER BY transactions.to_id ASC"
+	}
 
 	if limit != nil && *limit > 0 {
 		query += fmt.Sprintf(` LIMIT %d`, *limit)
+	}
+
+	if !forward {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS t ORDER BY t.to_id DESC`, query)
 	}
 
 	var transactions []*types.TransactionWithCursor
