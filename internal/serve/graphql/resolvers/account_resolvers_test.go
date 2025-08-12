@@ -201,14 +201,14 @@ func TestAccountResolver_Operations(t *testing.T) {
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
 
-	// t.Run("account with no operations", func(t *testing.T) {
-	// 	nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
-	// 	ctx := getTestCtx("operations", []string{"id"})
-	// 	operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil, nil, nil)
+	t.Run("account with no operations", func(t *testing.T) {
+		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
+		ctx := getTestCtx("operations", []string{"id"})
+		operations, err := resolver.Operations(ctx, nonExistentAccount, nil, nil, nil, nil)
 
-	// 	require.NoError(t, err)
-	// 	assert.Empty(t, operations.Edges)
-	// })
+		require.NoError(t, err)
+		assert.Empty(t, operations.Edges)
+	})
 }
 
 func TestAccountResolver_StateChanges(t *testing.T) {
