@@ -65,6 +65,16 @@ type SimulationResultInput struct {
 	Error           *string  `json:"error,omitempty"`
 }
 
+type TransactionConnection struct {
+	Edges    []*TransactionEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type TransactionEdge struct {
+	Node   *types.Transaction `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
+}
+
 type TransactionInput struct {
 	Operations       []string               `json:"operations"`
 	Timeout          int32                  `json:"timeout"`
