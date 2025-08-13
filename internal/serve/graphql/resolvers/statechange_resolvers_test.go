@@ -208,7 +208,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := &types.StateChange{ToID: 1, StateChangeOrder: 1}
+	parentSC := &types.StateChange{ToID: toid.New(1000, 1, 0).ToInt64(), StateChangeOrder: 1}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
