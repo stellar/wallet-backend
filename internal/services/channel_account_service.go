@@ -23,7 +23,6 @@ const (
 	MaximumCreateAccountOperationsPerStellarTx = 19
 	maxRetriesForChannelAccountCreation        = 50
 	sleepDelayForChannelAccountCreation        = 10 * time.Second
-	rpcHealthCheckTimeout                      = 5 * time.Minute // We want a slightly longer timeout to give time to rpc to catch up to the tip when we start wallet-backend
 )
 
 type ChannelAccountService interface {
@@ -118,7 +117,7 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
-	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
+	// Wait for the RPC service to become healthy (health tracking is managed at the application level).
 	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
 	case <-rpcHeartbeatChannel:
 		log.Ctx(ctx).Infof("👍 RPC service is healthy")
@@ -273,8 +272,6 @@ func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOpt
 	if err != nil {
 		return nil, fmt.Errorf("validating channel account service options: %w", err)
 	}
-
-	go opts.RPCService.TrackRPCServiceHealth(ctx, nil)
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
