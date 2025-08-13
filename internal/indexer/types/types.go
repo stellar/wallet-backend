@@ -224,6 +224,16 @@ type StateChange struct {
 	TxID    int64  `json:"-"`
 }
 
+type StateChangeWithCursor struct {
+	StateChange
+	Cursor StateChangeCursor `db:"cursor"`
+}
+
+type StateChangeCursor struct {
+	ToID             int64 `db:"cursor_to_id"`
+	StateChangeOrder int64 `db:"cursor_state_change_order"`
+}
+
 type NullableJSONB map[string]any
 
 // NullableJSON represents a nullable JSON array of strings

@@ -21,18 +21,6 @@ type Dataloaders struct {
 	// Used by Transaction.operations field resolver to prevent N+1 queries
 	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
 
-	// TransactionsByAccountLoader batches requests for transactions by account address
-	// Used by Account.transactions field resolver to prevent N+1 queries
-	TransactionsByAccountLoader *dataloadgen.Loader[TransactionColumnsKey, []*types.Transaction]
-
-	// OperationsByAccountLoader batches requests for operations by account address
-	// Used by Account.operations field resolver to prevent N+1 queries
-	OperationsByAccountLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
-
-	// StateChangesByAccountLoader batches requests for state changes by account address
-	// Used by Account.statechanges field resolver to prevent N+1 queries
-	StateChangesByAccountLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
-
 	// AccountsByTxHashLoader batches requests for accounts by transaction hash
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
 	AccountsByTxHashLoader *dataloadgen.Loader[AccountColumnsKey, []*types.Account]

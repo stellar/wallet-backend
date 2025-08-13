@@ -1,7 +1,6 @@
 package resolvers
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -12,8 +11,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
+	"github.com/stellar/go/toid"
 )
 
 func TestAccountResolver_Transactions(t *testing.T) {
@@ -50,23 +48,35 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		first := int32(2)
-		after := encodeCursor(int64(4))
-		txs, err := resolver.Transactions(ctx, parentAccount, &first, &after, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
-		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
-		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx3", txs.Edges[1].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.False(t, txs.PageInfo.HasPreviousPage)
 
 		// Get the next cursor
+		first = int32(1)
 		nextCursor := txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
-		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
 
-		hasNextPage := txs.PageInfo.HasNextPage
-		assert.False(t, hasNextPage)
+		// Get the previous cursor
+		first = int32(10)
+		nextCursor = txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.False(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
@@ -130,28 +140,27 @@ func TestAccountResolver_Operations(t *testing.T) {
 	}}
 
 	t.Run("get all operations", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"operation_type"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		operations, err := resolver.Operations(ctx, parentAccount, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
-		assert.Equal(t, int64(1008), operations.Edges[0].Node.ID)
-		assert.Equal(t, int64(1007), operations.Edges[1].Node.ID)
-		assert.Equal(t, int64(1006), operations.Edges[2].Node.ID)
-		assert.Equal(t, int64(1005), operations.Edges[3].Node.ID)
+		assert.Equal(t, "opxdr8", operations.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr7", operations.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr6", operations.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", operations.Edges[3].Node.OperationXDR)
 	})
 
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"operation_type"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(2)
-		after := encodeCursor(int64(1008))
-		ops, err := resolver.Operations(ctx, parentAccount, &first, &after, nil, nil)
+		ops, err := resolver.Operations(ctx, parentAccount, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, int64(1007), ops.Edges[0].Node.ID)
-		assert.Equal(t, int64(1006), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr8", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr7", ops.Edges[1].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
-		assert.True(t, ops.PageInfo.HasPreviousPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
 
 		// Get the next cursor
 		nextCursor := ops.PageInfo.EndCursor
@@ -159,23 +168,35 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, int64(1005), ops.Edges[0].Node.ID)
-		assert.Equal(t, int64(1004), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr6", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[1].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+
+		first = int32(10)
+		nextCursor = ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, parentAccount, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, "opxdr4", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr1", ops.Edges[3].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get operations with last/before limit and cursor", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"operation_type"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(2)
-		before := encodeCursor(int64(1001))
-		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &last, &before)
+		ops, err := resolver.Operations(ctx, parentAccount, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, int64(1003), ops.Edges[0].Node.ID)
-		assert.Equal(t, int64(1002), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr1", ops.Edges[1].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
-		assert.True(t, ops.PageInfo.HasNextPage)
 
 		// Get the next cursor
 		nextCursor := ops.PageInfo.EndCursor
@@ -183,8 +204,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, int64(1005), ops.Edges[0].Node.ID)
-		assert.Equal(t, int64(1004), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr4", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", ops.Edges[1].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -193,10 +214,11 @@ func TestAccountResolver_Operations(t *testing.T) {
 		last = int32(10)
 		ops, err = resolver.Operations(ctx, parentAccount, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
-		assert.Len(t, ops.Edges, 3)
-		assert.Equal(t, int64(1008), ops.Edges[0].Node.ID)
-		assert.Equal(t, int64(1007), ops.Edges[1].Node.ID)
-		assert.Equal(t, int64(1006), ops.Edges[2].Node.ID)
+		assert.Len(t, ops.Edges, 4)
+		assert.Equal(t, "opxdr8", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr7", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr6", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[3].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
@@ -228,42 +250,102 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		},
 	}}
 
-	t.Run("success", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount)
+	t.Run("get all state changes", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 20)
+		require.Len(t, stateChanges.Edges, 20)
 		// With 16 state changes ordered by ToID descending, check first few
-		assert.Equal(t, "1008:2", fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
-		assert.Equal(t, "1008:1", fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
-		assert.Equal(t, "1007:2", fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
-		assert.Equal(t, "1007:1", fmt.Sprintf("%d:%d", stateChanges[3].ToID, stateChanges[3].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[3].Node.ToID, stateChanges.Edges[3].Node.StateChangeOrder))
 	})
 
-	t.Run("nil account panics", func(t *testing.T) {
-		loaders := &dataloaders.Dataloaders{
-			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
+	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		first := int32(3)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 3)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 
-		assert.Panics(t, func() {
-			_, _ = resolver.StateChanges(ctx, nil) //nolint:errcheck
-		})
+		// Get the next cursor
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 3)
+		// Fee state change with no operation
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 3, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		first = int32(100)
+		nextCursor = stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 14)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 3, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 3, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 3, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 3, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[3].Node.ToID, stateChanges.Edges[3].Node.StateChangeOrder))
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("get state changes with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		last := int32(3)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 3)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+
+		// Get the next cursor
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 3)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		nextCursor = stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		last = int32(100)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 14)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("account with no state changes", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
-		loaders := &dataloaders.Dataloaders{
-			StateChangesByAccountLoader: dataloaders.StateChangesByAccountLoader(resolver.models),
-		}
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"to_id", "state_change_order"}), middleware.LoadersKey, loaders)
-		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount)
+		ctx := getTestCtx("state_changes", []string{"to_id", "state_change_order"})
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		assert.Empty(t, stateChanges)
+		assert.Empty(t, stateChanges.Edges)
 	})
 }

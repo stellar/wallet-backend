@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -17,26 +18,56 @@ type StateChangeModel struct {
 	MetricsService metrics.MetricsService
 }
 
-// BatchGetByAccountAddresses gets the state changes that are associated with the given account addresses.
-func (m *StateChangeModel) BatchGetByAccountAddresses(
-	ctx context.Context,
-	accountAddresses []string,
-	columns string,
-) ([]*types.StateChange, error) {
+// BatchGetByAccountAddress gets the state changes that are associated with the given account addresses.
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, isForward bool) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = "*"
+	} else {
+		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
 	}
-	query := fmt.Sprintf(`
-		SELECT %s FROM state_changes WHERE account_id = ANY($1)
-		ORDER BY to_id DESC, state_change_order DESC
-	`, columns)
-	var stateChanges []*types.StateChange
+
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
+		FROM state_changes 
+		WHERE account_id = $1
+	`, columns))
+
+	if cursor != nil {
+		if isForward {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		}
+	}
+
+	if isForward {
+		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+	}
+
+	if limit != nil && *limit > 0 {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+
+	query := queryBuilder.String()
+
+	if !isForward {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id DESC, state_change_order DESC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &stateChanges, query, accountAddress)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
+		return nil, fmt.Errorf("getting state changes by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
 	return stateChanges, nil

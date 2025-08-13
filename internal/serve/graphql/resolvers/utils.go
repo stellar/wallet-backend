@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -26,9 +27,10 @@ type GenericConnection[T any] struct {
 }
 
 type PaginationParams struct {
-	Limit     *int32
-	Cursor    *int64
-	IsForward bool
+	Limit             *int32
+	Cursor            *int64
+	StateChangeCursor *types.StateChangeCursor
+	IsForward         bool
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -41,14 +43,14 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 			hasNextPage = true
 			nodes = nodes[:*params.Limit]
 		}
-		hasPreviousPage = params.Cursor != nil
+		hasPreviousPage = (params.Cursor != nil || params.StateChangeCursor != nil)
 	} else {
 		if int32(len(nodes)) > *params.Limit {
 			hasPreviousPage = true
 			nodes = nodes[1:]
 		}
 		// In backward pagination, presence of a before-cursor implies there may be newer items (a "next page")
-		hasNextPage = params.Cursor != nil
+		hasNextPage = (params.Cursor != nil || params.StateChangeCursor != nil)
 	}
 
 	edges := make([]*GenericEdge[T], len(nodes))
@@ -130,6 +132,20 @@ func decodeInt64Cursor(s *string) (*int64, error) {
 	return &id, nil
 }
 
+func decodeStringCursor(s *string) (*string, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(*s)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor string %s: %w", *s, err)
+	}
+	decodedStr := string(decoded)
+
+	return &decodedStr, nil
+}
+
 func getDBColumns(model any, fields []graphql.CollectedField) []string {
 	fieldToColumnMap := getColumnMap(model)
 	dbColumns := make([]string, 0, len(fields))
@@ -168,7 +184,7 @@ func getColumnMap(model any) map[string]string {
 	return fieldToColumnMap
 }
 
-func parsePaginationParams(first *int32, after *string, last *int32, before *string, defaultLimit int32) (PaginationParams, error) {
+func parsePaginationParams(first *int32, after *string, last *int32, before *string, defaultLimit int32, isStateChange bool) (PaginationParams, error) {
 	if first != nil && last != nil {
 		return PaginationParams{}, fmt.Errorf("first and last cannot be used together")
 	}
@@ -192,14 +208,55 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 		limit = defaultLimit
 	}
 
-	decodedCursor, err := decodeInt64Cursor(cursor)
-	if err != nil {
-		return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
-	}
-
-	return PaginationParams{
-		Cursor:    decodedCursor,
+	paginationParams := PaginationParams{
 		Limit:     &limit,
 		IsForward: isForward,
+	}
+
+	if isStateChange {
+		stateChangeCursor, err := parseStateChangeCursor(cursor)
+		if err != nil {
+			return PaginationParams{}, fmt.Errorf("parsing state change cursor: %w", err)
+		}
+		paginationParams.StateChangeCursor = stateChangeCursor
+	} else {
+		decodedCursor, err := decodeInt64Cursor(cursor)
+		if err != nil {
+			return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
+		}
+		paginationParams.Cursor = decodedCursor
+	}
+
+	return paginationParams, nil
+}
+
+func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	decodedCursor, err := decodeStringCursor(s)
+	if err != nil {
+		return nil, fmt.Errorf("decoding cursor: %w", err)
+	}
+
+	parts := strings.Split(*decodedCursor, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid cursor format: %s", *s)
+	}
+
+	toID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing to_id: %w", err)
+	}
+
+	stateChangeOrder, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parsing state_change_order: %w", err)
+	}
+
+	return &types.StateChangeCursor{
+		ToID:             toID,
+		StateChangeOrder: stateChangeOrder,
 	}, nil
 }
