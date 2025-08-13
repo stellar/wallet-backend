@@ -76,11 +76,13 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.StateChange, error) {
 	if columns == "" {
 		columns = "*"
+	} else {
+		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
 	}
 
 	// We always return the to_id, state_change_order since those are the primary keys.
 	// This is used for subsequent queries for operation and transactions of a state change.
-	query := fmt.Sprintf(`SELECT to_id, state_change_order, %s FROM state_changes ORDER BY to_id DESC, state_change_order DESC`, columns)
+	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY to_id DESC, state_change_order DESC`, columns)
 	var args []interface{}
 	if limit != nil && *limit > 0 {
 		query += ` LIMIT $1`
@@ -289,11 +291,14 @@ func (m *StateChangeModel) BatchInsert(
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
 	if columns == "" {
 		columns = "*"
+	} else {
+		// We always return the to_id, state_change_order since those are the primary keys.
+		// This is used for subsequent queries for operation and transactions of a state change.
+		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
 	}
-	// We always return the to_id, state_change_order since those are the primary keys.
-	// This is used for subsequent queries for operation and transactions of a state change.
+
 	query := fmt.Sprintf(`
-		SELECT to_id, state_change_order, %s, tx_hash 
+		SELECT %s, tx_hash 
 		FROM state_changes 
 		WHERE tx_hash = ANY($1) 
 		ORDER BY to_id DESC, state_change_order DESC
@@ -314,11 +319,14 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.StateChange, error) {
 	if columns == "" {
 		columns = "*"
+	} else {
+		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
 	}
+
 	// We always return the to_id, state_change_order since those are the primary keys.
 	// This is used for subsequent queries for operation and transactions of a state change.
 	query := fmt.Sprintf(`
-		SELECT to_id, state_change_order, %s, operation_id 
+		SELECT %s, operation_id 
 		FROM state_changes 
 		WHERE operation_id = ANY($1) 
 		ORDER BY to_id DESC, state_change_order DESC
