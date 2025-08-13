@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -162,7 +163,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := &types.StateChange{ToID: 1001, StateChangeOrder: 1}
+	parentSC := &types.StateChange{ToID: toid.New(1000, 1, 1).ToInt64(), StateChangeOrder: 1}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -170,7 +171,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 		op, err := resolver.Operation(ctx, parentSC)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1001), op.ID)
+		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {
