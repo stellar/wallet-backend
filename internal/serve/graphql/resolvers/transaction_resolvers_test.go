@@ -2,11 +2,14 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/go/toid"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -39,8 +42,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, operations, 2)
-		assert.Equal(t, int64(1001), operations[0].ID)
-		assert.Equal(t, int64(1002), operations[1].ID)
+		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), operations[0].ID)
+		assert.Equal(t, toid.New(1000, 1, 2).ToInt64(), operations[1].ID)
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
@@ -141,16 +144,11 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 5)
 		// For tx1: operations 1 and 2, each with 2 state changes and 1 fee change
-		assert.Equal(t, int64(1002), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(1002), stateChanges[1].ToID)
-		assert.Equal(t, int64(1), stateChanges[1].StateChangeOrder)
-		assert.Equal(t, int64(1001), stateChanges[2].ToID)
-		assert.Equal(t, int64(2), stateChanges[2].StateChangeOrder)
-		assert.Equal(t, int64(1001), stateChanges[3].ToID)
-		assert.Equal(t, int64(1), stateChanges[3].StateChangeOrder)
-		assert.Equal(t, int64(1), stateChanges[4].ToID)
-		assert.Equal(t, int64(1), stateChanges[4].StateChangeOrder)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[3].ToID, stateChanges[3].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[4].ToID, stateChanges[4].StateChangeOrder))
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
