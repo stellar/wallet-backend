@@ -40,4 +40,3 @@ func TestNewAuthProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "creating JWT token parser")
 	})
 }
-

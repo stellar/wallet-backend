@@ -15,7 +15,6 @@ import (
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
 
-
 // serviceContainer implements ServiceContainer
 type serviceContainer struct {
 	accountService            services.AccountService
@@ -234,4 +233,3 @@ func extractHostname(serverBaseURL string) (string, error) {
 	}
 	return parsedURL.Hostname(), nil
 }
-

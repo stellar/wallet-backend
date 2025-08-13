@@ -84,4 +84,3 @@ func NewAuthProvider(clientAuthPublicKeys []string) (*authProvider, error) {
 func (p *authProvider) GetRequestVerifier() auth.HTTPRequestVerifier {
 	return p.requestVerifier
 }
-
