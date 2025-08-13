@@ -19,11 +19,11 @@ import (
 )
 
 func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
-	asService := services.AccountSponsorshipServiceMock{}
-	defer asService.AssertExpectations(t)
+	fbService := services.FeeBumpServiceMock{}
+	defer fbService.AssertExpectations(t)
 
 	handler := &AccountHandler{
-		AccountSponsorshipService: &asService,
+		FeeBumpService: &fbService,
 	}
 
 	const endpoint = "/tx/create-fee-bump"
@@ -155,7 +155,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		asService.
+		fbService.
 			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrAccountNotEligibleForBeingSponsored).
 			Once()
@@ -204,7 +204,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		asService.
+		fbService.
 			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrFeeExceedsMaximumBaseFee).
 			Once()
@@ -253,7 +253,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		asService.
+		fbService.
 			On("WrapTransaction", req.Context(), tx).
 			Return("", "", services.ErrNoSignaturesProvided).
 			Once()
@@ -302,7 +302,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		asService.
+		fbService.
 			On("WrapTransaction", req.Context(), tx).
 			Return("", "", &services.OperationNotAllowedError{OperationType: xdr.OperationTypeLiquidityPoolDeposit}).
 			Once()
@@ -351,7 +351,7 @@ func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {
 		rw := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
 
-		asService.
+		fbService.
 			On("WrapTransaction", req.Context(), tx).
 			Return("fee-bump-envelope", network.TestNetworkPassphrase, nil).
 			Once()

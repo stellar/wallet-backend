@@ -14,8 +14,8 @@ import (
 )
 
 type AccountHandler struct {
-	AccountSponsorshipService services.AccountSponsorshipService
-	AppTracker                apptracker.AppTracker
+	FeeBumpService services.FeeBumpService
+	AppTracker     apptracker.AppTracker
 }
 
 func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *http.Request) {
@@ -40,7 +40,7 @@ func (h AccountHandler) CreateFeeBumpTransaction(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	feeBumpTxe, networkPassphrase, err := h.AccountSponsorshipService.WrapTransaction(ctx, tx)
+	feeBumpTxe, networkPassphrase, err := h.FeeBumpService.WrapTransaction(ctx, tx)
 	if err != nil {
 		var opNotAllowedErr *services.OperationNotAllowedError
 		switch {

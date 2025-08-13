@@ -74,12 +74,12 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	AccountService            services.AccountService
-	AccountSponsorshipService services.AccountSponsorshipService
-	PaymentService            services.PaymentService
-	MetricsService            metrics.MetricsService
-	TransactionService        txservices.TransactionService
-	RPCService                services.RPCService
+	AccountService     services.AccountService
+	FeeBumpService     services.FeeBumpService
+	PaymentService     services.PaymentService
+	MetricsService     metrics.MetricsService
+	TransactionService txservices.TransactionService
+	RPCService         services.RPCService
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -142,14 +142,14 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}
 
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
+	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
 		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
 	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
@@ -190,18 +190,18 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	return handlerDeps{
-		Models:                    models,
-		ServerHostname:            serverHostname.Hostname(),
-		RequestAuthVerifier:       requestAuthVerifier,
-		SupportedAssets:           cfg.SupportedAssets,
-		AccountService:            accountService,
-		AccountSponsorshipService: accountSponsorshipService,
-		PaymentService:            paymentService,
-		MetricsService:            metricsService,
-		RPCService:                rpcService,
-		AppTracker:                cfg.AppTracker,
-		NetworkPassphrase:         cfg.NetworkPassphrase,
-		TransactionService:        txService,
+		Models:              models,
+		ServerHostname:      serverHostname.Hostname(),
+		RequestAuthVerifier: requestAuthVerifier,
+		SupportedAssets:     cfg.SupportedAssets,
+		AccountService:      accountService,
+		FeeBumpService:      feeBumpService,
+		PaymentService:      paymentService,
+		MetricsService:      metricsService,
+		RPCService:          rpcService,
+		AppTracker:          cfg.AppTracker,
+		NetworkPassphrase:   cfg.NetworkPassphrase,
+		TransactionService:  txService,
 	}, nil
 }
 
@@ -269,8 +269,8 @@ func handler(deps handlerDeps) http.Handler {
 
 		r.Route("/tx", func(r chi.Router) {
 			accountHandler := &httphandler.AccountHandler{
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				AppTracker:                deps.AppTracker,
+				FeeBumpService: deps.FeeBumpService,
+				AppTracker:     deps.AppTracker,
 			}
 
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)

@@ -19,7 +19,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
-func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
+func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -35,7 +35,7 @@ func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {
 	defer signatureClient.AssertExpectations(t)
 
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
+	s, err := NewFeeBumpService(FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: &signatureClient,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,
