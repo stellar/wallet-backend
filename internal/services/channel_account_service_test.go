@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
@@ -277,7 +276,6 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			// Create fresh mocks for each test
 			ctx := tc.getCtx()
 			mockRPCService := NewRPCServiceMock(t)
-			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 			signatureClient := signing.NewSignatureClientMock(t)
 			channelAccountStore := store.NewChannelAccountStoreMock(t)
 
@@ -294,8 +292,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 				EncryptionPassphrase:               "my-encryption-passphrase",
 			})
-			time.Sleep(50 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
-			require.NoError(t, err)
+				require.NoError(t, err)
 
 			// Execute test
 			err = s.EnsureChannelAccounts(ctx, tc.numberOfAccounts)
@@ -321,7 +318,6 @@ func TestSubmitTransaction(t *testing.T) {
 
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -336,9 +332,7 @@ func TestSubmitTransaction(t *testing.T) {
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
 		EncryptionPassphrase:               passphrase,
 	})
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
@@ -379,7 +373,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	defer mockRPCService.AssertExpectations(t)
-	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -394,7 +387,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 
