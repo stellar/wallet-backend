@@ -51,7 +51,10 @@ func Serve(cfg Configs) error {
 	}
 
 	// Start RPC health tracking first (channel account service depends on this)
-	go deps.ServiceContainer.GetRPCService().TrackRPCServiceHealth(ctx, nil)
+	// Use a cancellable context so we can stop the goroutine if startup fails or server shuts down
+	rpcCtx, cancelRPC := context.WithCancel(ctx)
+	defer cancelRPC()
+	go deps.ServiceContainer.GetRPCService().TrackRPCServiceHealth(rpcCtx, nil)
 
 	// Ensure channel accounts exist (this must succeed for the server to start)
 	err = ensureChannelAccounts(ctx, deps.ServiceContainer.GetChannelAccountService(), cfg.NumberOfChannelAccounts)

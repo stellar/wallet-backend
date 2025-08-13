@@ -292,7 +292,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 				EncryptionPassphrase:               "my-encryption-passphrase",
 			})
-				require.NoError(t, err)
+			require.NoError(t, err)
 
 			// Execute test
 			err = s.EnsureChannelAccounts(ctx, tc.numberOfAccounts)
