@@ -26,8 +26,8 @@ type GenericConnection[T any] struct {
 }
 
 type PaginationParams struct {
-	Limit     *int32
-	Cursor    *int64
+	Limit        *int32
+	Cursor       *int64
 	IsDescending bool
 }
 
@@ -195,8 +195,8 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	return PaginationParams{
-		Cursor:    decodedCursor,
-		Limit:     &limit,
+		Cursor:       decodedCursor,
+		Limit:        &limit,
 		IsDescending: isDescending,
 	}, nil
 }
