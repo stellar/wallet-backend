@@ -95,7 +95,7 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.IsForward)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.IsDescending)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
