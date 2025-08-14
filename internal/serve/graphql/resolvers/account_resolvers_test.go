@@ -140,7 +140,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		_, err = resolver.Transactions(ctx, parentAccount, nil, &after, &last, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
-
 	})
 }
 
