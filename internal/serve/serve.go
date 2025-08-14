@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -68,7 +67,6 @@ type handlerDeps struct {
 	Models              *data.Models
 	Port                int
 	DatabaseURL         string
-	ServerHostname      string
 	RequestAuthVerifier auth.HTTPRequestVerifier
 	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
@@ -184,14 +182,8 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-	serverHostname, err := url.ParseRequestURI(cfg.ServerBaseURL)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
-	}
-
 	return handlerDeps{
 		Models:              models,
-		ServerHostname:      serverHostname.Hostname(),
 		RequestAuthVerifier: requestAuthVerifier,
 		SupportedAssets:     cfg.SupportedAssets,
 		AccountService:      accountService,
@@ -233,7 +225,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
