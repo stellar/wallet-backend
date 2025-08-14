@@ -19,7 +19,7 @@ services:
 
   stellar-rpc:
     container_name: stellar-rpc
-    image: stellar/stellar-rpc:23.0.0-rc2-127
+    image: stellar/stellar-rpc:stable
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
