@@ -36,21 +36,36 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Transaction, error) {
-	if columns == "" {
-		columns = "*"
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, isDescending bool) ([]*types.TransactionWithCursor, error) {
+	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
+	
+	if cursor != nil {
+		if isDescending {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id < %d", *cursor))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id > %d", *cursor))
+		}
 	}
-	query := fmt.Sprintf(`SELECT %s FROM transactions ORDER BY ledger_created_at DESC`, columns)
-	args := []interface{}{}
+
+	if isDescending {
+		queryBuilder.WriteString(" ORDER BY to_id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC")
+	}
 
 	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+	query := queryBuilder.String()
+	if !isDescending {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY to_id DESC`, query)
 	}
 
-	var transactions []*types.Transaction
+	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	err := m.DB.SelectContext(ctx, &transactions, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {

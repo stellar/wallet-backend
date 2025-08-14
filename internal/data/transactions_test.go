@@ -257,15 +257,20 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	transactions, err := m.GetAll(ctx, nil, "")
+	transactions, err := m.GetAll(ctx, "", nil, nil, true)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
+	assert.Equal(t, int64(3), transactions[0].ToID)
+	assert.Equal(t, int64(2), transactions[1].ToID)
+	assert.Equal(t, int64(1), transactions[2].ToID)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	transactions, err = m.GetAll(ctx, &limit, "")
+	transactions, err = m.GetAll(ctx, "", &limit, nil, true)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
+	assert.Equal(t, int64(3), transactions[0].ToID)
+	assert.Equal(t, int64(2), transactions[1].ToID)
 }
 
 func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
