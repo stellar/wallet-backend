@@ -30,7 +30,7 @@ type PaginationParams struct {
 	Limit             *int32
 	Cursor            *int64
 	StateChangeCursor *types.StateChangeCursor
-	IsDescending bool
+	IsDescending      bool
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -206,7 +206,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	paginationParams := PaginationParams{
-		Limit:     &limit,
+		Limit:        &limit,
 		IsDescending: isDescending,
 	}
 
