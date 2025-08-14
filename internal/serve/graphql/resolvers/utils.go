@@ -28,7 +28,7 @@ type GenericConnection[T any] struct {
 type PaginationParams struct {
 	Limit     *int32
 	Cursor    *int64
-	IsForward bool
+	IsDescending bool
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -36,7 +36,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	hasNextPage := false
 	hasPreviousPage := false
 
-	if params.IsForward {
+	if !params.IsDescending {
 		if int32(len(nodes)) > *params.Limit {
 			hasNextPage = true
 			nodes = nodes[:*params.Limit]
@@ -62,7 +62,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	var startCursor, endCursor *string
 	if len(edges) > 0 {
 		startCursor = &edges[0].Cursor
-		if params.IsForward {
+		if !params.IsDescending {
 			endCursor = &edges[len(edges)-1].Cursor
 		} else {
 			endCursor = &edges[0].Cursor
@@ -178,18 +178,15 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	var cursor *string
-	var limit int32
-	var isForward bool
+	limit := defaultLimit
+	isDescending := false
 	if first != nil {
 		cursor = after
 		limit = *first
-		isForward = true
 	} else if last != nil {
 		cursor = before
 		limit = *last
-		isForward = false
-	} else {
-		limit = defaultLimit
+		isDescending = true
 	}
 
 	decodedCursor, err := decodeInt64Cursor(cursor)
@@ -200,6 +197,6 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	return PaginationParams{
 		Cursor:    decodedCursor,
 		Limit:     &limit,
-		IsForward: isForward,
+		IsDescending: isDescending,
 	}, nil
 }
