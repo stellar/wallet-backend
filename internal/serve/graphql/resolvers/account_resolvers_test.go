@@ -22,7 +22,6 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &accountResolver{
 		&Resolver{
@@ -45,6 +44,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, "tx3", transactions.Edges[1].Node.Hash)
 		assert.Equal(t, "tx2", transactions.Edges[2].Node.Hash)
 		assert.Equal(t, "tx1", transactions.Edges[3].Node.Hash)
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
@@ -67,6 +67,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 		hasNextPage := txs.PageInfo.HasNextPage
 		assert.False(t, hasNextPage)
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
@@ -100,6 +101,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
 		assert.True(t, txs.PageInfo.HasNextPage)
 		assert.False(t, txs.PageInfo.HasPreviousPage)
+		mockMetricsService.AssertExpectations(t)
 	})
 
 	t.Run("account with no transactions", func(t *testing.T) {
@@ -109,6 +111,36 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Empty(t, transactions.Edges)
+		mockMetricsService.AssertExpectations(t)
+	})
+
+	t.Run("invalid pagination params", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		first := int32(0)
+		last := int32(1)
+		after := encodeCursor(int64(4))
+		before := encodeCursor(int64(1))
+		_, err := resolver.Transactions(ctx, parentAccount, &first, &after, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+
+		first = int32(1)
+		_, err = resolver.Transactions(ctx, parentAccount, &first, nil, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+
+		_, err = resolver.Transactions(ctx, parentAccount, nil, &after, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+
+		_, err = resolver.Transactions(ctx, parentAccount, &first, nil, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+
+		_, err = resolver.Transactions(ctx, parentAccount, nil, &after, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+
 	})
 }
 
