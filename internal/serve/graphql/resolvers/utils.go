@@ -216,7 +216,7 @@ func validatePaginationParams(first *int32, after *string, last *int32, before *
 	}
 
 	if first != nil && before != nil {
-		return fmt.Errorf("first and before cannot be used together.")
+		return fmt.Errorf("first and before cannot be used together")
 	}
 
 	if last != nil && after != nil {
