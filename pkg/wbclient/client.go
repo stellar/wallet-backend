@@ -10,15 +10,50 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/stellar/go/xdr"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 const (
-	buildTransactionsPath        = "/transactions/build"
+	graphqlPath                  = "/graphql/query"
 	createFeeBumpTransactionPath = "/tx/create-fee-bump"
+	buildTransactionQuery        = `
+		mutation BuildTransaction($input: BuildTransactionInput!) {
+			buildTransaction(input: $input) {
+				success
+				transactionXdr
+			}
+		}
+	`
 )
+
+type GraphQLRequest struct {
+	Query     string                 `json:"query"`
+	Variables map[string]interface{} `json:"variables,omitempty"`
+}
+
+type GraphQLResponse struct {
+	Data   json.RawMessage `json:"data,omitempty"`
+	Errors []GraphQLError  `json:"errors,omitempty"`
+}
+
+type GraphQLError struct {
+	Message    string                 `json:"message"`
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
+}
+
+type BuildTransactionPayload struct {
+	Success        bool   `json:"success"`
+	TransactionXdr string `json:"transactionXdr"`
+}
+
+type BuildTransactionData struct {
+	BuildTransaction BuildTransactionPayload `json:"buildTransaction"`
+}
 
 type Client struct {
 	HTTPClient    *http.Client
@@ -34,10 +69,71 @@ func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	}
 }
 
-func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Transaction) (*types.BuildTransactionsResponse, error) {
-	buildTxRequest := types.BuildTransactionsRequest{Transactions: transactions}
+func buildSimulationResultMap(simResult entities.RPCSimulateTransactionResult) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
 
-	resp, err := c.request(ctx, http.MethodPost, buildTransactionsPath, buildTxRequest)
+	if !utils.IsEmpty(simResult.TransactionData) {
+		if txDataStr, err := xdr.MarshalBase64(simResult.TransactionData); err != nil {
+			return nil, fmt.Errorf("marshaling transaction data: %w", err)
+		} else {
+			result["transactionData"] = txDataStr
+		}
+	}
+
+	if len(simResult.Events) > 0 {
+		result["events"] = simResult.Events
+	}
+
+	if simResult.MinResourceFee != "" {
+		result["minResourceFee"] = simResult.MinResourceFee
+	}
+
+	if len(simResult.Results) > 0 {
+		// Convert RPCSimulateHostFunctionResult as GraphQL expects JSON
+		results := make([]string, len(simResult.Results))
+		for i, result := range simResult.Results {
+			if resultJSON, err := json.Marshal(result); err != nil {
+				return nil, fmt.Errorf("marshaling simulation result %d: %w", i, err)
+			} else {
+				results[i] = string(resultJSON)
+			}
+		}
+		result["results"] = results
+	}
+
+	if simResult.LatestLedger != 0 {
+		result["latestLedger"] = simResult.LatestLedger
+	}
+
+	if simResult.Error != "" {
+		result["error"] = simResult.Error
+	}
+
+	return result, nil
+}
+
+func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transaction) (*types.BuildTransactionResponse, error) {
+	simulationResult, err := buildSimulationResultMap(transaction.SimulationResult)
+	if err != nil {
+		return nil, err
+	}
+
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"transaction": map[string]interface{}{
+				"operations":       transaction.Operations,
+				"timeout":          transaction.Timeout,
+				"simulationResult": simulationResult,
+			},
+		},
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildTransactionQuery,
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, http.MethodPost, graphqlPath, gqlRequest)
 	if err != nil {
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
@@ -46,12 +142,23 @@ func (c *Client) BuildTransactions(ctx context.Context, transactions ...types.Tr
 		return nil, c.logHTTPError(ctx, resp)
 	}
 
-	buildTxResponse, err := parseResponseBody[types.BuildTransactionsResponse](ctx, resp.Body)
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("parsing response body: %w", err)
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
 	}
 
-	return buildTxResponse, nil
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data BuildTransactionData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return &types.BuildTransactionResponse{
+		TransactionXDR: data.BuildTransaction.TransactionXdr,
+	}, nil
 }
 
 func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, error) {

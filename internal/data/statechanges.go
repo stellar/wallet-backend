@@ -28,12 +28,17 @@ func (m *StateChangeModel) BatchGetByAccountAddresses(
 	}
 	query := fmt.Sprintf(`
 		SELECT %s FROM state_changes WHERE account_id = ANY($1)
+		ORDER BY to_id DESC, state_change_order DESC
 	`, columns)
 	var stateChanges []*types.StateChange
+	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(accountAddresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes by account addresses: %w", err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
 	return stateChanges, nil
 }
 
@@ -254,8 +259,13 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 	if columns == "" {
 		columns = "*"
 	}
+	// We always return the to_id, state_change_order since those are the primary keys.
+	// This is used for subsequent queries for operation and transactions of a state change.
 	query := fmt.Sprintf(`
-		SELECT %s, tx_hash FROM state_changes WHERE tx_hash = ANY($1)
+		SELECT to_id, state_change_order, %s, tx_hash 
+		FROM state_changes 
+		WHERE tx_hash = ANY($1) 
+		ORDER BY to_id DESC, state_change_order DESC
 	`, columns)
 	var stateChanges []*types.StateChange
 	start := time.Now()
@@ -274,8 +284,13 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	if columns == "" {
 		columns = "*"
 	}
+	// We always return the to_id, state_change_order since those are the primary keys.
+	// This is used for subsequent queries for operation and transactions of a state change.
 	query := fmt.Sprintf(`
-		SELECT %s, operation_id FROM state_changes WHERE operation_id = ANY($1)
+		SELECT to_id, state_change_order, %s, operation_id 
+		FROM state_changes 
+		WHERE operation_id = ANY($1) 
+		ORDER BY to_id DESC, state_change_order DESC
 	`, columns)
 	var stateChanges []*types.StateChange
 	start := time.Now()

@@ -237,9 +237,14 @@ func TestStateChangeModel_BatchGetByAccountAddresses(t *testing.T) {
 	`, now, address1, address2)
 	require.NoError(t, err)
 
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
 	m := &StateChangeModel{
 		DB:             dbConnectionPool,
-		MetricsService: metrics.NewMockMetricsService(),
+		MetricsService: mockMetricsService,
 	}
 
 	// Test BatchGetByAccount
