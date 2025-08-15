@@ -120,11 +120,14 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+	var requestAuthVerifier auth.HTTPRequestVerifier
+	if len(cfg.ClientAuthPublicKeys) > 0 {
+		jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
+		if err != nil {
+			return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+		}
+		requestAuthVerifier = auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
@@ -223,9 +226,12 @@ func handler(deps handlerDeps) http.Handler {
 	}.GetHealth)
 	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
-	// Authenticated routes
+	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		// Apply authentication middleware only if auth verifier is configured
+		if deps.RequestAuthVerifier != nil {
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		}
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))

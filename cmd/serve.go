@@ -44,11 +44,11 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 		{
 			Name:           "client-auth-public-keys",
-			Usage:          "A comma-separated list of public keys whose private keys are authorized to sign the payloads when making HTTP requests to this server.",
+			Usage:          "A comma-separated list of public keys whose private keys are authorized to sign the payloads when making HTTP requests to this server. If not provided or empty, authentication is disabled.",
 			OptType:        types.String,
 			CustomSetValue: utils.SetConfigOptionStellarPublicKeyList,
 			ConfigKey:      &cfg.ClientAuthPublicKeys,
-			Required:       true,
+			Required:       false,
 		},
 		{
 			Name:           "supported-assets",
