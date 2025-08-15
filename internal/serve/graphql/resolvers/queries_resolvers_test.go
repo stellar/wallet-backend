@@ -1,8 +1,10 @@
 package resolvers
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,7 +36,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "tx1", tx.Hash)
-		assert.Equal(t, int64(1), tx.ToID)
+		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
 		assert.Equal(t, "envelope1", tx.EnvelopeXDR)
 		assert.Equal(t, "result1", tx.ResultXDR)
 		assert.Equal(t, "meta1", tx.MetaXDR)
@@ -231,15 +233,12 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	t.Run("get with limit", func(t *testing.T) {
 		limit := int32(3)
 		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, &limit)
+		stateChanges, err := resolver.StateChanges(ctx, &limit)
 		require.NoError(t, err)
-		assert.Len(t, scs, 3)
-		assert.Equal(t, int64(1008), scs[0].ToID)
-		assert.Equal(t, int64(2), scs[0].StateChangeOrder)
-		assert.Equal(t, int64(1008), scs[1].ToID)
-		assert.Equal(t, int64(1), scs[1].StateChangeOrder)
-		assert.Equal(t, int64(1007), scs[2].ToID)
-		assert.Equal(t, int64(2), scs[2].StateChangeOrder)
+		assert.Len(t, stateChanges, 3)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
 	})
 
 	t.Run("negative limit error", func(t *testing.T) {

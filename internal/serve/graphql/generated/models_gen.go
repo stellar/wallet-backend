@@ -65,6 +65,16 @@ type SimulationResultInput struct {
 	Error           *string  `json:"error,omitempty"`
 }
 
+type StateChangeConnection struct {
+	Edges    []*StateChangeEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type StateChangeEdge struct {
+	Node   *types.StateChange `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
+}
+
 type TransactionConnection struct {
 	Edges    []*TransactionEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`

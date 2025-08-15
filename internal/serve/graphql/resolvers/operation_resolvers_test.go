@@ -2,8 +2,10 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -29,7 +31,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1001}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -77,7 +79,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1001}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -129,7 +131,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: 1001}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -139,10 +141,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
-		assert.Equal(t, int64(1001), stateChanges[0].ToID)
-		assert.Equal(t, int64(2), stateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(1001), stateChanges[1].ToID)
-		assert.Equal(t, int64(1), stateChanges[1].StateChangeOrder)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
 	})
 
 	t.Run("nil operation panics", func(t *testing.T) {

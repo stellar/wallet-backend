@@ -18,6 +18,16 @@ type OperationEdge {
     cursor: String!
 }
 
+type StateChangeConnection {
+    edges: [StateChangeEdge!]
+    pageInfo: PageInfo!
+}
+
+type StateChangeEdge {
+    node: StateChange
+    cursor: String!
+}
+
 type PageInfo {
     startCursor: String
     endCursor: String
