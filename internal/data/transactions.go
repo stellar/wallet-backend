@@ -54,10 +54,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	} else {
 		queryBuilder.WriteString(" ORDER BY to_id ASC")
 	}
-
-	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
-	}
+	queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
 	query := queryBuilder.String()
 	if !isDescending {
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY to_id DESC`, query)
