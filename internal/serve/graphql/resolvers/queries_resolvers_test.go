@@ -162,7 +162,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, txs)
-		assert.Contains(t, err.Error(), "first must be positive")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
 	t.Run("returns error when last is negative", func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
 		require.Error(t, err)
 		assert.Nil(t, txs)
-		assert.Contains(t, err.Error(), "last must be positive")
+		assert.Contains(t, err.Error(), "last must be greater than 0")
 	})
 
 	t.Run("returns error when first is zero", func(t *testing.T) {
@@ -180,7 +180,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, txs)
-		assert.Contains(t, err.Error(), "first must be positive")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
 	t.Run("returns error when last is zero", func(t *testing.T) {
@@ -189,7 +189,7 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
 		require.Error(t, err)
 		assert.Nil(t, txs)
-		assert.Contains(t, err.Error(), "last must be positive")
+		assert.Contains(t, err.Error(), "last must be greater than 0")
 	})
 
 	t.Run("first parameter's value larger than available data", func(t *testing.T) {
