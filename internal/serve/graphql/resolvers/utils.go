@@ -185,12 +185,9 @@ func getColumnMap(model any) map[string]string {
 }
 
 func parsePaginationParams(first *int32, after *string, last *int32, before *string, defaultLimit int32, isStateChange bool) (PaginationParams, error) {
-	if first != nil && last != nil {
-		return PaginationParams{}, fmt.Errorf("first and last cannot be used together")
-	}
-
-	if after != nil && before != nil {
-		return PaginationParams{}, fmt.Errorf("after and before cannot be used together")
+	err := validatePaginationParams(first, after, last, before)
+	if err != nil {
+		return PaginationParams{}, fmt.Errorf("validating pagination params: %w", err)
 	}
 
 	if first != nil && *first <= 0 {
@@ -264,4 +261,32 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 		ToID:             toID,
 		StateChangeOrder: stateChangeOrder,
 	}, nil
+}
+
+func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
+	if first != nil && last != nil {
+		return fmt.Errorf("first and last cannot be used together")
+	}
+
+	if after != nil && before != nil {
+		return fmt.Errorf("after and before cannot be used together")
+	}
+
+	if first != nil && *first <= 0 {
+		return fmt.Errorf("first must be greater than 0")
+	}
+
+	if last != nil && *last <= 0 {
+		return fmt.Errorf("last must be greater than 0")
+	}
+
+	if first != nil && before != nil {
+		return fmt.Errorf("first and before cannot be used together")
+	}
+
+	if last != nil && after != nil {
+		return fmt.Errorf("last and after cannot be used together")
+	}
+
+	return nil
 }
