@@ -131,7 +131,6 @@ services:
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
-      START_LEDGER: ${START_LEDGER}
 volumes:
   postgres-db:
     driver: local
