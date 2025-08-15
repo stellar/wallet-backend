@@ -49,7 +49,7 @@ services:
       db:
         condition: service_healthy
       stellar-rpc:
-        condition: service_started
+        condition: service_healthy
       ingest:
         condition: service_healthy
     ports:
@@ -108,7 +108,7 @@ services:
       db:
         condition: service_healthy
       stellar-rpc:
-        condition: service_started
+        condition: service_healthy
     entrypoint: ""
     command:
       - sh
