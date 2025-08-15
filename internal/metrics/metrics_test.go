@@ -33,24 +33,6 @@ func TestIngestMetrics(t *testing.T) {
 
 	ms := NewMetricsService(db)
 
-	t.Run("payment ops metrics", func(t *testing.T) {
-		ms.SetNumPaymentOpsIngestedPerLedger("create_account", 5)
-		ms.SetNumPaymentOpsIngestedPerLedger("payment", 10)
-
-		// We can't directly access the metric values, but we can verify they're collected
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "num_payment_ops_ingested_per_ledger" {
-				found = true
-				assert.Equal(t, 2, len(mf.GetMetric()))
-			}
-		}
-		assert.True(t, found)
-	})
-
 	t.Run("latest ledger metrics", func(t *testing.T) {
 		ms.SetLatestLedgerIngested(1234)
 
@@ -68,7 +50,6 @@ func TestIngestMetrics(t *testing.T) {
 	})
 
 	t.Run("ingestion duration metrics", func(t *testing.T) {
-		ms.ObserveIngestionDuration("payment", 0.5)
 		ms.ObserveIngestionDuration("transaction", 1.0)
 
 		metricFamilies, err := ms.GetRegistry().Gather()
@@ -78,7 +59,7 @@ func TestIngestMetrics(t *testing.T) {
 		for _, mf := range metricFamilies {
 			if mf.GetName() == "ingestion_duration_seconds" {
 				found = true
-				assert.Equal(t, 2, len(mf.GetMetric()))
+				assert.Equal(t, 1, len(mf.GetMetric()))
 			}
 		}
 		assert.True(t, found)

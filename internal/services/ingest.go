@@ -29,21 +29,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
-	txutils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
-	advisoryLockID                          = int(3747555612780983)
-	ingestHealthCheckMaxWaitTime            = 90 * time.Second
-	getLedgersLimit                         = 50 // NOTE: cannot be larger than 200
-	ledgerProcessorsCount                   = 16
-	paymentPrometheusLabel                  = "payment"
-	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
-	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
-	totalIngestionPrometheusLabel           = "total"
+	advisoryLockID                = int(3747555612780983)
+	ingestHealthCheckMaxWaitTime  = 90 * time.Second
+	getLedgersLimit               = 50 // NOTE: cannot be larger than 200
+	ledgerProcessorsCount         = 16
+	totalIngestionPrometheusLabel = "total"
 )
 
 type IngestService interface {
@@ -149,12 +145,6 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 				continue
 			}
 			ingestHeartbeatChannel <- true
-			startTime := time.Now()
-			err = m.ingestPayments(ctx, ledgerTransactions)
-			if err != nil {
-				return fmt.Errorf("ingesting payments: %w", err)
-			}
-			m.metricsService.ObserveIngestionDuration(paymentPrometheusLabel, time.Since(startTime).Seconds())
 
 			// eagerly unlock channel accounts from txs
 			err = m.unlockChannelAccountsDeprecated(ctx, ledgerTransactions)
@@ -509,77 +499,6 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 	return ledgerTransactions, nil
 }
 
-func (m *ingestService) ingestPayments(ctx context.Context, ledgerTransactions []entities.Transaction) error {
-	err := db.RunInTransaction(ctx, m.models.Payments.DB, nil, func(dbTx db.Transaction) error {
-		paymentOpsIngested := 0
-		pathPaymentStrictSendOpsIngested := 0
-		pathPaymentStrictReceiveOpsIngested := 0
-		for _, tx := range ledgerTransactions {
-			if tx.Status != entities.SuccessStatus {
-				continue
-			}
-			genericTx, err := txnbuild.TransactionFromXDR(tx.EnvelopeXDR)
-			if err != nil {
-				return fmt.Errorf("deserializing envelope xdr: %w", err)
-			}
-			txEnvelopeXDR, err := genericTx.ToXDR()
-			if err != nil {
-				return fmt.Errorf("generic transaction cannot be unpacked into a transaction")
-			}
-			txResultXDR, err := txutils.UnmarshallTransactionResultXDR(tx.ResultXDR)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal transacation result xdr: %s", err.Error())
-			}
-
-			txMemo, txMemoType := utils.Memo(txEnvelopeXDR.Memo(), tx.Hash)
-			if txMemo != nil {
-				*txMemo = utils.SanitizeUTF8(*txMemo)
-			}
-			for idx, op := range txEnvelopeXDR.Operations() {
-				opIdx := idx + 1
-				payment := data.Payment{
-					OperationID:     utils.OperationID(int32(tx.Ledger), int32(tx.ApplicationOrder), int32(opIdx)),
-					OperationType:   op.Body.Type.String(),
-					TransactionID:   utils.TransactionID(int32(tx.Ledger), int32(tx.ApplicationOrder)),
-					TransactionHash: tx.Hash,
-					FromAddress:     utils.SourceAccount(op, txEnvelopeXDR),
-					CreatedAt:       time.Unix(int64(tx.CreatedAt), 0),
-					Memo:            txMemo,
-					MemoType:        txMemoType,
-				}
-
-				switch op.Body.Type {
-				case xdr.OperationTypePayment:
-					paymentOpsIngested++
-					fillPayment(&payment, op.Body)
-				case xdr.OperationTypePathPaymentStrictSend:
-					pathPaymentStrictSendOpsIngested++
-					fillPathSend(&payment, op.Body, txResultXDR, opIdx)
-				case xdr.OperationTypePathPaymentStrictReceive:
-					pathPaymentStrictReceiveOpsIngested++
-					fillPathReceive(&payment, op.Body, txResultXDR, opIdx)
-				default:
-					continue
-				}
-
-				err = m.models.Payments.AddPayment(ctx, dbTx, payment)
-				if err != nil {
-					return fmt.Errorf("adding payment for ledger %d, tx %s (%d), operation %s (%d): %w", tx.Ledger, tx.Hash, tx.ApplicationOrder, payment.OperationID, opIdx, err)
-				}
-			}
-		}
-		m.metricsService.SetNumPaymentOpsIngestedPerLedger(paymentPrometheusLabel, paymentOpsIngested)
-		m.metricsService.SetNumPaymentOpsIngestedPerLedger(pathPaymentStrictSendPrometheusLabel, pathPaymentStrictSendOpsIngested)
-		m.metricsService.SetNumPaymentOpsIngestedPerLedger(pathPaymentStrictReceivePrometheusLabel, pathPaymentStrictReceiveOpsIngested)
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("ingesting payments: %w", err)
-	}
-
-	return nil
-}
-
 // unlockChannelAccountsDeprecated unlocks the channel accounts associated with the given transaction XDRs.
 func (m *ingestService) unlockChannelAccountsDeprecated(ctx context.Context, ledgerTransactions []entities.Transaction) error {
 	if len(ledgerTransactions) == 0 {
@@ -657,47 +576,4 @@ func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker a
 			ticker.Reset(ingestHealthCheckMaxWaitTime)
 		}
 	}
-}
-
-func fillPayment(payment *data.Payment, operation xdr.OperationBody) {
-	paymentOp := operation.MustPaymentOp()
-	payment.ToAddress = paymentOp.Destination.Address()
-	payment.SrcAssetCode = utils.AssetCode(paymentOp.Asset)
-	payment.SrcAssetIssuer = paymentOp.Asset.GetIssuer()
-	payment.SrcAssetType = paymentOp.Asset.Type.String()
-	payment.SrcAmount = int64(paymentOp.Amount)
-	payment.DestAssetCode = payment.SrcAssetCode
-	payment.DestAssetIssuer = payment.SrcAssetIssuer
-	payment.DestAssetType = payment.SrcAssetType
-	payment.DestAmount = payment.SrcAmount
-}
-
-func fillPathSend(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
-	pathOp := operation.MustPathPaymentStrictSendOp()
-	result := utils.OperationResult(txResult, operationIdx).MustPathPaymentStrictSendResult()
-	payment.ToAddress = pathOp.Destination.Address()
-	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
-	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
-	payment.SrcAssetType = pathOp.SendAsset.Type.String()
-	payment.SrcAmount = int64(pathOp.SendAmount)
-	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
-	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
-	payment.DestAssetType = pathOp.DestAsset.Type.String()
-	if result != (xdr.PathPaymentStrictSendResult{}) {
-		payment.DestAmount = int64(result.DestAmount())
-	}
-}
-
-func fillPathReceive(payment *data.Payment, operation xdr.OperationBody, txResult xdr.TransactionResult, operationIdx int) {
-	pathOp := operation.MustPathPaymentStrictReceiveOp()
-	result := utils.OperationResult(txResult, operationIdx).MustPathPaymentStrictReceiveResult()
-	payment.ToAddress = pathOp.Destination.Address()
-	payment.SrcAssetCode = utils.AssetCode(pathOp.SendAsset)
-	payment.SrcAssetIssuer = pathOp.SendAsset.GetIssuer()
-	payment.SrcAssetType = pathOp.SendAsset.Type.String()
-	payment.SrcAmount = int64(result.SendAmount())
-	payment.DestAssetCode = utils.AssetCode(pathOp.DestAsset)
-	payment.DestAssetIssuer = pathOp.DestAsset.GetIssuer()
-	payment.DestAssetType = pathOp.DestAsset.Type.String()
-	payment.DestAmount = int64(pathOp.DestAmount)
 }
