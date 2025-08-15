@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -68,18 +67,17 @@ type handlerDeps struct {
 	Models              *data.Models
 	Port                int
 	DatabaseURL         string
-	ServerHostname      string
 	RequestAuthVerifier auth.HTTPRequestVerifier
 	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 
 	// Services
-	AccountService            services.AccountService
-	AccountSponsorshipService services.AccountSponsorshipService
-	PaymentService            services.PaymentService
-	MetricsService            metrics.MetricsService
-	TransactionService        txservices.TransactionService
-	RPCService                services.RPCService
+	AccountService     services.AccountService
+	FeeBumpService     services.FeeBumpService
+	PaymentService     services.PaymentService
+	MetricsService     metrics.MetricsService
+	TransactionService txservices.TransactionService
+	RPCService         services.RPCService
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -142,17 +140,14 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}
 
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
+	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		RPCService:                         rpcService,
-		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
 		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
 	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
@@ -187,24 +182,18 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-	serverHostname, err := url.ParseRequestURI(cfg.ServerBaseURL)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
-	}
-
 	return handlerDeps{
-		Models:                    models,
-		ServerHostname:            serverHostname.Hostname(),
-		RequestAuthVerifier:       requestAuthVerifier,
-		SupportedAssets:           cfg.SupportedAssets,
-		AccountService:            accountService,
-		AccountSponsorshipService: accountSponsorshipService,
-		PaymentService:            paymentService,
-		MetricsService:            metricsService,
-		RPCService:                rpcService,
-		AppTracker:                cfg.AppTracker,
-		NetworkPassphrase:         cfg.NetworkPassphrase,
-		TransactionService:        txService,
+		Models:              models,
+		RequestAuthVerifier: requestAuthVerifier,
+		SupportedAssets:     cfg.SupportedAssets,
+		AccountService:      accountService,
+		FeeBumpService:      feeBumpService,
+		PaymentService:      paymentService,
+		MetricsService:      metricsService,
+		RPCService:          rpcService,
+		AppTracker:          cfg.AppTracker,
+		NetworkPassphrase:   cfg.NetworkPassphrase,
+		TransactionService:  txService,
 	}, nil
 }
 
@@ -236,7 +225,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
@@ -270,16 +259,12 @@ func handler(deps handlerDeps) http.Handler {
 			r.Get("/", handler.GetPayments)
 		})
 
-		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
 		r.Route("/tx", func(r chi.Router) {
 			accountHandler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
+				FeeBumpService: deps.FeeBumpService,
+				AppTracker:     deps.AppTracker,
 			}
 
-			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 	})

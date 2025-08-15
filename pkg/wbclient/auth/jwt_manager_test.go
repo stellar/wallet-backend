@@ -21,9 +21,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	validTimestamp := time.Now().Add(time.Second * 2)
 	tooLongTimestamp := time.Now().Add(DefaultMaxTimeout * 2)
 
-	validHostname := "test.com"
-	invalidHostname := "invalid.test.com"
-
 	validMethodAndPath := "GET /valid-route"
 	invalidMethodAndPath := "GET /invalid-route"
 
@@ -32,7 +29,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 		JWTManager      func(t *testing.T) *JWTManager
 		jwtBody         []byte
 		requestBody     []byte
-		hostname        string
 		uri             string
 		expiresAt       time.Time
 		wantErrContains string
@@ -46,7 +42,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			},
 			jwtBody:         nil,
 			requestBody:     nil,
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
@@ -60,7 +55,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
@@ -74,7 +68,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			},
 			jwtBody:         nil,
 			requestBody:     nil,
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
@@ -88,7 +81,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"foo": "bar"}`),
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "",
@@ -100,7 +92,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				require.NoError(t, err)
 				return jwtManager
 			},
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       expiredTimestamp,
 			wantErrContains: "the JWT token has expired by",
@@ -112,7 +103,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				require.NoError(t, err)
 				return jwtManager
 			},
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       tooLongTimestamp,
 			wantErrContains: "pre-validating JWT token claims: the JWT expiration is too long, max timeout is 15s",
@@ -124,7 +114,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				require.NoError(t, err)
 				return jwtManager
 			},
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "parsing JWT token with claims: token signature is invalid: ed25519: verification error",
@@ -138,22 +127,9 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 			},
 			jwtBody:         []byte(`{"foo": "bar"}`),
 			requestBody:     []byte(`{"x": "y"}`),
-			hostname:        validHostname,
 			uri:             validMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: "pre-validating JWT token claims: the JWT hashed body does not match the expected value",
-		},
-		{
-			name: "🔴invalid_hostname",
-			JWTManager: func(t *testing.T) *JWTManager {
-				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
-				require.NoError(t, err)
-				return jwtManager
-			},
-			hostname:        invalidHostname,
-			uri:             validMethodAndPath,
-			expiresAt:       validTimestamp,
-			wantErrContains: "pre-validating JWT token claims: the JWT audience [invalid.test.com] does not match the expected audience [test.com]",
 		},
 		{
 			name: "🔴invalid_method_and_path",
@@ -162,7 +138,6 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 				require.NoError(t, err)
 				return jwtManager
 			},
-			hostname:        validHostname,
 			uri:             invalidMethodAndPath,
 			expiresAt:       validTimestamp,
 			wantErrContains: `pre-validating JWT token claims: the JWT method-and-path "GET /invalid-route" does not match the expected method-and-path "GET /valid-route"`,
@@ -172,10 +147,10 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtManager := tc.JWTManager(t)
-			token, err := jwtManager.GenerateJWT(tc.hostname, tc.uri, tc.jwtBody, tc.expiresAt)
+			token, err := jwtManager.GenerateJWT(tc.uri, tc.jwtBody, tc.expiresAt)
 			require.NoError(t, err)
 
-			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validHostname, validMethodAndPath, tc.requestBody)
+			parsedToken, parsedClaims, err := jwtManager.ParseJWT(token, validMethodAndPath, tc.requestBody)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 				assert.Nil(t, parsedToken, "parsed token should be nil")
@@ -192,12 +167,12 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 	require.NoError(t, err)
-	validToken, err := jwtManager.GenerateJWT(validHostname, validMethodAndPath, nil, validTimestamp)
+	validToken, err := jwtManager.GenerateJWT(validMethodAndPath, nil, validTimestamp)
 	require.NoError(t, err)
 
 	t.Run("🔴invalid_Public_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PublicKey: "invalid-public-key"}
-		parsedToken, parsedClaims, err := jwtManager.ParseJWT(validToken, validHostname, validMethodAndPath, nil)
+		parsedToken, parsedClaims, err := jwtManager.ParseJWT(validToken, validMethodAndPath, nil)
 		assert.ErrorContains(t, err, "the JWT token is not signed by the expected Stellar public key")
 		assert.Nil(t, parsedToken, "parsed token should be nil")
 		assert.Nil(t, parsedClaims, "parsed claims should be nil")
@@ -205,7 +180,7 @@ func Test_JWTManager_GenerateAndParseToken(t *testing.T) {
 
 	t.Run("🔴invalid_Private_Key", func(t *testing.T) {
 		jwtManager := &JWTManager{PrivateKey: "invalid-private-key"}
-		token, err := jwtManager.GenerateJWT(validHostname, validMethodAndPath, nil, validTimestamp)
+		token, err := jwtManager.GenerateJWT(validMethodAndPath, nil, validTimestamp)
 		assert.ErrorContains(t, err, "decoding Stellar private key")
 		assert.Empty(t, token, "token should be empty")
 	})
@@ -320,11 +295,11 @@ func Test_NewJWTTokenParser(t *testing.T) {
 				// Generate a JWT token
 				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 				require.NoError(t, err)
-				token, err := jwtManager.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtManager.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 
 				// Parse the JWT token
-				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", "", tc.reqBody)
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", tc.reqBody)
 				require.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
 				require.Equal(t, HashBody(tc.reqBody), parsedClaims.BodyHash)
@@ -379,11 +354,11 @@ func Test_NewMultiJWTTokenParser(t *testing.T) {
 				// Generate a JWT token
 				jwtManager, err := NewJWTManager(testKP1.Seed(), testKP1.Address(), 0)
 				require.NoError(t, err)
-				token, err := jwtManager.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtManager.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 
 				// Parse the JWT token
-				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", "", tc.reqBody)
+				parsedToken, parsedClaims, err := jwtTokenParser.ParseJWT(token, "", tc.reqBody)
 				require.NoError(t, err)
 				assert.True(t, parsedToken.Valid, "parsed token should be valid")
 				require.Equal(t, HashBody(tc.reqBody), parsedClaims.BodyHash)
@@ -427,7 +402,7 @@ func Test_NewJWTTokenGenerator(t *testing.T) {
 				assert.NotNil(t, jwtTokenGenerator, "jwt token generator should not be nil")
 
 				// Generate a JWT token
-				token, err := jwtTokenGenerator.GenerateJWT("", "", tc.reqBody, time.Now().Add(time.Second*2))
+				token, err := jwtTokenGenerator.GenerateJWT("", tc.reqBody, time.Now().Add(time.Second*2))
 				require.NoError(t, err)
 				assert.NotEmpty(t, token, "token should not be empty")
 			}

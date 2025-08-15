@@ -22,24 +22,24 @@ type JWTManager struct {
 
 type JWTTokenParser interface {
 	// ParseJWT parses a JWT token and returns it with the claims.
-	ParseJWT(tokenString, audience, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error)
+	ParseJWT(tokenString, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error)
 }
 
 type JWTTokenGenerator interface {
 	// GenerateJWT generates a JWT token with the given body and expiration time.
-	GenerateJWT(audience, methodAndPath string, body []byte, expiresAt time.Time) (string, error)
+	GenerateJWT(methodAndPath string, body []byte, expiresAt time.Time) (string, error)
 }
 
 // ParseJWT parses a JWT token and returns it with the claims. It also checks if the token expiration is within [now,
 // now+MaxTimeout], and if the claims' hashed_body matches the requestBody's hash.
-func (m *JWTManager) ParseJWT(tokenString, audience, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error) {
+func (m *JWTManager) ParseJWT(tokenString, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error) {
 	claims := &customClaims{}
 	err := claims.DecodeTokenString(tokenString)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decoding JWT token: %w", err)
 	}
 
-	err = claims.Validate(audience, methodAndPath, body, m.MaxTimeout)
+	err = claims.Validate(methodAndPath, body, m.MaxTimeout)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pre-validating JWT token claims: %w", err)
 	}
@@ -67,14 +67,13 @@ func (m *JWTManager) ParseJWT(tokenString, audience, methodAndPath string, body 
 }
 
 // GenerateJWT generates a JWT token with the given body and expiration time.
-func (m *JWTManager) GenerateJWT(audience, methodAndPath string, body []byte, expiresAt time.Time) (string, error) {
+func (m *JWTManager) GenerateJWT(methodAndPath string, body []byte, expiresAt time.Time) (string, error) {
 	claims := &customClaims{
 		BodyHash:      HashBody(body),
 		MethodAndPath: strings.TrimSpace(methodAndPath),
 		RegisteredClaims: jwtgo.RegisteredClaims{
 			IssuedAt:  jwtgo.NewNumericDate(time.Now()),
 			ExpiresAt: jwtgo.NewNumericDate(expiresAt),
-			Audience:  jwtgo.ClaimStrings{audience},
 			Subject:   m.PublicKey,
 		},
 	}
@@ -150,7 +149,7 @@ type MultiJWTTokenParser struct {
 	jwtParsers map[string]JWTTokenParser
 }
 
-func (m MultiJWTTokenParser) ParseJWT(tokenString, audience, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error) {
+func (m MultiJWTTokenParser) ParseJWT(tokenString, methodAndPath string, body []byte) (*jwtgo.Token, *customClaims, error) {
 	claims := &customClaims{}
 	err := claims.DecodeTokenString(tokenString)
 	if err != nil {
@@ -163,7 +162,7 @@ func (m MultiJWTTokenParser) ParseJWT(tokenString, audience, methodAndPath strin
 	}
 
 	//nolint:wrapcheck // we're ok not wrapping the error here because we're not adding any additional context
-	return jwtParser.ParseJWT(tokenString, audience, methodAndPath, body)
+	return jwtParser.ParseJWT(tokenString, methodAndPath, body)
 }
 
 func NewJWTTokenGenerator(stellarPrivateKey string) (JWTTokenGenerator, error) {
