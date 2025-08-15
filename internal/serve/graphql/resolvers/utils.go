@@ -193,6 +193,14 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 		return PaginationParams{}, fmt.Errorf("after and before cannot be used together")
 	}
 
+	if first != nil && *first <= 0 {
+		return PaginationParams{}, fmt.Errorf("first must be positive")
+	}
+
+	if last != nil && *last <= 0 {
+		return PaginationParams{}, fmt.Errorf("last must be positive")
+	}
+
 	var cursor *string
 	limit := defaultLimit
 	isDescending := true

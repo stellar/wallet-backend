@@ -40,7 +40,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	columns = prepareColumnsWithID(columns, "transactions", "to_id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
-	
+
 	if cursor != nil {
 		if isDescending {
 			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id < %d", *cursor))

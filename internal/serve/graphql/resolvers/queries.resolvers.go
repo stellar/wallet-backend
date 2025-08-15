@@ -25,7 +25,7 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, 100, false)
+	params, err := parsePaginationParams(first, after, last, before, 50, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
