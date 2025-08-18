@@ -10,8 +10,8 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
