@@ -15,6 +15,10 @@ import (
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
+const (
+	DefaultLimit = int32(50)
+)
+
 // GenericEdge is a generic wrapper for a GraphQL edge.
 type GenericEdge[T any] struct {
 	Node   T
@@ -186,14 +190,14 @@ func getColumnMap(model any) map[string]string {
 	return fieldToColumnMap
 }
 
-func parsePaginationParams(first *int32, after *string, last *int32, before *string, defaultLimit int32, isStateChange bool) (PaginationParams, error) {
+func parsePaginationParams(first *int32, after *string, last *int32, before *string, isStateChange bool) (PaginationParams, error) {
 	err := validatePaginationParams(first, after, last, before)
 	if err != nil {
 		return PaginationParams{}, fmt.Errorf("validating pagination params: %w", err)
 	}
 
 	var cursor *string
-	limit := defaultLimit
+	limit := DefaultLimit
 	forwardPagination := true
 	sortOrder := data.ASC
 	if first != nil {
