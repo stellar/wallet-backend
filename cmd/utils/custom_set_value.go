@@ -66,7 +66,16 @@ func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
 	publicKeysStr := viper.GetString(co.Name)
 	publicKeysStr = strings.TrimSpace(publicKeysStr)
 	if publicKeysStr == "" {
-		return fmt.Errorf("no public keys provided in %s", co.Name)
+		if co.Required {
+			return fmt.Errorf("no public keys provided in %s", co.Name)
+		}
+		// If not required and empty, set to empty slice
+		key, ok := co.ConfigKey.(*[]string)
+		if !ok {
+			return unexpectedTypeError(key, co)
+		}
+		*key = []string{}
+		return nil
 	}
 	publicKeysStr = strings.ReplaceAll(publicKeysStr, " ", "")
 	publicKeys := strings.Split(publicKeysStr, ",")
