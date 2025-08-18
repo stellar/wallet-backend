@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -29,6 +30,7 @@ type PaginationParams struct {
 	Limit             *int32
 	Cursor            *int64
 	ForwardPagination bool
+	SortOrder         data.SortOrder
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -177,6 +179,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	var cursor *string
 	limit := defaultLimit
 	forwardPagination := true
+	sortOrder := data.ASC
 	if first != nil {
 		cursor = after
 		limit = *first
@@ -184,6 +187,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 		cursor = before
 		limit = *last
 		forwardPagination = false
+		sortOrder = data.DESC
 	}
 
 	decodedCursor, err := decodeInt64Cursor(cursor)
@@ -195,6 +199,7 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 		Cursor:            decodedCursor,
 		Limit:             &limit,
 		ForwardPagination: forwardPagination,
+		SortOrder:         sortOrder,
 	}, nil
 }
 

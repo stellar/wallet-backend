@@ -60,7 +60,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 }
 
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
-func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy string) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
 	// Prepare columns, ensuring operations.id is always included
 	columns = prepareColumnsWithID(columns, "operations", "id")
 
