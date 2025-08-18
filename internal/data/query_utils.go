@@ -98,7 +98,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	}
 
 	// Add limit if provided
-	if config.Limit != nil && *config.Limit > 0 {
+	if config.Limit != nil {
 		queryBuilder.WriteString(fmt.Sprintf(` LIMIT $%d`, argIndex))
 		args = append(args, *config.Limit)
 	}
