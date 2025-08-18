@@ -257,7 +257,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without specifying cursor and limit (gets all transactions)
-	transactions, err := m.GetAll(ctx, "", nil, nil, true)
+	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 	assert.Equal(t, int64(3), transactions[0].Cursor)
@@ -266,7 +266,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
-	transactions, err = m.GetAll(ctx, "", &limit, nil, true)
+	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 	assert.Equal(t, int64(3), transactions[0].Cursor)

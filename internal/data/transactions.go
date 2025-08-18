@@ -36,20 +36,20 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, isDescending bool) ([]*types.TransactionWithCursor, error) {
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
 	columns = prepareColumnsWithID(columns, "transactions", "to_id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
 
 	if cursor != nil {
-		if isDescending {
+		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id < %d", *cursor))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id > %d", *cursor))
 		}
 	}
 
-	if isDescending {
+	if sortOrder == DESC {
 		queryBuilder.WriteString(" ORDER BY to_id DESC")
 	} else {
 		queryBuilder.WriteString(" ORDER BY to_id ASC")
@@ -60,8 +60,8 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	}
 
 	query := queryBuilder.String()
-	if !isDescending {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY cursor DESC`, query)
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY cursor ASC`, query)
 	}
 
 	var transactions []*types.TransactionWithCursor

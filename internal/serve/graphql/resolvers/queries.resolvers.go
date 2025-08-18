@@ -25,14 +25,14 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
 func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, 50, false)
+	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.IsDescending)
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
@@ -65,14 +65,14 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
 func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, 50, false)
+	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.IsDescending)
+	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}

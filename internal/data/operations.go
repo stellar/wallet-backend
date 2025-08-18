@@ -19,20 +19,20 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, isDescending bool) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, "operations", "id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
 
 	if cursor != nil {
-		if isDescending {
+		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(" WHERE id < %d", *cursor))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(" WHERE id > %d", *cursor))
 		}
 	}
 
-	if isDescending {
+	if sortOrder == DESC {
 		queryBuilder.WriteString(" ORDER BY id DESC")
 	} else {
 		queryBuilder.WriteString(" ORDER BY id ASC")
@@ -42,8 +42,8 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
 	}
 	query := queryBuilder.String()
-	if !isDescending {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor DESC`, query)
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
 	}
 
 	var operations []*types.OperationWithCursor
