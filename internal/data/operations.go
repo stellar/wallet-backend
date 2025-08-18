@@ -59,30 +59,34 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
-// BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
-func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.OperationWithAccountID, error) {
-	if columns == "" {
-		columns = "operations.*"
-	}
-	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.account_id
-		FROM operations
-		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
-		WHERE operations_accounts.account_id = ANY($1)
-		ORDER BY operations.id DESC
-	`, columns)
+// BatchGetByAccountAddress gets the operations that are associated with a single account address.
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
+	// Prepare columns, ensuring operations.id is always included
+	columns = prepareColumnsWithID(columns, "operations", "id")
 
-	var operationsWithAccounts []*types.OperationWithAccountID
+	// Build paginated query using shared utility
+	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
+		TableName:      "operations",
+		CursorColumn:   "id",
+		JoinTable:      "operations_accounts",
+		JoinCondition:  "operations_accounts.operation_id = operations.id",
+		Columns:        columns,
+		AccountAddress: accountAddress,
+		Limit:          limit,
+		Cursor:         cursor,
+		OrderBy:        orderBy,
+	})
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithAccounts, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting operations by account addresses: %w", err)
+		return nil, fmt.Errorf("getting operations by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
-
-	return operationsWithAccounts, nil
+	return operations, nil
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.

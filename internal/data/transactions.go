@@ -60,25 +60,31 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns str
 	return transactions, nil
 }
 
-// BatchGetByAccountAddresses gets the transactions that are associated with the given account addresses.
-func (m *TransactionModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.TransactionWithAccountID, error) {
-	if columns == "" {
-		columns = "transactions.*"
-	}
-	query := fmt.Sprintf(`
-		SELECT %s, transactions_accounts.account_id 
-		FROM transactions_accounts 
-		INNER JOIN transactions 
-		ON transactions_accounts.tx_hash = transactions.hash 
-		WHERE transactions_accounts.account_id = ANY($1)
-		ORDER BY transactions.to_id DESC`, columns)
-	var transactions []*types.TransactionWithAccountID
+// BatchGetByAccountAddress gets the transactions that are associated with a single account address.
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
+	// Prepare columns, ensuring transactions.to_id is always included
+	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+
+	// Build paginated query using shared utility
+	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
+		TableName:      "transactions",
+		CursorColumn:   "to_id",
+		JoinTable:      "transactions_accounts",
+		JoinCondition:  "transactions_accounts.tx_hash = transactions.hash",
+		Columns:        columns,
+		AccountAddress: accountAddress,
+		Limit:          limit,
+		Cursor:         cursor,
+		OrderBy:        orderBy,
+	})
+
+	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &transactions, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting transactions by accounts: %w", err)
+		return nil, fmt.Errorf("getting transactions by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
 	return transactions, nil
