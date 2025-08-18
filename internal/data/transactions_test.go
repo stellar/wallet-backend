@@ -260,16 +260,16 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
-	assert.Equal(t, int64(3), transactions[0].Cursor)
+	assert.Equal(t, int64(1), transactions[0].Cursor)
 	assert.Equal(t, int64(2), transactions[1].Cursor)
-	assert.Equal(t, int64(1), transactions[2].Cursor)
+	assert.Equal(t, int64(3), transactions[2].Cursor)
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
 	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
-	assert.Equal(t, int64(3), transactions[0].Cursor)
+	assert.Equal(t, int64(1), transactions[0].Cursor)
 	assert.Equal(t, int64(2), transactions[1].Cursor)
 }
 

@@ -260,16 +260,16 @@ func TestOperationModel_GetAll(t *testing.T) {
 	operations, err := m.GetAll(ctx, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
-	assert.Equal(t, int64(3), operations[0].Cursor)
+	assert.Equal(t, int64(1), operations[0].Cursor)
 	assert.Equal(t, int64(2), operations[1].Cursor)
-	assert.Equal(t, int64(1), operations[2].Cursor)
+	assert.Equal(t, int64(3), operations[2].Cursor)
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
 	operations, err = m.GetAll(ctx, "", &limit, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, int64(3), operations[0].Cursor)
+	assert.Equal(t, int64(1), operations[0].Cursor)
 	assert.Equal(t, int64(2), operations[1].Cursor)
 }
 
