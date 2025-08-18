@@ -61,7 +61,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns str
 }
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
-func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, isDescending bool) ([]*types.TransactionWithCursor, error) {
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy string) ([]*types.TransactionWithCursor, error) {
 	// Prepare columns, ensuring transactions.to_id is always included
 	columns = prepareColumnsWithID(columns, "transactions", "to_id")
 
@@ -75,7 +75,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		AccountAddress: accountAddress,
 		Limit:          limit,
 		Cursor:         cursor,
-		IsDescending:   isDescending,
+		OrderBy:        orderBy,
 	})
 
 	var transactions []*types.TransactionWithCursor
