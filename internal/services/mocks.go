@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 
-	"github.com/stellar/go/txnbuild"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -82,15 +81,4 @@ func NewRPCServiceMock(t interface {
 	t.Cleanup(func() { mock.AssertExpectations(t) })
 
 	return mock
-}
-
-type FeeBumpServiceMock struct {
-	mock.Mock
-}
-
-var _ FeeBumpService = (*FeeBumpServiceMock)(nil)
-
-func (s *FeeBumpServiceMock) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
-	args := s.Called(ctx, tx)
-	return args.String(0), args.String(1), args.Error(2)
 }

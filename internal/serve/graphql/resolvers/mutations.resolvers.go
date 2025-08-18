@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -221,6 +222,70 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	return &graphql1.BuildTransactionPayload{
 		Success:        true,
 		TransactionXdr: txXdrStr,
+	}, nil
+}
+
+// CreateFeeBumpTransaction is the resolver for the createFeeBumpTransaction field.
+func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input graphql1.CreateFeeBumpTransactionInput) (*graphql1.CreateFeeBumpTransactionPayload, error) {
+	genericTx, err := txnbuild.TransactionFromXDR(input.TransactionXdr)
+	if err != nil {
+		return nil, &gqlerror.Error{
+			Message: "Could not parse transaction envelope.",
+			Extensions: map[string]interface{}{
+				"code": "INVALID_TRANSACTION_XDR",
+			},
+		}
+	}
+
+	tx, ok := genericTx.Transaction()
+	if !ok {
+		return nil, &gqlerror.Error{
+			Message: "Cannot accept a fee-bump transaction.",
+			Extensions: map[string]interface{}{
+				"code": "FEE_BUMP_NOT_ALLOWED",
+			},
+		}
+	}
+
+	feeBumpTxe, networkPassphrase, err := r.feeBumpService.WrapTransaction(ctx, tx)
+	if err != nil {
+		var opNotAllowedErr *services.OperationNotAllowedError
+		switch {
+		case errors.Is(err, services.ErrFeeExceedsMaximumBaseFee):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "FEE_EXCEEDS_MAXIMUM",
+				},
+			}
+		case errors.Is(err, services.ErrNoSignaturesProvided):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "NO_SIGNATURES_PROVIDED",
+				},
+			}
+		case errors.As(err, &opNotAllowedErr):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]interface{}{
+					"code": "OPERATION_NOT_ALLOWED",
+				},
+			}
+		default:
+			return nil, &gqlerror.Error{
+				Message: fmt.Sprintf("Failed to create fee bump transaction: %s", err.Error()),
+				Extensions: map[string]interface{}{
+					"code": "FEE_BUMP_CREATION_FAILED",
+				},
+			}
+		}
+	}
+
+	return &graphql1.CreateFeeBumpTransactionPayload{
+		Success:           true,
+		Transaction:       feeBumpTxe,
+		NetworkPassphrase: networkPassphrase,
 	}, nil
 }
 
