@@ -25,10 +25,6 @@ func (m *MockMetricsService) GetRegistry() *prometheus.Registry {
 	return args.Get(0).(*prometheus.Registry)
 }
 
-func (m *MockMetricsService) SetNumPaymentOpsIngestedPerLedger(operationType string, value int) {
-	m.Called(operationType, value)
-}
-
 func (m *MockMetricsService) SetLatestLedgerIngested(value float64) {
 	m.Called(value)
 }

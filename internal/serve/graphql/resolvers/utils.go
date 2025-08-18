@@ -11,6 +11,7 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/data"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
@@ -30,7 +31,8 @@ type PaginationParams struct {
 	Limit             *int32
 	Cursor            *int64
 	StateChangeCursor *types.StateChangeCursor
-	IsDescending      bool
+	ForwardPagination bool
+	SortOrder         data.SortOrder
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -38,7 +40,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	hasNextPage := false
 	hasPreviousPage := false
 
-	if params.IsDescending {
+	if params.ForwardPagination {
 		if int32(len(nodes)) > *params.Limit {
 			hasNextPage = true
 			nodes = nodes[:*params.Limit]
@@ -64,7 +66,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	var startCursor, endCursor *string
 	if len(edges) > 0 {
 		startCursor = &edges[0].Cursor
-		if params.IsDescending {
+		if params.ForwardPagination {
 			endCursor = &edges[len(edges)-1].Cursor
 		} else {
 			endCursor = &edges[0].Cursor
@@ -192,19 +194,22 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 
 	var cursor *string
 	limit := defaultLimit
-	isDescending := true
+	forwardPagination := true
+	sortOrder := data.ASC
 	if first != nil {
 		cursor = after
 		limit = *first
 	} else if last != nil {
 		cursor = before
 		limit = *last
-		isDescending = false
+		forwardPagination = false
+		sortOrder = data.DESC
 	}
 
 	paginationParams := PaginationParams{
-		Limit:        &limit,
-		IsDescending: isDescending,
+		Limit:             &limit,
+		SortOrder:         sortOrder,
+		ForwardPagination: forwardPagination,
 	}
 
 	if isStateChange {
