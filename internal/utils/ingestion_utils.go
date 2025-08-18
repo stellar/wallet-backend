@@ -3,23 +3,8 @@ package utils
 import (
 	"strconv"
 
-	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 )
-
-func OperationID(ledgerNumber, txNumber, opNumber int32) string {
-	return toid.New(ledgerNumber, txNumber, opNumber).String()
-}
-
-func OperationResult(txResult xdr.TransactionResult, opNumber int) *xdr.OperationResultTr {
-	results, _ := txResult.OperationResults()
-	tr := results[opNumber-1].MustTr()
-	return &tr
-}
-
-func TransactionID(ledgerNumber, txNumber int32) string {
-	return toid.New(ledgerNumber, txNumber, 0).String()
-}
 
 // Memo returns the memo value parsed to string and its type.
 func Memo(memo xdr.Memo, txHash string) (*string, string) {
@@ -55,19 +40,4 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 	// TODO: track in Sentry
 	// sentry.CaptureException(fmt.Errorf("failed to parse memo for type %q and transaction %s", memoType.String(), txHash))
 	return nil, memoType.String()
-}
-
-func SourceAccount(op xdr.Operation, txEnvelope xdr.TransactionEnvelope) string {
-	account := op.SourceAccount
-	if account != nil {
-		return account.ToAccountId().Address()
-	}
-	return txEnvelope.SourceAccount().ToAccountId().Address()
-}
-
-func AssetCode(asset xdr.Asset) string {
-	if asset.Type == xdr.AssetTypeAssetTypeNative {
-		return "XLM"
-	}
-	return SanitizeUTF8(asset.GetCode())
 }
