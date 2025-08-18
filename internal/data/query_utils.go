@@ -95,7 +95,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	if config.OrderBy == "DESC" {
 		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s DESC", config.TableName, config.CursorColumn))
 	} else {
-		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s ASC", config.TableName, config.CursorColumn))	
+		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s ASC", config.TableName, config.CursorColumn))
 	}
 
 	// Add limit if provided

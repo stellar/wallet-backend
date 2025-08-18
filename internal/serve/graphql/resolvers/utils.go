@@ -26,9 +26,9 @@ type GenericConnection[T any] struct {
 }
 
 type PaginationParams struct {
-	Limit        *int32
-	Cursor       *int64
-	ForwardPagination  bool
+	Limit             *int32
+	Cursor            *int64
+	ForwardPagination bool
 }
 
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
@@ -192,9 +192,9 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	}
 
 	return PaginationParams{
-		Cursor:       decodedCursor,
-		Limit:        &limit,
-		ForwardPagination:  forwardPagination,
+		Cursor:            decodedCursor,
+		Limit:             &limit,
+		ForwardPagination: forwardPagination,
 	}, nil
 }
 
