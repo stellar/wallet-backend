@@ -19,23 +19,40 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
-	if columns == "" {
-		columns = "*"
+func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, isDescending bool) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, "operations", "id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
+
+	if cursor != nil {
+		if isDescending {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE id < %d", *cursor))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE id > %d", *cursor))
+		}
 	}
-	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+
+	if isDescending {
+		queryBuilder.WriteString(" ORDER BY id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY id ASC")
 	}
-	var operations []*types.Operation
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+	query := queryBuilder.String()
+	if !isDescending {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor DESC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	err := m.DB.SelectContext(ctx, &operations, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting all operations: %w", err)
+		return nil, fmt.Errorf("getting operations: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
 	return operations, nil
