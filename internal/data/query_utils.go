@@ -57,7 +57,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	// Add cursor condition if provided
 	if config.Cursor != nil {
 		// When paginating in descending order, we are going from greater cursor id to smaller cursor id
-		if config.OrderBy == "DESC" {
+		if config.OrderBy == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(` AND %s.%s < $%d`, config.TableName, config.CursorColumn, argIndex))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(` AND %s.%s > $%d`, config.TableName, config.CursorColumn, argIndex))
@@ -67,7 +67,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	}
 
 	// Add ordering
-	if config.OrderBy == "DESC" {
+	if config.OrderBy == DESC {
 		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s DESC", config.TableName, config.CursorColumn))
 	} else {
 		queryBuilder.WriteString(fmt.Sprintf(" ORDER BY %s.%s ASC", config.TableName, config.CursorColumn))
@@ -83,7 +83,7 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 
 	// For backward pagination, wrap query to reverse the final order
 	// This ensures we always display the oldest items first in the output
-	if config.OrderBy == "DESC" {
+	if config.OrderBy == DESC {
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS %s ORDER BY %s.cursor ASC`,
 			query, config.TableName, config.TableName)
 	}
