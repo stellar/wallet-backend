@@ -19,7 +19,7 @@ type StateChangeModel struct {
 }
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account addresses.
-func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, isDescending bool) ([]*types.StateChangeWithCursor, error) {
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = "*"
 	} else {
@@ -34,7 +34,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	`, columns))
 
 	if cursor != nil {
-		if isDescending {
+		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
 				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
@@ -45,7 +45,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		}
 	}
 
-	if isDescending {
+	if sortOrder == DESC {
 		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
 	} else {
 		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
@@ -57,8 +57,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	query := queryBuilder.String()
 
-	if !isDescending {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id DESC, state_change_order DESC`, query)
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor

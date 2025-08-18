@@ -49,11 +49,11 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 		utils.RPCURLOption(&cfg.RPCURL),
 		{
 			Name:           "client-auth-private-key",
-			Usage:          "The private key used to authenticate the client when making HTTP requests to the wallet-backend.",
+			Usage:          "The private key used to authenticate the client when making HTTP requests to the wallet-backend. If not provided, authentication is disabled.",
 			OptType:        types.String,
 			CustomSetValue: utils.SetConfigOptionStellarPrivateKey,
 			ConfigKey:      &cfg.ClientAuthPrivateKey,
-			Required:       true,
+			Required:       false,
 		},
 		{
 			Name:           "primary-source-account-private-key",
@@ -114,11 +114,15 @@ func (c *integrationTestsCmd) Command() *cobra.Command {
 				return fmt.Errorf("instantiating rpc service: %w", err)
 			}
 
-			jwtTokenGenerator, err := auth.NewJWTTokenGenerator(cfg.ClientAuthPrivateKey)
-			if err != nil {
-				return fmt.Errorf("instantiating jwt token generator: %w", err)
+			var requestSigner auth.HTTPRequestSigner
+			if cfg.ClientAuthPrivateKey != "" {
+				jwtTokenGenerator, err := auth.NewJWTTokenGenerator(cfg.ClientAuthPrivateKey)
+				if err != nil {
+					return fmt.Errorf("instantiating jwt token generator: %w", err)
+				}
+				requestSigner = auth.NewHTTPRequestSigner(jwtTokenGenerator)
 			}
-			wbClient := wbclient.NewClient(cfg.ServerBaseURL, auth.NewHTTPRequestSigner(jwtTokenGenerator))
+			wbClient := wbclient.NewClient(cfg.ServerBaseURL, requestSigner)
 
 			primaryKP, err := keypair.ParseFull(cfg.PrimarySourceAccountPrivateKey)
 			if err != nil {

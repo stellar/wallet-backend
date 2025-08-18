@@ -248,7 +248,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address1
-	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, true)
+	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 	for _, sc := range stateChanges {
@@ -256,7 +256,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address2
-	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, "", nil, nil, true)
+	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 1)
 	for _, sc := range stateChanges {
