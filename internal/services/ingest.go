@@ -176,7 +176,7 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
 
 			// immediately trigger the next ingestion the wallet-backend is behind the RPC's latest ledger
-			if resp.LatestLedger-ingestLedger > 1 {
+			if resp.LatestLedger-ingestLedger > 1 && len(manualTriggerChannel) == 0 {
 				manualTriggerChannel <- true
 			}
 
@@ -258,7 +258,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
-		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
+		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit && len(manualTriggerChan) == 0 {
 			manualTriggerChan <- nil
 		}
 	}
