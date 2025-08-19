@@ -1002,3 +1002,60 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 
 	mockHTTPClient.AssertNotCalled(t, "Post")
 }
+
+func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	// Create fresh RPC service for each test case
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockHTTPClient := &utils.MockHTTPClient{}
+	rpcURL := "http://test-url-deadlock-prevention"
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
+	rpcService.healthCheckTickInterval = 10 * time.Millisecond
+
+	// Mock metrics expectations
+	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
+	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Maybe()
+	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
+	mockMetricsService.On("SetRPCServiceHealth", true).Maybe()
+	mockMetricsService.On("SetRPCLatestLedger", mock.AnythingOfType("int64")).Maybe()
+	defer mockMetricsService.AssertExpectations(t)
+
+	// Mock successful health response - create fresh response for each call
+	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(func(url, contentType string, body io.Reader) *http.Response {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 8675309,
+				"result": {
+					"status": "healthy",
+					"latestLedger": 100,
+					"oldestLedger": 1,
+					"ledgerRetentionWindow": 0
+				}
+			}`)),
+		}
+	}, nil).Maybe()
+
+	// Start health tracking - this should not deadlock
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	manualTriggerChan := make(chan any, 1)
+	go rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	time.Sleep(20 * time.Millisecond)
+	manualTriggerChan <- nil
+
+	select {
+	case <-ctx.Done():
+		require.Fail(t, "😵 deadlock occurred!")
+	case manualTriggerChan <- nil:
+		t.Log("🎉 Deadlock prevented!")
+	}
+}
