@@ -50,7 +50,7 @@ shadow: ## Run shadow analysis to find shadowed variables
 		echo "Installing shadow..."; \
 		go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0; \
 	fi
-	@$(shell go env GOPATH)/bin/shadow ./... | { grep -v "generated.go" || true; }
+	@$(shell go env GOPATH)/bin/shadow ./... 2>&1 | grep -v "generated.go" | grep -v "mocks.go" || true
 
 exhaustive: ## Check exhaustiveness of switch statements
 	@echo "==> Running exhaustive..."

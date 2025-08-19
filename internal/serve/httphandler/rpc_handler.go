@@ -19,6 +19,7 @@ func (h RPCHandler) ForwardRPCRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to forward request", http.StatusInternalServerError)
 		return
 	}
+	//nolint:errcheck
 	defer resp.Body.Close()
 
 	// Copy response headers
@@ -32,5 +33,9 @@ func (h RPCHandler) ForwardRPCRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 
 	// Copy response body
-	io.Copy(w, resp.Body)
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to copy response body", http.StatusInternalServerError)
+		return
+	}
 }
