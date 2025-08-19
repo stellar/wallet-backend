@@ -94,7 +94,7 @@ func NewIngestService(
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
-	if getLedgersLimit < 0 {
+	if getLedgersLimit <= 0 {
 		return nil, errors.New("getLedgersLimit must be greater than 0")
 	}
 
