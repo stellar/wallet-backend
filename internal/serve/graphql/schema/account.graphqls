@@ -14,5 +14,5 @@ type Account{
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges:   [StateChange!]!
+  stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
 }

@@ -10,9 +10,7 @@ import (
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // Address is the resolver for the address field.
@@ -25,7 +23,7 @@ func (r *accountResolver) Address(ctx context.Context, obj *types.Account) (stri
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, 100)
+	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -58,7 +56,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 // Operations is the resolver for the operations field.
 // This field resolver handles the "operations" field on an Account object
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, 100)
+	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
@@ -89,20 +87,35 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
-
-	// Use dataloader to batch-load state changes for this account
-	loaderKey := dataloaders.StateChangeColumnsKey{
-		AccountID: obj.StellarAddress,
-		Columns:   strings.Join(dbColumns, ", "),
-	}
-	stateChanges, err := loaders.StateChangesByAccountLoader.Load(ctx, loaderKey)
+func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	return stateChanges, nil
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
+	}
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Account returns graphql1.AccountResolver implementation.

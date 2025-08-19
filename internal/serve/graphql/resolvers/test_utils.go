@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vektah/gqlparser/v2/ast"
@@ -41,27 +42,27 @@ func getTestCtx(table string, columns []string) context.Context {
 }
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
+	testLedger := int32(1000)
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)
+	opIdx := 1
 	for i := range 4 {
-		txns = append(txns, &types.Transaction{
+		txn := &types.Transaction{
 			Hash:            fmt.Sprintf("tx%d", i+1),
-			ToID:            int64(i + 1),
+			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
 			EnvelopeXDR:     fmt.Sprintf("envelope%d", i+1),
 			ResultXDR:       fmt.Sprintf("result%d", i+1),
 			MetaXDR:         fmt.Sprintf("meta%d", i+1),
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
-		})
-	}
+		}
+		txns = append(txns, txn)
 
-	// Add 2 operations for each transaction
-	opIdx := 1
-	for _, txn := range txns {
-		for range 2 {
+		// Add 2 operations for each transaction
+		for j := range 2 {
 			ops = append(ops, &types.Operation{
-				ID:              int64(opIdx + 1000),
+				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				TxHash:          txn.Hash,
 				OperationType:   "payment",
 				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
@@ -97,7 +98,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
-			LedgerNumber:        1,
+			LedgerNumber:        1000,
 		})
 	}
 

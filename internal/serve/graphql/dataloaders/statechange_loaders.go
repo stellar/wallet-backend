@@ -16,29 +16,6 @@ type StateChangeColumnsKey struct {
 	Columns     string
 }
 
-// StateChangesByAccountLoader creates a dataloader for fetching state changes by account address
-func StateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
-			accountIDs := make([]string, len(keys))
-			columns := keys[0].Columns
-			for i, key := range keys {
-				accountIDs[i] = key.AccountID
-			}
-			return models.StateChanges.BatchGetByAccountAddresses(ctx, accountIDs, columns)
-		},
-		func(item *types.StateChange) string {
-			return item.AccountID
-		},
-		func(key StateChangeColumnsKey) string {
-			return key.AccountID
-		},
-		func(item *types.StateChange) types.StateChange {
-			return *item
-		},
-	)
-}
-
 // stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
 // This prevents N+1 queries when multiple transactions request their state changes
 // The loader batches multiple transaction hashes into a single database query

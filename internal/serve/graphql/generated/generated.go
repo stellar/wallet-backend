@@ -56,7 +56,7 @@ type ComplexityRoot struct {
 	Account struct {
 		Address      func(childComplexity int) int
 		Operations   func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		StateChanges func(childComplexity int) int
+		StateChanges func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
@@ -142,6 +142,16 @@ type ComplexityRoot struct {
 		Transaction         func(childComplexity int) int
 	}
 
+	StateChangeConnection struct {
+		Edges    func(childComplexity int) int
+		PageInfo func(childComplexity int) int
+	}
+
+	StateChangeEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
 	Transaction struct {
 		Accounts        func(childComplexity int) int
 		EnvelopeXDR     func(childComplexity int) int
@@ -170,7 +180,7 @@ type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
 	Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
 	Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
-	StateChanges(ctx context.Context, obj *types.Account) ([]*types.StateChange, error)
+	StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type MutationResolver interface {
 	RegisterAccount(ctx context.Context, input RegisterAccountInput) (*RegisterAccountPayload, error)
@@ -255,7 +265,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			break
 		}
 
-		return e.complexity.Account.StateChanges(childComplexity), true
+		args, err := ec.field_Account_stateChanges_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Account.StateChanges(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Account.transactions":
 		if e.complexity.Account.Transactions == nil {
@@ -673,6 +688,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.StateChange.Transaction(childComplexity), true
 
+	case "StateChangeConnection.edges":
+		if e.complexity.StateChangeConnection.Edges == nil {
+			break
+		}
+
+		return e.complexity.StateChangeConnection.Edges(childComplexity), true
+
+	case "StateChangeConnection.pageInfo":
+		if e.complexity.StateChangeConnection.PageInfo == nil {
+			break
+		}
+
+		return e.complexity.StateChangeConnection.PageInfo(childComplexity), true
+
+	case "StateChangeEdge.cursor":
+		if e.complexity.StateChangeEdge.Cursor == nil {
+			break
+		}
+
+		return e.complexity.StateChangeEdge.Cursor(childComplexity), true
+
+	case "StateChangeEdge.node":
+		if e.complexity.StateChangeEdge.Node == nil {
+			break
+		}
+
+		return e.complexity.StateChangeEdge.Node(childComplexity), true
+
 	case "Transaction.accounts":
 		if e.complexity.Transaction.Accounts == nil {
 			break
@@ -897,7 +940,7 @@ type Account{
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges:   [StateChange!]!
+  stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -1099,6 +1142,16 @@ type OperationEdge {
     cursor: String!
 }
 
+type StateChangeConnection {
+    edges: [StateChangeEdge!]
+    pageInfo: PageInfo!
+}
+
+type StateChangeEdge {
+    node: StateChange
+    cursor: String!
+}
+
 type PageInfo {
     startCursor: String
     endCursor: String
@@ -1268,6 +1321,83 @@ func (ec *executionContext) field_Account_operations_argsLast(
 }
 
 func (ec *executionContext) field_Account_operations_argsBefore(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("before"))
+	if tmp, ok := rawArgs["before"]; ok {
+		return ec.unmarshalOString2ᚖstring(ctx, tmp)
+	}
+
+	var zeroVal *string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Account_stateChanges_argsFirst(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := ec.field_Account_stateChanges_argsAfter(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
+	arg2, err := ec.field_Account_stateChanges_argsLast(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := ec.field_Account_stateChanges_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
+	return args, nil
+}
+func (ec *executionContext) field_Account_stateChanges_argsFirst(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int32, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("first"))
+	if tmp, ok := rawArgs["first"]; ok {
+		return ec.unmarshalOInt2ᚖint32(ctx, tmp)
+	}
+
+	var zeroVal *int32
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_argsAfter(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("after"))
+	if tmp, ok := rawArgs["after"]; ok {
+		return ec.unmarshalOString2ᚖstring(ctx, tmp)
+	}
+
+	var zeroVal *string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_argsLast(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*int32, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("last"))
+	if tmp, ok := rawArgs["last"]; ok {
+		return ec.unmarshalOInt2ᚖint32(ctx, tmp)
+	}
+
+	var zeroVal *int32
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Account_stateChanges_argsBefore(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (*string, error) {
@@ -1838,24 +1968,21 @@ func (ec *executionContext) _Account_stateChanges(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().StateChanges(rctx, obj)
+		return ec.resolvers.Account().StateChanges(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
 		return graphql.Null
 	}
 	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
 		return graphql.Null
 	}
-	res := resTmp.([]*types.StateChange)
+	res := resTmp.(*StateChangeConnection)
 	fc.Result = res
-	return ec.marshalNStateChange2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeᚄ(ctx, field.Selections, res)
+	return ec.marshalOStateChangeConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeConnection(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Account_stateChanges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Account_stateChanges(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Account",
 		Field:      field,
@@ -1863,51 +1990,24 @@ func (ec *executionContext) fieldContext_Account_stateChanges(_ context.Context,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "accountId":
-				return ec.fieldContext_StateChange_accountId(ctx, field)
-			case "stateChangeCategory":
-				return ec.fieldContext_StateChange_stateChangeCategory(ctx, field)
-			case "stateChangeReason":
-				return ec.fieldContext_StateChange_stateChangeReason(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_StateChange_ingestedAt(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_StateChange_ledgerCreatedAt(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_StateChange_ledgerNumber(ctx, field)
-			case "tokenId":
-				return ec.fieldContext_StateChange_tokenId(ctx, field)
-			case "amount":
-				return ec.fieldContext_StateChange_amount(ctx, field)
-			case "claimableBalanceId":
-				return ec.fieldContext_StateChange_claimableBalanceId(ctx, field)
-			case "liquidityPoolId":
-				return ec.fieldContext_StateChange_liquidityPoolId(ctx, field)
-			case "offerId":
-				return ec.fieldContext_StateChange_offerId(ctx, field)
-			case "signerAccountId":
-				return ec.fieldContext_StateChange_signerAccountId(ctx, field)
-			case "spenderAccountId":
-				return ec.fieldContext_StateChange_spenderAccountId(ctx, field)
-			case "sponsoredAccountId":
-				return ec.fieldContext_StateChange_sponsoredAccountId(ctx, field)
-			case "sponsorAccountId":
-				return ec.fieldContext_StateChange_sponsorAccountId(ctx, field)
-			case "signerWeights":
-				return ec.fieldContext_StateChange_signerWeights(ctx, field)
-			case "thresholds":
-				return ec.fieldContext_StateChange_thresholds(ctx, field)
-			case "flags":
-				return ec.fieldContext_StateChange_flags(ctx, field)
-			case "keyValue":
-				return ec.fieldContext_StateChange_keyValue(ctx, field)
-			case "operation":
-				return ec.fieldContext_StateChange_operation(ctx, field)
-			case "transaction":
-				return ec.fieldContext_StateChange_transaction(ctx, field)
+			case "edges":
+				return ec.fieldContext_StateChangeConnection_edges(ctx, field)
+			case "pageInfo":
+				return ec.fieldContext_StateChangeConnection_pageInfo(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type StateChange", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type StateChangeConnection", field.Name)
 		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Account_stateChanges_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -4645,6 +4745,236 @@ func (ec *executionContext) fieldContext_StateChange_transaction(_ context.Conte
 				return ec.fieldContext_Transaction_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StateChangeConnection_edges(ctx context.Context, field graphql.CollectedField, obj *StateChangeConnection) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StateChangeConnection_edges(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Edges, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.([]*StateChangeEdge)
+	fc.Result = res
+	return ec.marshalOStateChangeEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeEdgeᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StateChangeConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StateChangeConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "node":
+				return ec.fieldContext_StateChangeEdge_node(ctx, field)
+			case "cursor":
+				return ec.fieldContext_StateChangeEdge_cursor(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StateChangeEdge", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StateChangeConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *StateChangeConnection) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StateChangeConnection_pageInfo(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PageInfo, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*PageInfo)
+	fc.Result = res
+	return ec.marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPageInfo(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StateChangeConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StateChangeConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "startCursor":
+				return ec.fieldContext_PageInfo_startCursor(ctx, field)
+			case "endCursor":
+				return ec.fieldContext_PageInfo_endCursor(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+			case "hasPreviousPage":
+				return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PageInfo", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StateChangeEdge_node(ctx context.Context, field graphql.CollectedField, obj *StateChangeEdge) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StateChangeEdge_node(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Node, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*types.StateChange)
+	fc.Result = res
+	return ec.marshalOStateChange2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChange(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StateChangeEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StateChangeEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "accountId":
+				return ec.fieldContext_StateChange_accountId(ctx, field)
+			case "stateChangeCategory":
+				return ec.fieldContext_StateChange_stateChangeCategory(ctx, field)
+			case "stateChangeReason":
+				return ec.fieldContext_StateChange_stateChangeReason(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_StateChange_ingestedAt(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_StateChange_ledgerCreatedAt(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_StateChange_ledgerNumber(ctx, field)
+			case "tokenId":
+				return ec.fieldContext_StateChange_tokenId(ctx, field)
+			case "amount":
+				return ec.fieldContext_StateChange_amount(ctx, field)
+			case "claimableBalanceId":
+				return ec.fieldContext_StateChange_claimableBalanceId(ctx, field)
+			case "liquidityPoolId":
+				return ec.fieldContext_StateChange_liquidityPoolId(ctx, field)
+			case "offerId":
+				return ec.fieldContext_StateChange_offerId(ctx, field)
+			case "signerAccountId":
+				return ec.fieldContext_StateChange_signerAccountId(ctx, field)
+			case "spenderAccountId":
+				return ec.fieldContext_StateChange_spenderAccountId(ctx, field)
+			case "sponsoredAccountId":
+				return ec.fieldContext_StateChange_sponsoredAccountId(ctx, field)
+			case "sponsorAccountId":
+				return ec.fieldContext_StateChange_sponsorAccountId(ctx, field)
+			case "signerWeights":
+				return ec.fieldContext_StateChange_signerWeights(ctx, field)
+			case "thresholds":
+				return ec.fieldContext_StateChange_thresholds(ctx, field)
+			case "flags":
+				return ec.fieldContext_StateChange_flags(ctx, field)
+			case "keyValue":
+				return ec.fieldContext_StateChange_keyValue(ctx, field)
+			case "operation":
+				return ec.fieldContext_StateChange_operation(ctx, field)
+			case "transaction":
+				return ec.fieldContext_StateChange_transaction(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StateChange", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StateChangeEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *StateChangeEdge) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StateChangeEdge_cursor(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Cursor, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StateChangeEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StateChangeEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7631,16 +7961,13 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 		case "stateChanges":
 			field := field
 
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._Account_stateChanges(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
 				return res
 			}
 
@@ -8891,6 +9218,88 @@ func (ec *executionContext) _StateChange(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var stateChangeConnectionImplementors = []string{"StateChangeConnection"}
+
+func (ec *executionContext) _StateChangeConnection(ctx context.Context, sel ast.SelectionSet, obj *StateChangeConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, stateChangeConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StateChangeConnection")
+		case "edges":
+			out.Values[i] = ec._StateChangeConnection_edges(ctx, field, obj)
+		case "pageInfo":
+			out.Values[i] = ec._StateChangeConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var stateChangeEdgeImplementors = []string{"StateChangeEdge"}
+
+func (ec *executionContext) _StateChangeEdge(ctx context.Context, sel ast.SelectionSet, obj *StateChangeEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, stateChangeEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StateChangeEdge")
+		case "node":
+			out.Values[i] = ec._StateChangeEdge_node(ctx, field, obj)
+		case "cursor":
+			out.Values[i] = ec._StateChangeEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var transactionImplementors = []string{"Transaction"}
 
 func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionSet, obj *types.Transaction) graphql.Marshaler {
@@ -9806,6 +10215,16 @@ func (ec *executionContext) marshalNStateChangeCategory2githubᚗcomᚋstellar�
 	return res
 }
 
+func (ec *executionContext) marshalNStateChangeEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeEdge(ctx context.Context, sel ast.SelectionSet, v *StateChangeEdge) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._StateChangeEdge(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {
 	res, err := graphql.UnmarshalString(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -10332,6 +10751,67 @@ func (ec *executionContext) unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋst
 	}
 	res, err := ec.unmarshalInputSimulationResultInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOStateChange2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChange(ctx context.Context, sel ast.SelectionSet, v *types.StateChange) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._StateChange(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOStateChangeConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeConnection(ctx context.Context, sel ast.SelectionSet, v *StateChangeConnection) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._StateChangeConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOStateChangeEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []*StateChangeEdge) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNStateChangeEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeEdge(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalOStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx context.Context, v any) (*types.StateChangeReason, error) {
