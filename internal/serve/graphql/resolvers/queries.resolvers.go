@@ -24,15 +24,35 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // Transactions is the resolver for the transactions field.
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
-func (r *queryResolver) Transactions(ctx context.Context, limit *int32) ([]*types.Transaction, error) {
-	if limit != nil && *limit < 0 {
-		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, false)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	if limit != nil && *limit == 0 {
-		return []*types.Transaction{}, nil
-	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
-	return r.models.Transactions.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions from db: %w", err)
+	}
+
+	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) int64 {
+		return t.Cursor
+	})
+
+	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.TransactionEdge{
+			Node:   &edge.Node.Transaction,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.TransactionConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Account is the resolver for the account field.
@@ -44,15 +64,35 @@ func (r *queryResolver) Account(ctx context.Context, address string) (*types.Acc
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
-func (r *queryResolver) Operations(ctx context.Context, limit *int32) ([]*types.Operation, error) {
-	if limit != nil && *limit < 0 {
-		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, false)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	if limit != nil && *limit == 0 {
-		return []*types.Operation{}, nil
-	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-	return r.models.Operations.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations from db: %w", err)
+	}
+
+	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
+		return o.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // StateChanges is the resolver for the stateChanges field.

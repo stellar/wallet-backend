@@ -36,21 +36,37 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Transaction, error) {
-	if columns == "" {
-		columns = "*"
-	}
-	query := fmt.Sprintf(`SELECT %s FROM transactions ORDER BY ledger_created_at DESC`, columns)
-	args := []interface{}{}
+func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
+	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
 
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id < %d", *cursor))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE to_id > %d", *cursor))
+		}
 	}
 
-	var transactions []*types.Transaction
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY to_id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC")
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY cursor ASC`, query)
+	}
+
+	var transactions []*types.TransactionWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &transactions, query, args...)
+	err := m.DB.SelectContext(ctx, &transactions, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
