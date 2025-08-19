@@ -174,6 +174,16 @@ func EndLedgerOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func GetLedgersLimitOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "get-ledgers-limit",
+		Usage:       `The limit for the number of ledgers to get from the RPC when calling "getLedgers"`,
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 10,
+	}
+}
+
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
 	awsOpts := config.ConfigOptions{
 		{
