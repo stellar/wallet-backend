@@ -27,10 +27,11 @@ import (
 )
 
 const (
-	testInnerTxHash   = "2ba55208f8ccc21e67c3c515ee8e793bfebb5ff20e3a14264c0890897560e368"
-	testInnerTxXDR    = "AAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQs="
-	testFeeBumpTxHash = "b99e17610372fd66968cc3124c4d29a9dd856c2b8ffa1c446f6aefc5657f5a82"
-	testFeeBumpTxXDR  = "AAAABQAAAACRDhlb19H9O6EVQnLPSBX5kH4+ycO03nl6OOK1drSinwAAAAAAAAGQAAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQsAAAAAAAAAAXa0op8AAABADjCsmF/xr9jXwNStUM7YqXEd49qfbvGZPJPplANW7aiErkHWxEj6C2RVOyPyK8KBr1fjCleBSmDZjD1X0kkJCQ=="
+	testInnerTxHash        = "2ba55208f8ccc21e67c3c515ee8e793bfebb5ff20e3a14264c0890897560e368"
+	testInnerTxXDR         = "AAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQs="
+	testFeeBumpTxHash      = "b99e17610372fd66968cc3124c4d29a9dd856c2b8ffa1c446f6aefc5657f5a82"
+	testFeeBumpTxXDR       = "AAAABQAAAACRDhlb19H9O6EVQnLPSBX5kH4+ycO03nl6OOK1drSinwAAAAAAAAGQAAAAAgAAAAC//CoiAsv/SQfZHUYwg1/5F127eo+Rv6b9lf6GbIJNygAAAGQAAAAAAAAAAgAAAAEAAAAAAAAAAAAAAABoI7JqAAAAAAAAAAEAAAAAAAAAAAAAAADcrhjQMMeoVosXGSgLrC4WhXYLHl1HcUniEWKOGTyPEAAAAAAAmJaAAAAAAAAAAAFsgk3KAAAAQEYaesICeGfKcUiMEYoZZrKptMmMcW8636peWLpChKukfqTxSujQilalxe6ab+en9Bhf8iGMF8jb5JqIIYlYjQsAAAAAAAAAAXa0op8AAABADjCsmF/xr9jXwNStUM7YqXEd49qfbvGZPJPplANW7aiErkHWxEj6C2RVOyPyK8KBr1fjCleBSmDZjD1X0kkJCQ=="
+	defaultGetLedgersLimit = 50
 )
 
 func Test_getLedgerSeqRange(t *testing.T) {
@@ -120,7 +121,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, 50)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit)
 	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
@@ -220,7 +221,7 @@ func TestIngestPayments(t *testing.T) {
 	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, 50)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit)
 	require.NoError(t, err)
 	srcAccount := keypair.MustRandom().Address()
 	destAccount := keypair.MustRandom().Address()
@@ -470,7 +471,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, 50)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit)
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
@@ -562,7 +563,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, 50)
+	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit)
 	require.NoError(t, err)
 
 	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.AnythingOfType("float64")).Once()
@@ -743,7 +744,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockContractStore := &cache.MockTokenContractStore{}
-			ingestService, err := NewIngestService(models, "testCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, 50)
+			ingestService, err := NewIngestService(models, "testCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit)
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
