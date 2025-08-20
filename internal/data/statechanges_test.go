@@ -437,3 +437,104 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, 2, operationIDsFound[123])
 	assert.Equal(t, 1, operationIDsFound[456])
 }
+
+func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &StateChangeModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes for tx1
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES 
+			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'debit', $1, 2, $2, 124, 'tx1'),
+			(3, 1, 'credit', $1, 3, $2, 125, 'tx1'),
+			(4, 1, 'debit', $1, 4, $2, 456, 'tx2')
+	`, now, address)
+	require.NoError(t, err)
+
+	t.Run("get all state changes for single transaction", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 3)
+
+		// Verify all state changes are for tx1
+		for _, sc := range stateChanges {
+			assert.Equal(t, "tx1", sc.TxHash)
+		}
+
+		// Verify ordering (ASC by to_id, state_change_order)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(3), stateChanges[2].ToID)
+	})
+
+	t.Run("get state changes with pagination - first", func(t *testing.T) {
+		limit := int32(2)
+		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", &limit, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[1].ToID)
+	})
+
+	t.Run("get state changes with cursor pagination", func(t *testing.T) {
+		limit := int32(2)
+		cursor := &types.StateChangeCursor{ToID: 1, StateChangeOrder: 1}
+		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", &limit, cursor, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+
+		// Should get results after cursor (to_id=1, state_change_order=1)
+		assert.Equal(t, int64(2), stateChanges[0].ToID)
+		assert.Equal(t, int64(3), stateChanges[1].ToID)
+	})
+
+	t.Run("get state changes with DESC ordering", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByTxHash(ctx, "tx1", "", nil, nil, DESC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 3)
+
+		// Verify ordering (results should be in ASC order after DESC query transformation)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(3), stateChanges[2].ToID)
+	})
+
+	t.Run("no state changes for non-existent transaction", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByTxHash(ctx, "nonexistent", "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
+	})
+}

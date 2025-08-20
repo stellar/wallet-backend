@@ -119,21 +119,81 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // StateChanges is the resolver for the stateChanges field.
 // This is a field resolver for the "stateChanges" field on a Transaction object
 // It's called when a GraphQL query requests the state changes within a transaction
-func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 
-	loaderKey := dataloaders.StateChangeColumnsKey{
-		TxHash:  obj.Hash,
-		Columns: strings.Join(dbColumns, ", "),
+	// Check if pagination parameters are provided
+	isPaginated := first != nil || after != nil || last != nil || before != nil
+
+	// Use dataloader for non-paginated requests to maintain batching efficiency
+	// This is because pagination only works for single transactions, not for multiple transactions
+	// This is why we have to use the dataloader for non-paginated requests
+	if !isPaginated {
+		loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+		loaderKey := dataloaders.StateChangeColumnsKey{
+			TxHash:  obj.Hash,
+			Columns: strings.Join(dbColumns, ", "),
+		}
+
+		stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert state changes slice to connection format
+		edges := make([]*graphql1.StateChangeEdge, len(stateChanges))
+		for i, sc := range stateChanges {
+			edges[i] = &graphql1.StateChangeEdge{
+				Node:   sc,
+				Cursor: fmt.Sprintf("%d:%d", sc.ToID, sc.StateChangeOrder),
+			}
+		}
+
+		var startCursor, endCursor *string
+		if len(edges) > 0 {
+			startCursor = &edges[0].Cursor
+			endCursor = &edges[len(edges)-1].Cursor
+		}
+
+		return &graphql1.StateChangeConnection{
+			Edges: edges,
+			PageInfo: &graphql1.PageInfo{
+				StartCursor:     startCursor,
+				EndCursor:       endCursor,
+				HasNextPage:     false, // No pagination means we have all results
+				HasPreviousPage: false,
+			},
+		}, nil
 	}
 
-	// Use dataloader to batch-load state changes for this transaction
-	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
+	// Handle paginated requests by bypassing dataloader
+	params, err := parsePaginationParams(first, after, last, before, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	return stateChanges, nil
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
+	stateChanges, err := r.models.StateChanges.BatchGetByTxHash(ctx, obj.Hash, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated state changes by tx hash: %w", err)
+	}
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.

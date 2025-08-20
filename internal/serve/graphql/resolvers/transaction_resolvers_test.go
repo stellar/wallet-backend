@@ -215,21 +215,111 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		},
 	}}
 	parentTx := &types.Transaction{Hash: "tx1"}
+	nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("success without pagination", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{}), middleware.LoadersKey, loaders)
 
-		stateChanges, err := resolver.StateChanges(ctx, parentTx)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 5)
+		require.Len(t, stateChanges.Edges, 5)
 		// For tx1: operations 1 and 2, each with 2 state changes and 1 fee change
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[3].ToID, stateChanges[3].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[4].ToID, stateChanges[4].StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), stateChanges.Edges[0].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[1].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[2].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), stateChanges.Edges[3].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), stateChanges.Edges[4].Cursor)
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("get state changes with first/after pagination", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		first := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get the next page using cursor
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentTx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("get state changes with last/before pagination", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		last := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get the previous page using cursor
+		last = int32(10)
+		prevCursor := stateChanges.PageInfo.StartCursor
+		assert.NotNil(t, prevCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentTx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 3)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("invalid pagination params", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		first := int32(0)
+		last := int32(1)
+		after := encodeCursor(int64(1))
+		before := encodeCursor(int64(2))
+
+		_, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+
+		first = int32(1)
+		_, err = resolver.StateChanges(ctx, parentTx, &first, nil, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+
+		_, err = resolver.StateChanges(ctx, parentTx, nil, &after, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+
+		_, err = resolver.StateChanges(ctx, parentTx, &first, nil, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+
+		_, err = resolver.StateChanges(ctx, parentTx, nil, &after, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+	})
+
+	t.Run("pagination with larger limit than available data", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		first := int32(100)
+		stateChanges, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 5) // tx1 has 5 state changes
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
@@ -237,18 +327,19 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
-			_, _ = resolver.StateChanges(ctx, nil) //nolint:errcheck
+			_, _ = resolver.StateChanges(ctx, nil, nil, nil, nil, nil) //nolint:errcheck
 		})
 	})
 
 	t.Run("transaction with no state changes", func(t *testing.T) {
-		nonExistentTx := &types.Transaction{Hash: "non-existent-tx"}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 
-		stateChanges, err := resolver.StateChanges(ctx, nonExistentTx)
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentTx, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		assert.Empty(t, stateChanges)
+		assert.Empty(t, stateChanges.Edges)
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 }
