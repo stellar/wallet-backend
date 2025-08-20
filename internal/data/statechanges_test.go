@@ -310,13 +310,13 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without limit
-	stateChanges, err := m.GetAll(ctx, nil, "")
+	stateChanges, err := m.GetAll(ctx, "", nil, nil, DESC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
 	// Test GetAll with limit
 	limit := int32(2)
-	stateChanges, err = m.GetAll(ctx, &limit, "")
+	stateChanges, err = m.GetAll(ctx, "", &limit, nil, DESC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 }

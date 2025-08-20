@@ -73,24 +73,51 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.StateChange, error) {
+func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	if columns == "" {
 		columns = "*"
 	} else {
 		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
 	}
 
-	// We always return the to_id, state_change_order since those are the primary keys.
-	// This is used for subsequent queries for operation and transactions of a state change.
-	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY to_id DESC, state_change_order DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
+		FROM state_changes 
+		WHERE 1=1
+	`, columns))
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		}
 	}
-	var stateChanges []*types.StateChange
+
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+	}
+
+	if limit != nil && *limit > 0 {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	err := m.DB.SelectContext(ctx, &stateChanges, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {

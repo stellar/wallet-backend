@@ -431,47 +431,138 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	}
 
 	t.Run("get all", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, nil)
+		ctx := getTestCtx("state_changes", []string{})
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 20)
-		// Verify the state changes have the expected account ID
-		assert.Equal(t, "test-account", scs[0].AccountID)
+		assert.Len(t, stateChanges.Edges, 20)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
 	})
 
-	t.Run("get with limit", func(t *testing.T) {
-		limit := int32(3)
-		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		stateChanges, err := resolver.StateChanges(ctx, &limit)
+	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(2)
+		scs, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, stateChanges, 3)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[0].ToID, stateChanges[0].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[1].ToID, stateChanges[1].StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges[2].ToID, stateChanges[2].StateChangeOrder))
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.True(t, scs.PageInfo.HasNextPage)
+		assert.False(t, scs.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		nextCursor := scs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.True(t, scs.PageInfo.HasNextPage)
+		assert.True(t, scs.PageInfo.HasPreviousPage)
+
+		// Get the next page with larger limit
+		first = int32(20)
+		nextCursor = scs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, scs.Edges, 16) // Should return next 10 items
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.False(t, scs.PageInfo.HasNextPage)
+		assert.True(t, scs.PageInfo.HasPreviousPage)
 	})
 
-	t.Run("negative limit error", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(-10)
-		scs, err := resolver.StateChanges(ctx, &limit)
+	t.Run("get state changes with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get the previous page
+		prevCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get more previous items
+		prevCursor = stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		last = int32(20)
+		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 16)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage) // We're at the beginning
+	})
+
+	t.Run("returns error when first is negative", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(-1)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
-		assert.Nil(t, scs)
-		assert.Contains(t, err.Error(), "limit must be non-negative")
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
-	t.Run("zero limit", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(0)
-		scs, err := resolver.StateChanges(ctx, &limit)
-		require.NoError(t, err)
-		assert.Len(t, scs, 0)
+	t.Run("returns error when last is negative", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(-1)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
 	})
 
-	t.Run("limit larger than available data", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(50)
-		scs, err := resolver.StateChanges(ctx, &limit)
+	t.Run("returns error when first is zero", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(0)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
+	})
+
+	t.Run("returns error when last is zero", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(0)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
+	})
+
+	t.Run("first parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(100)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 20)
+		assert.Len(t, stateChanges.Edges, 20) // Total available state changes
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("last parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(100)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 20) // Total available state changes
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 }

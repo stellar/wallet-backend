@@ -96,15 +96,35 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	if limit != nil && *limit < 0 {
-		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	if limit != nil && *limit == 0 {
-		return []*types.StateChange{}, nil
-	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
-	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db: %w", err)
+	}
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.
