@@ -20,6 +20,7 @@ services:
   stellar-rpc:
     container_name: stellar-rpc
     image: stellar/stellar-rpc:stable
+    platform: linux/amd64
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
@@ -67,31 +68,31 @@ services:
       PORT: 8001
       SERVER_BASE_URL: http://api:8001
       LOG_LEVEL: TRACE
-      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
-      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
-      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER}
+      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS:-}
+      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY:-}
+      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER:-ENV}
       NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
 
       # Env Signature Client
-      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
+      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY:-}
 
       # (optional) KMS Signature Client
-      KMS_KEY_ARN: ${KMS_KEY_ARN}
-      AWS_REGIONG: ${AWS_REGION}
+      KMS_KEY_ARN: ${KMS_KEY_ARN:-}
+      AWS_REGION: ${AWS_REGION:-}
       # (optional) Using KMS locally is necessary to inject the AWS credentials envs.
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
 
       # Channel Account
-      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
-      TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE:-}
+      TRACKER_DSN: ${TRACKER_DSN:-}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-}
 
       # (optional) Integration Tests
-      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
-      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY}
-      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY}
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY:-}
+      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY:-}
+      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY:-}
 
   ingest:
     container_name: ingest
@@ -116,7 +117,7 @@ services:
       - |
         ./wallet-backend migrate up
         if [ "$STELLAR_ENVIRONMENT" = "GITHUB_WORKFLOW" ]; then
-          HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "${RPC_URL}")
+          HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "$$RPC_URL")
           LATEST_LEDGER=$(echo "$$HEALTH_RESPONSE" | grep -oE '"latestLedger":[0-9]+' | grep -oE '[0-9]+' || true)
           if [ -z "$$LATEST_LEDGER" ] || [ "$$LATEST_LEDGER" = "" ]; then
             ./wallet-backend ingest
@@ -129,8 +130,8 @@ services:
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
-      TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+      TRACKER_DSN: ${TRACKER_DSN:-}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-}
 volumes:
   postgres-db:
     driver: local
