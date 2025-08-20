@@ -76,6 +76,53 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
+// BatchGetByTxHash gets operations for a single transaction with pagination support.
+func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, "operations", "id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
+
+	args := []interface{}{txHash}
+	argIndex := 2
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(" AND id < $%d", argIndex))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" AND id > $%d", argIndex))
+		}
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY id ASC")
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
+	}
+
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return operations, nil
+}
+
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
 	// Prepare columns, ensuring operations.id is always included

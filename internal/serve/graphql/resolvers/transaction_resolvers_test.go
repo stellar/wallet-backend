@@ -36,14 +36,14 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("operations", []string{"operation_xdr"}), middleware.LoadersKey, loaders)
 
-		operations, err := resolver.Operations(ctx, parentTx)
+		operations, err := resolver.Operations(ctx, parentTx, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		require.Len(t, operations, 2)
-		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), operations[0].ID)
-		assert.Equal(t, toid.New(1000, 1, 2).ToInt64(), operations[1].ID)
+		require.Len(t, operations.Edges, 2)
+		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
@@ -51,7 +51,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
-			_, _ = resolver.Operations(ctx, nil) //nolint:errcheck
+			_, _ = resolver.Operations(ctx, nil, nil, nil, nil, nil) //nolint:errcheck
 		})
 	})
 
@@ -60,10 +60,91 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
-		operations, err := resolver.Operations(ctx, nonExistentTx)
+		operations, err := resolver.Operations(ctx, nonExistentTx, nil, nil, nil, nil)
 
 		require.NoError(t, err)
-		assert.Empty(t, operations)
+		assert.Empty(t, operations.Edges)
+	})
+
+	t.Run("get operations with first/after pagination", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		first := int32(1)
+		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+
+		// Get the next page using cursor
+		nextCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, parentTx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("get operations with last/before pagination", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		last := int32(1)
+		ops, err := resolver.Operations(ctx, parentTx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr2", ops.Edges[0].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+
+		// Get the previous page using cursor
+		prevCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		ops, err = resolver.Operations(ctx, parentTx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("invalid pagination params", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		first := int32(0)
+		last := int32(1)
+		after := encodeCursor(int64(1))
+		before := encodeCursor(int64(2))
+
+		_, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+
+		first = int32(1)
+		_, err = resolver.Operations(ctx, parentTx, &first, nil, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+
+		_, err = resolver.Operations(ctx, parentTx, nil, &after, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+
+		_, err = resolver.Operations(ctx, parentTx, &first, nil, nil, &before)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+
+		_, err = resolver.Operations(ctx, parentTx, nil, &after, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+	})
+
+	t.Run("pagination with larger limit than available data", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		first := int32(100)
+		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2) // tx1 has 2 operations
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
 }
 

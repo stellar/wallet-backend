@@ -267,26 +267,26 @@ func TestQueryResolver_Operations(t *testing.T) {
 	}
 
 	t.Run("get all operations", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		operations, err := resolver.Operations(ctx, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, operations.Edges, 8)
 		// Operations are ordered by ID ascending
-		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), operations.Edges[0].Node.ID)
-		assert.Equal(t, toid.New(1000, 1, 2).ToInt64(), operations.Edges[1].Node.ID)
-		assert.Equal(t, toid.New(1000, 2, 1).ToInt64(), operations.Edges[2].Node.ID)
-		assert.Equal(t, toid.New(1000, 2, 2).ToInt64(), operations.Edges[3].Node.ID)
+		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", operations.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr4", operations.Edges[3].Node.OperationXDR)
 	})
 
 	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(2)
 		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
-		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), ops.Edges[0].Node.ID)
-		assert.Equal(t, toid.New(1000, 1, 2).ToInt64(), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 
@@ -297,7 +297,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, toid.New(1000, 2, 1).ToInt64(), ops.Edges[0].Node.ID)
+		assert.Equal(t, "opxdr3", ops.Edges[0].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -308,24 +308,24 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 5)
-		assert.Equal(t, toid.New(1000, 2, 2).ToInt64(), ops.Edges[0].Node.ID)
-		assert.Equal(t, toid.New(1000, 3, 1).ToInt64(), ops.Edges[1].Node.ID)
-		assert.Equal(t, toid.New(1000, 3, 2).ToInt64(), ops.Edges[2].Node.ID)
-		assert.Equal(t, toid.New(1000, 4, 1).ToInt64(), ops.Edges[3].Node.ID)
-		assert.Equal(t, toid.New(1000, 4, 2).ToInt64(), ops.Edges[4].Node.ID)
+		assert.Equal(t, "opxdr4", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr6", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr7", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, "opxdr8", ops.Edges[4].Node.OperationXDR)
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get operations with last/before limit and cursor", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(2)
 		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 2)
 		// With backward pagination, we get the last 2 items
-		assert.Equal(t, toid.New(1000, 4, 1).ToInt64(), ops.Edges[0].Node.ID)
-		assert.Equal(t, toid.New(1000, 4, 2).ToInt64(), ops.Edges[1].Node.ID)
+		assert.Equal(t, "opxdr7", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr8", ops.Edges[1].Node.OperationXDR)
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -336,7 +336,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, ops.Edges, 1)
-		assert.Equal(t, toid.New(1000, 3, 2).ToInt64(), ops.Edges[0].Node.ID)
+		assert.Equal(t, "opxdr6", ops.Edges[0].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.True(t, ops.PageInfo.HasPreviousPage)
 
@@ -347,17 +347,17 @@ func TestQueryResolver_Operations(t *testing.T) {
 		require.NoError(t, err)
 		// There are 5 operations before (2,1): (2,2), (3,1), (3,2), (4,1), (4,2)
 		assert.Len(t, ops.Edges, 5)
-		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), ops.Edges[0].Node.ID)
-		assert.Equal(t, toid.New(1000, 1, 2).ToInt64(), ops.Edges[1].Node.ID)
-		assert.Equal(t, toid.New(1000, 2, 1).ToInt64(), ops.Edges[2].Node.ID)
-		assert.Equal(t, toid.New(1000, 2, 2).ToInt64(), ops.Edges[3].Node.ID)
-		assert.Equal(t, toid.New(1000, 3, 1).ToInt64(), ops.Edges[4].Node.ID)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr4", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[4].Node.OperationXDR)
 		assert.True(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("returns error when first is negative", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(-1)
 		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
@@ -366,7 +366,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("returns error when last is negative", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(-1)
 		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
 		require.Error(t, err)
@@ -375,7 +375,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("returns error when first is zero", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(0)
 		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
@@ -384,7 +384,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("returns error when last is zero", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(0)
 		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
 		require.Error(t, err)
@@ -393,7 +393,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("first parameter's value larger than available data", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		first := int32(100)
 		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("last parameter's value larger than available data", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
 		last := int32(100)
 		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
 		require.NoError(t, err)
