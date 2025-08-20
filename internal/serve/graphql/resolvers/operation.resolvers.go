@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -64,22 +65,81 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // This is a field resolver - it resolves the "stateChanges" field on an Operation object
 // gqlgen calls this when a GraphQL query requests the stateChanges field on an Operation
 // Field resolvers receive the parent object (Operation) and return the field value
-func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
 
-	loaderKey := dataloaders.StateChangeColumnsKey{
-		OperationID: obj.ID,
-		Columns:     strings.Join(dbColumns, ", "),
+	// Check if pagination parameters are provided
+	isPaginated := first != nil || after != nil || last != nil || before != nil
+
+	// Use dataloader for non-paginated requests to maintain batching efficiency
+	// This is because pagination only works for single operations, not for multiple operations
+	// This is why we have to use the dataloader for non-paginated requests
+	if !isPaginated {
+		loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+		loaderKey := dataloaders.StateChangeColumnsKey{
+			OperationID: obj.ID,
+			Columns:     strings.Join(dbColumns, ", "),
+		}
+
+		stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert state changes slice to connection format
+		edges := make([]*graphql1.StateChangeEdge, len(stateChanges))
+		for i, sc := range stateChanges {
+			edges[i] = &graphql1.StateChangeEdge{
+				Node:   sc,
+				Cursor: fmt.Sprintf("%d:%d", sc.ToID, sc.StateChangeOrder),
+			}
+		}
+
+		var startCursor, endCursor *string
+		if len(edges) > 0 {
+			startCursor = &edges[0].Cursor
+			endCursor = &edges[len(edges)-1].Cursor
+		}
+
+		return &graphql1.StateChangeConnection{
+			Edges: edges,
+			PageInfo: &graphql1.PageInfo{
+				StartCursor:     startCursor,
+				EndCursor:       endCursor,
+				HasNextPage:     false, // No pagination means we have all results
+				HasPreviousPage: false,
+			},
+		}, nil
 	}
 
-	// Use dataloader to efficiently batch-load state changes for this operation
-	// This prevents N+1 queries when multiple operations request their state changes
-	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)
+	// Handle paginated requests by bypassing dataloader
+	params, err := parsePaginationParams(first, after, last, before, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	return stateChanges, nil
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
+	stateChanges, err := r.models.StateChanges.BatchGetByOperationID(ctx, obj.ID, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
+	}
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Operation returns graphql1.OperationResolver implementation.
