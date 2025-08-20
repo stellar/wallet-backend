@@ -7,6 +7,7 @@ type Mutation {
     
     # Transaction mutations
     buildTransaction(input: BuildTransactionInput!): BuildTransactionPayload!
+    createFeeBumpTransaction(input: CreateFeeBumpTransactionInput!): CreateFeeBumpTransactionPayload!
 }
 
 # Input types for account mutations
@@ -34,6 +35,10 @@ input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
+input CreateFeeBumpTransactionInput {
+    transactionXDR: String!
+}
+
 # TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
@@ -55,4 +60,10 @@ input SimulationResultInput {
 type BuildTransactionPayload {
     success: Boolean!
     transactionXdr: String!
+}
+
+type CreateFeeBumpTransactionPayload {
+    success: Boolean!
+    transaction: String!
+    networkPassphrase: String!
 }

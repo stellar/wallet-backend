@@ -229,7 +229,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
 
 			srv := gqlhandler.New(
 				generated.NewExecutableSchema(
@@ -247,15 +247,6 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			r.Handle("/query", srv)
-		})
-
-		r.Route("/tx", func(r chi.Router) {
-			accountHandler := &httphandler.AccountHandler{
-				FeeBumpService: deps.FeeBumpService,
-				AppTracker:     deps.AppTracker,
-			}
-
-			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 	})
 
