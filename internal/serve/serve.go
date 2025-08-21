@@ -42,13 +42,14 @@ import (
 var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
-	Port                    int
-	DatabaseURL             string
-	ServerBaseURL           string
-	ClientAuthPublicKeys    []string
-	LogLevel                logrus.Level
-	EncryptionPassphrase    string
-	NumberOfChannelAccounts int
+	Port                        int
+	DatabaseURL                 string
+	ServerBaseURL               string
+	ClientAuthPublicKeys        []string
+	ClientAuthMaxTimeoutSeconds int
+	LogLevel                    logrus.Level
+	EncryptionPassphrase        string
+	NumberOfChannelAccounts     int
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -123,7 +124,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
