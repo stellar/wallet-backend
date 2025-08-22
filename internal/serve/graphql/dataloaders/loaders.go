@@ -27,7 +27,7 @@ type Dataloaders struct {
 
 	// StateChangesByTxHashLoader batches requests for state changes by transaction hash
 	// Used by Transaction.stateChanges field resolver to prevent N+1 queries
-	StateChangesByTxHashLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
+	StateChangesByTxHashLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor]
 
 	// TransactionsByOperationIDLoader batches requests for transactions by operation ID
 	// Used by Operation.transaction field resolver to prevent N+1 queries

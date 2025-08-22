@@ -230,17 +230,18 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 5)
 		// For tx1: operations 1 and 2, each with 2 state changes and 1 fee change
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), stateChanges.Edges[0].Cursor)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[1].Cursor)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[2].Cursor)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), stateChanges.Edges[3].Cursor)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), stateChanges.Edges[4].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[3].Node.ToID, stateChanges.Edges[3].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[4].Node.ToID, stateChanges.Edges[4].Node.StateChangeOrder))
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get state changes with first/after pagination", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 		first := int32(2)
 		stateChanges, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)
@@ -263,7 +264,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("get state changes with last/before pagination", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 		last := int32(2)
 		stateChanges, err := resolver.StateChanges(ctx, parentTx, nil, nil, &last, nil)
 		require.NoError(t, err)
@@ -288,7 +290,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("invalid pagination params", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 		first := int32(0)
 		last := int32(1)
 		after := encodeCursor(int64(1))
@@ -317,7 +320,8 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
 		first := int32(100)
 		stateChanges, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)

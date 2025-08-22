@@ -366,7 +366,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash
-	stateChanges, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "")
+	stateChanges, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "", nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 

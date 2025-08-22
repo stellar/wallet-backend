@@ -11,6 +11,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	MaxOperationsPerBatch = 10
+)
+
 type OperationColumnsKey struct {
 	TxHash        string
 	AccountID     string
@@ -43,7 +47,7 @@ func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[Operation
 			}
 
 			txHashes := make([]string, len(keys))
-			maxLimit := min(*limit, 11)
+			maxLimit := min(*limit, MaxOperationsPerBatch)
 			for i, key := range keys {
 				txHashes[i] = key.TxHash
 			}

@@ -413,15 +413,25 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 }
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
-	query := fmt.Sprintf(`
-		SELECT %s, tx_hash 
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, tx_hash, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
 		FROM state_changes 
 		WHERE tx_hash = ANY($1) 
-		ORDER BY to_id ASC, state_change_order ASC
-	`, columns)
-	var stateChanges []*types.StateChange
+		ORDER BY to_id %s, state_change_order %s
+	`, columns, sortOrder, sortOrder))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
