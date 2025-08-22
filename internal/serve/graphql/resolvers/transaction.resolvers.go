@@ -28,10 +28,10 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		TxHash:  obj.Hash,
-		Columns: strings.Join(dbColumns, ", "),
-		Limit:   &queryLimit,
-		Cursor:  params.Cursor,
+		TxHash:    obj.Hash,
+		Columns:   strings.Join(dbColumns, ", "),
+		Limit:     &queryLimit,
+		Cursor:    params.Cursor,
 		SortOrder: params.SortOrder,
 	}
 

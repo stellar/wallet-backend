@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
 	"github.com/vikstrous/dataloadgen"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -34,7 +35,7 @@ func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[Operation
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
-			
+
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
