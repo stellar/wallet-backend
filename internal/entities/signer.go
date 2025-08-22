@@ -11,8 +11,8 @@ const (
 
 type Signer struct {
 	Address string     `json:"address" validate:"required,public_key"`
-	Weight  int        `json:"weight" validate:"gte=1"`
-	Type    SignerType `json:"type" validate:"required,oneof=full partial"`
+	Weight  int        `json:"weight"  validate:"gte=1"`
+	Type    SignerType `json:"type"    validate:"required,oneof=full partial"`
 }
 
 // ValidateSignersWeights will validate:

@@ -12,23 +12,43 @@ import (
 	"github.com/stellar/go/support/log"
 )
 
+var customValidators = map[string]validator.Func{
+	"public_key":   publicKeyValidation,
+	"asset_issuer": assetIssuerValidation,
+	"asset_code":   assetCodeValidation,
+}
+
 func NewValidator() (*validator.Validate, error) {
-	validate := validator.New()
-	err := validate.RegisterValidation("public_key", publicKeyValidation)
-	if err != nil {
-		return nil, fmt.Errorf("registering public_key validation: %w", err)
+	validate := validator.New(validator.WithRequiredStructEnabled())
+
+	for tag, fn := range customValidators {
+		if err := validate.RegisterValidation(tag, fn); err != nil {
+			return nil, fmt.Errorf("registering %s validation: %w", tag, err)
+		}
 	}
 
-	validate.RegisterAlias("not_empty", "required")
 	return validate, nil
 }
 
+// publicKeyValidation validates that the public_key is a valid public key.
 func publicKeyValidation(fl validator.FieldLevel) bool {
 	addr := strings.TrimSpace(fl.Field().String())
 	return addr == "" ||
 		strkey.IsValidEd25519PublicKey(addr) ||
 		strkey.IsValidMuxedAccountEd25519PublicKey(addr) ||
 		strkey.IsValidContractAddress(addr)
+}
+
+// assetIssuerValidation validates that the asset_issuer is a valid public key.
+func assetIssuerValidation(fl validator.FieldLevel) bool {
+	addr := strings.TrimSpace(fl.Field().String())
+	return addr == "" || strkey.IsValidEd25519PublicKey(addr)
+}
+
+// assetCodeValidation validates that the asset_code is a valid asset code.
+func assetCodeValidation(fl validator.FieldLevel) bool {
+	code := strings.TrimSpace(fl.Field().String())
+	return code == "" || len(code) <= 12
 }
 
 func ParseValidationError(errors validator.ValidationErrors) map[string]interface{} {
@@ -44,10 +64,12 @@ func msgForFieldError(fieldError validator.FieldError) string {
 	switch fieldError.Tag() {
 	case "required":
 		return "This field is required"
-	case "not_empty":
-		return "This field cannot be empty"
 	case "public_key":
 		return "Invalid public key provided"
+	case "asset_issuer":
+		return "Invalid asset issuer provided"
+	case "asset_code":
+		return "Invalid asset code provided"
 	case "oneof":
 		params := strings.Join(strings.Split(fieldError.Param(), " "), ", ")
 		return fmt.Sprintf("Unexpected value %q. Expected one of the following values: %s", fieldError.Value(), params)

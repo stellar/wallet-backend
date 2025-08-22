@@ -1,6 +1,6 @@
 package entities
 
 type Asset struct {
-	Code   string
-	Issuer string
+	Code   string `json:"code"   validate:"required,asset_code"`
+	Issuer string `json:"issuer" validate:"asset_issuer"`
 }
