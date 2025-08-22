@@ -37,7 +37,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 }
 
 func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
 
@@ -79,7 +79,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
 	// Prepare columns, ensuring transactions.to_id is always included
-	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
 	// Build paginated query using shared utility
 	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{

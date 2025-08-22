@@ -313,7 +313,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash
-	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "")
+	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "", nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 

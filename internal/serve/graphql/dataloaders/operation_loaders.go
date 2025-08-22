@@ -3,7 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
-
+	"strings"
 	"github.com/vikstrous/dataloadgen"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -15,28 +15,46 @@ type OperationColumnsKey struct {
 	AccountID     string
 	StateChangeID string
 	Columns       string
+	Limit         *int32
+	Cursor        *int64
+	SortOrder     data.SortOrder
 }
 
 // opByTxHashLoader creates a dataloader for fetching operations by transaction hash
 // This prevents N+1 queries when multiple transactions request their operations
 // The loader batches multiple transaction hashes into a single database query
-func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.Operation, error) {
-			txHashes := make([]string, len(keys))
+		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
+			// Add the tx_hash column (if not requested) since that will be used as the primary key to group the operations
+			// in the final result.
 			columns := keys[0].Columns
+			if columns != "" && !strings.Contains(columns, "tx_hash") {
+				columns = fmt.Sprintf("%s, tx_hash", columns)
+			}
+			sortOrder := keys[0].SortOrder
+			limit := keys[0].Limit
+			
+			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
+			// Also, when a single key is requested, we can allow using normal cursor based pagination.
+			if len(keys) == 1 {
+				return models.Operations.BatchGetByTxHash(ctx, keys[0].TxHash, columns, limit, keys[0].Cursor, sortOrder)
+			}
+
+			txHashes := make([]string, len(keys))
+			maxLimit := min(*limit, 11)
 			for i, key := range keys {
 				txHashes[i] = key.TxHash
 			}
-			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns)
+			return models.Operations.BatchGetByTxHashes(ctx, txHashes, columns, &maxLimit, sortOrder)
 		},
-		func(item *types.Operation) string {
+		func(item *types.OperationWithCursor) string {
 			return item.TxHash
 		},
 		func(key OperationColumnsKey) string {
 			return key.TxHash
 		},
-		func(item *types.Operation) types.Operation {
+		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
 		},
 	)

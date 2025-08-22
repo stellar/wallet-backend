@@ -67,7 +67,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("get operations with first/after pagination", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"operation_xdr"}), middleware.LoadersKey, loaders)
 		first := int32(1)
 		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)
@@ -88,7 +89,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("get operations with last/before pagination", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"operation_xdr"}), middleware.LoadersKey, loaders)
 		last := int32(1)
 		ops, err := resolver.Operations(ctx, parentTx, nil, nil, &last, nil)
 		require.NoError(t, err)
@@ -109,7 +111,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("invalid pagination params", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 		first := int32(0)
 		last := int32(1)
 		after := encodeCursor(int64(1))
@@ -138,7 +141,8 @@ func TestTransactionResolver_Operations(t *testing.T) {
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 		first := int32(100)
 		ops, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
 		require.NoError(t, err)

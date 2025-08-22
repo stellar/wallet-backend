@@ -20,7 +20,7 @@ type OperationModel struct {
 }
 
 func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
 
@@ -59,12 +59,36 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
-	if columns == "" {
-		columns = "*"
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	queryBuilder := strings.Builder{}
+	query := `
+		WITH
+			inputs (tx_hash) AS (
+				SELECT * FROM UNNEST($1::text[])
+			),
+			
+			ranked_operations_per_tx_hash AS (
+				SELECT
+					o.*,
+					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
+				FROM 
+					operations o
+				JOIN 
+					inputs i ON o.tx_hash = i.tx_hash
+			)
+		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+	`
+	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
 	}
-	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
-	var operations []*types.Operation
+	query = queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
@@ -78,7 +102,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 
 // BatchGetByTxHash gets operations for a single transaction with pagination support.
 func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
 
@@ -126,7 +150,7 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, co
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
 	// Prepare columns, ensuring operations.id is always included
-	columns = prepareColumnsWithID(columns, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
 	// Build paginated query using shared utility
 	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{

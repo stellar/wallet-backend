@@ -92,11 +92,22 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 }
 
 // PrepareColumnsWithID ensures that the specified ID column is always included in the column list
-func prepareColumnsWithID(columns string, tableName string, idColumn string) string {
+func prepareColumnsWithID(columns string, model any, tableName string, idColumn string) string {
 	if columns == "" {
-		return fmt.Sprintf("%s.*", tableName)
+		dbColumns := getDBColumns(model)
+		if tableName == "" {
+			return strings.Join(dbColumns, ", ")
+		}
+		result := make([]string, len(dbColumns))
+		for i, dbColumn := range dbColumns {
+			result[i] = fmt.Sprintf("%s.%s", tableName, dbColumn)
+		}
+		return strings.Join(result, ", ")
 	}
 	// Always return the ID column as it is the primary key and can be used
 	// to build further queries
+	if tableName == "" {
+		return fmt.Sprintf("%s, %s", columns, idColumn)
+	}
 	return fmt.Sprintf("%s, %s.%s", columns, tableName, idColumn)
 }

@@ -20,61 +20,24 @@ import (
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
-
-	// Check if pagination parameters are provided
-	isPaginated := first != nil || after != nil || last != nil || before != nil
-
-	// Use dataloader for non-paginated requests to maintain batching efficiency
-	// This is because pagination only works for single transactions, not for multiple transactions
-	// This is why we have to use the dataloader for non-paginated requests
-	if !isPaginated {
-		loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-		loaderKey := dataloaders.OperationColumnsKey{
-			TxHash:  obj.Hash,
-			Columns: strings.Join(dbColumns, ", "),
-		}
-
-		operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
-		if err != nil {
-			return nil, err
-		}
-
-		// Convert operations slice to connection format
-		edges := make([]*graphql1.OperationEdge, len(operations))
-		for i, op := range operations {
-			edges[i] = &graphql1.OperationEdge{
-				Node:   op,
-				Cursor: encodeCursor(op.ID),
-			}
-		}
-
-		var startCursor, endCursor *string
-		if len(edges) > 0 {
-			startCursor = &edges[0].Cursor
-			endCursor = &edges[len(edges)-1].Cursor
-		}
-
-		return &graphql1.OperationConnection{
-			Edges: edges,
-			PageInfo: &graphql1.PageInfo{
-				StartCursor:     startCursor,
-				EndCursor:       endCursor,
-				HasNextPage:     false, // No pagination means we have all results
-				HasPreviousPage: false,
-			},
-		}, nil
-	}
-
-	// Handle paginated requests by bypassing dataloader
 	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	operations, err := r.models.Operations.BatchGetByTxHash(ctx, obj.Hash, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	loaderKey := dataloaders.OperationColumnsKey{
+		TxHash:  obj.Hash,
+		Columns: strings.Join(dbColumns, ", "),
+		Limit:   &queryLimit,
+		Cursor:  params.Cursor,
+		SortOrder: params.SortOrder,
+	}
+
+	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
+		return nil, err
 	}
 
 	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {

@@ -19,7 +19,7 @@ import (
 type Dataloaders struct {
 	// OperationsByTxHashLoader batches requests for operations by transaction hash
 	// Used by Transaction.operations field resolver to prevent N+1 queries
-	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.Operation]
+	OperationsByTxHashLoader *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor]
 
 	// AccountsByTxHashLoader batches requests for accounts by transaction hash
 	// Used by Transaction.accounts field resolver to prevent N+1 queries
