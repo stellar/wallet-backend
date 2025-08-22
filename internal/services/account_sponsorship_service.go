@@ -38,8 +38,15 @@ const (
 	CreateAccountTxnTimeBoundsSafetyMargin = 12
 )
 
+type SponsorAccountCreationOptions struct {
+	Address            string            `json:"address"                        validate:"required,public_key"`
+	Assets             []entities.Asset  `json:"assets"                         validate:"dive"`
+	Signers            []entities.Signer `json:"signers"                        validate:"required,gt=0,dive"`
+	MasterSignerWeight *int              `json:"master_signer_weight,omitempty" validate:"omitempty,gt=0"`
+}
+
 type AccountSponsorshipService interface {
-	SponsorAccountCreationTransaction(ctx context.Context, address string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error)
+	SponsorAccountCreationTransaction(ctx context.Context, opts SponsorAccountCreationOptions) (string, error)
 	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error)
 }
 
@@ -55,80 +62,99 @@ type accountSponsorshipService struct {
 
 var _ AccountSponsorshipService = (*accountSponsorshipService)(nil)
 
-func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, accountToSponsor string, signers []entities.Signer, supportedAssets []entities.Asset) (string, string, error) {
-	// Check the accountToSponsor does not exist on Stellar
-	_, err := s.RPCService.GetAccountLedgerSequence(accountToSponsor)
+func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx context.Context, opts SponsorAccountCreationOptions) (string, error) {
+	// Validation: accountToSponsor does not exist on Stellar
+	_, err := s.RPCService.GetAccountLedgerSequence(opts.Address)
 	if err == nil {
-		return "", "", ErrAccountAlreadyExists
+		return "", ErrAccountAlreadyExists
 	}
 	if !errors.Is(err, ErrAccountNotFound) {
-		return "", "", fmt.Errorf("getting details for account %s: %w", accountToSponsor, err)
+		return "", fmt.Errorf("getting details for account %s: %w", opts.Address, err)
 	}
 
-	fullSignerWeight, err := entities.ValidateSignersWeights(signers)
+	// Validation: signers weights are valid
+	fullSignerWeight, err := entities.ValidateSignersWeights(opts.Signers)
 	if err != nil {
-		return "", "", fmt.Errorf("validating signers weights: %w", err)
+		return "", fmt.Errorf("validating signers weights: %w", err)
+	}
+	for _, signer := range opts.Signers {
+		if signer.Address == opts.Address {
+			return "", fmt.Errorf("master signer cannot be configured as a custom signer. Please configure the master signer weight instead.")
+		}
 	}
 
-	// Make sure the total number of entries does not exceed the numSponsoredThreshold
-	numEntries := 2 + len(supportedAssets) + len(signers) // 2 entries for account creation + 1 entry per supported asset + 1 entry per signer
+	// Validation: the total number of entries does not exceed the numSponsoredThreshold
+	numEntries := 2 + len(opts.Assets) + len(opts.Signers) // 2 entries for account creation + 1 entry per asset and signer
 	if numEntries > s.MaxSponsoredBaseReserves {
-		return "", "", ErrSponsorshipLimitExceeded
+		return "", ErrSponsorshipLimitExceeded
 	}
 
 	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("getting distribution account public key: %w", err)
+		return "", fmt.Errorf("getting distribution account public key: %w", err)
 	}
 
-	fullSignerThreshold := txnbuild.NewThreshold(txnbuild.Threshold(fullSignerWeight))
 	ops := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
-			SponsoredID:   accountToSponsor,
+			SponsoredID:   opts.Address,
 			SourceAccount: distributionAccountPublicKey,
 		},
 		&txnbuild.CreateAccount{
-			Destination:   accountToSponsor,
+			Destination:   opts.Address,
 			Amount:        "0",
 			SourceAccount: distributionAccountPublicKey,
 		},
 	}
-	for _, signer := range signers {
+
+	// Add the signers to the transaction
+	for _, signer := range opts.Signers {
 		ops = append(ops, &txnbuild.SetOptions{
-			Signer:        &txnbuild.Signer{Address: signer.Address, Weight: txnbuild.Threshold(signer.Weight)},
-			SourceAccount: accountToSponsor,
+			Signer: &txnbuild.Signer{
+				Address: signer.Address,
+				Weight:  txnbuild.Threshold(signer.Weight),
+			},
+			SourceAccount: opts.Address,
 		})
 	}
-	for _, asset := range supportedAssets {
+
+	// Add the assets to the transaction
+	for _, asset := range opts.Assets {
 		ops = append(ops, &txnbuild.ChangeTrust{
 			Line: txnbuild.CreditAsset{
 				Code:   asset.Code,
 				Issuer: asset.Issuer,
 			}.MustToChangeTrustAsset(),
-			SourceAccount: accountToSponsor,
+			SourceAccount: opts.Address,
 		})
 	}
 	ops = append(ops,
 		&txnbuild.EndSponsoringFutureReserves{
-			SourceAccount: accountToSponsor,
-		},
-		&txnbuild.SetOptions{
-			MasterWeight:    txnbuild.NewThreshold(0),
-			LowThreshold:    fullSignerThreshold,
-			MediumThreshold: fullSignerThreshold,
-			HighThreshold:   fullSignerThreshold,
-			SourceAccount:   accountToSponsor,
+			SourceAccount: opts.Address,
 		},
 	)
 
+	if len(opts.Signers) > 0 {
+		fullSignerThreshold := txnbuild.NewThreshold(txnbuild.Threshold(fullSignerWeight))
+		setOptionsOp := txnbuild.SetOptions{
+			LowThreshold:    fullSignerThreshold,
+			MediumThreshold: fullSignerThreshold,
+			HighThreshold:   fullSignerThreshold,
+			SourceAccount:   opts.Address,
+		}
+		if opts.MasterSignerWeight != nil {
+			setOptionsOp.MasterWeight = txnbuild.NewThreshold(txnbuild.Threshold(*opts.MasterSignerWeight))
+		}
+		ops = append(ops, &setOptionsOp)
+	}
+
 	channelAccountPublicKey, err := s.ChannelAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("getting channel account public key: %w", err)
+		return "", fmt.Errorf("getting channel account public key: %w", err)
 	}
 
 	channelAccountSeq, err := s.RPCService.GetAccountLedgerSequence(channelAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("getting sequence number for channel account public key: %s: %w", channelAccountPublicKey, err)
+		return "", fmt.Errorf("getting sequence number for channel account public key: %s: %w", channelAccountPublicKey, err)
 	}
 
 	tx, err := txnbuild.NewTransaction(
@@ -144,29 +170,29 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 		},
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("building transaction: %w", err)
+		return "", fmt.Errorf("building transaction: %w", err)
 	}
 
 	tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, channelAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("signing transaction: %w", err)
+		return "", fmt.Errorf("signing transaction: %w", err)
 	}
 
 	tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
 	if err != nil {
-		return "", "", fmt.Errorf("signing transaction: %w", err)
+		return "", fmt.Errorf("signing transaction: %w", err)
 	}
 
 	txe, err := tx.Base64()
 	if err != nil {
-		return "", "", fmt.Errorf("getting transaction envelope: %w", err)
+		return "", fmt.Errorf("getting transaction envelope: %w", err)
 	}
 
-	if err := s.Models.Account.Insert(ctx, accountToSponsor); err != nil {
-		return "", "", fmt.Errorf("inserting the sponsored account: %w", err)
+	if err := s.Models.Account.Insert(ctx, opts.Address); err != nil {
+		return "", fmt.Errorf("inserting the sponsored account: %w", err)
 	}
 
-	return txe, s.ChannelAccountSignatureClient.NetworkPassphrase(), nil
+	return txe, nil
 }
 
 // WrapTransaction wraps a stellar transaction with a fee bump transaction with the configured distribution account as the fee account.

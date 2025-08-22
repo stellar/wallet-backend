@@ -5,86 +5,119 @@ import (
 
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestValidateSignersWeights(t *testing.T) {
-	t.Run("no_full_signers", func(t *testing.T) {
-		signers := []Signer{}
-		fw, err := ValidateSignersWeights(signers)
-		assert.Empty(t, fw)
-		assert.EqualError(t, err, "no full signers provided")
-	})
+	kp1 := keypair.MustRandom()
+	kp2 := keypair.MustRandom()
 
-	t.Run("full_signers_with_not_same_weight", func(t *testing.T) {
-		signers := []Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    FullSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  19,
-				Type:    FullSignerType,
-			},
-		}
-		fw, err := ValidateSignersWeights(signers)
-		assert.Empty(t, fw)
-		assert.EqualError(t, err, "all full signers must have the same weight")
-	})
+	type testCase struct {
+		name            string
+		signers         []Signer
+		wantErrContains string
+		wantResult      int
+	}
 
-	t.Run("partial_signer_should_be_less_than_full_signers", func(t *testing.T) {
-		signers := []Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    FullSignerType,
+	testCases := []testCase{
+		{
+			name:            "🟢no_signers",
+			signers:         []Signer{},
+			wantErrContains: "",
+			wantResult:      1,
+		},
+		{
+			name: "🔴no_full_signers",
+			signers: []Signer{
+				{
+					Address: kp1.Address(),
+					Weight:  10,
+					Type:    PartialSignerType,
+				},
 			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    PartialSignerType,
+			wantErrContains: "no full signers provided",
+			wantResult:      0,
+		},
+		{
+			name: "🔴full_signers_with_not_same_weight",
+			signers: []Signer{
+				{
+					Address: kp1.Address(),
+					Weight:  20,
+					Type:    FullSignerType,
+				},
+				{
+					Address: kp2.Address(),
+					Weight:  19,
+					Type:    FullSignerType,
+				},
 			},
-		}
-		fw, err := ValidateSignersWeights(signers)
-		assert.EqualError(t, err, "all partial signers' weights must be less than the weight of full signers")
-		assert.Empty(t, fw)
-	})
+			wantErrContains: "all full signers must have the same weight",
+			wantResult:      0,
+		},
+		{
+			name: "🔴partial_signer_should_be_less_than_full_signers",
+			signers: []Signer{
+				{
+					Address: kp1.Address(),
+					Weight:  20,
+					Type:    FullSignerType,
+				},
+				{
+					Address: kp2.Address(),
+					Weight:  20,
+					Type:    PartialSignerType,
+				},
+			},
+			wantErrContains: "all partial signers' weights must be less than the weight of full signers",
+			wantResult:      0,
+		},
+		{
+			name: "🟢full_signers_same_weight",
+			signers: []Signer{
+				{
+					Address: kp1.Address(),
+					Weight:  20,
+					Type:    FullSignerType,
+				},
+				{
+					Address: kp2.Address(),
+					Weight:  20,
+					Type:    FullSignerType,
+				},
+			},
+			wantErrContains: "",
+			wantResult:      20,
+		},
+		{
+			name: "🟢full_signers_and_partial_signers",
+			signers: []Signer{
+				{
+					Address: kp1.Address(),
+					Weight:  20,
+					Type:    FullSignerType,
+				},
+				{
+					Address: kp2.Address(),
+					Weight:  10,
+					Type:    PartialSignerType,
+				},
+			},
+			wantErrContains: "",
+			wantResult:      20,
+		},
+	}
 
-	t.Run("full_signers_same_weight", func(t *testing.T) {
-		signers := []Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    FullSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    FullSignerType,
-			},
-		}
-		fw, err := ValidateSignersWeights(signers)
-		require.NoError(t, err)
-		assert.Equal(t, 20, fw)
-	})
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fw, err := ValidateSignersWeights(tc.signers)
 
-	t.Run("full_signers_and_partial_signers", func(t *testing.T) {
-		signers := []Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    FullSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    PartialSignerType,
-			},
-		}
-		fw, err := ValidateSignersWeights(signers)
-		require.NoError(t, err)
-		assert.Equal(t, 20, fw)
-	})
+			if tc.wantErrContains != "" {
+				assert.EqualError(t, err, tc.wantErrContains)
+				assert.Empty(t, fw)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantResult, fw)
+			}
+		})
+	}
 }

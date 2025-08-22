@@ -18,294 +18,466 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-func TestAccountSponsorshipServiceSponsorAccountCreationTransaction(t *testing.T) {
+func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_failure(t *testing.T) {
+	const maxSponsoredBaseReserves = 5
+	ctx := context.Background()
+	masterKP := keypair.MustRandom()
+
+	testCases := []struct {
+		name            string
+		prepareMocks    func(t *testing.T, mockRPCService *RPCServiceMock)
+		opts            SponsorAccountCreationOptions
+		wantErrIs       error
+		wantErrContains string
+	}{
+		{
+			name: "🔴account_already_exists",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+			},
+			prepareMocks: func(t *testing.T, mockRPCService *RPCServiceMock) {
+				mockRPCService.
+					On("GetAccountLedgerSequence", masterKP.Address()).
+					Return(int64(1), nil).
+					Once()
+			},
+			wantErrIs: ErrAccountAlreadyExists,
+		},
+		{
+			name: "🔴invalid_signers_weight",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: []entities.Signer{
+					{
+						Address: masterKP.Address(),
+						Weight:  0,
+						Type:    entities.PartialSignerType,
+					},
+				},
+			},
+			prepareMocks: func(t *testing.T, mockRPCService *RPCServiceMock) {
+				mockRPCService.
+					On("GetAccountLedgerSequence", masterKP.Address()).
+					Return(int64(0), ErrAccountNotFound).
+					Once()
+			},
+			wantErrContains: "validating signers weights: no full signers provided",
+		},
+		{
+			name: "🔴sponsorship_limit_reached",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: func() []entities.Signer {
+					signers := []entities.Signer{}
+					for range maxSponsoredBaseReserves - 2 {
+						signers = append(signers, entities.Signer{
+							Address: keypair.MustRandom().Address(),
+							Weight:  10,
+							Type:    entities.FullSignerType,
+						})
+					}
+					return signers
+				}(),
+				Assets: []entities.Asset{
+					{
+						Code:   "USDC",
+						Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+					},
+				},
+			},
+			prepareMocks: func(t *testing.T, mockRPCService *RPCServiceMock) {
+				mockRPCService.
+					On("GetAccountLedgerSequence", masterKP.Address()).
+					Return(int64(0), ErrAccountNotFound).
+					Once()
+			},
+			wantErrIs: ErrSponsorshipLimitExceeded,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mSigClient := signing.SignatureClientMock{}
+			defer mSigClient.AssertExpectations(t)
+			mRPCService := RPCServiceMock{}
+			defer mRPCService.AssertExpectations(t)
+			accSponsorshipSvc := accountSponsorshipService{
+				DistributionAccountSignatureClient: &mSigClient,
+				ChannelAccountSignatureClient:      &mSigClient,
+				RPCService:                         &mRPCService,
+				MaxSponsoredBaseReserves:           maxSponsoredBaseReserves,
+				BaseFee:                            txnbuild.MinBaseFee,
+			}
+
+			if tc.prepareMocks != nil {
+				tc.prepareMocks(t, &mRPCService)
+			}
+
+			txe, err := accSponsorshipSvc.SponsorAccountCreationTransaction(ctx, tc.opts)
+			if tc.wantErrIs != nil {
+				assert.ErrorIs(t, tc.wantErrIs, err)
+			}
+			if tc.wantErrContains != "" {
+				assert.EqualError(t, err, tc.wantErrContains)
+			}
+			assert.Empty(t, txe)
+		})
+	}
+}
+
+func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_success(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-
-	signatureClient := signing.SignatureClientMock{}
-	defer signatureClient.AssertExpectations(t)
-	mockRPCService := RPCServiceMock{}
-
+	const maxSponsoredBaseReserves = 5
+	const baseBee = 100_000
 	ctx := context.Background()
-	s, err := NewAccountSponsorshipService(AccountSponsorshipServiceOptions{
-		DistributionAccountSignatureClient: &signatureClient,
-		ChannelAccountSignatureClient:      &signatureClient,
-		RPCService:                         &mockRPCService,
-		MaxSponsoredBaseReserves:           10,
-		BaseFee:                            txnbuild.MinBaseFee,
-		Models:                             models,
-		BlockedOperationsTypes:             []xdr.OperationType{},
-	})
-	require.NoError(t, err)
+	masterKP := keypair.MustRandom()
+	channelAccKP := keypair.MustRandom()
+	distAccKP := keypair.MustRandom()
+	usdcAsset := entities.Asset{
+		Code:   "USDC",
+		Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+	}
+	fullSignerKP := keypair.MustRandom()
+	partialSigner1KP := keypair.MustRandom()
+	partialSigner2KP := keypair.MustRandom()
 
-	t.Run("account_already_exists", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-		accountToSponsor := keypair.MustRandom().Address()
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(1), nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, []entities.Signer{}, []entities.Asset{})
-		assert.ErrorIs(t, ErrAccountAlreadyExists, err)
-		assert.Empty(t, txe)
-		assert.Empty(t, networkPassphrase)
-	})
-
-	t.Run("invalid_signers_weight", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-		accountToSponsor := keypair.MustRandom().Address()
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), ErrAccountNotFound).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		signers := []entities.Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  0,
-				Type:    entities.PartialSignerType,
+	testCases := []struct {
+		name           string
+		wantOperations []txnbuild.Operation
+		opts           SponsorAccountCreationOptions
+	}{
+		{
+			name: "🟢base_case",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
 			},
-		}
-
-		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, []entities.Asset{})
-		assert.EqualError(t, err, "validating signers weights: no full signers provided")
-		assert.Empty(t, txe)
-		assert.Empty(t, networkPassphrase)
-	})
-
-	t.Run("sponsorship_limit_reached", func(t *testing.T) {
-		defer mockMetricsService.AssertExpectations(t)
-		accountToSponsor := keypair.MustRandom().Address()
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), ErrAccountNotFound).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		signers := []entities.Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.BeginSponsoringFutureReserves{
+					SponsoredID:   masterKP.Address(),
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "0",
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.EndSponsoringFutureReserves{
+					SourceAccount: masterKP.Address(),
+				},
 			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
+		},
+		{
+			name: "🟢with_trustlines",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Assets:  []entities.Asset{usdcAsset},
 			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.BeginSponsoringFutureReserves{
+					SponsoredID:   masterKP.Address(),
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "0",
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.ChangeTrust{
+					Line: txnbuild.CreditAsset{
+						Code:   usdcAsset.Code,
+						Issuer: usdcAsset.Issuer,
+					}.MustToChangeTrustAsset(),
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.EndSponsoringFutureReserves{
+					SourceAccount: masterKP.Address(),
+				},
 			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    entities.FullSignerType,
-			},
-		}
-
-		assets := []entities.Asset{
-			{
-				Code:   "USDC",
-				Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-			},
-			{
-				Code:   "ARST",
-				Issuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
-			},
-		}
-
-		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, assets)
-		assert.ErrorIs(t, ErrSponsorshipLimitExceeded, err)
-		assert.Empty(t, txe)
-		assert.Empty(t, networkPassphrase)
-	})
-
-	t.Run("successfully_returns_a_sponsored_transaction", func(t *testing.T) {
-		accountToSponsor := keypair.MustRandom().Address()
-		distributionAccount := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		signers := []entities.Signer{
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  10,
-				Type:    entities.PartialSignerType,
-			},
-			{
-				Address: keypair.MustRandom().Address(),
-				Weight:  20,
-				Type:    entities.FullSignerType,
-			},
-		}
-
-		assets := []entities.Asset{
-			{
-				Code:   "USDC",
-				Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-			},
-			{
-				Code:   "ARST",
-				Issuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
-			},
-		}
-
-		mockRPCService.
-			On("GetAccountLedgerSequence", accountToSponsor).
-			Return(int64(0), ErrAccountNotFound).
-			Once().
-			On("GetAccountLedgerSequence", distributionAccount.Address()).
-			Return(int64(1), nil).
-			Once()
-		defer mockRPCService.AssertExpectations(t)
-
-		signedTx := txnbuild.Transaction{}
-		signatureClient.
-			On("GetAccountPublicKey", ctx).
-			Return(distributionAccount.Address(), nil).
-			Times(2).
-			On("NetworkPassphrase").
-			Return(network.TestNetworkPassphrase).
-			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
-			Run(func(args mock.Arguments) {
-				tx, ok := args.Get(1).(*txnbuild.Transaction)
-				require.True(t, ok)
-
-				// We make this workaround because the signers' SetOptions has some inner data that can't be asserted.
-				txe, err := tx.Base64()
-				require.NoError(t, err)
-				genericTx, err := txnbuild.TransactionFromXDR(txe)
-				require.NoError(t, err)
-				tx, ok = genericTx.Transaction()
-				require.True(t, ok)
-
-				assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
-				assert.Equal(t, txnbuild.NewTimeout(CreateAccountTxnTimeBounds+CreateAccountTxnTimeBoundsSafetyMargin), tx.Timebounds())
-				assert.Equal(t, []txnbuild.Operation{
-					&txnbuild.BeginSponsoringFutureReserves{
-						SponsoredID:   accountToSponsor,
-						SourceAccount: distributionAccount.Address(),
+		},
+		{
+			name: "🟢with_signers",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: []entities.Signer{
+					{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
+						Type:    entities.FullSignerType,
 					},
-					&txnbuild.CreateAccount{
-						Destination:   accountToSponsor,
-						Amount:        "0.0000000",
-						SourceAccount: distributionAccount.Address(),
+					{
+						Address: partialSigner1KP.Address(),
+						Weight:  5,
+						Type:    entities.PartialSignerType,
 					},
-					&txnbuild.SetOptions{
-						Signer:        &txnbuild.Signer{Address: signers[0].Address, Weight: txnbuild.Threshold(signers[0].Weight)},
-						SourceAccount: accountToSponsor,
+					{
+						Address: partialSigner2KP.Address(),
+						Weight:  5,
+						Type:    entities.PartialSignerType,
 					},
-					&txnbuild.SetOptions{
-						Signer:        &txnbuild.Signer{Address: signers[1].Address, Weight: txnbuild.Threshold(signers[1].Weight)},
-						SourceAccount: accountToSponsor,
+				},
+			},
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.BeginSponsoringFutureReserves{
+					SponsoredID:   masterKP.Address(),
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "0",
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					Signer: &txnbuild.Signer{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
 					},
-					&txnbuild.SetOptions{
-						Signer:        &txnbuild.Signer{Address: signers[2].Address, Weight: txnbuild.Threshold(signers[2].Weight)},
-						SourceAccount: accountToSponsor,
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					Signer: &txnbuild.Signer{
+						Address: partialSigner1KP.Address(),
+						Weight:  5,
 					},
-					&txnbuild.ChangeTrust{
-						Line: txnbuild.CreditAsset{
-							Code:   assets[0].Code,
-							Issuer: assets[0].Issuer,
-						}.MustToChangeTrustAsset(),
-						Limit:         "922337203685.4775807",
-						SourceAccount: accountToSponsor,
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					Signer: &txnbuild.Signer{
+						Address: partialSigner2KP.Address(),
+						Weight:  5,
 					},
-					&txnbuild.ChangeTrust{
-						Line: txnbuild.CreditAsset{
-							Code:   assets[1].Code,
-							Issuer: assets[1].Issuer,
-						}.MustToChangeTrustAsset(),
-						Limit:         "922337203685.4775807",
-						SourceAccount: accountToSponsor,
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.EndSponsoringFutureReserves{
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					LowThreshold:    txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					MediumThreshold: txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					HighThreshold:   txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					SourceAccount:   masterKP.Address(),
+				},
+			},
+		},
+		{
+			name: "🟢with_signer(master_weight=0)",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: []entities.Signer{
+					{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
+						Type:    entities.FullSignerType,
 					},
-					&txnbuild.EndSponsoringFutureReserves{
-						SourceAccount: accountToSponsor,
+				},
+				MasterSignerWeight: utils.PointOf(0),
+			},
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.BeginSponsoringFutureReserves{
+					SponsoredID:   masterKP.Address(),
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "0",
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					Signer: &txnbuild.Signer{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
 					},
-					&txnbuild.SetOptions{
-						MasterWeight:    txnbuild.NewThreshold(0),
-						LowThreshold:    txnbuild.NewThreshold(20),
-						MediumThreshold: txnbuild.NewThreshold(20),
-						HighThreshold:   txnbuild.NewThreshold(20),
-						SourceAccount:   accountToSponsor,
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.EndSponsoringFutureReserves{
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					MasterWeight:    txnbuild.NewThreshold(txnbuild.Threshold(0)),
+					LowThreshold:    txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					MediumThreshold: txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					HighThreshold:   txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					SourceAccount:   masterKP.Address(),
+				},
+			},
+		},
+		{
+			name: "🟢with_asset_and_signer(master_weight=0)",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: []entities.Signer{
+					{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
+						Type:    entities.FullSignerType,
 					},
-				}, tx.Operations())
+				},
+				MasterSignerWeight: utils.PointOf(0),
+				Assets:             []entities.Asset{usdcAsset},
+			},
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.BeginSponsoringFutureReserves{
+					SponsoredID:   masterKP.Address(),
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "0",
+					SourceAccount: distAccKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					Signer: &txnbuild.Signer{
+						Address: fullSignerKP.Address(),
+						Weight:  10,
+					},
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.ChangeTrust{
+					Line: txnbuild.CreditAsset{
+						Code:   usdcAsset.Code,
+						Issuer: usdcAsset.Issuer,
+					}.MustToChangeTrustAsset(),
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.EndSponsoringFutureReserves{
+					SourceAccount: masterKP.Address(),
+				},
+				&txnbuild.SetOptions{
+					MasterWeight:    txnbuild.NewThreshold(txnbuild.Threshold(0)),
+					LowThreshold:    txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					MediumThreshold: txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					HighThreshold:   txnbuild.NewThreshold(txnbuild.Threshold(10)),
+					SourceAccount:   masterKP.Address(),
+				},
+			},
+		},
+	}
 
-				tx, err = tx.Sign(network.TestNetworkPassphrase, distributionAccount)
-				require.NoError(t, err)
-
-				signedTx = *tx
-			}).
-			Return(&signedTx, nil).
-			Once().
-			On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
-			Return(&signedTx, nil).
-			Once()
-
-		txe, networkPassphrase, err := s.SponsorAccountCreationTransaction(ctx, accountToSponsor, signers, assets)
+	copyTx := func(t *testing.T, tx *txnbuild.Transaction) *txnbuild.Transaction {
+		txe, err := tx.Base64()
 		require.NoError(t, err)
-
-		assert.Equal(t, network.TestNetworkPassphrase, networkPassphrase)
-		assert.NotEmpty(t, txe)
 		genericTx, err := txnbuild.TransactionFromXDR(txe)
 		require.NoError(t, err)
-		tx, ok := genericTx.Transaction()
+		resultTx, ok := genericTx.Transaction()
 		require.True(t, ok)
-		assert.Len(t, tx.Operations(), 9)
-		assert.Len(t, tx.Signatures(), 1)
 
-		isFeeBumpEligible, err := models.Account.IsAccountFeeBumpEligible(ctx, accountToSponsor)
-		require.NoError(t, err)
-		assert.True(t, isFeeBumpEligible)
-	})
+		return resultTx
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(func() {
+				dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+			})
+
+			// Mock metrics service
+			mMetricsService := metrics.NewMockMetricsService()
+			mMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
+			mMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
+			mMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
+			mMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+			defer mMetricsService.AssertExpectations(t)
+			models, err := data.NewModels(dbConnectionPool, mMetricsService)
+			require.NoError(t, err)
+
+			// Mock RPC service
+			mRPCService := NewRPCServiceMock(t)
+			mRPCService.
+				On("GetAccountLedgerSequence", tc.opts.Address).
+				Return(int64(0), ErrAccountNotFound).
+				Once().
+				On("GetAccountLedgerSequence", channelAccKP.Address()).
+				Return(int64(1), nil).
+				Once()
+			defer mRPCService.AssertExpectations(t)
+
+			// Mock channelAccountSignatureClient
+			mChAccSigClient := signing.NewSignatureClientMock(t)
+			var tx *txnbuild.Transaction
+			mChAccSigClient.
+				On("GetAccountPublicKey", ctx).
+				Return(channelAccKP.Address(), nil).
+				Once().
+				On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccKP.Address()}).
+				Run(func(args mock.Arguments) {
+					gotTx, ok := args.Get(1).(*txnbuild.Transaction)
+					require.True(t, ok)
+					gotTx = copyTx(t, gotTx)
+
+					wantTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+						SourceAccount: &txnbuild.SimpleAccount{
+							AccountID: channelAccKP.Address(),
+							Sequence:  1,
+						},
+						IncrementSequenceNum: true,
+						BaseFee:              baseBee,
+						Preconditions: txnbuild.Preconditions{
+							TimeBounds: gotTx.Timebounds(),
+						},
+						Operations: tc.wantOperations,
+					})
+					require.NoError(t, err)
+					wantTx = copyTx(t, wantTx)
+					require.Equal(t, wantTx, gotTx)
+				}).
+				Return(func(ctx context.Context, inTx *txnbuild.Transaction, stellarAccounts ...string) (*txnbuild.Transaction, error) {
+					tx, err = inTx.Sign(network.TestNetworkPassphrase, channelAccKP) // <--- assign the signed tx to the `tx` variable
+					require.NoError(t, err)
+					return tx, nil
+				}, nil).
+				Once()
+
+			// Mock distributionAccountSignatureClient
+			mDistAccSigClient := signing.NewSignatureClientMock(t)
+			mDistAccSigClient.
+				On("GetAccountPublicKey", ctx).
+				Return(distAccKP.Address(), nil).
+				Once().
+				On("SignStellarTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction"), []string{distAccKP.Address()}).
+				Run(func(args mock.Arguments) {
+					gotTx, ok := args.Get(1).(*txnbuild.Transaction)
+					require.True(t, ok)
+					require.Equal(t, tx, gotTx) // <--- this is the `tx` previously signed by the chAccSigClient
+				}).
+				Return(func(ctx context.Context, inTx *txnbuild.Transaction, stellarAccounts ...string) (*txnbuild.Transaction, error) {
+					tx, err = inTx.Sign(network.TestNetworkPassphrase, distAccKP) // <--- assign the signed tx to the `tx` variable
+					require.NoError(t, err)
+					return tx, nil
+				}, nil).
+				Once()
+			defer mChAccSigClient.AssertExpectations(t)
+
+			// Finally, create the account sponsorship service and test it
+			accSponsorshipSvc := accountSponsorshipService{
+				DistributionAccountSignatureClient: mDistAccSigClient,
+				ChannelAccountSignatureClient:      mChAccSigClient,
+				RPCService:                         mRPCService,
+				MaxSponsoredBaseReserves:           maxSponsoredBaseReserves,
+				BaseFee:                            baseBee,
+				Models:                             models,
+			}
+			gotTxXDR, err := accSponsorshipSvc.SponsorAccountCreationTransaction(ctx, tc.opts)
+
+			// Assert tx result
+			assert.NoError(t, err)
+			assert.NotEmpty(t, gotTxXDR)
+			wantTxXDR, err := tx.Base64()
+			require.NoError(t, err)
+			assert.Equal(t, wantTxXDR, gotTxXDR)
+
+			// Assert account is fee bump eligible
+			isFeeBumpEligible, err := models.Account.IsAccountFeeBumpEligible(ctx, tc.opts.Address)
+			require.NoError(t, err)
+			assert.True(t, isFeeBumpEligible)
+		})
+	}
 }
 
 func TestAccountSponsorshipServiceWrapTransaction(t *testing.T) {

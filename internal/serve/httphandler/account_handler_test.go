@@ -345,8 +345,17 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			}`,
 			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
 				asService.
-					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
-					Return("", "", services.ErrAccountAlreadyExists).
+					On("SponsorAccountCreationTransaction", ctx, services.SponsorAccountCreationOptions{
+						Address: masterKP.Address(),
+						Signers: []entities.Signer{
+							{
+								Address: signerKP1.Address(),
+								Weight:  10,
+								Type:    entities.FullSignerType,
+							},
+						},
+					}).
+					Return("", services.ErrAccountAlreadyExists).
 					Once()
 			},
 			expectedStatusCode: http.StatusConflict,
@@ -366,8 +375,17 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			}`,
 			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
 				asService.
-					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
-					Return("", "", services.ErrSponsorshipLimitExceeded).
+					On("SponsorAccountCreationTransaction", ctx, services.SponsorAccountCreationOptions{
+						Address: masterKP.Address(),
+						Signers: []entities.Signer{
+							{
+								Address: signerKP1.Address(),
+								Weight:  10,
+								Type:    entities.FullSignerType,
+							},
+						},
+					}).
+					Return("", services.ErrSponsorshipLimitExceeded).
 					Once()
 			},
 			expectedStatusCode: http.StatusBadRequest,
@@ -387,8 +405,17 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			}`,
 			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
 				asService.
-					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
-					Return("tx-envelope", network.TestNetworkPassphrase, nil).
+					On("SponsorAccountCreationTransaction", ctx, services.SponsorAccountCreationOptions{
+						Address: masterKP.Address(),
+						Signers: []entities.Signer{
+							{
+								Address: signerKP1.Address(),
+								Weight:  10,
+								Type:    entities.FullSignerType,
+							},
+						},
+					}).
+					Return("tx-envelope", nil).
 					Once()
 			},
 			expectedStatusCode: http.StatusOK,
@@ -417,8 +444,18 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			}`,
 			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
 				asService.
-					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset{usdcAsset}).
-					Return("tx-envelope", network.TestNetworkPassphrase, nil).
+					On("SponsorAccountCreationTransaction", ctx, services.SponsorAccountCreationOptions{
+						Address: masterKP.Address(),
+						Signers: []entities.Signer{
+							{
+								Address: signerKP1.Address(),
+								Weight:  10,
+								Type:    entities.FullSignerType,
+							},
+						},
+						Assets: []entities.Asset{usdcAsset},
+					}).
+					Return("tx-envelope", nil).
 					Once()
 			},
 			expectedStatusCode: http.StatusOK,
@@ -439,6 +476,7 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			}
 			handler := &AccountHandler{
 				AccountSponsorshipService: &asService,
+				NetworkPassphrase:         network.TestNetworkPassphrase,
 			}
 
 			// Execute request

@@ -264,6 +264,7 @@ func handler(deps handlerDeps) http.Handler {
 			AccountService:            deps.AccountService,
 			AccountSponsorshipService: deps.AccountSponsorshipService,
 			AppTracker:                deps.AppTracker,
+			NetworkPassphrase:         deps.NetworkPassphrase,
 		}
 		r.Route("/accounts", func(r chi.Router) {
 			r.Post("/{address}", accountHandler.RegisterAccount)

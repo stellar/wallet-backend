@@ -18,6 +18,7 @@ type AccountHandler struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
 	AppTracker                apptracker.AppTracker
+	NetworkPassphrase         string
 }
 
 type AccountRegistrationRequest struct {
@@ -62,16 +63,17 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-type SponsorAccountCreationRequest struct {
-	Address string            `json:"address" validate:"required,public_key"`
-	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`
-	Assets  []entities.Asset  `json:"assets"  validate:"dive"`
+type SponsorAccountCreationOptions struct {
+	Address            string            `json:"address"                        validate:"required,public_key"`
+	Signers            []entities.Signer `json:"signers"                        validate:"required,gt=0,dive"`
+	MasterSignerWeight *int              `json:"master_signer_weight,omitempty" validate:"omitempty,gt=0"`
+	Assets             []entities.Asset  `json:"assets"                         validate:"dive"`
 }
 
 func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	var reqBody SponsorAccountCreationRequest
+	var reqBody SponsorAccountCreationOptions
 	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
@@ -80,11 +82,16 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 
 	_, err := entities.ValidateSignersWeights(reqBody.Signers)
 	if err != nil {
-		httperror.BadRequest("Validation error.", map[string]interface{}{"signers": err.Error()}).Render(rw)
+		httperror.BadRequest("Validation error.", map[string]any{"signers": err.Error()}).Render(rw)
 		return
 	}
 
-	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, reqBody.Assets)
+	txe, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, services.SponsorAccountCreationOptions{
+		Address:            reqBody.Address,
+		Signers:            reqBody.Signers,
+		Assets:             reqBody.Assets,
+		MasterSignerWeight: reqBody.MasterSignerWeight,
+	})
 	if err != nil {
 		if errors.Is(err, services.ErrSponsorshipLimitExceeded) {
 			httperror.BadRequest("Sponsorship limit exceeded.", nil).Render(rw)
@@ -102,7 +109,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 
 	respBody := types.TransactionEnvelopeResponse{
 		Transaction:       txe,
-		NetworkPassphrase: networkPassphrase,
+		NetworkPassphrase: h.NetworkPassphrase,
 	}
 	httpjson.Render(rw, respBody, httpjson.JSON)
 }

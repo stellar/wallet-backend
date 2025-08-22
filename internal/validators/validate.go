@@ -51,8 +51,8 @@ func assetCodeValidation(fl validator.FieldLevel) bool {
 	return code == "" || len(code) <= 12
 }
 
-func ParseValidationError(errors validator.ValidationErrors) map[string]interface{} {
-	fieldErrors := make(map[string]interface{})
+func ParseValidationError(errors validator.ValidationErrors) map[string]any {
+	fieldErrors := make(map[string]any)
 	for _, err := range errors {
 		fieldErrors[getFieldName(err)] = msgForFieldError(err)
 	}
