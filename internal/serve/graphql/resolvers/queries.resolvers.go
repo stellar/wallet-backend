@@ -17,7 +17,7 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
 
@@ -31,7 +31,7 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
@@ -71,7 +71,7 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
@@ -103,7 +103,7 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db: %w", err)

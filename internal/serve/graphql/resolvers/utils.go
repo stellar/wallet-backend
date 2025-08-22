@@ -90,7 +90,7 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	}
 }
 
-func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []string {
+func GetDBColumnsForFields(ctx context.Context, model any) []string {
 	opCtx := graphql.GetOperationContext(ctx)
 	fields := graphql.CollectFieldsCtx(ctx, nil)
 
@@ -100,13 +100,13 @@ func GetDBColumnsForFields(ctx context.Context, model any, prefix string) []stri
 			for _, edgeField := range edgeFields {
 				if edgeField.Name == "node" {
 					nodeFields := graphql.CollectFields(opCtx, edgeField.Selections, nil)
-					return prefixDBColumns(prefix, getDBColumns(model, nodeFields))
+					return getDBColumns(model, nodeFields)
 				}
 			}
 		}
 	}
 
-	return prefixDBColumns(prefix, getDBColumns(model, fields))
+	return getDBColumns(model, fields)
 }
 
 func encodeCursor[T int64 | string](i T) string {
@@ -161,17 +161,6 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		}
 	}
 	return dbColumns
-}
-
-func prefixDBColumns(prefix string, cols []string) []string {
-	if prefix == "" {
-		return cols
-	}
-	prefixedCols := make([]string, len(cols))
-	for i, col := range cols {
-		prefixedCols[i] = prefix + "." + col
-	}
-	return prefixedCols
 }
 
 func getColumnMap(model any) map[string]string {

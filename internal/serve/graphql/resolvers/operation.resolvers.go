@@ -23,7 +23,7 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 	// Extract dataloaders from GraphQL context
 	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
 	loaderKey := dataloaders.TransactionColumnsKey{
 		OperationID: obj.ID,
@@ -45,7 +45,7 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
 
 	loaderKey := dataloaders.AccountColumnsKey{
 		OperationID: obj.ID,
@@ -66,7 +66,7 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // gqlgen calls this when a GraphQL query requests the stateChanges field on an Operation
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 
 	// Check if pagination parameters are provided
 	isPaginated := first != nil || after != nil || last != nil || before != nil

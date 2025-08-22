@@ -19,7 +19,7 @@ import (
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	params, err := parsePaginationParams(first, after, last, before, false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
@@ -63,7 +63,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 // It's called when a GraphQL query requests the accounts within a transaction
 func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
 
 	// Use dataloader to batch-load accounts for this transaction
 	// This prevents N+1 queries when multiple transactions request their operations
@@ -83,7 +83,7 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // This is a field resolver for the "stateChanges" field on a Transaction object
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 
 	// Check if pagination parameters are provided
 	isPaginated := first != nil || after != nil || last != nil || before != nil

@@ -20,12 +20,7 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account addresses.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
@@ -74,12 +69,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
@@ -316,12 +306,7 @@ func (m *StateChangeModel) BatchInsert(
 
 // BatchGetByTxHash gets state changes for a single transaction with pagination support.
 func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
@@ -375,12 +360,7 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
@@ -434,14 +414,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 
 // BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		// We always return the to_id, state_change_order since those are the primary keys.
-		// This is used for subsequent queries for operation and transactions of a state change.
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	query := fmt.Sprintf(`
 		SELECT %s, tx_hash 
 		FROM state_changes 
@@ -462,14 +435,7 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.StateChange, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
-	// We always return the to_id, state_change_order since those are the primary keys.
-	// This is used for subsequent queries for operation and transactions of a state change.
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	query := fmt.Sprintf(`
 		SELECT %s, operation_id 
 		FROM state_changes 

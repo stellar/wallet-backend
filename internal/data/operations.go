@@ -20,7 +20,7 @@ type OperationModel struct {
 }
 
 func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
 
@@ -149,7 +149,6 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, co
 
 // BatchGetByAccountAddress gets the operations that are associated with a single account address.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
-	// Prepare columns, ensuring operations.id is always included
 	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
 	// Build paginated query using shared utility
@@ -179,9 +178,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
 func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
-	if columns == "" {
-		columns = "operations.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
