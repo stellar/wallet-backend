@@ -230,327 +230,230 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 	})
 }
 
-func TestAccountHandlerSponsorAccountCreation(t *testing.T) {
-	asService := services.AccountSponsorshipServiceMock{}
-	defer asService.AssertExpectations(t)
+func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
+	ctx := context.Background()
 
-	assets := []entities.Asset{
-		{
-			Code:   "USDC",
-			Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-		},
-		{
-			Code:   "ARST",
-			Issuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
-		},
+	usdcAsset := entities.Asset{
+		Code:   "USDC",
+		Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
 	}
-	handler := &AccountHandler{
-		AccountSponsorshipService: &asService,
-		SupportedAssets:           assets,
-	}
+	masterKP := keypair.MustRandom()
+	signerKP1 := keypair.MustRandom()
+	signerKP2 := keypair.MustRandom()
 
-	const endpoint = "/tx/create-sponsored-account"
-
-	t.Run("invalid_request_body", func(t *testing.T) {
-		// Empty body
-		reqBody := `{}`
-		rw := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody := `
-			{
+	testCases := []struct {
+		name               string
+		reqBody            string
+		setupMocks         func(t *testing.T, asService *services.AccountSponsorshipServiceMock)
+		expectedStatusCode int
+		expectedRespBody   string
+	}{
+		{
+			name:               "🔴empty_body",
+			reqBody:            `{}`,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedRespBody: `{
 				"error": "Validation error.",
 				"extras": {
 					"address": "This field is required",
 					"signers": "This field is required"
 				}
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-
-		// Invalid values
-		reqBody = `
-			{
+			}`,
+		},
+		{
+			name: "🔴invalid_address_and_empty_signers",
+			reqBody: `{
 				"address": "invalid",
 				"signers": []
-			}
-		`
-		rw = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp = rw.Result()
-		respBody, err = io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody = `
-			{
+			}`,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedRespBody: `{
 				"error": "Validation error.",
 				"extras": {
 					"address": "Invalid public key provided",
 					"signers": "Should have at least 1 element(s)"
 				}
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-
-		reqBody = fmt.Sprintf(`
-			{
-				"address": %q,
+			}`,
+		},
+		{
+			name: "🔴invalid_assets_and_signers",
+			reqBody: `{
+				"address": "invalid",
 				"signers": [
 					{
 						"address": "invalid",
 						"weight": 0,
 						"type": "test"
-					},
+					}
+				],
+				"assets": [
 					{
-						"address": "invalid",
-						"weight": 0,
-						"type": "test"
+						"code": "USDCUSDCUSDCUSDC",
+						"issuer": "not-valid"
 					}
 				]
-			}
-		`, keypair.MustRandom().Address())
-		rw = httptest.NewRecorder()
-		req = httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp = rw.Result()
-		respBody, err = io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody = `
-			{
+			}`,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedRespBody: `{
 				"error": "Validation error.",
 				"extras": {
+					"address": "Invalid public key provided",
 					"signers[0].address": "Invalid public key provided",
 					"signers[0].type": "Unexpected value \"test\". Expected one of the following values: full, partial",
 					"signers[0].weight": "Should be greater than or equal to 1",
-					"signers[1].address": "Invalid public key provided",
-					"signers[1].type": "Unexpected value \"test\". Expected one of the following values: full, partial",
-					"signers[1].weight": "Should be greater than or equal to 1"
+					"assets[0].code": "Invalid asset code provided",
+					"assets[0].issuer": "Invalid asset issuer provided"
 				}
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-	})
-
-	t.Run("validate_signers_weight", func(t *testing.T) {
-		reqBody := fmt.Sprintf(`
-			{
-				"address": %q,
+			}`,
+		},
+		{
+			name: "🔴invalid_signers_weight",
+			reqBody: `{
+				"address": "` + masterKP.Address() + `",
 				"signers": [
 					{
-						"address": %q,
+						"address": "` + signerKP1.Address() + `",
 						"weight": 10,
-						"type": %q
+						"type": "full"
 					},
 					{
-						"address": %q,
+						"address": "` + signerKP2.Address() + `",
 						"weight": 10,
-						"type": %q
+						"type": "partial"
 					}
 				]
-			}
-		`, keypair.MustRandom().Address(), keypair.MustRandom().Address(), entities.FullSignerType, keypair.MustRandom().Address(), entities.PartialSignerType)
-		rw := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody := `
-			{
+			}`,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedRespBody: `{
 				"error": "Validation error.",
 				"extras": {
 					"signers": "all partial signers' weights must be less than the weight of full signers"
 				}
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-	})
-
-	t.Run("account_already_exists", func(t *testing.T) {
-		accountToSponsor := keypair.MustRandom().Address()
-		fullSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  15,
-			Type:    entities.FullSignerType,
-		}
-		partialSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  10,
-			Type:    entities.PartialSignerType,
-		}
-
-		reqBody := fmt.Sprintf(`
-			{
-				"address": %q,
+			}`,
+		},
+		{
+			name: "🔴account_already_exists",
+			reqBody: `{
+				"address": "` + masterKP.Address() + `",
 				"signers": [
 					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
-					},
-					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
+						"address": "` + signerKP1.Address() + `",
+						"weight": 10,
+						"type": "full"
 					}
 				]
-			}
-		`, accountToSponsor, fullSigner.Address, fullSigner.Weight, fullSigner.Type, partialSigner.Address, partialSigner.Weight, partialSigner.Type)
-		rw := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		asService.
-			On("SponsorAccountCreationTransaction", req.Context(), accountToSponsor, []entities.Signer{fullSigner, partialSigner}, assets).
-			Return("", "", services.ErrAccountAlreadyExists).
-			Once()
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody := `
-			{
-				"error": "Account already exists."
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-	})
-
-	t.Run("account_sponsorship_limit_exceeded", func(t *testing.T) {
-		accountToSponsor := keypair.MustRandom().Address()
-		fullSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  15,
-			Type:    entities.FullSignerType,
-		}
-		partialSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  10,
-			Type:    entities.PartialSignerType,
-		}
-
-		reqBody := fmt.Sprintf(`
-			{
-				"address": %q,
+			}`,
+			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
+				asService.
+					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
+					Return("", "", services.ErrAccountAlreadyExists).
+					Once()
+			},
+			expectedStatusCode: http.StatusConflict,
+			expectedRespBody:   `{"error": "Account already exists on the Stellar network."}`,
+		},
+		{
+			name: "🔴sponsorship_limit_exceeded",
+			reqBody: `{
+				"address": "` + masterKP.Address() + `",
 				"signers": [
 					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
-					},
-					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
+						"address": "` + signerKP1.Address() + `",
+						"weight": 10,
+						"type": "full"
 					}
 				]
-			}
-		`, accountToSponsor, fullSigner.Address, fullSigner.Weight, fullSigner.Type, partialSigner.Address, partialSigner.Weight, partialSigner.Type)
-		rw := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		asService.
-			On("SponsorAccountCreationTransaction", req.Context(), accountToSponsor, []entities.Signer{fullSigner, partialSigner}, assets).
-			Return("", "", services.ErrSponsorshipLimitExceeded).
-			Once()
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		expectedRespBody := `
-			{
-				"error": "Sponsorship limit exceeded."
-			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-	})
-
-	t.Run("successfully_returns_the_account_sponsorship_transaction_envelope", func(t *testing.T) {
-		accountToSponsor := keypair.MustRandom().Address()
-		fullSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  15,
-			Type:    entities.FullSignerType,
-		}
-		partialSigner := entities.Signer{
-			Address: keypair.MustRandom().Address(),
-			Weight:  10,
-			Type:    entities.PartialSignerType,
-		}
-
-		reqBody := fmt.Sprintf(`
-			{
-				"address": %q,
+			}`,
+			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
+				asService.
+					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
+					Return("", "", services.ErrSponsorshipLimitExceeded).
+					Once()
+			},
+			expectedStatusCode: http.StatusBadRequest,
+			expectedRespBody:   `{"error": "Sponsorship limit exceeded."}`,
+		},
+		{
+			name: "🟢successfully_sponsors_account_creation_without_assets",
+			reqBody: `{
+				"address": "` + masterKP.Address() + `",
 				"signers": [
 					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
-					},
-					{
-						"address": %q,
-						"weight": %d,
-						"type": %q
+						"address": "` + signerKP1.Address() + `",
+						"weight": 10,
+						"type": "full"
 					}
 				]
-			}
-		`, accountToSponsor, fullSigner.Address, fullSigner.Weight, fullSigner.Type, partialSigner.Address, partialSigner.Weight, partialSigner.Type)
-		rw := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(reqBody))
-
-		asService.
-			On("SponsorAccountCreationTransaction", req.Context(), accountToSponsor, []entities.Signer{fullSigner, partialSigner}, assets).
-			Return("tx-envelope", network.TestNetworkPassphrase, nil).
-			Once()
-
-		http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
-
-		resp := rw.Result()
-		respBody, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		expectedRespBody := `
-			{
+			}`,
+			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
+				asService.
+					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset(nil)).
+					Return("tx-envelope", network.TestNetworkPassphrase, nil).
+					Once()
+			},
+			expectedStatusCode: http.StatusOK,
+			expectedRespBody: `{
 				"transaction": "tx-envelope",
 				"networkPassphrase": "Test SDF Network ; September 2015"
+			}`,
+		},
+		{
+			name: "🟢successfully_sponsors_account_creation_with_assets",
+			reqBody: `{
+				"address": "` + masterKP.Address() + `",
+				"signers": [
+					{
+						"address": "` + signerKP1.Address() + `",
+						"weight": 10,
+						"type": "full"
+					}
+				],
+				"assets": [
+					{
+						"code": "` + usdcAsset.Code + `",
+						"issuer": "` + usdcAsset.Issuer + `"
+					}
+				]
+			}`,
+			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
+				asService.
+					On("SponsorAccountCreationTransaction", ctx, masterKP.Address(), mock.AnythingOfType("[]entities.Signer"), []entities.Asset{usdcAsset}).
+					Return("tx-envelope", network.TestNetworkPassphrase, nil).
+					Once()
+			},
+			expectedStatusCode: http.StatusOK,
+			expectedRespBody: `{
+				"transaction": "tx-envelope",
+				"networkPassphrase": "Test SDF Network ; September 2015"
+			}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Prepare
+			asService := services.AccountSponsorshipServiceMock{}
+			if tc.setupMocks != nil {
+				tc.setupMocks(t, &asService)
+				defer asService.AssertExpectations(t)
 			}
-		`
-		assert.JSONEq(t, expectedRespBody, string(respBody))
-	})
+			handler := &AccountHandler{
+				AccountSponsorshipService: &asService,
+			}
+
+			// Execute request
+			rw := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/tx/create-sponsored-account", strings.NewReader(tc.reqBody))
+			http.HandlerFunc(handler.SponsorAccountCreation).ServeHTTP(rw, req)
+			resp := rw.Result()
+			respBody, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			// Assert response
+			assert.Equal(t, tc.expectedStatusCode, resp.StatusCode)
+			assert.JSONEq(t, tc.expectedRespBody, string(respBody))
+		})
+	}
 }
 
 func TestAccountHandlerCreateFeeBumpTransaction(t *testing.T) {

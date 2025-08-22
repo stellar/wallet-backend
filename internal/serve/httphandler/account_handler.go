@@ -17,7 +17,6 @@ import (
 type AccountHandler struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
-	SupportedAssets           []entities.Asset
 	AppTracker                apptracker.AppTracker
 }
 
@@ -66,6 +65,7 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 type SponsorAccountCreationRequest struct {
 	Address string            `json:"address" validate:"required,public_key"`
 	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`
+	Assets  []entities.Asset  `json:"assets"  validate:"dive"`
 }
 
 func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http.Request) {
@@ -84,7 +84,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		return
 	}
 
-	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, h.SupportedAssets)
+	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, reqBody.Assets)
 	if err != nil {
 		if errors.Is(err, services.ErrSponsorshipLimitExceeded) {
 			httperror.BadRequest("Sponsorship limit exceeded.", nil).Render(rw)
@@ -92,7 +92,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		}
 
 		if errors.Is(err, services.ErrAccountAlreadyExists) {
-			httperror.BadRequest("Account already exists.", nil).Render(rw)
+			httperror.Conflict("Account already exists on the Stellar network.", nil).Render(rw)
 			return
 		}
 
