@@ -67,6 +67,26 @@ func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_failure(t 
 			wantErrContains: "validating signers weights: no full signers provided",
 		},
 		{
+			name: "🔴master_signer_cannot_be_configured_as_a_custom_signer",
+			opts: SponsorAccountCreationOptions{
+				Address: masterKP.Address(),
+				Signers: []entities.Signer{
+					{
+						Address: masterKP.Address(),
+						Weight:  10,
+						Type:    entities.FullSignerType,
+					},
+				},
+			},
+			prepareMocks: func(t *testing.T, mockRPCService *RPCServiceMock) {
+				mockRPCService.
+					On("GetAccountLedgerSequence", masterKP.Address()).
+					Return(int64(0), ErrAccountNotFound).
+					Once()
+			},
+			wantErrContains: "master signer cannot be configured as a custom signer, please configure the master signer weight instead",
+		},
+		{
 			name: "🔴sponsorship_limit_reached",
 			opts: SponsorAccountCreationOptions{
 				Address: masterKP.Address(),
@@ -374,7 +394,8 @@ func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_success(t 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(func() {
-				dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+				_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+				require.NoError(t, err)
 			})
 
 			// Mock metrics service
@@ -411,7 +432,8 @@ func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_success(t 
 					require.True(t, ok)
 					gotTx = copyTx(t, gotTx)
 
-					wantTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+					var wantTx *txnbuild.Transaction
+					wantTx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
 						SourceAccount: &txnbuild.SimpleAccount{
 							AccountID: channelAccKP.Address(),
 							Sequence:  1,

@@ -79,7 +79,7 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 	}
 	for _, signer := range opts.Signers {
 		if signer.Address == opts.Address {
-			return "", fmt.Errorf("master signer cannot be configured as a custom signer. Please configure the master signer weight instead.")
+			return "", fmt.Errorf("master signer cannot be configured as a custom signer, please configure the master signer weight instead")
 		}
 	}
 
