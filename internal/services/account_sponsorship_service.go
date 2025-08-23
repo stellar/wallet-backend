@@ -42,7 +42,7 @@ type SponsorAccountCreationOptions struct {
 	Address            string            `json:"address"                        validate:"required,public_key"`
 	Assets             []entities.Asset  `json:"assets"                         validate:"dive"`
 	Signers            []entities.Signer `json:"signers"                        validate:"required,gt=0,dive"`
-	MasterSignerWeight *int              `json:"master_signer_weight,omitempty" validate:"omitempty,gt=0"`
+	MasterSignerWeight *int              `json:"masterSignerWeight,omitempty" validate:"omitempty,gt=0"`
 }
 
 type AccountSponsorshipService interface {

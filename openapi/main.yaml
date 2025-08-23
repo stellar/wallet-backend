@@ -296,6 +296,10 @@ paths:
                   type: string
                   description: "The address of the account to be created."
                   example: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                masterSignerWeight:
+                  type: integer
+                  description: "The weight of the master signer."
+                  example: 20
                 assets:
                   type: array
                   description: "List of assets to be created."
@@ -333,9 +337,9 @@ paths:
                         example: 20
               required:
                 - address
-                - signers
               example:
                 address: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                masterSignerWeight: 0
                 assets:
                   - code: "USDC"
                     issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
