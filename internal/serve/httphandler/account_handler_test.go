@@ -27,6 +27,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func TestAccountHandlerRegisterAccount(t *testing.T) {
@@ -255,28 +256,12 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 			expectedRespBody: `{
 				"error": "Validation error.",
 				"extras": {
-					"address": "This field is required",
-					"signers": "This field is required"
+					"address": "This field is required"
 				}
 			}`,
 		},
 		{
-			name: "🔴invalid_address_and_empty_signers",
-			reqBody: `{
-				"address": "invalid",
-				"signers": []
-			}`,
-			expectedStatusCode: http.StatusBadRequest,
-			expectedRespBody: `{
-				"error": "Validation error.",
-				"extras": {
-					"address": "Invalid public key provided",
-					"signers": "Should have at least 1 element(s)"
-				}
-			}`,
-		},
-		{
-			name: "🔴invalid_assets_and_signers",
+			name: "🔴invalid_address_and_assets_and_signers_and_masterSignerWeight",
 			reqBody: `{
 				"address": "invalid",
 				"signers": [
@@ -291,7 +276,8 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 						"code": "USDCUSDCUSDCUSDC",
 						"issuer": "not-valid"
 					}
-				]
+				],
+				"masterSignerWeight": -1
 			}`,
 			expectedStatusCode: http.StatusBadRequest,
 			expectedRespBody: `{
@@ -302,7 +288,8 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 					"signers[0].type": "Unexpected value \"test\". Expected one of the following values: full, partial",
 					"signers[0].weight": "Should be greater than or equal to 1",
 					"assets[0].code": "Invalid asset code provided",
-					"assets[0].issuer": "Invalid asset issuer provided"
+					"assets[0].issuer": "Invalid asset issuer provided",
+					"masterSignerWeight": "Should be greater than or equal to 0"
 				}
 			}`,
 		},
@@ -440,7 +427,8 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 						"code": "` + usdcAsset.Code + `",
 						"issuer": "` + usdcAsset.Issuer + `"
 					}
-				]
+				],
+				"masterSignerWeight": 0
 			}`,
 			setupMocks: func(t *testing.T, asService *services.AccountSponsorshipServiceMock) {
 				asService.
@@ -453,7 +441,8 @@ func Test_AccountHandler_SponsorAccountCreation(t *testing.T) {
 								Type:    entities.FullSignerType,
 							},
 						},
-						Assets: []entities.Asset{usdcAsset},
+						Assets:             []entities.Asset{usdcAsset},
+						MasterSignerWeight: utils.PointOf(0),
 					}).
 					Return("tx-envelope", nil).
 					Once()

@@ -63,17 +63,10 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-type SponsorAccountCreationOptions struct {
-	Address            string            `json:"address"                        validate:"required,public_key"`
-	Signers            []entities.Signer `json:"signers"                        validate:"required,gt=0,dive"`
-	MasterSignerWeight *int              `json:"masterSignerWeight,omitempty" validate:"omitempty,gt=0"`
-	Assets             []entities.Asset  `json:"assets"                         validate:"dive"`
-}
-
 func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	var reqBody SponsorAccountCreationOptions
+	var reqBody services.SponsorAccountCreationOptions
 	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
@@ -86,12 +79,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		return
 	}
 
-	txe, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, services.SponsorAccountCreationOptions{
-		Address:            reqBody.Address,
-		Signers:            reqBody.Signers,
-		Assets:             reqBody.Assets,
-		MasterSignerWeight: reqBody.MasterSignerWeight,
-	})
+	txe, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody)
 	if err != nil {
 		if errors.Is(err, services.ErrSponsorshipLimitExceeded) {
 			httperror.BadRequest("Sponsorship limit exceeded.", nil).Render(rw)
