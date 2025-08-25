@@ -561,6 +561,53 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 	assert.Equal(t, int64(2), operations[1].Operation.ID)
 }
 
+func TestOperationModel_GetByID(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test transactions first
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test operations
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
+		VALUES 
+			(1, 'tx1', 'payment', 'xdr1', 1, $1),
+			(2, 'tx2', 'create_account', 'xdr2', 2, $1)
+	`, now)
+	require.NoError(t, err)
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &OperationModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	operation, err := m.GetByID(ctx, 1, "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), operation.ID)
+	assert.Equal(t, "tx1", operation.TxHash)
+	assert.Equal(t, "xdr1", operation.OperationXDR)
+	assert.Equal(t, uint32(1), operation.LedgerNumber)
+	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
+}
+
 func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

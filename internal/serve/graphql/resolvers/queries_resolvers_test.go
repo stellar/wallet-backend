@@ -413,6 +413,59 @@ func TestQueryResolver_Operations(t *testing.T) {
 	})
 }
 
+func TestQueryResolver_OperationByID(t *testing.T) {
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &queryResolver{
+		&Resolver{
+			models: &data.Models{
+				Operations: &data.OperationModel{
+					DB:             testDBConnectionPool,
+					MetricsService: mockMetricsService,
+				},
+			},
+		},
+	}
+
+	t.Run("success", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{""})
+		op, err := resolver.OperationByID(ctx, toid.New(1000, 1, 1).ToInt64())
+
+		require.NoError(t, err)
+		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
+		assert.Equal(t, "opxdr1", op.OperationXDR)
+		assert.Equal(t, "tx1", op.TxHash)
+		assert.Equal(t, uint32(1), op.LedgerNumber)
+	})
+
+	t.Run("non-existent ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, 999)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
+	})
+
+	t.Run("zero ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, 0)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
+	})
+
+	t.Run("negative ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, -1)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
+	})
+}
+
 func TestQueryResolver_StateChanges(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()

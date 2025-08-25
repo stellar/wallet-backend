@@ -95,6 +95,12 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}, nil
 }
 
+// OperationByID is the resolver for the operationById field.
+func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
+}
+
 // StateChanges is the resolver for the stateChanges field.
 func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	params, err := parsePaginationParams(first, after, last, before, true)

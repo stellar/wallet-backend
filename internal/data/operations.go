@@ -19,6 +19,21 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	query := fmt.Sprintf(`SELECT %s FROM operations WHERE id = $1`, columns)
+	var operation types.Operation
+	start := time.Now()
+	err := m.DB.GetContext(ctx, &operation, query, id)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operation by id: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return &operation, err
+}
+
 func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
