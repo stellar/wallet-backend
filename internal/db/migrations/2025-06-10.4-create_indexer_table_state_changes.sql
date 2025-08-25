@@ -2,8 +2,7 @@
 
 -- Table: state_changes
 CREATE TABLE state_changes (
-    to_id BIGINT NOT NULL,
-    state_change_order BIGINT NOT NULL,
+    id TEXT PRIMARY KEY,
     state_change_category TEXT NOT NULL,
     state_change_reason TEXT,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -24,8 +23,7 @@ CREATE TABLE state_changes (
     spender_account_id TEXT,
     sponsored_account_id TEXT,
     sponsor_account_id TEXT,
-    thresholds JSONB,
-    PRIMARY KEY (to_id, state_change_order)
+    thresholds JSONB
 );
 
 CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);

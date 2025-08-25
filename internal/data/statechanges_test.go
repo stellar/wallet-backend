@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 	"time"
 
@@ -67,8 +66,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 
 	reason := types.StateChangeReasonAdd
 	sc1 := types.StateChange{
-		ToID:                1,
-		StateChangeOrder:    1,
+		ID:                  "sc1",
 		StateChangeCategory: types.StateChangeCategoryCredit,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
@@ -80,8 +78,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		Amount:              sql.NullString{String: "100", Valid: true},
 	}
 	sc2 := types.StateChange{
-		ToID:                2,
-		StateChangeOrder:    1,
+		ID:                  "sc2",
 		StateChangeCategory: types.StateChangeCategoryDebit,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
@@ -101,13 +98,13 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟢successful_insert_without_dbTx",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc2},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder), fmt.Sprintf("%d-%d", sc2.ToID, sc2.StateChangeOrder)},
+			wantIDs:      []string{sc1.ID, sc2.ID},
 		},
 		{
 			name:         "🟢successful_insert_with_dbTx",
 			useDBTx:      true,
 			stateChanges: []types.StateChange{sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{sc1.ID},
 		},
 		{
 			name:         "🟢empty_input",
@@ -119,14 +116,13 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			name:         "🟡duplicate_state_change",
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc1},
-			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs:      []string{sc1.ID},
 		},
 		{
 			name: "🟡state_change_with_non_existing_account_is_ignored",
 			stateChanges: []types.StateChange{
 				{
-					ToID:                3,
-					StateChangeOrder:    1,
+					ID:                  "sc3",
 					StateChangeCategory: types.StateChangeCategoryCredit,
 					LedgerCreatedAt:     now,
 					LedgerNumber:        3,
@@ -142,8 +138,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			stateChanges: []types.StateChange{
 				sc1,
 				{
-					ToID:                4,
-					StateChangeOrder:    1,
+					ID:                  "sc4",
 					StateChangeCategory: types.StateChangeCategoryCredit,
 					LedgerCreatedAt:     now,
 					LedgerNumber:        4,
@@ -152,7 +147,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 					TxHash:              tx2.Hash,
 				},
 			},
-			wantIDs: []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
+			wantIDs: []string{sc1.ID},
 		},
 	}
 
@@ -192,7 +187,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 
 			// Verify from DB
 			var dbInsertedIDs []string
-			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT CONCAT(to_id, '-', state_change_order) FROM state_changes")
+			err = sqlExecuter.SelectContext(ctx, &dbInsertedIDs, "SELECT id FROM state_changes")
 			require.NoError(t, err)
 			assert.ElementsMatch(t, tc.wantIDs, dbInsertedIDs)
 

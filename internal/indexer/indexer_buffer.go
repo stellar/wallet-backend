@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"sort"
 	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -143,28 +142,6 @@ func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
 
 		if tx, ok := b.txByHash[stateChange.TxHash]; ok {
 			b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
-		}
-	}
-}
-
-func (b *IndexerBuffer) CalculateStateChangeOrder() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	sort.Slice(b.stateChanges, func(i, j int) bool {
-		return b.stateChanges[i].SortKey < b.stateChanges[j].SortKey
-	})
-
-	perOpIdx := make(map[int64]int)
-	for i := range b.stateChanges {
-		sc := &b.stateChanges[i]
-
-		// State changes are 1-indexed within an operation/transaction.
-		if sc.OperationID != 0 {
-			perOpIdx[sc.OperationID]++
-			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
-		} else {
-			sc.StateChangeOrder = 1
 		}
 	}
 }

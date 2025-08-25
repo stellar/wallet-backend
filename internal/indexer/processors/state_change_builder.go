@@ -3,7 +3,6 @@
 package processors
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -17,14 +16,13 @@ type StateChangeBuilder struct {
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			IngestedAt:      time.Now(),
 			TxHash:          txHash,
-			TxID:            txID,
 		},
 	}
 }
@@ -116,63 +114,17 @@ func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuil
 
 // Build returns the constructed state change
 func (b *StateChangeBuilder) Build() types.StateChange {
-	if b.base.OperationID != 0 {
-		b.base.ToID = b.base.OperationID
-	} else {
-		b.base.ToID = b.base.TxID
-	}
-	b.base.SortKey = b.generateSortKey()
+	b.base.ID = b.generateID()
 	return b.base
 }
 
-// generateSortKey creates a deterministic string representation of a state change for sorting purposes.
-func (b *StateChangeBuilder) generateSortKey() string {
-	reason := ""
-	if b.base.StateChangeReason != nil {
-		reason = string(*b.base.StateChangeReason)
+// Clone creates a new builder with the same base state change fields
+func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
+	return &StateChangeBuilder{
+		base: b.base,
 	}
-
-	// For JSON fields, marshal to get a canonical string
-	signerWeights, err := json.Marshal(b.base.SignerWeights)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal signer weights: %v", err))
-	}
-	thresholds, err := json.Marshal(b.base.Thresholds)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal thresholds: %v", err))
-	}
-	flags, err := json.Marshal(b.base.Flags)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal flags: %v", err))
-	}
-	keyValue, err := json.Marshal(b.base.KeyValue)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal key value: %v", err))
-	}
-
-	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
-		b.base.ToID,
-		b.base.StateChangeCategory,
-		reason,
-		b.base.AccountID,
-		b.base.TokenID.String,
-		b.base.Amount.String,
-		b.base.ClaimableBalanceID.String,
-		b.base.LiquidityPoolID.String,
-		b.base.OfferID.String,
-		b.base.SignerAccountID.String,
-		b.base.SpenderAccountID.String,
-		b.base.SponsoredAccountID.String,
-		b.base.SponsorAccountID.String,
-		string(signerWeights),
-		string(thresholds),
-		string(flags),
-		string(keyValue),
-	)
 }
 
-func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
-	clone := *b
-	return &clone
+func (b *StateChangeBuilder) generateID() string {
+	return fmt.Sprintf("%d-%s", b.base.OperationID, b.base.AccountID)
 }
