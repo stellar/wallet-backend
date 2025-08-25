@@ -20,9 +20,7 @@ type TransactionModel struct {
 }
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
-	if columns == "" {
-		columns = "*"
-	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	var transaction types.Transaction
 	start := time.Now()
@@ -37,7 +35,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 }
 
 func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
 	queryBuilder := strings.Builder{}
 	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, to_id as cursor FROM transactions`, columns))
 
@@ -78,8 +76,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.TransactionWithCursor, error) {
-	// Prepare columns, ensuring transactions.to_id is always included
-	columns = prepareColumnsWithID(columns, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
 	// Build paginated query using shared utility
 	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
@@ -108,9 +105,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	if columns == "" {
-		columns = "transactions.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 	query := fmt.Sprintf(`
 		SELECT %s, o.id as operation_id
 		FROM operations o
@@ -131,9 +126,7 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 
 // BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
 func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
-	if columns == "" {
-		columns = "transactions.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
 
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.
@@ -144,8 +137,8 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(sc.to_id, '-', sc.state_change_order) as state_change_id
-		FROM state_changes sc
-		INNER JOIN transactions ON transactions.hash = sc.tx_hash 
+		FROM transactions
+		INNER JOIN state_changes sc ON transactions.hash = sc.tx_hash 
 		WHERE (sc.to_id, sc.state_change_order) IN (%s)
 		`, columns, strings.Join(tuples, ", "))
 

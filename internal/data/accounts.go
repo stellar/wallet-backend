@@ -107,9 +107,7 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 
 // BatchGetByTxHashes gets the accounts that are associated with the given transaction hashes.
 func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
-	if columns == "" {
-		columns = "accounts.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
 	query := fmt.Sprintf(`
 		SELECT %s, transactions_accounts.tx_hash 
 		FROM transactions_accounts 
@@ -130,9 +128,7 @@ func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string
 
 // BatchGetByOperationIDs gets the accounts that are associated with the given operation IDs.
 func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.AccountWithOperationID, error) {
-	if columns == "" {
-		columns = "accounts.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
 	query := fmt.Sprintf(`
 		SELECT %s, operations_accounts.operation_id 
 		FROM operations_accounts 

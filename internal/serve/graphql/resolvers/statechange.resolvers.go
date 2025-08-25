@@ -150,7 +150,7 @@ func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChan
 // Operation is the resolver for the operation field.
 func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 
 	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
 	loaderKey := dataloaders.OperationColumnsKey{
@@ -167,7 +167,7 @@ func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateCha
 // Transaction is the resolver for the transaction field.
 func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
 	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
 	loaderKey := dataloaders.TransactionColumnsKey{

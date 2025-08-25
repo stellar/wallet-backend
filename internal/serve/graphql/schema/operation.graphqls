@@ -16,5 +16,5 @@ type Operation{
   accounts:        [Account!]! @goField(forceResolver: true)
   
   # Related state changes - uses resolver to fetch associated changes
-  stateChanges:    [StateChange!]! @goField(forceResolver: true)
+  stateChanges(first: Int, after: String, last: Int, before: String):    StateChangeConnection
 }

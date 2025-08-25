@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -17,21 +18,44 @@ import (
 // Operations is the resolver for the operations field.
 // This is a field resolver for the "operations" field on a Transaction object
 // It's called when a GraphQL query requests the operations within a transaction
-func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction) ([]*types.Operation, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+	params, err := parsePaginationParams(first, after, last, before, false)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
+	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		TxHash:  obj.Hash,
-		Columns: strings.Join(dbColumns, ", "),
+		TxHash:    obj.Hash,
+		Columns:   strings.Join(dbColumns, ", "),
+		Limit:     &queryLimit,
+		Cursor:    params.Cursor,
+		SortOrder: params.SortOrder,
 	}
 
-	// Use dataloader to batch-load operations for this transaction
 	operations, err := loaders.OperationsByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
-	return operations, nil
+
+	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) int64 {
+		return o.Cursor
+	})
+
+	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.OperationEdge{
+			Node:   &edge.Node.Operation,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.OperationConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Accounts is the resolver for the accounts field.
@@ -39,7 +63,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 // It's called when a GraphQL query requests the accounts within a transaction
 func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
 
 	// Use dataloader to batch-load accounts for this transaction
 	// This prevents N+1 queries when multiple transactions request their operations
@@ -58,21 +82,44 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // StateChanges is the resolver for the stateChanges field.
 // This is a field resolver for the "stateChanges" field on a Transaction object
 // It's called when a GraphQL query requests the state changes within a transaction
-func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
+	params, err := parsePaginationParams(first, after, last, before, true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
+	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		TxHash:  obj.Hash,
-		Columns: strings.Join(dbColumns, ", "),
+		TxHash:    obj.Hash,
+		Columns:   strings.Join(dbColumns, ", "),
+		Limit:     &queryLimit,
+		Cursor:    params.StateChangeCursor,
+		SortOrder: params.SortOrder,
 	}
 
-	// Use dataloader to batch-load state changes for this transaction
 	stateChanges, err := loaders.StateChangesByTxHashLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
-	return stateChanges, nil
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Transaction returns graphql1.TransactionResolver implementation.
