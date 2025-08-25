@@ -143,14 +143,15 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 2)
 		// operation 1000,1,1 has 2 state changes
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[0].Cursor)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), stateChanges.Edges[1].Cursor)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
 	t.Run("get state changes with first/after pagination", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		first := int32(1)
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
 		require.NoError(t, err)
@@ -171,7 +172,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("get state changes with last/before pagination", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		last := int32(1)
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation, nil, nil, &last, nil)
 		require.NoError(t, err)
@@ -193,7 +195,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("invalid pagination params", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		first := int32(0)
 		last := int32(1)
 		after := encodeCursor(int64(1))
@@ -222,7 +225,8 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"})
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		first := int32(100)
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
 		require.NoError(t, err)
@@ -233,7 +237,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 	t.Run("nil operation panics", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
 			_, _ = resolver.StateChanges(ctx, nil, nil, nil, nil, nil) //nolint:errcheck
@@ -242,7 +246,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 	t.Run("operation with no state changes", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
-		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, nonExistentOperation, nil, nil, nil, nil)
 

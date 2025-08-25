@@ -567,7 +567,8 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID
-	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, "")
+	limit := int32(10)
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, "", &limit, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 

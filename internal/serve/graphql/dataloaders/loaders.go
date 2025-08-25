@@ -39,7 +39,7 @@ type Dataloaders struct {
 
 	// StateChangesByOperationIDLoader batches requests for state changes by operation ID
 	// Used by Operation.stateChanges field resolver to prevent N+1 queries
-	StateChangesByOperationIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange]
+	StateChangesByOperationIDLoader *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor]
 
 	// OperationByStateChangeIDLoader batches requests for operations by state change ID
 	// Used by StateChange.operation field resolver to prevent N+1 queries

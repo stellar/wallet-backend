@@ -455,15 +455,34 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 }
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
-func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.StateChange, error) {
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
-	query := fmt.Sprintf(`
-		SELECT %s, operation_id 
-		FROM state_changes 
-		WHERE operation_id = ANY($1) 
-		ORDER BY to_id ASC, state_change_order ASC
-	`, columns)
-	var stateChanges []*types.StateChange
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH
+			inputs (operation_id) AS (
+				SELECT * FROM UNNEST($1::bigint[])
+			),
+			
+			ranked_state_changes_per_operation_id AS (
+				SELECT
+					sc.*,
+					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM 
+					state_changes sc
+				JOIN 
+					inputs i ON sc.operation_id = i.operation_id
+			)
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+	`, sortOrder, sortOrder, columns))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+	}
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
