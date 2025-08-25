@@ -280,16 +280,6 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
-	defer mockMetricsService.AssertExpectations(t)
-
-	m := &OperationModel{
-		DB:             dbConnectionPool,
-		MetricsService: mockMetricsService,
-	}
-
 	ctx := context.Background()
 	now := time.Now()
 
@@ -298,32 +288,146 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
 		VALUES 
 			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
-			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
 	`, now)
 	require.NoError(t, err)
 
-	// Create test operations
+	// Create test operations - multiple operations per transaction to test ranking
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
 		VALUES 
 			(1, 'tx1', 'payment', 'xdr1', 1, $1),
 			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
-			(3, 'tx1', 'payment', 'xdr3', 3, $1)
+			(3, 'tx1', 'payment', 'xdr3', 3, $1),
+			(4, 'tx1', 'manage_offer', 'xdr4', 4, $1),
+			(5, 'tx2', 'payment', 'xdr5', 5, $1),
+			(6, 'tx3', 'trust_line', 'xdr6', 6, $1)
 	`, now)
 	require.NoError(t, err)
 
-	// Test BatchGetByTxHash
-	operations, err := m.BatchGetByTxHashes(ctx, []string{"tx1", "tx2"}, "", nil, ASC)
-	require.NoError(t, err)
-	assert.Len(t, operations, 3)
-
-	// Verify operations are for correct tx hashes
-	txHashesFound := make(map[string]int)
-	for _, op := range operations {
-		txHashesFound[op.TxHash]++
+	testCases := []struct {
+		name              string
+		txHashes          []string
+		limit             *int32
+		sortOrder         SortOrder
+		expectedCount     int
+		expectedTxCounts  map[string]int
+		expectMetricCalls int
+	}{
+		{
+			name:              "🟢 basic functionality with multiple tx hashes",
+			txHashes:          []string{"tx1", "tx2"},
+			limit:             nil,
+			sortOrder:         ASC,
+			expectedCount:     5, // 3 ops for tx1 + 2 ops for tx2
+			expectedTxCounts:  map[string]int{"tx1": 3, "tx2": 2},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟢 with limit parameter",
+			txHashes:          []string{"tx1", "tx2"},
+			limit:             int32Ptr(2),
+			sortOrder:         ASC,
+			expectedCount:     4, // 2 ops per tx hash (limited by ROW_NUMBER)
+			expectedTxCounts:  map[string]int{"tx1": 2, "tx2": 2},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟢 DESC sort order",
+			txHashes:          []string{"tx1"},
+			limit:             nil,
+			sortOrder:         DESC,
+			expectedCount:     3,
+			expectedTxCounts:  map[string]int{"tx1": 3},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟢 single transaction",
+			txHashes:          []string{"tx3"},
+			limit:             nil,
+			sortOrder:         ASC,
+			expectedCount:     1,
+			expectedTxCounts:  map[string]int{"tx3": 1},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟡 empty tx hashes array",
+			txHashes:          []string{},
+			limit:             nil,
+			sortOrder:         ASC,
+			expectedCount:     0,
+			expectedTxCounts:  map[string]int{},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟡 non-existent transaction hash",
+			txHashes:          []string{"nonexistent"},
+			limit:             nil,
+			sortOrder:         ASC,
+			expectedCount:     0,
+			expectedTxCounts:  map[string]int{},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟡 mixed existing and non-existent hashes",
+			txHashes:          []string{"tx1", "nonexistent", "tx2"},
+			limit:             nil,
+			sortOrder:         ASC,
+			expectedCount:     5,
+			expectedTxCounts:  map[string]int{"tx1": 3, "tx2": 2},
+			expectMetricCalls: 1,
+		},
+		{
+			name:              "🟢 limit smaller than operations per transaction",
+			txHashes:          []string{"tx1"},
+			limit:             int32Ptr(1),
+			sortOrder:         ASC,
+			expectedCount:     1, // Only first operation due to ROW_NUMBER ranking
+			expectedTxCounts:  map[string]int{"tx1": 1},
+			expectMetricCalls: 1,
+		},
 	}
-	assert.Equal(t, 2, txHashesFound["tx1"])
-	assert.Equal(t, 1, txHashesFound["tx2"])
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return().Times(tc.expectMetricCalls)
+			defer mockMetricsService.AssertExpectations(t)
+
+			m := &OperationModel{
+				DB:             dbConnectionPool,
+				MetricsService: mockMetricsService,
+			}
+
+			operations, err := m.BatchGetByTxHashes(ctx, tc.txHashes, "", tc.limit, tc.sortOrder)
+			require.NoError(t, err)
+			assert.Len(t, operations, tc.expectedCount)
+
+			// Verify operations are for correct tx hashes
+			txHashesFound := make(map[string]int)
+			for _, op := range operations {
+				txHashesFound[op.TxHash]++
+			}
+			assert.Equal(t, tc.expectedTxCounts, txHashesFound)
+
+			// For operations with data, verify sort order consistency
+			// Note: The BatchGetByTxHashes method doesn't guarantee global ordering across different transactions
+			// It only orders within each transaction partition, so we skip global ordering validation
+
+			// Verify limit behavior when specified
+			if tc.limit != nil && len(tc.expectedTxCounts) > 0 {
+				for txHash, count := range tc.expectedTxCounts {
+					assert.True(t, count <= int(*tc.limit), "number of operations for %s should not exceed limit %d", txHash, *tc.limit)
+				}
+			}
+		})
+	}
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
 }
 
 func TestOperationModel_BatchGetByTxHash(t *testing.T) {
