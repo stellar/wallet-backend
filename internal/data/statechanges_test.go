@@ -475,6 +475,36 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 			}
 			assert.Equal(t, tc.expectedTxCounts, txHashesFound)
 
+			// Verify within-transaction ordering
+			// The CTE uses ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s)
+			// This means state changes within each transaction should be ordered by (to_id, state_change_order)
+			if len(stateChanges) > 0 {
+				stateChangesByTxHash := make(map[string][]*types.StateChangeWithCursor)
+				for _, sc := range stateChanges {
+					stateChangesByTxHash[sc.TxHash] = append(stateChangesByTxHash[sc.TxHash], sc)
+				}
+
+				// Verify ordering within each transaction
+				for txHash, txStateChanges := range stateChangesByTxHash {
+					if len(txStateChanges) > 1 {
+						for i := 1; i < len(txStateChanges); i++ {
+							prev := txStateChanges[i-1]
+							curr := txStateChanges[i]
+							// After final transformation, state changes should be in ascending (to_id, state_change_order) order within each tx
+							if prev.Cursor.ToID == curr.Cursor.ToID {
+								assert.True(t, prev.Cursor.StateChangeOrder <= curr.Cursor.StateChangeOrder,
+									"state changes within tx %s with same to_id should be ordered by state_change_order: prev=(%d,%d), curr=(%d,%d)",
+									txHash, prev.Cursor.ToID, prev.Cursor.StateChangeOrder, curr.Cursor.ToID, curr.Cursor.StateChangeOrder)
+							} else {
+								assert.True(t, prev.Cursor.ToID <= curr.Cursor.ToID,
+									"state changes within tx %s should be ordered by to_id: prev=(%d,%d), curr=(%d,%d)",
+									txHash, prev.Cursor.ToID, prev.Cursor.StateChangeOrder, curr.Cursor.ToID, curr.Cursor.StateChangeOrder)
+							}
+						}
+					}
+				}
+			}
+
 			// Verify limit behavior when specified
 			if tc.limit != nil && len(tc.expectedTxCounts) > 0 {
 				for txHash, count := range tc.expectedTxCounts {

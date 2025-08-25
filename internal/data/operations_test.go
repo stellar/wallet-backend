@@ -412,9 +412,29 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 			}
 			assert.Equal(t, tc.expectedTxCounts, txHashesFound)
 
-			// For operations with data, verify sort order consistency
-			// Note: The BatchGetByTxHashes method doesn't guarantee global ordering across different transactions
-			// It only orders within each transaction partition, so we skip global ordering validation
+			// Verify within-transaction ordering
+			// The CTE uses ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s)
+			// This means operations within each transaction should be ordered by ID
+			if len(operations) > 0 {
+				operationsByTxHash := make(map[string][]*types.OperationWithCursor)
+				for _, op := range operations {
+					operationsByTxHash[op.TxHash] = append(operationsByTxHash[op.TxHash], op)
+				}
+
+				// Verify ordering within each transaction
+				for txHash, txOperations := range operationsByTxHash {
+					if len(txOperations) > 1 {
+						for i := 1; i < len(txOperations); i++ {
+							prevID := txOperations[i-1].ID
+							currID := txOperations[i].ID
+							// After final transformation, operations should be in ascending ID order within each tx
+							assert.True(t, prevID <= currID,
+								"operations within tx %s should be ordered by ID: prev=%d, curr=%d",
+								txHash, prevID, currID)
+						}
+					}
+				}
+			}
 
 			// Verify limit behavior when specified
 			if tc.limit != nil && len(tc.expectedTxCounts) > 0 {
