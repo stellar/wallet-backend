@@ -362,6 +362,11 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// This CTE query implements per-transaction pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all state changes from just a few
+	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// This guarantees that each transaction gets at most 'limit' state changes, providing
+	// more balanced and predictable pagination across multiple transactions.
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (tx_hash) AS (
@@ -458,6 +463,11 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	// This CTE query implements per-operation pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all state changes from just a few
+	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
+	// This guarantees that each operation gets at most 'limit' state changes, providing
+	// more balanced and predictable pagination across multiple operations.
 	queryBuilder.WriteString(fmt.Sprintf(`
 		WITH
 			inputs (operation_id) AS (
