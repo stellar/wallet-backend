@@ -17,7 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
@@ -52,7 +51,6 @@ type Configs struct {
 	NumberOfChannelAccounts     int
 
 	// Horizon
-	SupportedAssets                    []entities.Asset
 	NetworkPassphrase                  string
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int
@@ -71,7 +69,6 @@ type handlerDeps struct {
 	DatabaseURL         string
 	ServerHostname      string
 	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 	RPCURL              string
 
@@ -198,7 +195,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		Models:                    models,
 		ServerHostname:            serverHostname.Hostname(),
 		RequestAuthVerifier:       requestAuthVerifier,
-		SupportedAssets:           cfg.SupportedAssets,
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
@@ -264,16 +260,15 @@ func handler(deps handlerDeps) http.Handler {
 			r.Handle("/query", srv)
 		})
 
+		accountHandler := &httphandler.AccountHandler{
+			AccountService:            deps.AccountService,
+			AccountSponsorshipService: deps.AccountSponsorshipService,
+			AppTracker:                deps.AppTracker,
+			NetworkPassphrase:         deps.NetworkPassphrase,
+		}
 		r.Route("/accounts", func(r chi.Router) {
-			handler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
-			}
-
-			r.Post("/{address}", handler.RegisterAccount)
-			r.Delete("/{address}", handler.DeregisterAccount)
+			r.Post("/{address}", accountHandler.RegisterAccount)
+			r.Delete("/{address}", accountHandler.DeregisterAccount)
 		})
 
 		r.Route("/payments", func(r chi.Router) {
@@ -287,13 +282,6 @@ func handler(deps handlerDeps) http.Handler {
 
 		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
 		r.Route("/tx", func(r chi.Router) {
-			accountHandler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
-			}
-
 			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
 			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})

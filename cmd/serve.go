@@ -59,15 +59,6 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
-			Name:           "supported-assets",
-			Usage:          `A collection of supported assets (i.e. USDC). This value is an array of JSON objects. Example: [{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}]`,
-			OptType:        types.String,
-			CustomSetValue: utils.SetConfigOptionAssets,
-			ConfigKey:      &cfg.SupportedAssets,
-			FlagDefault:    `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`,
-			Required:       true,
-		},
-		{
 			Name:        "max-sponsored-base-reservers",
 			Usage:       "The maximum reserves will be sponsored by the distribution account.",
 			OptType:     types.Int,
