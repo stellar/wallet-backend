@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const DefaultMaxBodySize int64 = 10_240 // 10kb
+const DefaultMaxBodySize int64 = 102_400 // 100kb
 
 var ErrUnauthorized = errors.New("not authorized")
 

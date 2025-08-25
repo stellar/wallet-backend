@@ -51,6 +51,14 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
+			Name:        "client-auth-max-timeout-seconds",
+			Usage:       "The maximum timeout for client authentication.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.ClientAuthMaxTimeoutSeconds,
+			FlagDefault: 15,
+			Required:    true,
+		},
+		{
 			Name:           "supported-assets",
 			Usage:          `A collection of supported assets (i.e. USDC). This value is an array of JSON objects. Example: [{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}]`,
 			OptType:        types.String,
