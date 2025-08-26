@@ -31,7 +31,7 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 		return nil, fmt.Errorf("getting operation by id: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
-	return &operation, err
+	return &operation, nil
 }
 
 func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
