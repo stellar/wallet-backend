@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	// TODO: this should be configurable via config
 	MaxStateChangesPerBatch = 10
 )
 
