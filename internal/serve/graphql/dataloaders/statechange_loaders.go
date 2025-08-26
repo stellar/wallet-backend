@@ -73,7 +73,10 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the operation_id column since that will be used as the primary key to group the state changes
 			// in the final result.
-			columns := fmt.Sprintf("%s, operation_id", keys[0].Columns)
+			columns := keys[0].Columns
+			if columns != "" {
+				columns = fmt.Sprintf("%s, operation_id", columns)
+			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
 
