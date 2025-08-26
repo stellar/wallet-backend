@@ -231,19 +231,19 @@ func TestQueryResolver_Account(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "test-account")
+		acc, err := resolver.AccountByAddress(testCtx, "test-account")
 		require.NoError(t, err)
 		assert.Equal(t, "test-account", acc.StellarAddress)
 	})
 
 	t.Run("non-existent account", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "non-existent-account")
+		acc, err := resolver.AccountByAddress(testCtx, "non-existent-account")
 		require.Error(t, err)
 		assert.Nil(t, acc)
 	})
 
 	t.Run("empty address", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "")
+		acc, err := resolver.AccountByAddress(testCtx, "")
 		require.Error(t, err)
 		assert.Nil(t, acc)
 	})

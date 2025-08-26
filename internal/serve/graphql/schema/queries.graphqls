@@ -3,7 +3,7 @@
 type Query {
     transactionByHash(hash: String!):                                     Transaction
     transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
-    account(address: String!):                                            Account
+    accountByAddress(address: String!):                                   Account
     operations(first: Int, after: String, last: Int, before: String):     OperationConnection
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection

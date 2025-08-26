@@ -106,7 +106,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Account           func(childComplexity int, address string) int
+		AccountByAddress  func(childComplexity int, address string) int
 		OperationByID     func(childComplexity int, id int64) int
 		Operations        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
@@ -196,7 +196,7 @@ type OperationResolver interface {
 type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
-	Account(ctx context.Context, address string) (*types.Account, error)
+	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
 	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -474,17 +474,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.PageInfo.StartCursor(childComplexity), true
 
-	case "Query.account":
-		if e.complexity.Query.Account == nil {
+	case "Query.accountByAddress":
+		if e.complexity.Query.AccountByAddress == nil {
 			break
 		}
 
-		args, err := ec.field_Query_account_args(ctx, rawArgs)
+		args, err := ec.field_Query_accountByAddress_args(ctx, rawArgs)
 		if err != nil {
 			return 0, false
 		}
 
-		return e.complexity.Query.Account(childComplexity, args["address"].(string)), true
+		return e.complexity.Query.AccountByAddress(childComplexity, args["address"].(string)), true
 
 	case "Query.operationById":
 		if e.complexity.Query.OperationByID == nil {
@@ -1193,7 +1193,7 @@ type PageInfo {
 type Query {
     transactionByHash(hash: String!):                                     Transaction
     transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
-    account(address: String!):                                            Account
+    accountByAddress(address: String!):                                   Account
     operations(first: Int, after: String, last: Int, before: String):     OperationConnection
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
@@ -1686,17 +1686,17 @@ func (ec *executionContext) field_Query___type_argsName(
 	return zeroVal, nil
 }
 
-func (ec *executionContext) field_Query_account_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+func (ec *executionContext) field_Query_accountByAddress_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Query_account_argsAddress(ctx, rawArgs)
+	arg0, err := ec.field_Query_accountByAddress_argsAddress(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
 	args["address"] = arg0
 	return args, nil
 }
-func (ec *executionContext) field_Query_account_argsAddress(
+func (ec *executionContext) field_Query_accountByAddress_argsAddress(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (string, error) {
@@ -3764,8 +3764,8 @@ func (ec *executionContext) fieldContext_Query_transactions(ctx context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_account(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Query_account(ctx, field)
+func (ec *executionContext) _Query_accountByAddress(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_accountByAddress(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3778,7 +3778,7 @@ func (ec *executionContext) _Query_account(ctx context.Context, field graphql.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Query().Account(rctx, fc.Args["address"].(string))
+		return ec.resolvers.Query().AccountByAddress(rctx, fc.Args["address"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3792,7 +3792,7 @@ func (ec *executionContext) _Query_account(ctx context.Context, field graphql.Co
 	return ec.marshalOAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_Query_account(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_accountByAddress(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -3819,7 +3819,7 @@ func (ec *executionContext) fieldContext_Query_account(ctx context.Context, fiel
 		}
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
-	if fc.Args, err = ec.field_Query_account_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+	if fc.Args, err = ec.field_Query_accountByAddress_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -8893,7 +8893,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "account":
+		case "accountByAddress":
 			field := field
 
 			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
@@ -8902,7 +8902,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_account(ctx, field)
+				res = ec._Query_accountByAddress(ctx, field)
 				return res
 			}
 

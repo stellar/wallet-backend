@@ -55,10 +55,8 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}, nil
 }
 
-// Account is the resolver for the account field.
-// This resolver handles the "account" query.
-// It shows the standard pattern: receive args, query data, return result or error
-func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
+// AccountByAddress is the resolver for the accountByAddress field.
+func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
 	return r.models.Account.Get(ctx, address)
 }
 
