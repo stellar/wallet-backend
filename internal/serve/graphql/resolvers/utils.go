@@ -171,6 +171,8 @@ func getColumnMap(model any) map[string]string {
 		jsonTag := field.Tag.Get("json")
 		dbTag := field.Tag.Get("db")
 
+		// Not all fields have a db tag for e.g. the relationship fields in the indexer model structs
+		// dont have a db tag. So we need to check for both jsonTag and dbTag.
 		if jsonTag != "" && dbTag != "" && dbTag != "-" {
 			jsonFieldName := strings.Split(jsonTag, ",")[0]
 			fieldToColumnMap[jsonFieldName] = dbTag
