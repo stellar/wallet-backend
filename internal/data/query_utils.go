@@ -2,7 +2,10 @@ package data
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	set "github.com/deckarep/golang-set/v2"
 )
 
 type SortOrder string
@@ -91,12 +94,57 @@ func buildGetByAccountAddressQuery(config paginatedQueryConfig) (string, []any) 
 	return query, args
 }
 
-// PrepareColumnsWithID ensures that the specified ID column is always included in the column list
-func prepareColumnsWithID(columns string, tableName string, idColumn string) string {
-	if columns == "" {
-		return fmt.Sprintf("%s.*", tableName)
+func getDBColumns(model any) set.Set[string] {
+	modelType := reflect.TypeOf(model)
+	dbColumns := set.NewSet[string]()
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		dbTag := field.Tag.Get("db")
+
+		if dbTag != "" && dbTag != "-" {
+			dbColumns.Add(dbTag)
+		}
 	}
-	// Always return the ID column as it is the primary key and can be used
-	// to build further queries
-	return fmt.Sprintf("%s, %s.%s", columns, tableName, idColumn)
+	return dbColumns
+}
+
+// PrepareColumnsWithID ensures that the specified ID column is always included in the column list
+func prepareColumnsWithID(columns string, model any, prefix string, idColumns ...string) string {
+	var dbColumns set.Set[string]
+	if columns == "" {
+		dbColumns = getDBColumns(model)
+	} else {
+		dbColumns = set.NewSet[string]()
+		dbColumns.Add(columns)
+	}
+
+	if prefix != "" {
+		dbColumns = addPrefixToColumns(dbColumns, prefix)
+	}
+	// State changes has both to_id and state_change_order as id columns
+	for _, idColumn := range idColumns {
+		dbColumns = addIDColumn(dbColumns, prefix, idColumn)
+	}
+	return strings.Join(dbColumns.ToSlice(), ", ")
+}
+
+func addPrefixToColumns(columns set.Set[string], prefix string) set.Set[string] {
+	result := set.NewSet[string]()
+	for _, column := range columns.ToSlice() {
+		result.Add(fmt.Sprintf("%s.%s", prefix, column))
+	}
+	return result
+}
+
+func addIDColumn(columns set.Set[string], prefix string, idColumn string) set.Set[string] {
+	var columnToAdd string
+	if prefix == "" {
+		columnToAdd = idColumn
+	} else {
+		columnToAdd = fmt.Sprintf("%s.%s", prefix, idColumn)
+	}
+	if !columns.Contains(columnToAdd) {
+		columns.Add(columnToAdd)
+	}
+	return columns
 }

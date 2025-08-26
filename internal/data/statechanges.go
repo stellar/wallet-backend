@@ -20,12 +20,7 @@ type StateChangeModel struct {
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account addresses.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
-	}
-
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
@@ -73,24 +68,45 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.StateChange, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
+func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
+		FROM state_changes
+	`, columns))
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				WHERE (to_id < %d OR (to_id = %d AND state_change_order < %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				WHERE (to_id > %d OR (to_id = %d AND state_change_order > %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		}
 	}
 
-	// We always return the to_id, state_change_order since those are the primary keys.
-	// This is used for subsequent queries for operation and transactions of a state change.
-	query := fmt.Sprintf(`SELECT %s FROM state_changes ORDER BY to_id DESC, state_change_order DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
 	}
-	var stateChanges []*types.StateChange
+
+	if limit != nil && *limit > 0 {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	err := m.DB.SelectContext(ctx, &stateChanges, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
@@ -287,23 +303,96 @@ func (m *StateChangeModel) BatchInsert(
 	return insertedIDs, nil
 }
 
-// BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
-func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.StateChange, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		// We always return the to_id, state_change_order since those are the primary keys.
-		// This is used for subsequent queries for operation and transactions of a state change.
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
+// BatchGetByTxHash gets state changes for a single transaction with pagination support.
+func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
+		FROM state_changes 
+		WHERE tx_hash = $1
+	`, columns))
+
+	args := []interface{}{txHash}
+	argIndex := 2
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		}
 	}
 
-	query := fmt.Sprintf(`
-		SELECT %s, tx_hash 
-		FROM state_changes 
-		WHERE tx_hash = ANY($1) 
-		ORDER BY to_id DESC, state_change_order DESC
-	`, columns)
-	var stateChanges []*types.StateChange
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+	}
+
+	if limit != nil && *limit > 0 {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
+	}
+
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated state changes by tx hash: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}
+
+// BatchGetByTxHashes gets the state changes that are associated with the given transaction hashes.
+func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	var queryBuilder strings.Builder
+	// This CTE query implements per-transaction pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all state changes from just a few
+	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// This guarantees that each transaction gets at most 'limit' state changes, providing
+	// more balanced and predictable pagination across multiple transactions.
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH
+			inputs (tx_hash) AS (
+				SELECT * FROM UNNEST($1::text[])
+			),
+			
+			ranked_state_changes_per_tx_hash AS (
+				SELECT
+					sc.*,
+					ROW_NUMBER() OVER (PARTITION BY sc.tx_hash ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM 
+					state_changes sc
+				JOIN 
+					inputs i ON sc.tx_hash = i.tx_hash
+			)
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_tx_hash
+	`, sortOrder, sortOrder, columns))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+	}
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
@@ -315,23 +404,94 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 	return stateChanges, nil
 }
 
-// BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
-func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.StateChange, error) {
-	if columns == "" {
-		columns = "*"
-	} else {
-		columns = fmt.Sprintf("%s, to_id, state_change_order", columns)
+// BatchGetByOperationID gets state changes for a single operation with pagination support.
+func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(fmt.Sprintf(`
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
+		FROM state_changes 
+		WHERE operation_id = $1
+	`, columns))
+
+	args := []interface{}{operationID}
+	argIndex := 2
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(`
+				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+		}
 	}
 
-	// We always return the to_id, state_change_order since those are the primary keys.
-	// This is used for subsequent queries for operation and transactions of a state change.
-	query := fmt.Sprintf(`
-		SELECT %s, operation_id 
-		FROM state_changes 
-		WHERE operation_id = ANY($1) 
-		ORDER BY to_id DESC, state_change_order DESC
-	`, columns)
-	var stateChanges []*types.StateChange
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
+	}
+
+	if limit != nil && *limit > 0 {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
+	}
+
+	query := queryBuilder.String()
+
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+
+	var stateChanges []*types.StateChangeWithCursor
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	return stateChanges, nil
+}
+
+// BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
+	var queryBuilder strings.Builder
+	// This CTE query implements per-operation pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all state changes from just a few
+	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
+	// This guarantees that each operation gets at most 'limit' state changes, providing
+	// more balanced and predictable pagination across multiple operations.
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH
+			inputs (operation_id) AS (
+				SELECT * FROM UNNEST($1::bigint[])
+			),
+			
+			ranked_state_changes_per_operation_id AS (
+				SELECT
+					sc.*,
+					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.to_id %s, sc.state_change_order %s) AS rn
+				FROM 
+					state_changes sc
+				JOIN 
+					inputs i ON sc.operation_id = i.operation_id
+			)
+		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order" FROM ranked_state_changes_per_operation_id
+	`, sortOrder, sortOrder, columns))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
+	}
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
+	}
+	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()

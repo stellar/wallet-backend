@@ -29,7 +29,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
@@ -62,7 +62,7 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	operations, err := r.models.Operations.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db for account %s: %w", obj.StellarAddress, err)
@@ -94,7 +94,7 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "state_changes")
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)

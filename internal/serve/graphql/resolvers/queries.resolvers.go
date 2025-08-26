@@ -17,7 +17,7 @@ import (
 // This is a root query resolver - it handles the "transactionByHash" query.
 // gqlgen calls this function when a GraphQL query requests "transactionByHash"
 func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error) {
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
 
@@ -31,7 +31,7 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
@@ -55,10 +55,8 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 	}, nil
 }
 
-// Account is the resolver for the account field.
-// This resolver handles the "account" query.
-// It shows the standard pattern: receive args, query data, return result or error
-func (r *queryResolver) Account(ctx context.Context, address string) (*types.Account, error) {
+// AccountByAddress is the resolver for the accountByAddress field.
+func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
 	return r.models.Account.Get(ctx, address)
 }
 
@@ -71,7 +69,7 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "")
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.Cursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
@@ -95,16 +93,42 @@ func (r *queryResolver) Operations(ctx context.Context, first *int32, after *str
 	}, nil
 }
 
+// OperationByID is the resolver for the operationById field.
+func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
+}
+
 // StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, limit *int32) ([]*types.StateChange, error) {
-	if limit != nil && *limit < 0 {
-		return nil, fmt.Errorf("limit must be non-negative, got %d", *limit)
+func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	params, err := parsePaginationParams(first, after, last, before, true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
-	if limit != nil && *limit == 0 {
-		return []*types.StateChange{}, nil
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting state changes from db: %w", err)
 	}
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
-	return r.models.StateChanges.GetAll(ctx, limit, strings.Join(dbColumns, ", "))
+
+	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   &edge.Node.StateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.
