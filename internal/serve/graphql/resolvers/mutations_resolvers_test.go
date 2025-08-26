@@ -59,6 +59,11 @@ func (m *mockFeeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.T
 	return args.String(0), args.String(1), args.Error(2)
 }
 
+func (m *mockFeeBumpService) GetMaximumBaseFee() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
+}
+
 func TestMutationResolver_RegisterAccount(t *testing.T) {
 	ctx := context.Background()
 
@@ -864,6 +869,7 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 		}
 
 		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", services.ErrFeeExceedsMaximumBaseFee)
+		mockFeeBumpService.On("GetMaximumBaseFee").Return(int64(10000))
 
 		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
 
@@ -874,6 +880,7 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {
 			assert.Equal(t, "FEE_EXCEEDS_MAXIMUM", gqlErr.Extensions["code"])
+			assert.Equal(t, int64(10000), gqlErr.Extensions["maximumBaseFee"])
 		}
 
 		mockFeeBumpService.AssertExpectations(t)

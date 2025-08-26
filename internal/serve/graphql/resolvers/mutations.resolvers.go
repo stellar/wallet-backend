@@ -256,7 +256,8 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
-					"code": "FEE_EXCEEDS_MAXIMUM",
+					"code":           "FEE_EXCEEDS_MAXIMUM",
+					"maximumBaseFee": r.feeBumpService.GetMaximumBaseFee(),
 				},
 			}
 		case errors.Is(err, services.ErrNoSignaturesProvided):
