@@ -33,7 +33,10 @@ func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateCh
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the tx_hash column since that will be used as the primary key to group the state changes
 			// in the final result.
-			columns := fmt.Sprintf("%s, tx_hash", keys[0].Columns)
+			columns := keys[0].Columns
+			if columns != "" {
+				columns = fmt.Sprintf("%s, tx_hash", columns)
+			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
 

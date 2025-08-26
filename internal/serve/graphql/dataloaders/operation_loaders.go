@@ -33,7 +33,10 @@ func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[Operation
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
 			// Add the tx_hash column since that will be used as the primary key to group the operations
 			// in the final result.
-			columns := fmt.Sprintf("%s, tx_hash", keys[0].Columns)
+			columns := keys[0].Columns
+			if columns != "" {
+				columns = fmt.Sprintf("%s, tx_hash", columns)
+			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
 
