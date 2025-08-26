@@ -3,7 +3,6 @@ package dataloaders
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -31,12 +30,9 @@ type OperationColumnsKey struct {
 func operationsByTxHashLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
-			// Add the tx_hash column (if not requested) since that will be used as the primary key to group the operations
+			// Add the tx_hash column since that will be used as the primary key to group the operations
 			// in the final result.
-			columns := keys[0].Columns
-			if columns != "" && !strings.Contains(columns, "tx_hash") {
-				columns = fmt.Sprintf("%s, tx_hash", columns)
-			}
+			columns := fmt.Sprintf("%s, tx_hash", keys[0].Columns)
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
 
