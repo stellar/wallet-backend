@@ -77,6 +77,11 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
 	queryBuilder := strings.Builder{}
+	// This CTE query implements per-transaction pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all operations from just a few
+	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// This guarantees that each transaction gets at most 'limit' operations, providing
+	// more balanced and predictable pagination across multiple transactions.
 	query := `
 		WITH
 			inputs (tx_hash) AS (
