@@ -73,18 +73,17 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	var queryBuilder strings.Builder
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
-		WHERE 1=1
+		FROM state_changes
 	`, columns))
 
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
+				WHERE (to_id < %d OR (to_id = %d AND state_change_order < %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
+				WHERE (to_id > %d OR (to_id = %d AND state_change_order > %d))
 			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
 		}
 	}
