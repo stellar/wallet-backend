@@ -39,6 +39,7 @@ type Configs struct {
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
 	ClientAuthMaxTimeoutSeconds int
+	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
@@ -119,7 +120,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)

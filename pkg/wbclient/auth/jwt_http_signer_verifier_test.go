@@ -13,11 +13,11 @@ import (
 )
 
 func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
-	reqBodyTooBig := make([]byte, DefaultMaxBodySize*2)
+	reqBodyTooBig := make([]byte, DefaultMaxBodySizeBytes*2)
 
 	jwtParser, err := NewJWTTokenParser(10*time.Second, testKP1.Address())
 	require.NoError(t, err)
-	reqJWTVerifier := NewHTTPRequestVerifier(jwtParser, DefaultMaxBodySize)
+	reqJWTVerifier := NewHTTPRequestVerifier(jwtParser, DefaultMaxBodySizeBytes)
 
 	validJWTGenerator, err := NewJWTTokenGenerator(testKP1.Seed())
 	require.NoError(t, err)
