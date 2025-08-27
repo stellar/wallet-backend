@@ -7,12 +7,17 @@ import (
 	"net/url"
 	"time"
 
+	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/go-chi/chi"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/vektah/gqlparser/v2/ast"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -29,12 +34,6 @@ import (
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
-
-	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
-	"github.com/99designs/gqlgen/graphql/handler/extension"
-	"github.com/99designs/gqlgen/graphql/handler/lru"
-	"github.com/99designs/gqlgen/graphql/handler/transport"
-	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.

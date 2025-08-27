@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
@@ -43,6 +44,7 @@ type SponsorAccountCreationOptions struct {
 	Assets             []entities.Asset  `json:"assets"             validate:"dive"`
 	Signers            []entities.Signer `json:"signers"            validate:"dive"`
 	MasterSignerWeight *int              `json:"masterSignerWeight" validate:"omitempty,gte=0"`
+	SkipSponsorship    bool              `json:"skipSponsorship"`
 }
 
 type AccountSponsorshipService interface {
@@ -88,23 +90,29 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 	if numEntries > s.MaxSponsoredBaseReserves {
 		return "", ErrSponsorshipLimitExceeded
 	}
+	createAccountAmount := strconv.FormatFloat(float64(numEntries)*0.5, 'f', 1, 64)
 
 	distributionAccountPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting distribution account public key: %w", err)
 	}
 
-	ops := []txnbuild.Operation{
-		&txnbuild.BeginSponsoringFutureReserves{
+	ops := []txnbuild.Operation{}
+
+	// Add the sponsorship operation if not skipped
+	if !opts.SkipSponsorship {
+		createAccountAmount = "0"
+		ops = append(ops, &txnbuild.BeginSponsoringFutureReserves{
 			SponsoredID:   opts.Address,
 			SourceAccount: distributionAccountPublicKey,
-		},
-		&txnbuild.CreateAccount{
-			Destination:   opts.Address,
-			Amount:        "0",
-			SourceAccount: distributionAccountPublicKey,
-		},
+		})
 	}
+
+	ops = append(ops, &txnbuild.CreateAccount{
+		Destination:   opts.Address,
+		Amount:        createAccountAmount,
+		SourceAccount: distributionAccountPublicKey,
+	})
 
 	// Add the signers to the transaction
 	for _, signer := range opts.Signers {
@@ -127,11 +135,12 @@ func (s *accountSponsorshipService) SponsorAccountCreationTransaction(ctx contex
 			SourceAccount: opts.Address,
 		})
 	}
-	ops = append(ops,
-		&txnbuild.EndSponsoringFutureReserves{
+
+	if !opts.SkipSponsorship {
+		ops = append(ops, &txnbuild.EndSponsoringFutureReserves{
 			SourceAccount: opts.Address,
-		},
-	)
+		})
+	}
 
 	if len(opts.Signers) > 0 {
 		fullSignerThreshold := txnbuild.NewThreshold(txnbuild.Threshold(fullSignerWeight))

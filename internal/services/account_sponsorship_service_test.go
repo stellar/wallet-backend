@@ -378,6 +378,20 @@ func Test_AccountSponsorshipService_SponsorAccountCreationTransaction_success(t 
 				},
 			},
 		},
+		{
+			name: "🟢skip_sponsorship",
+			opts: SponsorAccountCreationOptions{
+				Address:         masterKP.Address(),
+				SkipSponsorship: true,
+			},
+			wantOperations: []txnbuild.Operation{
+				&txnbuild.CreateAccount{
+					Destination:   masterKP.Address(),
+					Amount:        "1.0000000",
+					SourceAccount: distAccKP.Address(),
+				},
+			},
+		},
 	}
 
 	copyTx := func(t *testing.T, tx *txnbuild.Transaction) *txnbuild.Transaction {
