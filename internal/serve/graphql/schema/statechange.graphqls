@@ -35,3 +35,130 @@ type StateChange{
   # Related transaction
   transaction:                Transaction! @goField(forceResolver: true)
 }
+
+interface BaseStateChange {           
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+
+  # GraphQL Relationships - these fields use resolvers
+  # Related operation - nullable since fee state changes do not have operations associated with them
+  account:                    Account! @goField(forceResolver: true)
+
+  # Related operation - nullable since fee state changes do not have operations associated with them
+  operation:                  Operation @goField(forceResolver: true)
+  
+  # Related transaction
+  transaction:                Transaction! @goField(forceResolver: true)
+}
+
+type PaymentStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  tokenId:                    String!              
+  amount:                     String!
+  claimableBalanceId:         String   
+  liquidityPoolId:            String
+}
+
+type LiabilityStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  tokenId:                    String!              
+  amount:                     String!
+  offerId:                    String!
+}
+
+type SponsorshipStateChange implements BaseStateChange{
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  amount:                     String
+  sponsoredAccountId:         String   
+  sponsorAccountId:           String
+}
+
+type SignerStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  signerAccountId:            String
+  signerWeights:              String
+}
+
+type SignatureThresholdsStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  thresholds:                 String!
+}
+
+type FlagsStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  flags:                      [String!]!
+}
+
+type MetadataStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  keyValue:                   String!
+}
+
+type AllowanceStateChange implements BaseStateChange {
+  stateChangeCategory:        StateChangeCategory!
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  stateChangeReason:          StateChangeReason!
+  spenderAccountId:           String
+}

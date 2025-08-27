@@ -317,3 +317,67 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 
 	return bytes, nil
 }
+
+// GraphQL BaseStateChange interface implementation
+// These methods allow types.StateChange to satisfy the BaseStateChange interface
+func (sc StateChange) IsBaseStateChange() {}
+
+func (sc StateChange) GetStateChangeCategory() StateChangeCategory {
+	return sc.StateChangeCategory
+}
+
+func (sc StateChange) GetIngestedAt() time.Time {
+	return sc.IngestedAt
+}
+
+func (sc StateChange) GetLedgerCreatedAt() time.Time {
+	return sc.LedgerCreatedAt
+}
+
+func (sc StateChange) GetLedgerNumber() uint32 {
+	return sc.LedgerNumber
+}
+
+func (sc StateChange) GetAccount() *Account {
+	return sc.Account
+}
+
+func (sc StateChange) GetOperation() *Operation {
+	return sc.Operation
+}
+
+func (sc StateChange) GetTransaction() *Transaction {
+	return sc.Transaction
+}
+
+type PaymentStateChangeModel struct {
+	StateChange
+}
+
+type AllowanceStateChangeModel struct {
+	StateChange
+}
+
+type LiabilityStateChangeModel struct {
+	StateChange
+}
+
+type SponsorshipStateChangeModel struct {
+	StateChange
+}
+
+type SignerStateChangeModel struct {
+	StateChange
+}
+
+type SignatureThresholdsStateChangeModel struct {
+	StateChange
+}
+
+type FlagsStateChangeModel struct {
+	StateChange
+}
+
+type MetadataStateChangeModel struct {
+	StateChange
+}

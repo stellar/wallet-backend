@@ -8,9 +8,15 @@ package resolvers
 // This is the main resolver struct that gqlgen uses to resolve GraphQL queries.
 
 import (
-	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/services"
+	"context"
+	"fmt"
+	"strings"
 
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	// TODO: Move TransactionService under /services
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
@@ -26,6 +32,54 @@ type Resolver struct {
 	accountService services.AccountService
 	// transactionService provides transaction building and signing operations
 	transactionService txservices.TransactionService
+}
+
+// Shared resolver functions for BaseStateChange interface
+// These functions provide common logic that all state change types can use
+
+// resolveStateChangeAccount resolves the account field for any state change type
+// This function extracts the common account resolution logic to avoid duplication
+func (r *Resolver) resolveStateChangeAccount(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Account, error) {
+	// TODO(human): Implement account resolution logic
+	// This should use the account loaders to fetch account data by ID
+	// Consider using the existing account dataloaders pattern
+	panic(fmt.Errorf("not implemented: resolveStateChangeAccount - account resolution"))
+}
+
+// resolveStateChangeOperation resolves the operation field for any state change type
+// Reuses the existing logic from the original StateChange resolver
+func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Operation, error) {
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
+
+	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
+	loaderKey := dataloaders.OperationColumnsKey{
+		StateChangeID: stateChangeID,
+		Columns:       strings.Join(dbColumns, ", "),
+	}
+	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
+	if err != nil {
+		return nil, err
+	}
+	return operations, nil
+}
+
+// resolveStateChangeTransaction resolves the transaction field for any state change type  
+// Reuses the existing logic from the original StateChange resolver
+func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Transaction, error) {
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
+
+	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
+	loaderKey := dataloaders.TransactionColumnsKey{
+		StateChangeID: stateChangeID,
+		Columns:       strings.Join(dbColumns, ", "),
+	}
+	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
+	if err != nil {
+		return nil, err
+	}
+	return transaction, nil
 }
 
 // NewResolver creates a new resolver instance with required dependencies
