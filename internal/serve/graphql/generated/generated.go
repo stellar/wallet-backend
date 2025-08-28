@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -1895,7 +1894,7 @@ type StateChangeConnection {
 }
 
 type StateChangeEdge {
-    node: StateChange
+    node: BaseStateChange
     cursor: String!
 }
 
@@ -9930,9 +9929,9 @@ func (ec *executionContext) _StateChangeEdge_node(ctx context.Context, field gra
 	if resTmp == nil {
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChange)
+	res := resTmp.(BaseStateChange)
 	fc.Result = res
-	return ec.marshalOStateChange2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChange(ctx, field.Selections, res)
+	return ec.marshalOBaseStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseStateChange(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_StateChangeEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -9942,51 +9941,7 @@ func (ec *executionContext) fieldContext_StateChangeEdge_node(_ context.Context,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "accountId":
-				return ec.fieldContext_StateChange_accountId(ctx, field)
-			case "stateChangeCategory":
-				return ec.fieldContext_StateChange_stateChangeCategory(ctx, field)
-			case "stateChangeReason":
-				return ec.fieldContext_StateChange_stateChangeReason(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_StateChange_ingestedAt(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_StateChange_ledgerCreatedAt(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_StateChange_ledgerNumber(ctx, field)
-			case "tokenId":
-				return ec.fieldContext_StateChange_tokenId(ctx, field)
-			case "amount":
-				return ec.fieldContext_StateChange_amount(ctx, field)
-			case "claimableBalanceId":
-				return ec.fieldContext_StateChange_claimableBalanceId(ctx, field)
-			case "liquidityPoolId":
-				return ec.fieldContext_StateChange_liquidityPoolId(ctx, field)
-			case "offerId":
-				return ec.fieldContext_StateChange_offerId(ctx, field)
-			case "signerAccountId":
-				return ec.fieldContext_StateChange_signerAccountId(ctx, field)
-			case "spenderAccountId":
-				return ec.fieldContext_StateChange_spenderAccountId(ctx, field)
-			case "sponsoredAccountId":
-				return ec.fieldContext_StateChange_sponsoredAccountId(ctx, field)
-			case "sponsorAccountId":
-				return ec.fieldContext_StateChange_sponsorAccountId(ctx, field)
-			case "signerWeights":
-				return ec.fieldContext_StateChange_signerWeights(ctx, field)
-			case "thresholds":
-				return ec.fieldContext_StateChange_thresholds(ctx, field)
-			case "flags":
-				return ec.fieldContext_StateChange_flags(ctx, field)
-			case "keyValue":
-				return ec.fieldContext_StateChange_keyValue(ctx, field)
-			case "operation":
-				return ec.fieldContext_StateChange_operation(ctx, field)
-			case "transaction":
-				return ec.fieldContext_StateChange_transaction(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type StateChange", field.Name)
+			return nil, errors.New("FieldContext.Child cannot be called on type INTERFACE")
 		},
 	}
 	return fc, nil
@@ -17451,6 +17406,13 @@ func (ec *executionContext) marshalOAccount2ᚖgithubᚗcomᚋstellarᚋwallet�
 	return ec._Account(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalOBaseStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseStateChange(ctx context.Context, sel ast.SelectionSet, v BaseStateChange) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._BaseStateChange(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalOBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -17566,13 +17528,6 @@ func (ec *executionContext) unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋst
 	}
 	res, err := ec.unmarshalInputSimulationResultInput(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalOStateChange2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChange(ctx context.Context, sel ast.SelectionSet, v *types.StateChange) graphql.Marshaler {
-	if v == nil {
-		return graphql.Null
-	}
-	return ec._StateChange(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOStateChangeConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeConnection(ctx context.Context, sel ast.SelectionSet, v *StateChangeConnection) graphql.Marshaler {

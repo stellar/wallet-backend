@@ -84,8 +84,8 @@ type StateChangeConnection struct {
 }
 
 type StateChangeEdge struct {
-	Node   *types.StateChange `json:"node,omitempty"`
-	Cursor string             `json:"cursor"`
+	Node   BaseStateChange `json:"node,omitempty"`
+	Cursor string          `json:"cursor"`
 }
 
 type TransactionConnection struct {

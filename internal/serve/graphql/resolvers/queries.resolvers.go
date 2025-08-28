@@ -113,14 +113,26 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 		return nil, fmt.Errorf("getting state changes from db: %w", err)
 	}
 
-	conn := NewConnectionWithRelayPagination(stateChanges, params, func(sc *types.StateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d", sc.Cursor.ToID, sc.Cursor.StateChangeOrder)
+	type baseStateChangeWithCursor struct {
+		stateChange graphql1.BaseStateChange
+		cursor      types.StateChangeCursor
+	}
+	convertedStateChanges := make([]*baseStateChangeWithCursor, len(stateChanges))
+	for i, stateChange := range stateChanges {
+		convertedStateChanges[i] = &baseStateChangeWithCursor{
+			stateChange: convertStateChangeTypes(ctx, stateChange.StateChange),
+			cursor:      stateChange.Cursor,
+		}
+	}
+
+	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
 	})
 
 	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
 	for i, edge := range conn.Edges {
 		edges[i] = &graphql1.StateChangeEdge{
-			Node:   &edge.Node.StateChange,
+			Node:   edge.Node.stateChange,
 			Cursor: edge.Cursor,
 		}
 	}

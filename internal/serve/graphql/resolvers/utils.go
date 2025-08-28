@@ -90,6 +90,47 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	}
 }
 
+// convertStateChangeTypes is the resolver for BaseStateChange interface type resolution
+// This method determines which concrete GraphQL type to return based on StateChangeCategory
+func convertStateChangeTypes(ctx context.Context, stateChange types.StateChange) generated.BaseStateChange {
+	switch stateChange.StateChangeCategory {
+	case types.StateChangeCategoryCredit, types.StateChangeCategoryDebit, types.StateChangeCategoryMint, types.StateChangeCategoryBurn:
+		return &types.PaymentStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryLiability:
+		return &types.LiabilityStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategorySponsorship:
+		return &types.SponsorshipStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategorySigner:
+		return &types.SignerStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategorySignatureThreshold:
+		return &types.SignatureThresholdsStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryFlags:
+		return &types.FlagsStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryMetadata:
+		return &types.MetadataStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryAllowance:
+		return &types.AllowanceStateChangeModel{
+			StateChange: stateChange,
+		}
+	default:
+		return nil
+	}
+}
+
 func GetDBColumnsForFields(ctx context.Context, model any) []string {
 	opCtx := graphql.GetOperationContext(ctx)
 	fields := graphql.CollectFieldsCtx(ctx, nil)

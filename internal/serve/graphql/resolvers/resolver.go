@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,10 +20,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
-
 	// TODO: Move TransactionService under /services
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
+
+var ErrNotStateChange = errors.New("object is not a StateChange")
 
 // Resolver is the main resolver struct for gqlgen
 // It holds dependencies needed by all resolver functions
@@ -35,6 +37,17 @@ type Resolver struct {
 	accountService services.AccountService
 	// transactionService provides transaction building and signing operations
 	transactionService txservices.TransactionService
+}
+
+// NewResolver creates a new resolver instance with required dependencies
+// This constructor is called during server startup to initialize the resolver
+// Dependencies are injected here and available to all resolver functions.
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService txservices.TransactionService) *Resolver {
+	return &Resolver{
+		models:             models,
+		accountService:     accountService,
+		transactionService: transactionService,
+	}
 }
 
 // Shared field resolver functions
@@ -139,15 +152,4 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 		return nil, err
 	}
 	return transaction, nil
-}
-
-// NewResolver creates a new resolver instance with required dependencies
-// This constructor is called during server startup to initialize the resolver
-// Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService txservices.TransactionService) *Resolver {
-	return &Resolver{
-		models:             models,
-		accountService:     accountService,
-		transactionService: transactionService,
-	}
 }
