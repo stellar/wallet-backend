@@ -296,6 +296,10 @@ paths:
                   type: string
                   description: "The address of the account to be created."
                   example: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                skipSponsorship:
+                  type: boolean
+                  description: "Whether to skip sponsorship. If true, the transaction will be created without the reserve sponsorship sandwich operations."
+                  example: false
                 masterSignerWeight:
                   type: integer
                   description: "The weight of the master signer."
