@@ -131,7 +131,7 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 		return &types.SignatureThresholdsStateChangeModel{
 			StateChange: stateChange,
 		}
-	case types.StateChangeCategoryFlags:
+	case types.StateChangeCategoryFlags, types.StateChangeCategoryTrustlineFlags:
 		return &types.FlagsStateChangeModel{
 			StateChange: stateChange,
 		}
