@@ -17,8 +17,8 @@ import (
 type AccountHandler struct {
 	AccountService            services.AccountService
 	AccountSponsorshipService services.AccountSponsorshipService
-	SupportedAssets           []entities.Asset
 	AppTracker                apptracker.AppTracker
+	NetworkPassphrase         string
 }
 
 type AccountRegistrationRequest struct {
@@ -63,15 +63,10 @@ func (h AccountHandler) DeregisterAccount(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 }
 
-type SponsorAccountCreationRequest struct {
-	Address string            `json:"address" validate:"required,public_key"`
-	Signers []entities.Signer `json:"signers" validate:"required,gt=0,dive"`
-}
-
 func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	var reqBody SponsorAccountCreationRequest
+	var reqBody services.SponsorAccountCreationOptions
 	httpErr := DecodeJSONAndValidate(ctx, req, &reqBody, h.AppTracker)
 	if httpErr != nil {
 		httpErr.Render(rw)
@@ -80,11 +75,11 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 
 	_, err := entities.ValidateSignersWeights(reqBody.Signers)
 	if err != nil {
-		httperror.BadRequest("Validation error.", map[string]interface{}{"signers": err.Error()}).Render(rw)
+		httperror.BadRequest("Validation error.", map[string]any{"signers": err.Error()}).Render(rw)
 		return
 	}
 
-	txe, networkPassphrase, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody.Address, reqBody.Signers, h.SupportedAssets)
+	txe, err := h.AccountSponsorshipService.SponsorAccountCreationTransaction(ctx, reqBody)
 	if err != nil {
 		if errors.Is(err, services.ErrSponsorshipLimitExceeded) {
 			httperror.BadRequest("Sponsorship limit exceeded.", nil).Render(rw)
@@ -92,7 +87,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 		}
 
 		if errors.Is(err, services.ErrAccountAlreadyExists) {
-			httperror.BadRequest("Account already exists.", nil).Render(rw)
+			httperror.Conflict("Account already exists on the Stellar network.", nil).Render(rw)
 			return
 		}
 
@@ -102,7 +97,7 @@ func (h AccountHandler) SponsorAccountCreation(rw http.ResponseWriter, req *http
 
 	respBody := types.TransactionEnvelopeResponse{
 		Transaction:       txe,
-		NetworkPassphrase: networkPassphrase,
+		NetworkPassphrase: h.NetworkPassphrase,
 	}
 	httpjson.Render(rw, respBody, httpjson.JSON)
 }

@@ -2,6 +2,7 @@ package validators
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/go-playground/validator/v10"
@@ -17,8 +18,10 @@ func TestParseValidationError(t *testing.T) {
 		}
 
 		type testStruct struct {
+			AssetCodeField     string             `validate:"asset_code"`
+			AssetIssuerField   string             `validate:"asset_issuer"`
 			RequiredField      string             `validate:"required"`
-			RequiredArrayField []string           `validate:"required,gt=0,dive,not_empty"`
+			RequiredArrayField []string           `validate:"required,gt=0,dive,required"`
 			EnumField          string             `validate:"oneof=foo bar"`
 			PublicKeyField     string             `validate:"public_key"`
 			UnknownTagField    int                `validate:"ne=1"`
@@ -35,9 +38,13 @@ func TestParseValidationError(t *testing.T) {
 					RequiredArrayField: []string{},
 					EnumField:          "invalid",
 					PublicKeyField:     "invalid",
+					AssetIssuerField:   "invalid",
+					AssetCodeField:     "12345678901234567890",
 					UnknownTagField:    2,
 				},
 				expectedFieldErrors: map[string]interface{}{
+					"assetCodeField":     "Invalid asset code provided",
+					"assetIssuerField":   "Invalid asset issuer provided",
 					"requiredField":      "This field is required",
 					"requiredArrayField": "Should have at least 1 element(s)",
 					"enumField":          `Unexpected value "invalid". Expected one of the following values: foo, bar`,
@@ -53,7 +60,7 @@ func TestParseValidationError(t *testing.T) {
 					UnknownTagField:    2,
 				},
 				expectedFieldErrors: map[string]interface{}{
-					"requiredArrayField[1]": "This field cannot be empty",
+					"requiredArrayField[1]": "This field is required",
 				},
 			},
 			{
@@ -91,14 +98,16 @@ func TestParseValidationError(t *testing.T) {
 
 		val, err := NewValidator()
 		require.NoError(t, err)
-		for _, tc := range testCases {
-			err := val.Struct(tc.stc)
-			require.Error(t, err)
-			var vErrs validator.ValidationErrors
-			ok := errors.As(err, &vErrs)
-			require.True(t, ok)
-			fieldErrors := ParseValidationError(vErrs)
-			assert.Equal(t, tc.expectedFieldErrors, fieldErrors)
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+				err := val.Struct(tc.stc)
+				require.Error(t, err)
+				var vErrs validator.ValidationErrors
+				ok := errors.As(err, &vErrs)
+				require.True(t, ok)
+				fieldErrors := ParseValidationError(vErrs)
+				assert.Equal(t, tc.expectedFieldErrors, fieldErrors)
+			})
 		}
 	})
 
@@ -192,7 +201,7 @@ func TestParseValidationError(t *testing.T) {
 
 func TestGetFieldName(t *testing.T) {
 	type testStructNested struct {
-		Name     string             `validate:"not_empty"`
+		Name     string             `validate:"required"`
 		Children []testStructNested `validate:"dive"`
 	}
 

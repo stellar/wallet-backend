@@ -27,12 +27,38 @@ func (s *SignatureClientMock) GetAccountPublicKey(ctx context.Context, opts ...i
 	return args.String(0), args.Error(1)
 }
 
-func (s *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, accounts ...string) (*txnbuild.Transaction, error) {
-	args := s.Called(ctx, tx, accounts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
+// SignStellarTransaction provides a mock function for the type MockSignatureClient
+func (_mock *SignatureClientMock) SignStellarTransaction(ctx context.Context, tx *txnbuild.Transaction, stellarAccounts ...string) (*txnbuild.Transaction, error) {
+	var tmpRet mock.Arguments
+	if len(stellarAccounts) > 0 {
+		tmpRet = _mock.Called(ctx, tx, stellarAccounts)
+	} else {
+		tmpRet = _mock.Called(ctx, tx)
 	}
-	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
+	ret := tmpRet
+
+	if len(ret) == 0 {
+		panic("no return value specified for SignStellarTransaction")
+	}
+
+	var r0 *txnbuild.Transaction
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *txnbuild.Transaction, ...string) (*txnbuild.Transaction, error)); ok {
+		return returnFunc(ctx, tx, stellarAccounts...)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *txnbuild.Transaction, ...string) *txnbuild.Transaction); ok {
+		r0 = returnFunc(ctx, tx, stellarAccounts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*txnbuild.Transaction)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *txnbuild.Transaction, ...string) error); ok {
+		r1 = returnFunc(ctx, tx, stellarAccounts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
 func (s *SignatureClientMock) SignStellarFeeBumpTransaction(ctx context.Context, feeBumpTx *txnbuild.FeeBumpTransaction) (*txnbuild.FeeBumpTransaction, error) {
