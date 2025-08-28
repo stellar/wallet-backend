@@ -220,74 +220,47 @@ func (r *sponsorshipStateChangeResolver) SponsorAccountID(ctx context.Context, o
 // This resolver handles nullable string fields from the database
 // GraphQL nullable fields return null when the database value is not valid
 func (r *stateChangeResolver) TokenID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.TokenID.Valid {
-		return &obj.TokenID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.TokenID), nil
 }
 
 // Amount is the resolver for the amount field.
 func (r *stateChangeResolver) Amount(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.Amount.Valid {
-		return &obj.Amount.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.Amount), nil
 }
 
 // ClaimableBalanceID is the resolver for the claimableBalanceId field.
 func (r *stateChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.ClaimableBalanceID.Valid {
-		return &obj.ClaimableBalanceID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.ClaimableBalanceID), nil
 }
 
 // LiquidityPoolID is the resolver for the liquidityPoolId field.
 func (r *stateChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.LiquidityPoolID.Valid {
-		return &obj.LiquidityPoolID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
 }
 
 // OfferID is the resolver for the offerId field.
 func (r *stateChangeResolver) OfferID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.OfferID.Valid {
-		return &obj.OfferID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.OfferID), nil
 }
 
 // SignerAccountID is the resolver for the signerAccountId field.
 func (r *stateChangeResolver) SignerAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SignerAccountID.Valid {
-		return &obj.SignerAccountID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.SignerAccountID), nil
 }
 
 // SpenderAccountID is the resolver for the spenderAccountId field.
 func (r *stateChangeResolver) SpenderAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SpenderAccountID.Valid {
-		return &obj.SpenderAccountID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.SpenderAccountID), nil
 }
 
 // SponsoredAccountID is the resolver for the sponsoredAccountId field.
 func (r *stateChangeResolver) SponsoredAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SponsoredAccountID.Valid {
-		return &obj.SponsoredAccountID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.SponsoredAccountID), nil
 }
 
 // SponsorAccountID is the resolver for the sponsorAccountId field.
 func (r *stateChangeResolver) SponsorAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SponsorAccountID.Valid {
-		return &obj.SponsorAccountID.String, nil
-	}
-	return nil, nil
+	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
 // SignerWeights is the resolver for the signerWeights field.
@@ -424,14 +397,12 @@ func (r *Resolver) SponsorshipStateChange() graphql1.SponsorshipStateChangeResol
 // StateChange returns graphql1.StateChangeResolver implementation.
 func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
 
-type (
-	allowanceStateChangeResolver           struct{ *Resolver }
-	flagsStateChangeResolver               struct{ *Resolver }
-	liabilityStateChangeResolver           struct{ *Resolver }
-	metadataStateChangeResolver            struct{ *Resolver }
-	paymentStateChangeResolver             struct{ *Resolver }
-	signatureThresholdsStateChangeResolver struct{ *Resolver }
-	signerStateChangeResolver              struct{ *Resolver }
-	sponsorshipStateChangeResolver         struct{ *Resolver }
-	stateChangeResolver                    struct{ *Resolver }
-)
+type allowanceStateChangeResolver struct{ *Resolver }
+type flagsStateChangeResolver struct{ *Resolver }
+type liabilityStateChangeResolver struct{ *Resolver }
+type metadataStateChangeResolver struct{ *Resolver }
+type paymentStateChangeResolver struct{ *Resolver }
+type signatureThresholdsStateChangeResolver struct{ *Resolver }
+type signerStateChangeResolver struct{ *Resolver }
+type sponsorshipStateChangeResolver struct{ *Resolver }
+type stateChangeResolver struct{ *Resolver }
