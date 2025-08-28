@@ -62,6 +62,18 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 	}
 }
 
+func Conflict(message string, extras map[string]interface{}) *ErrorResponse {
+	if message == "" {
+		message = "Conflict."
+	}
+
+	return &ErrorResponse{
+		Status: http.StatusConflict,
+		Error:  message,
+		Extras: extras,
+	}
+}
+
 func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
 	if message == "" {
 		message = "An error occurred while processing this request."

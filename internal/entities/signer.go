@@ -11,8 +11,8 @@ const (
 
 type Signer struct {
 	Address string     `json:"address" validate:"required,public_key"`
-	Weight  int        `json:"weight" validate:"gte=1"`
-	Type    SignerType `json:"type" validate:"required,oneof=full partial"`
+	Weight  int        `json:"weight"  validate:"gte=1"`
+	Type    SignerType `json:"type"    validate:"required,oneof=full partial"`
 }
 
 // ValidateSignersWeights will validate:
@@ -20,6 +20,11 @@ type Signer struct {
 //  2. all partial signers weights are less than the full signer weight
 //  3. there's at least one full signer.
 func ValidateSignersWeights(signers []Signer) (int, error) {
+	// When no custom signers are provided, we keep the master signer as the full signer without any weight validation
+	if len(signers) == 0 {
+		return 1, nil
+	}
+
 	// firstly make sure all full signers have the same weight
 	var fullSignerWeight *int
 	for _, s := range signers {
