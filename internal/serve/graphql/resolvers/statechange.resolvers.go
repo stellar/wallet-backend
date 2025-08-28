@@ -6,14 +6,9 @@ package resolvers
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // Account is the resolver for the account field.
@@ -211,144 +206,6 @@ func (r *sponsorshipStateChangeResolver) SponsorAccountID(ctx context.Context, o
 	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
-// TokenID is the resolver for the tokenId field.
-// This resolver handles nullable string fields from the database
-// GraphQL nullable fields return null when the database value is not valid
-func (r *stateChangeResolver) TokenID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
-}
-
-// Amount is the resolver for the amount field.
-func (r *stateChangeResolver) Amount(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.Amount), nil
-}
-
-// ClaimableBalanceID is the resolver for the claimableBalanceId field.
-func (r *stateChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.ClaimableBalanceID), nil
-}
-
-// LiquidityPoolID is the resolver for the liquidityPoolId field.
-func (r *stateChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.LiquidityPoolID), nil
-}
-
-// OfferID is the resolver for the offerId field.
-func (r *stateChangeResolver) OfferID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.OfferID), nil
-}
-
-// SignerAccountID is the resolver for the signerAccountId field.
-func (r *stateChangeResolver) SignerAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.SignerAccountID), nil
-}
-
-// SpenderAccountID is the resolver for the spenderAccountId field.
-func (r *stateChangeResolver) SpenderAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.SpenderAccountID), nil
-}
-
-// SponsoredAccountID is the resolver for the sponsoredAccountId field.
-func (r *stateChangeResolver) SponsoredAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.SponsoredAccountID), nil
-}
-
-// SponsorAccountID is the resolver for the sponsorAccountId field.
-func (r *stateChangeResolver) SponsorAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	return r.resolveNullableString(obj.SponsorAccountID), nil
-}
-
-// SignerWeights is the resolver for the signerWeights field.
-// This resolver handles JSONB fields from the database
-// Converts Go struct/map to JSON string for GraphQL
-func (r *stateChangeResolver) SignerWeights(ctx context.Context, obj *types.StateChange) (*string, error) {
-	// Check if JSONB field has data
-	if obj.SignerWeights == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON bytes
-	jsonBytes, err := json.Marshal(obj.SignerWeights)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal signerWeights: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
-// Thresholds is the resolver for the thresholds field.
-// Handles JSONB threshold data conversion to JSON string
-func (r *stateChangeResolver) Thresholds(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.Thresholds == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON for GraphQL
-	jsonBytes, err := json.Marshal(obj.Thresholds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal thresholds: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
-// Flags is the resolver for the flags field.
-// Converts Go string slice to GraphQL string array
-// This field uses a non-nullable array return type
-func (r *stateChangeResolver) Flags(ctx context.Context, obj *types.StateChange) ([]string, error) {
-	if obj.Flags == nil {
-		return []string{}, nil
-	}
-	return []string(obj.Flags), nil
-}
-
-// KeyValue is the resolver for the keyValue field.
-// Handles JSONB key-value data conversion to JSON string
-func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.KeyValue == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON for GraphQL
-	jsonBytes, err := json.Marshal(obj.KeyValue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal keyValue: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
-// Operation is the resolver for the operation field.
-func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-
-	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
-	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
-	}
-	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, err
-	}
-	return operations, nil
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-
-	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
-	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
-	}
-	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, err
-	}
-	return transaction, nil
-}
-
 // AllowanceStateChange returns graphql1.AllowanceStateChangeResolver implementation.
 func (r *Resolver) AllowanceStateChange() graphql1.AllowanceStateChangeResolver {
 	return &allowanceStateChangeResolver{r}
@@ -389,9 +246,6 @@ func (r *Resolver) SponsorshipStateChange() graphql1.SponsorshipStateChangeResol
 	return &sponsorshipStateChangeResolver{r}
 }
 
-// StateChange returns graphql1.StateChangeResolver implementation.
-func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
-
 type (
 	allowanceStateChangeResolver           struct{ *Resolver }
 	flagsStateChangeResolver               struct{ *Resolver }
@@ -401,5 +255,4 @@ type (
 	signatureThresholdsStateChangeResolver struct{ *Resolver }
 	signerStateChangeResolver              struct{ *Resolver }
 	sponsorshipStateChangeResolver         struct{ *Resolver }
-	stateChangeResolver                    struct{ *Resolver }
 )

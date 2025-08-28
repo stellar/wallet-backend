@@ -19,29 +19,26 @@ import (
 )
 
 func TestStateChangeResolver_NullableStringFields(t *testing.T) {
-	resolver := &stateChangeResolver{&Resolver{}}
+	resolver := &paymentStateChangeResolver{&Resolver{}}
 	ctx := context.Background()
 
 	t.Run("all valid", func(t *testing.T) {
-		obj := &types.StateChange{
-			TokenID:            sql.NullString{String: "token1", Valid: true},
-			Amount:             sql.NullString{String: "100.5", Valid: true},
-			ClaimableBalanceID: sql.NullString{String: "cb1", Valid: true},
-			LiquidityPoolID:    sql.NullString{String: "lp1", Valid: true},
-			OfferID:            sql.NullString{String: "offer1", Valid: true},
-			SignerAccountID:    sql.NullString{String: "G-SIGNER", Valid: true},
-			SpenderAccountID:   sql.NullString{String: "G-SPENDER", Valid: true},
-			SponsoredAccountID: sql.NullString{String: "G-SPONSORED", Valid: true},
-			SponsorAccountID:   sql.NullString{String: "G-SPONSOR", Valid: true},
+		obj := &types.PaymentStateChangeModel{
+			StateChange: types.StateChange{
+				TokenID:            sql.NullString{String: "token1", Valid: true},
+				Amount:             sql.NullString{String: "100.5", Valid: true},
+				ClaimableBalanceID: sql.NullString{String: "cb1", Valid: true},
+				LiquidityPoolID:    sql.NullString{String: "lp1", Valid: true},
+			},
 		}
 
 		tokenID, err := resolver.TokenID(ctx, obj)
 		require.NoError(t, err)
-		assert.Equal(t, "token1", *tokenID)
+		assert.Equal(t, "token1", tokenID)
 
 		amount, err := resolver.Amount(ctx, obj)
 		require.NoError(t, err)
-		assert.Equal(t, "100.5", *amount)
+		assert.Equal(t, "100.5", amount)
 
 		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
 		require.NoError(t, err)
@@ -50,38 +47,18 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 		lpID, err := resolver.LiquidityPoolID(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, "lp1", *lpID)
-
-		offerID, err := resolver.OfferID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "offer1", *offerID)
-
-		signer, err := resolver.SignerAccountID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "G-SIGNER", *signer)
-
-		spender, err := resolver.SpenderAccountID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "G-SPENDER", *spender)
-
-		sponsored, err := resolver.SponsoredAccountID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "G-SPONSORED", *sponsored)
-
-		sponsor, err := resolver.SponsorAccountID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "G-SPONSOR", *sponsor)
 	})
 
 	t.Run("all null", func(t *testing.T) {
-		obj := &types.StateChange{} // All fields are zero-valued (Valid: false)
+		obj := &types.PaymentStateChangeModel{} // All fields are zero-valued (Valid: false)
 
 		tokenID, err := resolver.TokenID(ctx, obj)
 		require.NoError(t, err)
-		assert.Nil(t, tokenID)
+		assert.Equal(t, "", tokenID)
 
 		amount, err := resolver.Amount(ctx, obj)
 		require.NoError(t, err)
-		assert.Nil(t, amount)
+		assert.Equal(t, "", amount)
 
 		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
 		require.NoError(t, err)
@@ -90,12 +67,14 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 }
 
 func TestStateChangeResolver_JSONFields(t *testing.T) {
-	resolver := &stateChangeResolver{&Resolver{}}
 	ctx := context.Background()
 
 	t.Run("signer weights", func(t *testing.T) {
-		obj := &types.StateChange{
-			SignerWeights: types.NullableJSONB{"weight": 1},
+		resolver := &signerStateChangeResolver{&Resolver{}}
+		obj := &types.SignerStateChangeModel{
+			StateChange: types.StateChange{
+				SignerWeights: types.NullableJSONB{"weight": 1},
+			},
 		}
 		expectedJSON, err := json.Marshal(obj.SignerWeights)
 		require.NoError(t, err)
@@ -111,20 +90,26 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("thresholds", func(t *testing.T) {
-		obj := &types.StateChange{
-			Thresholds: types.NullableJSONB{"low": 1, "med": 2},
+		resolver := &signatureThresholdsStateChangeResolver{&Resolver{}}
+		obj := &types.SignatureThresholdsStateChangeModel{
+			StateChange: types.StateChange{
+				Thresholds: types.NullableJSONB{"low": 1, "med": 2},
+			},
 		}
 		expectedJSON, err := json.Marshal(obj.Thresholds)
 		require.NoError(t, err)
 
 		jsonStr, err := resolver.Thresholds(ctx, obj)
 		require.NoError(t, err)
-		assert.JSONEq(t, string(expectedJSON), *jsonStr)
+		assert.JSONEq(t, string(expectedJSON), jsonStr)
 	})
 
 	t.Run("flags", func(t *testing.T) {
-		obj := &types.StateChange{
-			Flags: types.NullableJSON{"auth_required", "auth_revocable"},
+		resolver := &flagsStateChangeResolver{&Resolver{}}
+		obj := &types.FlagsStateChangeModel{
+			StateChange: types.StateChange{
+				Flags: types.NullableJSON{"auth_required", "auth_revocable"},
+			},
 		}
 		flags, err := resolver.Flags(ctx, obj)
 		require.NoError(t, err)
@@ -137,15 +122,18 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("key value", func(t *testing.T) {
-		obj := &types.StateChange{
-			KeyValue: types.NullableJSONB{"key": "value"},
+		resolver := &metadataStateChangeResolver{&Resolver{}}
+		obj := &types.MetadataStateChangeModel{
+			StateChange: types.StateChange{
+				KeyValue: types.NullableJSONB{"key": "value"},
+			},
 		}
 		expectedJSON, err := json.Marshal(obj.KeyValue)
 		require.NoError(t, err)
 
 		jsonStr, err := resolver.KeyValue(ctx, obj)
 		require.NoError(t, err)
-		assert.JSONEq(t, string(expectedJSON), *jsonStr)
+		assert.JSONEq(t, string(expectedJSON), jsonStr)
 	})
 }
 
@@ -155,7 +143,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &stateChangeResolver{&Resolver{
+	resolver := &paymentStateChangeResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
 				DB:             testDBConnectionPool,
@@ -163,13 +151,19 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := &types.StateChange{ToID: toid.New(1000, 1, 1).ToInt64(), StateChangeOrder: 1}
+	parentSC := types.PaymentStateChangeModel{
+		StateChange: types.StateChange{
+			ToID:                toid.New(1000, 1, 1).ToInt64(),
+			StateChangeOrder:    1,
+			StateChangeCategory: types.StateChangeCategoryCredit,
+		},
+	}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
-		op, err := resolver.Operation(ctx, parentSC)
+		op, err := resolver.Operation(ctx, &parentSC)
 		require.NoError(t, err)
 		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
 	})
@@ -184,11 +178,17 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent operation", func(t *testing.T) {
-		nonExistentSC := &types.StateChange{ToID: 9999, StateChangeOrder: 1}
+		nonExistentSC := types.PaymentStateChangeModel{
+			StateChange: types.StateChange{
+				ToID:                9999,
+				StateChangeOrder:    1,
+				StateChangeCategory: types.StateChangeCategoryCredit,
+			},
+		}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
-		op, err := resolver.Operation(ctx, nonExistentSC)
+		op, err := resolver.Operation(ctx, &nonExistentSC)
 		require.NoError(t, err) // Dataloader returns nil, not error for missing data
 		assert.Nil(t, op)
 	})
@@ -200,7 +200,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &stateChangeResolver{&Resolver{
+	resolver := &paymentStateChangeResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
 				DB:             testDBConnectionPool,
@@ -208,13 +208,19 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := &types.StateChange{ToID: toid.New(1000, 1, 0).ToInt64(), StateChangeOrder: 1}
+	parentSC := types.PaymentStateChangeModel{
+		StateChange: types.StateChange{
+			ToID:                toid.New(1000, 1, 0).ToInt64(),
+			StateChangeOrder:    1,
+			StateChangeCategory: types.StateChangeCategoryCredit,
+		},
+	}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
-		tx, err := resolver.Transaction(ctx, parentSC)
+		tx, err := resolver.Transaction(ctx, &parentSC)
 		require.NoError(t, err)
 		assert.Equal(t, "tx1", tx.Hash)
 	})
@@ -229,11 +235,18 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent transaction", func(t *testing.T) {
-		nonExistentSC := &types.StateChange{ToID: 9999, StateChangeOrder: 1, TxHash: "non-existent-tx"}
+		nonExistentSC := types.PaymentStateChangeModel{
+			StateChange: types.StateChange{
+				ToID:                9999,
+				StateChangeOrder:    1,
+				TxHash:              "non-existent-tx",
+				StateChangeCategory: types.StateChangeCategoryCredit,
+			},
+		}
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
-		tx, err := resolver.Transaction(ctx, nonExistentSC)
+		tx, err := resolver.Transaction(ctx, &nonExistentSC)
 		require.NoError(t, err) // Dataloader returns nil, not error for missing data
 		assert.Nil(t, tx)
 	})
