@@ -92,7 +92,6 @@ type SponsorshipStateChange implements BaseStateChange{
   transaction:                Transaction! @goField(forceResolver: true)
 
   stateChangeReason:          StateChangeReason!
-  amount:                     String
   sponsoredAccountId:         String   
   sponsorAccountId:           String
 }

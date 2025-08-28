@@ -216,7 +216,6 @@ type ComplexityRoot struct {
 
 	SponsorshipStateChange struct {
 		Account             func(childComplexity int) int
-		Amount              func(childComplexity int) int
 		IngestedAt          func(childComplexity int) int
 		LedgerCreatedAt     func(childComplexity int) int
 		LedgerNumber        func(childComplexity int) int
@@ -368,7 +367,6 @@ type SponsorshipStateChangeResolver interface {
 	Operation(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Transaction, error)
 
-	Amount(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error)
 	SponsoredAccountID(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error)
 	SponsorAccountID(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error)
 }
@@ -1207,13 +1205,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SponsorshipStateChange.Account(childComplexity), true
 
-	case "SponsorshipStateChange.amount":
-		if e.complexity.SponsorshipStateChange.Amount == nil {
-			break
-		}
-
-		return e.complexity.SponsorshipStateChange.Amount(childComplexity), true
-
 	case "SponsorshipStateChange.ingestedAt":
 		if e.complexity.SponsorshipStateChange.IngestedAt == nil {
 			break
@@ -2029,7 +2020,6 @@ type SponsorshipStateChange implements BaseStateChange{
   transaction:                Transaction! @goField(forceResolver: true)
 
   stateChangeReason:          StateChangeReason!
-  amount:                     String
   sponsoredAccountId:         String   
   sponsorAccountId:           String
 }
@@ -8761,47 +8751,6 @@ func (ec *executionContext) fieldContext_SponsorshipStateChange_stateChangeReaso
 	return fc, nil
 }
 
-func (ec *executionContext) _SponsorshipStateChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SponsorshipStateChange_amount(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SponsorshipStateChange().Amount(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*string)
-	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_SponsorshipStateChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "SponsorshipStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _SponsorshipStateChange_sponsoredAccountId(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_SponsorshipStateChange_sponsoredAccountId(ctx, field)
 	if err != nil {
@@ -15438,39 +15387,6 @@ func (ec *executionContext) _SponsorshipStateChange(ctx context.Context, sel ast
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "amount":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._SponsorshipStateChange_amount(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "sponsoredAccountId":
 			field := field
 

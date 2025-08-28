@@ -201,11 +201,6 @@ func (r *sponsorshipStateChangeResolver) Transaction(ctx context.Context, obj *t
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
-// Amount is the resolver for the amount field.
-func (r *sponsorshipStateChangeResolver) Amount(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.Amount), nil
-}
-
 // SponsoredAccountID is the resolver for the sponsoredAccountId field.
 func (r *sponsorshipStateChangeResolver) SponsoredAccountID(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.SponsoredAccountID), nil
