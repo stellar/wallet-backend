@@ -318,8 +318,8 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 	return bytes, nil
 }
 
-// GraphQL BaseStateChange interface implementation
-// These methods allow types.StateChange to satisfy the BaseStateChange interface
+// IsBaseStateChange implements the GraphQL BaseStateChange interface
+// This method allows types.StateChange to satisfy the BaseStateChange interface
 func (sc StateChange) IsBaseStateChange() {}
 
 func (sc StateChange) GetStateChangeCategory() StateChangeCategory {

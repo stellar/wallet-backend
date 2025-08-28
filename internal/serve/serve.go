@@ -277,10 +277,10 @@ func addComplexityCalculation(config *generated.Config) {
 		--------------------------------
 		Complexity is a measure of the computational cost of a query.
 		It is used to determine the performance of a query and to prevent
-		queries that are too complex from being executed. 
-		
+		queries that are too complex from being executed.
+
 		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
-		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters 
+		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
 		to calculate the final complexity.
 
 		For example, for the following query, the complexity is calculated as follows:

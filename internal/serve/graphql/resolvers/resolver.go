@@ -9,14 +9,17 @@ package resolvers
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
-	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
+	"github.com/stellar/wallet-backend/internal/services"
+
 	// TODO: Move TransactionService under /services
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
@@ -34,16 +37,72 @@ type Resolver struct {
 	transactionService txservices.TransactionService
 }
 
+// Shared field resolver functions
+// These functions handle common field resolution patterns to avoid duplication
+
+// resolveNullableString resolves nullable string fields from the database
+// Returns pointer to string if valid, nil if null
+func (r *Resolver) resolveNullableString(field sql.NullString) *string {
+	if field.Valid {
+		return &field.String
+	}
+	return nil
+}
+
+// resolveRequiredString resolves required string fields from the database
+// Returns empty string if null to satisfy non-nullable GraphQL fields
+func (r *Resolver) resolveRequiredString(field sql.NullString) string {
+	if field.Valid {
+		return field.String
+	}
+	return ""
+}
+
+// resolveJSONBField resolves JSONB fields that return nullable strings
+// Marshals Go object to JSON string, returns nil if field is nil
+func (r *Resolver) resolveJSONBField(field interface{}) (*string, error) {
+	if field == nil {
+		return nil, nil
+	}
+	jsonBytes, err := json.Marshal(field)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSONB field: %w", err)
+	}
+	jsonString := string(jsonBytes)
+	return &jsonString, nil
+}
+
+// resolveRequiredJSONBField resolves JSONB fields that return required strings
+// Marshals Go object to JSON string, returns empty string if field is nil
+func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) {
+	if field == nil {
+		return "", nil
+	}
+	jsonBytes, err := json.Marshal(field)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSONB field: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
+// resolveStringArray resolves string array fields
+// Returns empty slice if nil to satisfy non-nullable GraphQL array fields
+func (r *Resolver) resolveStringArray(field []string) []string {
+	if field == nil {
+		return []string{}
+	}
+	return field
+}
+
 // Shared resolver functions for BaseStateChange interface
 // These functions provide common logic that all state change types can use
 
 // resolveStateChangeAccount resolves the account field for any state change type
 // This function extracts the common account resolution logic to avoid duplication
-func (r *Resolver) resolveStateChangeAccount(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Account, error) {
-	// TODO(human): Implement account resolution logic
-	// This should use the account loaders to fetch account data by ID
-	// Consider using the existing account dataloaders pattern
-	panic(fmt.Errorf("not implemented: resolveStateChangeAccount - account resolution"))
+func (r *Resolver) resolveStateChangeAccount(ctx context.Context, accountID string) (*types.Account, error) {
+	// Use the models.Account.Get method to fetch the account by address
+	// This follows the same pattern as the AccountByAddress resolver
+	return r.models.Account.Get(ctx, accountID)
 }
 
 // resolveStateChangeOperation resolves the operation field for any state change type
@@ -64,7 +123,7 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 	return operations, nil
 }
 
-// resolveStateChangeTransaction resolves the transaction field for any state change type  
+// resolveStateChangeTransaction resolves the transaction field for any state change type
 // Reuses the existing logic from the original StateChange resolver
 func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
