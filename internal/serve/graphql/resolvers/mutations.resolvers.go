@@ -237,9 +237,10 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 		}
 	}
 
-	// Transaction() returns (tx, false) when genericTx is a fee-bump transaction
-	tx, isGenericTx := genericTx.Transaction()
-	if !isGenericTx {
+	// Transaction() returns (tx, false) when genericTx is a fee-bump transaction.
+	// If the second return value is false, it means the transaction is already a fee-bump transaction.
+	tx, ok := genericTx.Transaction()
+	if !ok {
 		return nil, &gqlerror.Error{
 			Message: "Cannot accept a fee-bump transaction.",
 			Extensions: map[string]interface{}{
