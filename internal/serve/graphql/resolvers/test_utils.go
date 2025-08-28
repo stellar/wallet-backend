@@ -159,42 +159,42 @@ func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor
 	switch v := sc.(type) {
 	case *types.PaymentStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.SponsorshipStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.LiabilityStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
-		}	
+		}
 	case *types.SignerStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.SignatureThresholdsStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.FlagsStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.MetadataStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	case *types.AllowanceStateChangeModel:
 		return types.StateChangeCursor{
-			ToID: v.ToID,
+			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
 	}

@@ -100,7 +100,7 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
 
-	convertedStateChanges := convertStateChangeToBaseStateChange(ctx, stateChanges)
+	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
 		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
 	})

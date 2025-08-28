@@ -104,7 +104,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 		return nil, err
 	}
 
-	convertedStateChanges := convertStateChangeToBaseStateChange(ctx, stateChanges)
+	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
 		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
 	})

@@ -392,12 +392,14 @@ func (r *Resolver) SponsorshipStateChange() graphql1.SponsorshipStateChangeResol
 // StateChange returns graphql1.StateChangeResolver implementation.
 func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
 
-type allowanceStateChangeResolver struct{ *Resolver }
-type flagsStateChangeResolver struct{ *Resolver }
-type liabilityStateChangeResolver struct{ *Resolver }
-type metadataStateChangeResolver struct{ *Resolver }
-type paymentStateChangeResolver struct{ *Resolver }
-type signatureThresholdsStateChangeResolver struct{ *Resolver }
-type signerStateChangeResolver struct{ *Resolver }
-type sponsorshipStateChangeResolver struct{ *Resolver }
-type stateChangeResolver struct{ *Resolver }
+type (
+	allowanceStateChangeResolver           struct{ *Resolver }
+	flagsStateChangeResolver               struct{ *Resolver }
+	liabilityStateChangeResolver           struct{ *Resolver }
+	metadataStateChangeResolver            struct{ *Resolver }
+	paymentStateChangeResolver             struct{ *Resolver }
+	signatureThresholdsStateChangeResolver struct{ *Resolver }
+	signerStateChangeResolver              struct{ *Resolver }
+	sponsorshipStateChangeResolver         struct{ *Resolver }
+	stateChangeResolver                    struct{ *Resolver }
+)

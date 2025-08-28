@@ -95,11 +95,11 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	}
 }
 
-func convertStateChangeToBaseStateChange(ctx context.Context, stateChanges []*types.StateChangeWithCursor) []*baseStateChangeWithCursor {
+func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCursor) []*baseStateChangeWithCursor {
 	convertedStateChanges := make([]*baseStateChangeWithCursor, len(stateChanges))
 	for i, stateChange := range stateChanges {
 		convertedStateChanges[i] = &baseStateChangeWithCursor{
-			stateChange: convertStateChangeTypes(ctx, stateChange.StateChange),
+			stateChange: convertStateChangeTypes(stateChange.StateChange),
 			cursor:      stateChange.Cursor,
 		}
 	}
@@ -109,7 +109,7 @@ func convertStateChangeToBaseStateChange(ctx context.Context, stateChanges []*ty
 
 // convertStateChangeTypes is the resolver for BaseStateChange interface type resolution
 // This method determines which concrete GraphQL type to return based on StateChangeCategory
-func convertStateChangeTypes(ctx context.Context, stateChange types.StateChange) generated.BaseStateChange {
+func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryCredit, types.StateChangeCategoryDebit, types.StateChangeCategoryMint, types.StateChangeCategoryBurn:
 		return &types.PaymentStateChangeModel{

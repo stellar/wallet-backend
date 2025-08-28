@@ -116,7 +116,11 @@ func (r *Resolver) resolveStringArray(field []string) []string {
 func (r *Resolver) resolveStateChangeAccount(ctx context.Context, accountID string) (*types.Account, error) {
 	// Use the models.Account.Get method to fetch the account by address
 	// This follows the same pattern as the AccountByAddress resolver
-	return r.models.Account.Get(ctx, accountID)
+	account, err := r.models.Account.Get(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("getting account %s: %w", accountID, err)
+	}
+	return account, nil
 }
 
 // resolveStateChangeOperation resolves the operation field for any state change type
@@ -132,7 +136,7 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 	}
 	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeID, err)
 	}
 	return operations, nil
 }
@@ -150,7 +154,7 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 	}
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeID, err)
 	}
 	return transaction, nil
 }
