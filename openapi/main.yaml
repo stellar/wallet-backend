@@ -296,6 +296,31 @@ paths:
                   type: string
                   description: "The address of the account to be created."
                   example: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                skipSponsorship:
+                  type: boolean
+                  description: "Whether to skip sponsorship. If true, the transaction will be created without the reserve sponsorship sandwich operations."
+                  example: false
+                masterSignerWeight:
+                  type: integer
+                  description: "The weight of the master signer."
+                  example: 20
+                assets:
+                  type: array
+                  description: "List of assets to be created."
+                  items:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        description: "The code of the asset."
+                        example: "USDC"
+                      issuer:
+                        type: string
+                        description: "The issuer of the asset."
+                        example: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  required:
+                    - code
+                    - issuer
                 signers:
                   type: array
                   description: "List of signers with their respective addresses, types, and weights."
@@ -316,9 +341,12 @@ paths:
                         example: 20
               required:
                 - address
-                - signers
               example:
                 address: "GBQ4HFNATBR4NXIDHDNSLAXZAWUFQ7DLMS5DUFWOBXNXFBOZFE3NQ243"
+                masterSignerWeight: 0
+                assets:
+                  - code: "USDC"
+                    issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                 signers:
                   - address: "GCXCF2T2FUY6UFYBLXNLJKGA4K6Y23KQEWTGV2X2YRBYOTP2RVYKY2DU"
                     type: "full"
