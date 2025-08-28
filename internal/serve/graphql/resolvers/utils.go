@@ -39,6 +39,11 @@ type PaginationParams struct {
 	SortOrder         data.SortOrder
 }
 
+type baseStateChangeWithCursor struct {
+	stateChange generated.BaseStateChange
+	cursor      types.StateChangeCursor
+}
+
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
 func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params PaginationParams, getCursorID func(T) C) *GenericConnection[T] {
 	hasNextPage := false
@@ -88,6 +93,18 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 		Edges:    edges,
 		PageInfo: pageInfo,
 	}
+}
+
+func convertStateChangeToBaseStateChange(ctx context.Context, stateChanges []*types.StateChangeWithCursor) []*baseStateChangeWithCursor {
+	convertedStateChanges := make([]*baseStateChangeWithCursor, len(stateChanges))
+	for i, stateChange := range stateChanges {
+		convertedStateChanges[i] = &baseStateChangeWithCursor{
+			stateChange: convertStateChangeTypes(ctx, stateChange.StateChange),
+			cursor:      stateChange.Cursor,
+		}
+	}
+
+	return convertedStateChanges
 }
 
 // convertStateChangeTypes is the resolver for BaseStateChange interface type resolution
