@@ -170,6 +170,30 @@ models:
   StateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.StateChange
+  PaymentStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.PaymentStateChangeModel
+  AllowanceStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AllowanceStateChangeModel
+  LiabilityStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.LiabilityStateChangeModel
+  SponsorshipStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipStateChangeModel
+  SignerStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerStateChangeModel
+  SignatureThresholdsStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignatureThresholdsStateChangeModel
+  FlagsStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.FlagsStateChangeModel
+  MetadataStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.MetadataStateChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType

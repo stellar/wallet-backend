@@ -24,7 +24,7 @@ type StateChangeConnection {
 }
 
 type StateChangeEdge {
-    node: StateChange
+    node: BaseStateChange
     cursor: String!
 }
 
