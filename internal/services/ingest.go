@@ -37,7 +37,6 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 const (
 	advisoryLockID                = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime  = 90 * time.Second
-	getLedgersLimit               = 50 // NOTE: cannot be larger than 200
 	ledgerProcessorsCount         = 16
 	totalIngestionPrometheusLabel = "total"
 )
@@ -57,6 +56,7 @@ type ingestService struct {
 	contractStore     cache.TokenContractStore
 	metricsService    metrics.MetricsService
 	networkPassphrase string
+	getLedgersLimit   int
 }
 
 func NewIngestService(
@@ -67,6 +67,7 @@ func NewIngestService(
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
+	getLedgersLimit int,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -89,6 +90,9 @@ func NewIngestService(
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
+	if getLedgersLimit <= 0 {
+		return nil, errors.New("getLedgersLimit must be greater than 0")
+	}
 
 	return &ingestService{
 		models:            models,
@@ -99,6 +103,7 @@ func NewIngestService(
 		contractStore:     contractStore,
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
+		getLedgersLimit:   getLedgersLimit,
 	}, nil
 }
 
@@ -162,7 +167,11 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 
 			// immediately trigger the next ingestion the wallet-backend is behind the RPC's latest ledger
 			if resp.LatestLedger-ingestLedger > 1 {
-				manualTriggerChannel <- true
+				select {
+				case manualTriggerChannel <- true:
+				default:
+					// do nothing if the channel is full
+				}
 			}
 
 			ingestLedger++
@@ -243,15 +252,19 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
 
-		if len(getLedgersResponse.Ledgers) == getLedgersLimit {
-			manualTriggerChan <- nil
+		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
+			select {
+			case manualTriggerChan <- true:
+			default:
+				// do nothing if the channel is full
+			}
 		}
 	}
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
 func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) (GetLedgersResponse, error) {
-	ledgerSeqRange, inSync := getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
+	ledgerSeqRange, inSync := m.getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
 	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
 	if inSync {
 		return GetLedgersResponse{}, ErrAlreadyInSync
@@ -276,12 +289,12 @@ type LedgerSeqRange struct {
 // - the max ledger window to ingest.
 //
 // The returned ledger sequence range is inclusive of the start and end ledgers.
-func getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (ledgerRange LedgerSeqRange, inSync bool) {
+func (m *ingestService) getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (ledgerRange LedgerSeqRange, inSync bool) {
 	if latestLedgerSynced >= rpcNewestLedger {
 		return LedgerSeqRange{}, true
 	}
 	ledgerRange.StartLedger = max(latestLedgerSynced+1, rpcOldestLedger)
-	ledgerRange.Limit = getLedgersLimit
+	ledgerRange.Limit = uint32(m.getLedgersLimit)
 
 	return ledgerRange, false
 }
