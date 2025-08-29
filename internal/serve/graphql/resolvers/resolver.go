@@ -120,13 +120,19 @@ func (r *Resolver) resolveStringArray(field []string) []string {
 // These functions provide common logic that all state change types can use
 
 // resolveStateChangeAccount resolves the account field for any state change type
-// This function extracts the common account resolution logic to avoid duplication
-func (r *Resolver) resolveStateChangeAccount(ctx context.Context, accountID string) (*types.Account, error) {
-	// Use the models.Account.Get method to fetch the account by address
-	// This follows the same pattern as the AccountByAddress resolver
-	account, err := r.models.Account.Get(ctx, accountID)
+// Since state changes have a direct account_id reference, we can fetch the account directly
+func (r *Resolver) resolveStateChangeAccount(ctx context.Context, toID int64, stateChangeOrder int64) (*types.Account, error) {
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
+
+	stateChangeID := fmt.Sprintf("%d-%d", toID, stateChangeOrder)
+	loaderKey := dataloaders.AccountColumnsKey{
+		StateChangeID: stateChangeID,
+		Columns:       strings.Join(dbColumns, ", "),
+	}
+	account, err := loaders.AccountByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
-		return nil, fmt.Errorf("getting account %s: %w", accountID, err)
+		return nil, fmt.Errorf("loading account for state change %s: %w", stateChangeID, err)
 	}
 	return account, nil
 }

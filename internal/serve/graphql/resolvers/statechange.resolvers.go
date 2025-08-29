@@ -13,7 +13,7 @@ import (
 
 // Account is the resolver for the account field.
 func (r *allowanceStateChangeResolver) Account(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -33,7 +33,7 @@ func (r *allowanceStateChangeResolver) SpenderAccountID(ctx context.Context, obj
 
 // Account is the resolver for the account field.
 func (r *flagsStateChangeResolver) Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -53,7 +53,7 @@ func (r *flagsStateChangeResolver) Flags(ctx context.Context, obj *types.FlagsSt
 
 // Account is the resolver for the account field.
 func (r *liabilityStateChangeResolver) Account(ctx context.Context, obj *types.LiabilityStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -83,7 +83,7 @@ func (r *liabilityStateChangeResolver) OfferID(ctx context.Context, obj *types.L
 
 // Account is the resolver for the account field.
 func (r *metadataStateChangeResolver) Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -103,7 +103,7 @@ func (r *metadataStateChangeResolver) KeyValue(ctx context.Context, obj *types.M
 
 // Account is the resolver for the account field.
 func (r *paymentStateChangeResolver) Account(ctx context.Context, obj *types.PaymentStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -138,7 +138,7 @@ func (r *paymentStateChangeResolver) LiquidityPoolID(ctx context.Context, obj *t
 
 // Account is the resolver for the account field.
 func (r *signatureThresholdsStateChangeResolver) Account(ctx context.Context, obj *types.SignatureThresholdsStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -158,7 +158,7 @@ func (r *signatureThresholdsStateChangeResolver) Thresholds(ctx context.Context,
 
 // Account is the resolver for the account field.
 func (r *signerStateChangeResolver) Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
@@ -183,7 +183,7 @@ func (r *signerStateChangeResolver) SignerWeights(ctx context.Context, obj *type
 
 // Account is the resolver for the account field.
 func (r *sponsorshipStateChangeResolver) Account(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.AccountID)
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.

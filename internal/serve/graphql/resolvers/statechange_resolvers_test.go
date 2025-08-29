@@ -137,6 +137,63 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 }
 
+func TestStateChangeResolver_Account(t *testing.T) {
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &paymentStateChangeResolver{&Resolver{
+		models: &data.Models{
+			Account: &data.AccountModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+	parentSC := types.PaymentStateChangeModel{
+		StateChange: types.StateChange{
+			ToID:                toid.New(1000, 1, 1).ToInt64(),
+			StateChangeOrder:    1,
+			StateChangeCategory: types.StateChangeCategoryCredit,
+		},
+	}
+
+	t.Run("success", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+
+		account, err := resolver.Account(ctx, &parentSC)
+		require.NoError(t, err)
+		assert.Equal(t, "test-account", account.StellarAddress)
+	})
+
+	t.Run("nil state change panics", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+
+		assert.Panics(t, func() {
+			_, _ = resolver.Account(ctx, nil) //nolint:errcheck
+		})
+	})
+
+	t.Run("state change with non-existent account", func(t *testing.T) {
+		nonExistentSC := types.PaymentStateChangeModel{
+			StateChange: types.StateChange{
+				ToID:                9999,
+				StateChangeOrder:    1,
+				StateChangeCategory: types.StateChangeCategoryCredit,
+			},
+		}
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("accounts", []string{""}), middleware.LoadersKey, loaders)
+
+		account, err := resolver.Account(ctx, &nonExistentSC)
+		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		assert.Nil(t, account)
+	})
+}
+
 func TestStateChangeResolver_Operation(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
