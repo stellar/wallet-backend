@@ -12,7 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/support/render/health"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -35,13 +34,15 @@ import (
 var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
-	Port                    int
-	DatabaseURL             string
-	ServerBaseURL           string
-	ClientAuthPublicKeys    []string
-	LogLevel                logrus.Level
-	EncryptionPassphrase    string
-	NumberOfChannelAccounts int
+	Port                        int
+	DatabaseURL                 string
+	ServerBaseURL               string
+	ClientAuthPublicKeys        []string
+	ClientAuthMaxTimeoutSeconds int
+	ClientAuthMaxBodySizeBytes  int
+	LogLevel                    logrus.Level
+	EncryptionPassphrase        string
+	NumberOfChannelAccounts     int
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -72,6 +73,7 @@ type handlerDeps struct {
 	PaymentService            services.PaymentService
 	MetricsService            metrics.MetricsService
 	TransactionService        txservices.TransactionService
+	RPCService                services.RPCService
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -114,11 +116,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
@@ -193,6 +195,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
 		MetricsService:            metricsService,
+		RPCService:                rpcService,
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		TransactionService:        txService,
@@ -218,7 +221,11 @@ func handler(deps handlerDeps) http.Handler {
 	mux.Use(middleware.MetricsMiddleware(deps.MetricsService))
 	mux.Use(middleware.RecoverHandler(deps.AppTracker))
 
-	mux.Get("/health", health.PassHandler{}.ServeHTTP)
+	mux.Get("/health", httphandler.HealthHandler{
+		Models:     deps.Models,
+		RPCService: deps.RPCService,
+		AppTracker: deps.AppTracker,
+	}.GetHealth)
 	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Authenticated routes

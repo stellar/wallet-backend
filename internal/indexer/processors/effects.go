@@ -76,6 +76,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
 	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
 	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
+	txID := opWrapper.Transaction.ID()
 
 	// Extract effects from the operation using Stellar SDK
 	effectOutputs, err := effects.Effects(opWrapper)
@@ -90,7 +91,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 	}
 
 	var stateChanges []types.StateChange
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash).WithOperationID(opWrapper.ID())
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)

@@ -281,7 +281,14 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthC
 		}
 
 		unhealthyWarningTicker.Reset(r.HealthCheckWarningInterval())
-		r.heartbeatChannel <- health
+		select {
+		case r.heartbeatChannel <- health:
+			// sent successfully
+		default:
+			// channel is full, clear it and send latest
+			<-r.heartbeatChannel
+			r.heartbeatChannel <- health
+		}
 		r.metricsService.SetRPCServiceHealth(true)
 		r.metricsService.SetRPCLatestLedger(int64(health.LatestLedger))
 	}

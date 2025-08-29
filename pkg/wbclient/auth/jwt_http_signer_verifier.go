@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const DefaultMaxBodySize int64 = 10_240 // 10kb
+const DefaultMaxBodySizeBytes int64 = 102_400 // 100kb
 
 var ErrUnauthorized = errors.New("not authorized")
 
@@ -27,16 +27,16 @@ type HTTPRequestVerifier interface {
 
 // JWTHTTPSignerVerifier implements both signing and verifying of HTTP requests.
 type JWTHTTPSignerVerifier struct {
-	parser      JWTTokenParser
-	generator   JWTTokenGenerator
-	maxBodySize int64
+	parser           JWTTokenParser
+	generator        JWTTokenGenerator
+	maxBodySizeBytes int64
 }
 
-func (s *JWTHTTPSignerVerifier) MaxBodySize() int64 {
-	if s.maxBodySize == 0 {
-		return DefaultMaxBodySize
+func (s *JWTHTTPSignerVerifier) MaxBodySizeBytes() int64 {
+	if s.maxBodySizeBytes == 0 {
+		return DefaultMaxBodySizeBytes
 	}
-	return s.maxBodySize
+	return s.maxBodySizeBytes
 }
 
 // SignHTTPRequest signs an HTTP request with a JWT.
@@ -89,7 +89,7 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience st
 	var bodyBytes []byte
 	if req.Body != nil {
 		var err error
-		if bodyBytes, err = io.ReadAll(io.LimitReader(req.Body, s.MaxBodySize())); err != nil {
+		if bodyBytes, err = io.ReadAll(io.LimitReader(req.Body, s.MaxBodySizeBytes())); err != nil {
 			return fmt.Errorf("reading request body: %w", err)
 		} else {
 			defer func() { // Reset the body so it can be read again
@@ -119,9 +119,9 @@ func NewHTTPRequestSigner(generator JWTTokenGenerator) HTTPRequestSigner {
 }
 
 // NewHTTPRequestVerifier creates a new HTTPRequestVerifier with the given JWTTokenParser.
-func NewHTTPRequestVerifier(parser JWTTokenParser, maxBodySize int64) HTTPRequestVerifier {
+func NewHTTPRequestVerifier(parser JWTTokenParser, maxBodySizeBytes int64) HTTPRequestVerifier {
 	return &JWTHTTPSignerVerifier{
-		parser:      parser,
-		maxBodySize: maxBodySize,
+		parser:           parser,
+		maxBodySizeBytes: maxBodySizeBytes,
 	}
 }

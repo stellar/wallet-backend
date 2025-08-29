@@ -23,6 +23,7 @@ type IndexerBufferInterface interface {
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
 	GetAllStateChanges() []types.StateChange
+	CalculateStateChangeOrder()
 }
 
 type TokenTransferProcessorInterface interface {
@@ -111,6 +112,9 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("processing token transfer state changes: %w", err)
 	}
 	i.Buffer.PushStateChanges(tokenTransferStateChanges)
+
+	// Generate IDs for state changes
+	i.Buffer.CalculateStateChangeOrder()
 
 	return nil
 }

@@ -112,13 +112,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				}
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(opParticipants, nil)
 
-				tokenStateChanges := []types.StateChange{{ID: "token_sc1"}}
+				tokenStateChanges := []types.StateChange{{ToID: 1, StateChangeOrder: 1}}
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return(tokenStateChanges, nil)
 
-				effectsStateChanges := []types.StateChange{{ID: "effects_sc1"}}
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return(effectsStateChanges, nil)
+				effectsStateChanges := []types.StateChange{{ToID: 2, StateChangeOrder: 1}}
+				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(effectsStateChanges, nil)
 
-				contractDeployStateChanges := []types.StateChange{{ID: "contract_deploy_sc1"}}
+				contractDeployStateChanges := []types.StateChange{{ToID: 3, StateChangeOrder: 1}}
 				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return(contractDeployStateChanges, nil)
 
 				// Verify transaction was pushed to buffer with correct participants
@@ -131,6 +131,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					mock.MatchedBy(func(tx types.Transaction) bool {
 						return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
 					})).Return()
+				mockBuffer.On("CalculateStateChangeOrder").Return()
 
 				// Verify operation was pushed to buffer with correct data
 				// PushParticipantOperation is called once for each participant of each operation
@@ -146,15 +147,15 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				// PushStateChanges is called separately for effects and token transfer state changes
 				mockBuffer.On("PushStateChanges",
 					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ID == "effects_sc1"
+						return len(stateChanges) == 1 && stateChanges[0].ToID == 1 && stateChanges[0].StateChangeOrder == 1
 					})).Return()
 				mockBuffer.On("PushStateChanges",
 					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ID == "token_sc1"
+						return len(stateChanges) == 1 && stateChanges[0].ToID == 2 && stateChanges[0].StateChangeOrder == 1
 					})).Return()
 				mockBuffer.On("PushStateChanges",
 					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ID == "contract_deploy_sc1"
+						return len(stateChanges) == 1 && stateChanges[0].ToID == 3 && stateChanges[0].StateChangeOrder == 1
 					})).Return()
 			},
 			txParticipants: set.NewSet("alice", "bob"),
@@ -188,6 +189,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
 						return len(stateChanges) == 0
 					})).Return()
+				mockBuffer.On("CalculateStateChangeOrder").Return()
 			},
 			txParticipants:  set.NewSet[string](),
 			opsParticipants: map[int64]processors.OperationParticipants{},
@@ -296,6 +298,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				// PushStateChanges should always be called
 				mockBuffer.AssertCalled(t, "PushStateChanges", mock.Anything)
+				mockBuffer.AssertCalled(t, "CalculateStateChangeOrder")
 			}
 
 			// Verify all mock expectations were met

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -50,7 +49,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredField:      "foo",
 					RequiredArrayField: []string{"bar", ""},
 					EnumField:          "bar",
-					PublicKeyField:     keypair.MustRandom().Address(),
+					PublicKeyField:     "GABJI7HL7SUQNXALMFMY35GHVXIZICQYONETFCW53CQ5QB6WX2T6GLIT",
 					UnknownTagField:    2,
 				},
 				expectedFieldErrors: map[string]interface{}{
@@ -62,7 +61,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredField:      "foo",
 					RequiredArrayField: []string{"bar"},
 					EnumField:          "bar",
-					PublicKeyField:     keypair.MustRandom().Address(),
+					PublicKeyField:     "MABJI7HL7SUQNXALMFMY35GHVXIZICQYONETFCW53CQ5QB6WX2T6GAAAAAAAAAPCIDPLU",
 					UnknownTagField:    1,
 				},
 				expectedFieldErrors: map[string]interface{}{
@@ -74,7 +73,7 @@ func TestParseValidationError(t *testing.T) {
 					RequiredField:      "foo",
 					RequiredArrayField: []string{"bar"},
 					EnumField:          "bar",
-					PublicKeyField:     keypair.MustRandom().Address(),
+					PublicKeyField:     "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
 					UnknownTagField:    2,
 					NestedField: []testStructNested{
 						{
