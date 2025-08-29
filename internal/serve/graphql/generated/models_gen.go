@@ -15,6 +15,16 @@ type BuildTransactionPayload struct {
 	TransactionXdr string `json:"transactionXdr"`
 }
 
+type CreateFeeBumpTransactionInput struct {
+	TransactionXdr string `json:"transactionXDR"`
+}
+
+type CreateFeeBumpTransactionPayload struct {
+	Success           bool   `json:"success"`
+	Transaction       string `json:"transaction"`
+	NetworkPassphrase string `json:"networkPassphrase"`
+}
+
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
 }
