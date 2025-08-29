@@ -37,7 +37,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 
 	ctx := context.Background()
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20").
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonDeploy).
 		WithCategory(types.StateChangeCategoryContract)
@@ -188,7 +188,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		return op
 	}
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20").
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonDeploy).
 		WithCategory(types.StateChangeCategoryContract)
