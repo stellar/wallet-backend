@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -17,7 +16,7 @@ type customClaims struct {
 	jwtgo.RegisteredClaims
 }
 
-func (c *customClaims) Validate(audience, methodAndPath string, body []byte, maxTimeout time.Duration) error {
+func (c *customClaims) Validate(methodAndPath string, body []byte, maxTimeout time.Duration) error {
 	if maxTimeout == 0 {
 		maxTimeout = DefaultMaxTimeout
 	}
@@ -38,10 +37,6 @@ func (c *customClaims) Validate(audience, methodAndPath string, body []byte, max
 
 	if !strkey.IsValidEd25519PublicKey(c.Subject) {
 		return errors.New("the JWT subject is not a valid Stellar public key")
-	}
-
-	if audience != "" && !slices.Contains(c.Audience, audience) {
-		return fmt.Errorf("the JWT audience %s does not match the expected audience [%s]", c.Audience, audience)
 	}
 
 	if c.MethodAndPath != strings.TrimSpace(methodAndPath) {

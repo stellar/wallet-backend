@@ -104,17 +104,6 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴invalid_hostname",
-			setupRequest: func() *http.Request {
-				req := httptest.NewRequest("GET", "https://invalid.test.com/authenticated", nil)
-				err := validSigner.SignHTTPRequest(req, time.Second*5)
-				require.NoError(t, err)
-				return req
-			},
-			expectedStatus:  http.StatusUnauthorized,
-			expectedMessage: `{"error":"Not authorized."}`,
-		},
-		{
 			name: "🔴body_too_big",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", bytes.NewBuffer(make([]byte, auth.DefaultMaxBodySizeBytes+1)))
@@ -159,7 +148,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			if tc.setupMocks != nil {
 				tc.setupMocks(t, mAppTracker, mMetricsService)
 			}
-			authMiddleware := AuthenticationMiddleware("test.com", reqJWTVerifier, mAppTracker, mMetricsService)
+			authMiddleware := AuthenticationMiddleware(reqJWTVerifier, mAppTracker, mMetricsService)
 
 			r := chi.NewRouter()
 			r.Use(authMiddleware)
