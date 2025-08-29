@@ -13,11 +13,11 @@ import (
 )
 
 func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
-	reqBodyTooBig := make([]byte, DefaultMaxBodySize*2)
+	reqBodyTooBig := make([]byte, DefaultMaxBodySizeBytes*2)
 
 	jwtParser, err := NewJWTTokenParser(10*time.Second, testKP1.Address())
 	require.NoError(t, err)
-	reqJWTVerifier := NewHTTPRequestVerifier(jwtParser, DefaultMaxBodySize)
+	reqJWTVerifier := NewHTTPRequestVerifier(jwtParser, DefaultMaxBodySizeBytes)
 
 	validJWTGenerator, err := NewJWTTokenGenerator(testKP1.Seed())
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 		{
 			name: "🔴body_is_too_big",
 			setupRequest: func(t *testing.T) *http.Request {
-				req := httptest.NewRequest("GET", "http://example.com/authenticated", bytes.NewBuffer(reqBodyTooBig))
+				req := httptest.NewRequest("POST", "http://example.com/authenticated", bytes.NewBuffer(reqBodyTooBig))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
 				require.NoError(t, err)
 				return req
@@ -96,7 +96,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 		{
 			name: "🟢valid_authenticated_request_with_body_1",
 			setupRequest: func(t *testing.T) *http.Request {
-				req := httptest.NewRequest("GET", "http://example.com/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
+				req := httptest.NewRequest("POST", "http://example.com/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
 				require.NoError(t, err)
 				return req
@@ -107,7 +107,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 		{
 			name: "🟢valid_authenticated_request_with_body_2",
 			setupRequest: func(t *testing.T) *http.Request {
-				req := httptest.NewRequest("GET", "/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
+				req := httptest.NewRequest("POST", "/authenticated", bytes.NewBuffer([]byte(`{"foo": "bar"}`)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
 				require.NoError(t, err)
 				return req
