@@ -68,29 +68,29 @@ type ComplexityRoot struct {
 	}
 
 	AllowanceStateChange struct {
-		Account             func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		SpenderAddress      func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		SpenderAddress  func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	BalanceStateChange struct {
-		Account             func(childComplexity int) int
-		Amount              func(childComplexity int) int
-		ClaimableBalanceID  func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		LiquidityPoolID     func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		TokenID             func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account            func(childComplexity int) int
+		Amount             func(childComplexity int) int
+		ClaimableBalanceID func(childComplexity int) int
+		IngestedAt         func(childComplexity int) int
+		LedgerCreatedAt    func(childComplexity int) int
+		LedgerNumber       func(childComplexity int) int
+		LiquidityPoolID    func(childComplexity int) int
+		Operation          func(childComplexity int) int
+		TokenID            func(childComplexity int) int
+		Transaction        func(childComplexity int) int
+		Type               func(childComplexity int) int
 	}
 
 	BuildTransactionPayload struct {
@@ -104,40 +104,40 @@ type ComplexityRoot struct {
 	}
 
 	FlagsStateChange struct {
-		Account             func(childComplexity int) int
-		Flags               func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		Flags           func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	LiabilityStateChange struct {
-		Account             func(childComplexity int) int
-		Amount              func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		OfferID             func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		TokenID             func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		OfferID         func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	MetadataStateChange struct {
-		Account             func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		KeyValue            func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		KeyValue        func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	Mutation struct {
@@ -190,41 +190,41 @@ type ComplexityRoot struct {
 	}
 
 	SignerStateChange struct {
-		Account             func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		SignerAddress       func(childComplexity int) int
-		SignerWeights       func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		SignerAddress   func(childComplexity int) int
+		SignerWeights   func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	SignerThresholdsStateChange struct {
-		Account             func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Thresholds          func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account         func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Thresholds      func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
 	}
 
 	SponsorshipStateChange struct {
-		Account             func(childComplexity int) int
-		IngestedAt          func(childComplexity int) int
-		LedgerCreatedAt     func(childComplexity int) int
-		LedgerNumber        func(childComplexity int) int
-		Operation           func(childComplexity int) int
-		SponsorAddress      func(childComplexity int) int
-		SponsoredAddress    func(childComplexity int) int
-		StateChangeCategory func(childComplexity int) int
-		StateChangeReason   func(childComplexity int) int
-		Transaction         func(childComplexity int) int
+		Account          func(childComplexity int) int
+		IngestedAt       func(childComplexity int) int
+		LedgerCreatedAt  func(childComplexity int) int
+		LedgerNumber     func(childComplexity int) int
+		Operation        func(childComplexity int) int
+		Reason           func(childComplexity int) int
+		SponsorAddress   func(childComplexity int) int
+		SponsoredAddress func(childComplexity int) int
+		Transaction      func(childComplexity int) int
+		Type             func(childComplexity int) int
 	}
 
 	StateChangeConnection struct {
@@ -268,13 +268,17 @@ type AccountResolver interface {
 	StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type AllowanceStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeReason, error)
 	SpenderAddress(ctx context.Context, obj *types.AllowanceStateChangeModel) (*string, error)
 }
 type BalanceStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Transaction, error)
@@ -284,13 +288,17 @@ type BalanceStateChangeResolver interface {
 	LiquidityPoolID(ctx context.Context, obj *types.BalanceStateChangeModel) (*string, error)
 }
 type FlagsStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error)
 	Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error)
 }
 type LiabilityStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.LiabilityStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.LiabilityStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.LiabilityStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.LiabilityStateChangeModel) (*types.Transaction, error)
@@ -299,10 +307,12 @@ type LiabilityStateChangeResolver interface {
 	OfferID(ctx context.Context, obj *types.LiabilityStateChangeModel) (string, error)
 }
 type MetadataStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error)
 	KeyValue(ctx context.Context, obj *types.MetadataStateChangeModel) (string, error)
 }
 type MutationResolver interface {
@@ -324,25 +334,31 @@ type QueryResolver interface {
 	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type SignerStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error)
 	SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error)
 	SignerWeights(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error)
 }
 type SignerThresholdsStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error)
 	Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error)
 }
 type SponsorshipStateChangeResolver interface {
+	Type(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeCategory, error)
+
 	Account(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Transaction, error)
-
+	Reason(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeReason, error)
 	SponsoredAddress(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error)
 	SponsorAddress(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error)
 }
@@ -449,6 +465,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.AllowanceStateChange.Operation(childComplexity), true
 
+	case "AllowanceStateChange.reason":
+		if e.complexity.AllowanceStateChange.Reason == nil {
+			break
+		}
+
+		return e.complexity.AllowanceStateChange.Reason(childComplexity), true
+
 	case "AllowanceStateChange.spenderAddress":
 		if e.complexity.AllowanceStateChange.SpenderAddress == nil {
 			break
@@ -456,26 +479,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.AllowanceStateChange.SpenderAddress(childComplexity), true
 
-	case "AllowanceStateChange.stateChangeCategory":
-		if e.complexity.AllowanceStateChange.StateChangeCategory == nil {
-			break
-		}
-
-		return e.complexity.AllowanceStateChange.StateChangeCategory(childComplexity), true
-
-	case "AllowanceStateChange.stateChangeReason":
-		if e.complexity.AllowanceStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.AllowanceStateChange.StateChangeReason(childComplexity), true
-
 	case "AllowanceStateChange.transaction":
 		if e.complexity.AllowanceStateChange.Transaction == nil {
 			break
 		}
 
 		return e.complexity.AllowanceStateChange.Transaction(childComplexity), true
+
+	case "AllowanceStateChange.type":
+		if e.complexity.AllowanceStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.AllowanceStateChange.Type(childComplexity), true
 
 	case "BalanceStateChange.account":
 		if e.complexity.BalanceStateChange.Account == nil {
@@ -533,13 +549,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.BalanceStateChange.Operation(childComplexity), true
 
-	case "BalanceStateChange.stateChangeCategory":
-		if e.complexity.BalanceStateChange.StateChangeCategory == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.StateChangeCategory(childComplexity), true
-
 	case "BalanceStateChange.tokenId":
 		if e.complexity.BalanceStateChange.TokenID == nil {
 			break
@@ -553,6 +562,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.BalanceStateChange.Transaction(childComplexity), true
+
+	case "BalanceStateChange.type":
+		if e.complexity.BalanceStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.BalanceStateChange.Type(childComplexity), true
 
 	case "BuildTransactionPayload.success":
 		if e.complexity.BuildTransactionPayload.Success == nil {
@@ -624,19 +640,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.FlagsStateChange.Operation(childComplexity), true
 
-	case "FlagsStateChange.stateChangeCategory":
-		if e.complexity.FlagsStateChange.StateChangeCategory == nil {
+	case "FlagsStateChange.reason":
+		if e.complexity.FlagsStateChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.StateChangeCategory(childComplexity), true
-
-	case "FlagsStateChange.stateChangeReason":
-		if e.complexity.FlagsStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.FlagsStateChange.StateChangeReason(childComplexity), true
+		return e.complexity.FlagsStateChange.Reason(childComplexity), true
 
 	case "FlagsStateChange.transaction":
 		if e.complexity.FlagsStateChange.Transaction == nil {
@@ -644,6 +653,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.FlagsStateChange.Transaction(childComplexity), true
+
+	case "FlagsStateChange.type":
+		if e.complexity.FlagsStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.FlagsStateChange.Type(childComplexity), true
 
 	case "LiabilityStateChange.account":
 		if e.complexity.LiabilityStateChange.Account == nil {
@@ -694,13 +710,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.LiabilityStateChange.Operation(childComplexity), true
 
-	case "LiabilityStateChange.stateChangeCategory":
-		if e.complexity.LiabilityStateChange.StateChangeCategory == nil {
-			break
-		}
-
-		return e.complexity.LiabilityStateChange.StateChangeCategory(childComplexity), true
-
 	case "LiabilityStateChange.tokenId":
 		if e.complexity.LiabilityStateChange.TokenID == nil {
 			break
@@ -714,6 +723,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.LiabilityStateChange.Transaction(childComplexity), true
+
+	case "LiabilityStateChange.type":
+		if e.complexity.LiabilityStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.LiabilityStateChange.Type(childComplexity), true
 
 	case "MetadataStateChange.account":
 		if e.complexity.MetadataStateChange.Account == nil {
@@ -757,19 +773,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.MetadataStateChange.Operation(childComplexity), true
 
-	case "MetadataStateChange.stateChangeCategory":
-		if e.complexity.MetadataStateChange.StateChangeCategory == nil {
+	case "MetadataStateChange.reason":
+		if e.complexity.MetadataStateChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.StateChangeCategory(childComplexity), true
-
-	case "MetadataStateChange.stateChangeReason":
-		if e.complexity.MetadataStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.MetadataStateChange.StateChangeReason(childComplexity), true
+		return e.complexity.MetadataStateChange.Reason(childComplexity), true
 
 	case "MetadataStateChange.transaction":
 		if e.complexity.MetadataStateChange.Transaction == nil {
@@ -777,6 +786,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.MetadataStateChange.Transaction(childComplexity), true
+
+	case "MetadataStateChange.type":
+		if e.complexity.MetadataStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.MetadataStateChange.Type(childComplexity), true
 
 	case "Mutation.buildTransaction":
 		if e.complexity.Mutation.BuildTransaction == nil {
@@ -1059,6 +1075,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SignerStateChange.Operation(childComplexity), true
 
+	case "SignerStateChange.reason":
+		if e.complexity.SignerStateChange.Reason == nil {
+			break
+		}
+
+		return e.complexity.SignerStateChange.Reason(childComplexity), true
+
 	case "SignerStateChange.signerAddress":
 		if e.complexity.SignerStateChange.SignerAddress == nil {
 			break
@@ -1073,26 +1096,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SignerStateChange.SignerWeights(childComplexity), true
 
-	case "SignerStateChange.stateChangeCategory":
-		if e.complexity.SignerStateChange.StateChangeCategory == nil {
-			break
-		}
-
-		return e.complexity.SignerStateChange.StateChangeCategory(childComplexity), true
-
-	case "SignerStateChange.stateChangeReason":
-		if e.complexity.SignerStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.SignerStateChange.StateChangeReason(childComplexity), true
-
 	case "SignerStateChange.transaction":
 		if e.complexity.SignerStateChange.Transaction == nil {
 			break
 		}
 
 		return e.complexity.SignerStateChange.Transaction(childComplexity), true
+
+	case "SignerStateChange.type":
+		if e.complexity.SignerStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.SignerStateChange.Type(childComplexity), true
 
 	case "SignerThresholdsStateChange.account":
 		if e.complexity.SignerThresholdsStateChange.Account == nil {
@@ -1129,19 +1145,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SignerThresholdsStateChange.Operation(childComplexity), true
 
-	case "SignerThresholdsStateChange.stateChangeCategory":
-		if e.complexity.SignerThresholdsStateChange.StateChangeCategory == nil {
+	case "SignerThresholdsStateChange.reason":
+		if e.complexity.SignerThresholdsStateChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.StateChangeCategory(childComplexity), true
-
-	case "SignerThresholdsStateChange.stateChangeReason":
-		if e.complexity.SignerThresholdsStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.SignerThresholdsStateChange.StateChangeReason(childComplexity), true
+		return e.complexity.SignerThresholdsStateChange.Reason(childComplexity), true
 
 	case "SignerThresholdsStateChange.thresholds":
 		if e.complexity.SignerThresholdsStateChange.Thresholds == nil {
@@ -1156,6 +1165,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SignerThresholdsStateChange.Transaction(childComplexity), true
+
+	case "SignerThresholdsStateChange.type":
+		if e.complexity.SignerThresholdsStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.SignerThresholdsStateChange.Type(childComplexity), true
 
 	case "SponsorshipStateChange.account":
 		if e.complexity.SponsorshipStateChange.Account == nil {
@@ -1192,6 +1208,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SponsorshipStateChange.Operation(childComplexity), true
 
+	case "SponsorshipStateChange.reason":
+		if e.complexity.SponsorshipStateChange.Reason == nil {
+			break
+		}
+
+		return e.complexity.SponsorshipStateChange.Reason(childComplexity), true
+
 	case "SponsorshipStateChange.sponsorAddress":
 		if e.complexity.SponsorshipStateChange.SponsorAddress == nil {
 			break
@@ -1206,26 +1229,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SponsorshipStateChange.SponsoredAddress(childComplexity), true
 
-	case "SponsorshipStateChange.stateChangeCategory":
-		if e.complexity.SponsorshipStateChange.StateChangeCategory == nil {
-			break
-		}
-
-		return e.complexity.SponsorshipStateChange.StateChangeCategory(childComplexity), true
-
-	case "SponsorshipStateChange.stateChangeReason":
-		if e.complexity.SponsorshipStateChange.StateChangeReason == nil {
-			break
-		}
-
-		return e.complexity.SponsorshipStateChange.StateChangeReason(childComplexity), true
-
 	case "SponsorshipStateChange.transaction":
 		if e.complexity.SponsorshipStateChange.Transaction == nil {
 			break
 		}
 
 		return e.complexity.SponsorshipStateChange.Transaction(childComplexity), true
+
+	case "SponsorshipStateChange.type":
+		if e.complexity.SponsorshipStateChange.Type == nil {
+			break
+		}
+
+		return e.complexity.SponsorshipStateChange.Type(childComplexity), true
 
 	case "StateChangeConnection.edges":
 		if e.complexity.StateChangeConnection.Edges == nil {
@@ -1740,7 +1756,7 @@ scalar Int64
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
 interface BaseStateChange {           
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1757,7 +1773,7 @@ interface BaseStateChange {
 }
 
 type BalanceStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1772,7 +1788,7 @@ type BalanceStateChange implements BaseStateChange {
 }
 
 type LiabilityStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1786,7 +1802,7 @@ type LiabilityStateChange implements BaseStateChange {
 }
 
 type SponsorshipStateChange implements BaseStateChange{
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1794,13 +1810,13 @@ type SponsorshipStateChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
+  reason:                   StateChangeReason! @goField(forceResolver: true)
   sponsoredAddress:         String   
   sponsorAddress:           String
 }
 
 type SignerStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1808,13 +1824,13 @@ type SignerStateChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
-  signerAddress:            String
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  signerAddress:              String
   signerWeights:              String
 }
 
 type SignerThresholdsStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1822,12 +1838,12 @@ type SignerThresholdsStateChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
+  reason:                     StateChangeReason! @goField(forceResolver: true)
   thresholds:                 String!
 }
 
 type FlagsStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1835,12 +1851,12 @@ type FlagsStateChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
+  reason:                     StateChangeReason! @goField(forceResolver: true)
   flags:                      [String!]!
 }
 
 type MetadataStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1848,12 +1864,12 @@ type MetadataStateChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
+  reason:                     StateChangeReason! @goField(forceResolver: true)
   keyValue:                   String!
 }
 
 type AllowanceStateChange implements BaseStateChange {
-  stateChangeCategory:        StateChangeCategory!
+  type:                       StateChangeCategory! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
@@ -1861,8 +1877,8 @@ type AllowanceStateChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  stateChangeReason:          StateChangeReason!
-  spenderAddress:           String
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  spenderAddress:             String
 }
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
@@ -3067,8 +3083,8 @@ func (ec *executionContext) fieldContext_Account_stateChanges(ctx context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AllowanceStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.AllowanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AllowanceStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _AllowanceStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.AllowanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AllowanceStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3081,7 +3097,7 @@ func (ec *executionContext) _AllowanceStateChange_stateChangeCategory(ctx contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.AllowanceStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3098,12 +3114,12 @@ func (ec *executionContext) _AllowanceStateChange_stateChangeCategory(ctx contex
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AllowanceStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AllowanceStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AllowanceStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -3424,8 +3440,8 @@ func (ec *executionContext) fieldContext_AllowanceStateChange_transaction(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _AllowanceStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.AllowanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AllowanceStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _AllowanceStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.AllowanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AllowanceStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3438,7 +3454,7 @@ func (ec *executionContext) _AllowanceStateChange_stateChangeReason(ctx context.
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.AllowanceStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3450,17 +3466,17 @@ func (ec *executionContext) _AllowanceStateChange_stateChangeReason(ctx context.
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AllowanceStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AllowanceStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AllowanceStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -3509,8 +3525,8 @@ func (ec *executionContext) fieldContext_AllowanceStateChange_spenderAddress(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _BalanceStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3523,7 +3539,7 @@ func (ec *executionContext) _BalanceStateChange_stateChangeCategory(ctx context.
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.BalanceStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3540,12 +3556,12 @@ func (ec *executionContext) _BalanceStateChange_stateChangeCategory(ctx context.
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BalanceStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -4209,8 +4225,8 @@ func (ec *executionContext) fieldContext_DeregisterAccountPayload_message(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _FlagsStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4223,7 +4239,7 @@ func (ec *executionContext) _FlagsStateChange_stateChangeCategory(ctx context.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.FlagsStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4240,12 +4256,12 @@ func (ec *executionContext) _FlagsStateChange_stateChangeCategory(ctx context.Co
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FlagsStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -4566,8 +4582,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _FlagsStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4580,7 +4596,7 @@ func (ec *executionContext) _FlagsStateChange_stateChangeReason(ctx context.Cont
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.FlagsStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4592,17 +4608,17 @@ func (ec *executionContext) _FlagsStateChange_stateChangeReason(ctx context.Cont
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FlagsStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -4654,8 +4670,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_flags(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _LiabilityStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.LiabilityStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_LiabilityStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _LiabilityStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.LiabilityStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_LiabilityStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4668,7 +4684,7 @@ func (ec *executionContext) _LiabilityStateChange_stateChangeCategory(ctx contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.LiabilityStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4685,12 +4701,12 @@ func (ec *executionContext) _LiabilityStateChange_stateChangeCategory(ctx contex
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_LiabilityStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_LiabilityStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "LiabilityStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -5143,8 +5159,8 @@ func (ec *executionContext) fieldContext_LiabilityStateChange_offerId(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _MetadataStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5157,7 +5173,7 @@ func (ec *executionContext) _MetadataStateChange_stateChangeCategory(ctx context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.MetadataStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5174,12 +5190,12 @@ func (ec *executionContext) _MetadataStateChange_stateChangeCategory(ctx context
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "MetadataStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -5500,8 +5516,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_transaction(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _MetadataStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5514,7 +5530,7 @@ func (ec *executionContext) _MetadataStateChange_stateChangeReason(ctx context.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.MetadataStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5526,17 +5542,17 @@ func (ec *executionContext) _MetadataStateChange_stateChangeReason(ctx context.C
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "MetadataStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -7197,8 +7213,8 @@ func (ec *executionContext) fieldContext_RegisterAccountPayload_account(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _SignerStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7211,7 +7227,7 @@ func (ec *executionContext) _SignerStateChange_stateChangeCategory(ctx context.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.SignerStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7228,12 +7244,12 @@ func (ec *executionContext) _SignerStateChange_stateChangeCategory(ctx context.C
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -7554,8 +7570,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_transaction(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _SignerStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7568,7 +7584,7 @@ func (ec *executionContext) _SignerStateChange_stateChangeReason(ctx context.Con
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.SignerStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7580,17 +7596,17 @@ func (ec *executionContext) _SignerStateChange_stateChangeReason(ctx context.Con
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -7680,8 +7696,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_signerWeights(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _SignerThresholdsStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7694,7 +7710,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_stateChangeCategory(ctx
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.SignerThresholdsStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7711,12 +7727,12 @@ func (ec *executionContext) _SignerThresholdsStateChange_stateChangeCategory(ctx
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerThresholdsStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -8037,8 +8053,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_transaction
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _SignerThresholdsStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8051,7 +8067,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_stateChangeReason(ctx c
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.SignerThresholdsStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8063,17 +8079,17 @@ func (ec *executionContext) _SignerThresholdsStateChange_stateChangeReason(ctx c
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SignerThresholdsStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -8125,8 +8141,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_thresholds(
 	return fc, nil
 }
 
-func (ec *executionContext) _SponsorshipStateChange_stateChangeCategory(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SponsorshipStateChange_stateChangeCategory(ctx, field)
+func (ec *executionContext) _SponsorshipStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SponsorshipStateChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8139,7 +8155,7 @@ func (ec *executionContext) _SponsorshipStateChange_stateChangeCategory(ctx cont
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeCategory, nil
+		return ec.resolvers.SponsorshipStateChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8156,12 +8172,12 @@ func (ec *executionContext) _SponsorshipStateChange_stateChangeCategory(ctx cont
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SponsorshipStateChange_stateChangeCategory(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SponsorshipStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SponsorshipStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeCategory does not have child fields")
 		},
@@ -8482,8 +8498,8 @@ func (ec *executionContext) fieldContext_SponsorshipStateChange_transaction(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _SponsorshipStateChange_stateChangeReason(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SponsorshipStateChange_stateChangeReason(ctx, field)
+func (ec *executionContext) _SponsorshipStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SponsorshipStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SponsorshipStateChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8496,7 +8512,7 @@ func (ec *executionContext) _SponsorshipStateChange_stateChangeReason(ctx contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.StateChangeReason, nil
+		return ec.resolvers.SponsorshipStateChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8508,17 +8524,17 @@ func (ec *executionContext) _SponsorshipStateChange_stateChangeReason(ctx contex
 		}
 		return graphql.Null
 	}
-	res := resTmp.(*types.StateChangeReason)
+	res := resTmp.(types.StateChangeReason)
 	fc.Result = res
-	return ec.marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SponsorshipStateChange_stateChangeReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SponsorshipStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SponsorshipStateChange",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type StateChangeReason does not have child fields")
 		},
@@ -11868,11 +11884,42 @@ func (ec *executionContext) _AllowanceStateChange(ctx context.Context, sel ast.S
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("AllowanceStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._AllowanceStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._AllowanceStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._AllowanceStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -11993,11 +12040,42 @@ func (ec *executionContext) _AllowanceStateChange(ctx context.Context, sel ast.S
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._AllowanceStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._AllowanceStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "spenderAddress":
 			field := field
 
@@ -12065,11 +12143,42 @@ func (ec *executionContext) _BalanceStateChange(ctx context.Context, sel ast.Sel
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("BalanceStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._BalanceStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BalanceStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._BalanceStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -12447,11 +12556,42 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("FlagsStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._FlagsStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._FlagsStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._FlagsStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -12572,11 +12712,42 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._FlagsStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._FlagsStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "flags":
 			field := field
 
@@ -12647,11 +12818,42 @@ func (ec *executionContext) _LiabilityStateChange(ctx context.Context, sel ast.S
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("LiabilityStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._LiabilityStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LiabilityStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._LiabilityStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -12914,11 +13116,42 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("MetadataStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._MetadataStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._MetadataStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._MetadataStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -13039,11 +13272,42 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._MetadataStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._MetadataStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "keyValue":
 			field := field
 
@@ -13681,11 +13945,42 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("SignerStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._SignerStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._SignerStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -13806,11 +14101,42 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._SignerStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "signerAddress":
 			field := field
 
@@ -13911,11 +14237,42 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("SignerThresholdsStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._SignerThresholdsStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerThresholdsStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._SignerThresholdsStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -14036,11 +14393,42 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._SignerThresholdsStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SignerThresholdsStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "thresholds":
 			field := field
 
@@ -14111,11 +14499,42 @@ func (ec *executionContext) _SponsorshipStateChange(ctx context.Context, sel ast
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("SponsorshipStateChange")
-		case "stateChangeCategory":
-			out.Values[i] = ec._SponsorshipStateChange_stateChangeCategory(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SponsorshipStateChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._SponsorshipStateChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -14236,11 +14655,42 @@ func (ec *executionContext) _SponsorshipStateChange(ctx context.Context, sel ast
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "stateChangeReason":
-			out.Values[i] = ec._SponsorshipStateChange_stateChangeReason(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SponsorshipStateChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
 			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "sponsoredAddress":
 			field := field
 
@@ -15227,21 +15677,15 @@ func (ec *executionContext) marshalNStateChangeEdge2ᚖgithubᚗcomᚋstellarᚋ
 	return ec._StateChangeEdge(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx context.Context, v any) (*types.StateChangeReason, error) {
+func (ec *executionContext) unmarshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx context.Context, v any) (types.StateChangeReason, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := types.StateChangeReason(tmp)
-	return &res, graphql.ErrorOnPath(ctx, err)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNStateChangeReason2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx context.Context, sel ast.SelectionSet, v *types.StateChangeReason) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
+func (ec *executionContext) marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx context.Context, sel ast.SelectionSet, v types.StateChangeReason) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(string(*v))
+	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			ec.Errorf(ctx, "the requested element is null which the schema does not allow")

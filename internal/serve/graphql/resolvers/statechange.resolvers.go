@@ -11,6 +11,11 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
+// Type is the resolver for the type field.
+func (r *allowanceStateChangeResolver) Type(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
 // Account is the resolver for the account field.
 func (r *allowanceStateChangeResolver) Account(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -26,9 +31,19 @@ func (r *allowanceStateChangeResolver) Transaction(ctx context.Context, obj *typ
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// Reason is the resolver for the reason field.
+func (r *allowanceStateChangeResolver) Reason(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
 // SpenderAddress is the resolver for the spenderAddress field.
 func (r *allowanceStateChangeResolver) SpenderAddress(ctx context.Context, obj *types.AllowanceStateChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.SpenderAccountID), nil
+}
+
+// Type is the resolver for the type field.
+func (r *balanceStateChangeResolver) Type(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
 // Account is the resolver for the account field.
@@ -66,6 +81,11 @@ func (r *balanceStateChangeResolver) LiquidityPoolID(ctx context.Context, obj *t
 	return r.resolveNullableString(obj.LiquidityPoolID), nil
 }
 
+// Type is the resolver for the type field.
+func (r *flagsStateChangeResolver) Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
 // Account is the resolver for the account field.
 func (r *flagsStateChangeResolver) Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -81,9 +101,19 @@ func (r *flagsStateChangeResolver) Transaction(ctx context.Context, obj *types.F
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// Reason is the resolver for the reason field.
+func (r *flagsStateChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
 // Flags is the resolver for the flags field.
 func (r *flagsStateChangeResolver) Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error) {
 	return r.resolveStringArray([]string(obj.Flags)), nil
+}
+
+// Type is the resolver for the type field.
+func (r *liabilityStateChangeResolver) Type(ctx context.Context, obj *types.LiabilityStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
 // Account is the resolver for the account field.
@@ -116,6 +146,11 @@ func (r *liabilityStateChangeResolver) OfferID(ctx context.Context, obj *types.L
 	return r.resolveRequiredString(obj.OfferID), nil
 }
 
+// Type is the resolver for the type field.
+func (r *metadataStateChangeResolver) Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
 // Account is the resolver for the account field.
 func (r *metadataStateChangeResolver) Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
@@ -131,9 +166,19 @@ func (r *metadataStateChangeResolver) Transaction(ctx context.Context, obj *type
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// Reason is the resolver for the reason field.
+func (r *metadataStateChangeResolver) Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
 // KeyValue is the resolver for the keyValue field.
 func (r *metadataStateChangeResolver) KeyValue(ctx context.Context, obj *types.MetadataStateChangeModel) (string, error) {
 	return r.resolveRequiredJSONBField(obj.KeyValue)
+}
+
+// Type is the resolver for the type field.
+func (r *signerStateChangeResolver) Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
 // Account is the resolver for the account field.
@@ -151,6 +196,11 @@ func (r *signerStateChangeResolver) Transaction(ctx context.Context, obj *types.
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// Reason is the resolver for the reason field.
+func (r *signerStateChangeResolver) Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
 // SignerAddress is the resolver for the signerAddress field.
 func (r *signerStateChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.SignerAccountID), nil
@@ -159,6 +209,11 @@ func (r *signerStateChangeResolver) SignerAddress(ctx context.Context, obj *type
 // SignerWeights is the resolver for the signerWeights field.
 func (r *signerStateChangeResolver) SignerWeights(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
 	return r.resolveJSONBField(obj.SignerWeights)
+}
+
+// Type is the resolver for the type field.
+func (r *signerThresholdsStateChangeResolver) Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
 // Account is the resolver for the account field.
@@ -176,9 +231,19 @@ func (r *signerThresholdsStateChangeResolver) Transaction(ctx context.Context, o
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// Reason is the resolver for the reason field.
+func (r *signerThresholdsStateChangeResolver) Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
 // Thresholds is the resolver for the thresholds field.
 func (r *signerThresholdsStateChangeResolver) Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error) {
 	return r.resolveRequiredJSONBField(obj.Thresholds)
+}
+
+// Type is the resolver for the type field.
+func (r *sponsorshipStateChangeResolver) Type(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
 // Account is the resolver for the account field.
@@ -194,6 +259,11 @@ func (r *sponsorshipStateChangeResolver) Operation(ctx context.Context, obj *typ
 // Transaction is the resolver for the transaction field.
 func (r *sponsorshipStateChangeResolver) Transaction(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Reason is the resolver for the reason field.
+func (r *sponsorshipStateChangeResolver) Reason(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
 }
 
 // SponsoredAddress is the resolver for the sponsoredAddress field.

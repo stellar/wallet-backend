@@ -400,10 +400,16 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 // Required by gqlgen for interface type resolution.
 func (sc StateChange) IsBaseStateChange() {}
 
-// GetStateChangeCategory returns the category of this state change (DEBIT, CREDIT, etc.).
-// Used to determine which concrete GraphQL type this should resolve to.
-func (sc StateChange) GetStateChangeCategory() StateChangeCategory {
+// GetType returns the category of this state change for GraphQL 'type' field.
+// This method satisfies the GraphQL BaseStateChange interface requirement.
+func (sc StateChange) GetType() StateChangeCategory {
 	return sc.StateChangeCategory
+}
+
+// GetReason returns the reason for this state change for GraphQL 'reason' field.
+// This method satisfies the GraphQL BaseStateChange interface requirement.
+func (sc StateChange) GetReason() *StateChangeReason {
+	return sc.StateChangeReason
 }
 
 // GetIngestedAt returns when this state change was processed by the indexer.

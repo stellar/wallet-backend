@@ -10,7 +10,7 @@ import (
 
 type BaseStateChange interface {
 	IsBaseStateChange()
-	GetStateChangeCategory() types.StateChangeCategory
+	GetType() types.StateChangeCategory
 	GetIngestedAt() time.Time
 	GetLedgerCreatedAt() time.Time
 	GetLedgerNumber() uint32
