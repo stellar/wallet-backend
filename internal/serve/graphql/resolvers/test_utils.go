@@ -157,7 +157,7 @@ func cleanUpDB(ctx context.Context, t *testing.T, dbConnectionPool db.Connection
 
 func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor {
 	switch v := sc.(type) {
-	case *types.PaymentStateChangeModel:
+	case *types.BalanceStateChangeModel:
 		return types.StateChangeCursor{
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
@@ -177,7 +177,7 @@ func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
-	case *types.SignatureThresholdsStateChangeModel:
+	case *types.SignerThresholdsStateChangeModel:
 		return types.StateChangeCursor{
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,

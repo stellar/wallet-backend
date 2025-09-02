@@ -470,9 +470,9 @@ func (sc StateChange) GetTransaction() *Transaction {
 // This approach maintains the single-table database efficiency while satisfying GraphQL's
 // strong typing requirements. See gqlgen.yml lines 170-196 for the GraphQL-to-Go type mappings.
 
-// PaymentStateChangeModel represents payment-related state changes (CREDIT/DEBIT/MINT/BURN).
-// Maps to PaymentStateChange in GraphQL schema. Exposes tokenId, amount, claimableBalanceId, liquidityPoolId.
-type PaymentStateChangeModel struct {
+// BalanceStateChangeModel represents payment-related state changes (CREDIT/DEBIT/MINT/BURN).
+// Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount, claimableBalanceId, liquidityPoolId.
+type BalanceStateChangeModel struct {
 	StateChange
 }
 
@@ -500,9 +500,9 @@ type SignerStateChangeModel struct {
 	StateChange
 }
 
-// SignatureThresholdsStateChangeModel represents signature threshold changes.
-// Maps to SignatureThresholdsStateChange in GraphQL schema. Exposes thresholds.
-type SignatureThresholdsStateChangeModel struct {
+// SignerThresholdsStateChangeModel represents signature threshold changes.
+// Maps to SignerThresholdsStateChange in GraphQL schema. Exposes thresholds.
+type SignerThresholdsStateChangeModel struct {
 	StateChange
 }
 

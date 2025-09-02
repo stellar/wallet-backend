@@ -16,7 +16,7 @@ interface BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 }
 
-type PaymentStateChange implements BaseStateChange {
+type BalanceStateChange implements BaseStateChange {
   stateChangeCategory:        StateChangeCategory!
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
@@ -55,8 +55,8 @@ type SponsorshipStateChange implements BaseStateChange{
   transaction:                Transaction! @goField(forceResolver: true)
 
   stateChangeReason:          StateChangeReason!
-  sponsoredAccountId:         String   
-  sponsorAccountId:           String
+  sponsoredAddress:         String   
+  sponsorAddress:           String
 }
 
 type SignerStateChange implements BaseStateChange {
@@ -69,11 +69,11 @@ type SignerStateChange implements BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 
   stateChangeReason:          StateChangeReason!
-  signerAccountId:            String
+  signerAddress:            String
   signerWeights:              String
 }
 
-type SignatureThresholdsStateChange implements BaseStateChange {
+type SignerThresholdsStateChange implements BaseStateChange {
   stateChangeCategory:        StateChangeCategory!
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
@@ -122,5 +122,5 @@ type AllowanceStateChange implements BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 
   stateChangeReason:          StateChangeReason!
-  spenderAccountId:           String
+  spenderAddress:           String
 }

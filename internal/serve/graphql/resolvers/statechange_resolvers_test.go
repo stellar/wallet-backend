@@ -19,11 +19,11 @@ import (
 )
 
 func TestStateChangeResolver_NullableStringFields(t *testing.T) {
-	resolver := &paymentStateChangeResolver{&Resolver{}}
+	resolver := &balanceStateChangeResolver{&Resolver{}}
 	ctx := context.Background()
 
 	t.Run("all valid", func(t *testing.T) {
-		obj := &types.PaymentStateChangeModel{
+		obj := &types.BalanceStateChangeModel{
 			StateChange: types.StateChange{
 				TokenID:            sql.NullString{String: "token1", Valid: true},
 				Amount:             sql.NullString{String: "100.5", Valid: true},
@@ -50,7 +50,7 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	})
 
 	t.Run("all null", func(t *testing.T) {
-		obj := &types.PaymentStateChangeModel{} // All fields are zero-valued (Valid: false)
+		obj := &types.BalanceStateChangeModel{} // All fields are zero-valued (Valid: false)
 
 		tokenID, err := resolver.TokenID(ctx, obj)
 		require.NoError(t, err)
@@ -90,8 +90,8 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("thresholds", func(t *testing.T) {
-		resolver := &signatureThresholdsStateChangeResolver{&Resolver{}}
-		obj := &types.SignatureThresholdsStateChangeModel{
+		resolver := &signerThresholdsStateChangeResolver{&Resolver{}}
+		obj := &types.SignerThresholdsStateChangeModel{
 			StateChange: types.StateChange{
 				Thresholds: types.NullableJSONB{"low": 1, "med": 2},
 			},
@@ -143,7 +143,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &paymentStateChangeResolver{&Resolver{
+	resolver := &balanceStateChangeResolver{&Resolver{
 		models: &data.Models{
 			Account: &data.AccountModel{
 				DB:             testDBConnectionPool,
@@ -151,7 +151,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.PaymentStateChangeModel{
+	parentSC := types.BalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
@@ -178,7 +178,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent account", func(t *testing.T) {
-		nonExistentSC := types.PaymentStateChangeModel{
+		nonExistentSC := types.BalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
@@ -200,7 +200,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &paymentStateChangeResolver{&Resolver{
+	resolver := &balanceStateChangeResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
 				DB:             testDBConnectionPool,
@@ -208,7 +208,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.PaymentStateChangeModel{
+	parentSC := types.BalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
@@ -235,7 +235,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent operation", func(t *testing.T) {
-		nonExistentSC := types.PaymentStateChangeModel{
+		nonExistentSC := types.BalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
@@ -257,7 +257,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &paymentStateChangeResolver{&Resolver{
+	resolver := &balanceStateChangeResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
 				DB:             testDBConnectionPool,
@@ -265,7 +265,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.PaymentStateChangeModel{
+	parentSC := types.BalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 0).ToInt64(),
 			StateChangeOrder:    1,
@@ -292,7 +292,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent transaction", func(t *testing.T) {
-		nonExistentSC := types.PaymentStateChangeModel{
+		nonExistentSC := types.BalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,

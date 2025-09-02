@@ -112,7 +112,7 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryCredit, types.StateChangeCategoryDebit, types.StateChangeCategoryMint, types.StateChangeCategoryBurn:
-		return &types.PaymentStateChangeModel{
+		return &types.BalanceStateChangeModel{
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategoryLiability:
@@ -128,7 +128,7 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategorySignatureThreshold:
-		return &types.SignatureThresholdsStateChangeModel{
+		return &types.SignerThresholdsStateChangeModel{
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategoryFlags, types.StateChangeCategoryTrustlineFlags:
