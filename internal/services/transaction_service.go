@@ -12,7 +12,6 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -45,7 +44,7 @@ type transactionService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
-	RPCService                         services.RPCService
+	RPCService                         RPCService
 	BaseFee                            int64
 }
 
@@ -56,7 +55,7 @@ type TransactionServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	ChannelAccountSignatureClient      signing.SignatureClient
 	ChannelAccountStore                store.ChannelAccountStore
-	RPCService                         services.RPCService
+	RPCService                         RPCService
 	BaseFee                            int64
 }
 

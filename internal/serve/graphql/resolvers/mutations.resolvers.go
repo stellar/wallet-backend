@@ -22,7 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
@@ -142,49 +141,49 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), simulationResult)
 	if err != nil {
 		switch {
-		case errors.Is(err, transactionservices.ErrInvalidTimeout):
+		case errors.Is(err, services.ErrInvalidTimeout):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_TIMEOUT",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
+		case errors.Is(err, services.ErrInvalidOperationChannelAccount):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
+		case errors.Is(err, services.ErrInvalidOperationMissingSource):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_OPERATION_MISSING_SOURCE",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
+		case errors.Is(err, services.ErrInvalidSorobanOperationCount):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_SOROBAN_OPERATION_COUNT",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
+		case errors.Is(err, services.ErrInvalidSorobanSimulationEmpty):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
+		case errors.Is(err, services.ErrInvalidSorobanSimulationFailed):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
 					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
+		case errors.Is(err, services.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]interface{}{
