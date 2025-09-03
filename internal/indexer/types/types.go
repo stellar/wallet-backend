@@ -116,10 +116,8 @@ type Operation struct {
 type StateChangeCategory string
 
 const (
-	StateChangeCategoryDebit              StateChangeCategory = "DEBIT"
-	StateChangeCategoryCredit             StateChangeCategory = "CREDIT"
-	StateChangeCategoryMint               StateChangeCategory = "MINT"
-	StateChangeCategoryBurn               StateChangeCategory = "BURN"
+	StateChangeCategoryBalance            StateChangeCategory = "BALANCE"
+	StateChangeCategoryAccount            StateChangeCategory = "ACCOUNT"
 	StateChangeCategorySigner             StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata           StateChangeCategory = "METADATA"
@@ -136,6 +134,12 @@ const (
 type StateChangeReason string
 
 const (
+	StateChangeReasonCreate     StateChangeReason = "CREATE"
+	StateChangeReasonMerge      StateChangeReason = "MERGE"
+	StateChangeReasonDebit      StateChangeReason = "DEBIT"
+	StateChangeReasonCredit     StateChangeReason = "CREDIT"
+	StateChangeReasonMint      StateChangeReason = "MINT"
+	StateChangeReasonBurn      StateChangeReason = "BURN"
 	StateChangeReasonAdd        StateChangeReason = "ADD"
 	StateChangeReasonRemove     StateChangeReason = "REMOVE"
 	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
@@ -149,7 +153,6 @@ const (
 	StateChangeReasonBuy        StateChangeReason = "BUY"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
 	StateChangeReasonConsume    StateChangeReason = "CONSUME"
-	StateChangeReasonDeploy     StateChangeReason = "DEPLOY"
 	StateChangeReasonInvoke     StateChangeReason = "INVOKE"
 )
 

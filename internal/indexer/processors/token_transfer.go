@@ -148,14 +148,19 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 
 	builder = builder.WithAmount(strconv.FormatInt(netFee, 10))
 	if netFee > 0 {
-		return builder.WithCategory(types.StateChangeCategoryDebit).Build(), nil
+		return builder.
+		WithCategory(types.StateChangeCategoryBalance).
+		WithReason(types.StateChangeReasonDebit).Build(), nil
 	}
-	return builder.WithCategory(types.StateChangeCategoryCredit).Build(), nil
+	return builder.
+	WithCategory(types.StateChangeCategoryBalance).
+	WithReason(types.StateChangeReasonCredit).Build(), nil
 }
 
 // createStateChange creates a basic state change with the common fields.
-func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCategory, account, amount, contractAddress string, builder *StateChangeBuilder) types.StateChange {
+func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCategory, reason types.StateChangeReason, account, amount, contractAddress string, builder *StateChangeBuilder) types.StateChange {
 	return builder.WithCategory(category).
+		WithReason(reason).
 		WithAccount(account).
 		WithAmount(amount).
 		WithToken(contractAddress).
@@ -169,16 +174,17 @@ func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, 
 		WithToken(contractAddress).
 		WithAmount(amount)
 
-	debitChange := change.Clone().WithCategory(types.StateChangeCategoryDebit).WithAccount(from).Build()
-	creditChange := change.Clone().WithCategory(types.StateChangeCategoryCredit).WithAccount(to).Build()
+	debitChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonDebit).WithAccount(from).Build()
+	creditChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonCredit).WithAccount(to).Build()
 
 	return []types.StateChange{debitChange, creditChange}
 }
 
 // createLiquidityPoolChange creates a state change for liquidity pool interactions.
 // Includes the liquidity pool ID to track which pool the tokens moved to/from.
-func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateChangeCategory, accountID, poolID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
+func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateChangeCategory, reason types.StateChangeReason, accountID, poolID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
 	return builder.WithCategory(category).
+		WithReason(reason).
 		WithAccount(accountID).
 		WithAmount(amount).
 		WithToken(contractAddress).
@@ -188,8 +194,9 @@ func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateC
 
 // createClaimableBalanceChange creates a state change for claimable balance interactions.
 // Includes the claimable balance ID to track which balance was created, claimed, or clawed back.
-func (p *TokenTransferProcessor) createClaimableBalanceChange(category types.StateChangeCategory, accountID, claimableBalanceID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
+func (p *TokenTransferProcessor) createClaimableBalanceChange(category types.StateChangeCategory, reason types.StateChangeReason, accountID, claimableBalanceID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
 	return builder.WithCategory(category).
+		WithReason(reason).
 		WithAccount(accountID).
 		WithAmount(amount).
 		WithToken(contractAddress).
@@ -206,22 +213,22 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 	switch *operationType {
 	case xdr.OperationTypeCreateClaimableBalance:
 		// When creating a claimable balance, record debit from creator with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeClaimClaimableBalance:
 		// When claiming a claimable balance, record credit to claimer with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeLiquidityPoolDeposit:
 		// When depositing to LP, record debit from depositor with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		// When withdrawing from LP, record credit to withdrawer with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeSetTrustLineFlags, xdr.OperationTypeAllowTrust:
@@ -247,12 +254,12 @@ func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.
 
 	// LP is sending tokens to account (e.g., path payment buying from LP)
 	if IsLiquidityPool(from) {
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryCredit, to, from, amount, contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, to, from, amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
 
 	// LP is receiving tokens from account (e.g., path payment selling to LP)
-	change := p.createLiquidityPoolChange(types.StateChangeCategoryDebit, from, to, amount, contractAddress, builder)
+	change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, to, amount, contractAddress, builder)
 	return []types.StateChange{change}, nil
 }
 
@@ -264,13 +271,13 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 
 	// For issued assets, record mint for the issuer account
 	if !asset.GetNative() {
-		mintChange := p.createStateChange(types.StateChangeCategoryMint, asset.GetIssuedAsset().GetIssuer(), mint.GetAmount(), contractAddress, builder)
+		mintChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonMint, asset.GetIssuedAsset().GetIssuer(), mint.GetAmount(), contractAddress, builder)
 		changes = append(changes, mintChange)
 	}
 
 	// Create credit state change for the receiving account. Skip mints to liquidity pools since we dont track LP accounts
 	if !IsLiquidityPool(mint.GetTo()) {
-		creditChange := p.createStateChange(types.StateChangeCategoryCredit, mint.GetTo(), mint.GetAmount(), contractAddress, builder)
+		creditChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, mint.GetTo(), mint.GetAmount(), contractAddress, builder)
 		changes = append(changes, creditChange)
 	}
 
@@ -285,12 +292,12 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 	switch *operationType {
 	case xdr.OperationTypeClaimClaimableBalance:
 		// When issuer claims their own asset from claimable balance, it's burned with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
+		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeLiquidityPoolWithdraw:
 		// When issuer withdraws their own asset from LP, it's burned with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
+		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:
@@ -307,7 +314,7 @@ func (p *TokenTransferProcessor) handleClawback(clawback *ttp.Clawback, contract
 	switch *operationType {
 	case xdr.OperationTypeClawbackClaimableBalance:
 		// Clawback of claimable balance creates burn with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBurn, opSourceAccount, clawback.GetFrom(), clawback.GetAmount(), contractAddress, builder)
+		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, clawback.GetFrom(), clawback.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:
@@ -324,13 +331,13 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 
 	// For issued assets, record burn at the issuer account
 	if !asset.GetNative() {
-		burnChange := p.createStateChange(types.StateChangeCategoryBurn, asset.GetIssuedAsset().GetIssuer(), amount, contractAddress, builder)
+		burnChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, asset.GetIssuedAsset().GetIssuer(), amount, contractAddress, builder)
 		changes = append(changes, burnChange)
 	}
 
 	// Always record debit from the account losing the tokens. Skip burns from LP accounts since we dont track LP accounts
 	if !IsLiquidityPool(from) {
-		debitChange := p.createStateChange(types.StateChangeCategoryDebit, from, amount, contractAddress, builder)
+		debitChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, amount, contractAddress, builder)
 		changes = append(changes, debitChange)
 	}
 

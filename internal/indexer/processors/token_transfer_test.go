@@ -254,7 +254,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 2)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			accountB.ToAccountId().Address(), "500000000", usdcContractAddress,
 			anotherBalanceID.MustEncodeToStrkey())
 	})
@@ -284,7 +284,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 2)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBurn,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonBurn,
 			usdcAccount.ToAccountId().Address(), "500000000", usdcContractAddress,
 			anotherBalanceID.MustEncodeToStrkey())
 	})
@@ -340,10 +340,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 3)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			accountA.ToAccountId().Address(), "1000000000", nativeContractAddress,
 			someBalanceID.MustEncodeToStrkey())
-		assertClaimableBalanceEvent(t, stateChanges[2], types.StateChangeCategoryCredit,
+		assertClaimableBalanceEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			accountC.ToAccountId().Address(), "250000000", ethContractAddress,
 			anotherBalanceID.MustEncodeToStrkey())
 	})
@@ -373,7 +373,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 2)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			someTxAccount.ToAccountId().Address(), "2000000000", nativeContractAddress,
 			someBalanceID.MustEncodeToStrkey())
 	})
@@ -419,7 +419,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 2)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryDebit,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonDebit,
 			accountA.ToAccountId().Address(), "750000000", usdcContractAddress,
 			anotherBalanceID.MustEncodeToStrkey())
 	})
@@ -471,7 +471,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 2)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBurn,
+		assertClaimableBalanceEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonBurn,
 			usdcAccount.ToAccountId().Address(), "250000000", usdcContractAddress,
 			someBalanceID.MustEncodeToStrkey())
 	})
@@ -500,10 +500,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 3)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonDebit,
 			accountA.ToAccountId().Address(), "50000000", btcContractAddress,
 			lpIDToStrkey(lpBtcEthID))
-		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonDebit,
 			accountA.ToAccountId().Address(), "150000000", ethContractAddress,
 			lpIDToStrkey(lpBtcEthID))
 	})
@@ -533,10 +533,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 3)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			accountA.ToAccountId().Address(), "50000000", btcContractAddress,
 			lpIDToStrkey(lpBtcEthID))
-		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			accountA.ToAccountId().Address(), "120000000", ethContractAddress,
 			lpIDToStrkey(lpBtcEthID))
 	})
@@ -566,10 +566,10 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 3)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBurn,
+		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonBurn,
 			btcAccount.ToAccountId().Address(), "50000000", btcContractAddress,
 			lpIDToStrkey(lpBtcEthID))
-		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			btcAccount.ToAccountId().Address(), "120000000", ethContractAddress,
 			lpIDToStrkey(lpBtcEthID))
 	})
@@ -609,14 +609,14 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 7)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			btcAccount.ToAccountId().Address(), "50000000", ethContractAddress,
 			lpIDToStrkey(lpBtcEthID))
 		assertMintEvent(t, stateChanges[2], btcIssuer, "10000000", btcContractAddress)
-		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			btcAccount.ToAccountId().Address(), "100000000", usdcContractAddress,
 			lpIDToStrkey(lpEthUsdcID))
-		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryBalance, types.StateChangeReasonDebit,
 			btcAccount.ToAccountId().Address(), "30000000", ethContractAddress,
 			lpIDToStrkey(lpEthUsdcID))
 		assertDebitEvent(t, stateChanges[5], btcAccount.ToAccountId().Address(), "100000000", usdcContractAddress)
@@ -658,14 +658,14 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 7)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			btcAccount.ToAccountId().Address(), "20000000", ethContractAddress,
 			lpIDToStrkey(lpBtcEthID))
 		assertMintEvent(t, stateChanges[2], btcIssuer, "10000000", btcContractAddress)
-		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryCredit,
+		assertLiquidityPoolEvent(t, stateChanges[3], types.StateChangeCategoryBalance, types.StateChangeReasonCredit,
 			btcAccount.ToAccountId().Address(), "60000000", usdcContractAddress,
 			lpIDToStrkey(lpEthUsdcID))
-		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryDebit,
+		assertLiquidityPoolEvent(t, stateChanges[4], types.StateChangeCategoryBalance, types.StateChangeReasonDebit,
 			btcAccount.ToAccountId().Address(), "20000000", ethContractAddress,
 			lpIDToStrkey(lpEthUsdcID))
 		assertBurnEvent(t, stateChanges[5], usdcAccount.ToAccountId().Address(), "60000000", usdcContractAddress)
@@ -768,7 +768,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 		assertFeeEvent(t, stateChanges[0], "1234")
-		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryDebit, fromContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		assertContractEvent(t, stateChanges[2], types.StateChangeCategoryCredit, toContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonDebit, fromContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		assertContractEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonCredit, toContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 	})
 }
