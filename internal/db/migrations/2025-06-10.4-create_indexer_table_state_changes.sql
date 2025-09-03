@@ -14,8 +14,6 @@ CREATE TABLE state_changes (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
     token_id TEXT,
     amount TEXT,
-    claimable_balance_id TEXT,
-    liquidity_pool_id TEXT,
     flags JSONB,
     key_value JSONB,
     offer_id TEXT,

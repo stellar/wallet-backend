@@ -96,18 +96,6 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
-// WithClaimableBalance sets the claimable balance ID
-func (b *StateChangeBuilder) WithClaimableBalance(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
-	return b
-}
-
-// WithLiquidityPool sets the liquidity pool ID
-func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilder {
-	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
-	return b
-}
-
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
 	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
@@ -157,15 +145,13 @@ func (b *StateChangeBuilder) generateSortKey() string {
 	}
 
 	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
 		b.base.ToID,
 		b.base.StateChangeCategory,
 		reason,
 		b.base.AccountID,
 		b.base.TokenID.String,
 		b.base.Amount.String,
-		b.base.ClaimableBalanceID.String,
-		b.base.LiquidityPoolID.String,
 		b.base.OfferID.String,
 		b.base.SignerAccountID.String,
 		b.base.SpenderAccountID.String,

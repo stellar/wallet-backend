@@ -38,8 +38,6 @@ func (m *StateChangeModel) BatchInsert(
 	txHashes := make([]string, len(stateChanges))
 	tokenIDs := make([]*string, len(stateChanges))
 	amounts := make([]*string, len(stateChanges))
-	claimableBalanceIDs := make([]*string, len(stateChanges))
-	liquidityPoolIDs := make([]*string, len(stateChanges))
 	offerIDs := make([]*string, len(stateChanges))
 	signerAccountIDs := make([]*string, len(stateChanges))
 	spenderAccountIDs := make([]*string, len(stateChanges))
@@ -71,12 +69,6 @@ func (m *StateChangeModel) BatchInsert(
 		}
 		if sc.Amount.Valid {
 			amounts[i] = &sc.Amount.String
-		}
-		if sc.ClaimableBalanceID.Valid {
-			claimableBalanceIDs[i] = &sc.ClaimableBalanceID.String
-		}
-		if sc.LiquidityPoolID.Valid {
-			liquidityPoolIDs[i] = &sc.LiquidityPoolID.String
 		}
 		if sc.OfferID.Valid {
 			offerIDs[i] = &sc.OfferID.String
@@ -130,18 +122,16 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($9::text[]) AS tx_hash,
 				UNNEST($10::text[]) AS token_id,
 				UNNEST($11::text[]) AS amount,
-				UNNEST($12::text[]) AS claimable_balance_id,
-				UNNEST($13::text[]) AS liquidity_pool_id,
-				UNNEST($14::text[]) AS offer_id,
-				UNNEST($15::text[]) AS signer_account_id,
-				UNNEST($16::text[]) AS spender_account_id,
-				UNNEST($17::text[]) AS sponsored_account_id,
-				UNNEST($18::text[]) AS sponsor_account_id,
-				UNNEST($19::text[]) AS deployer_account_id,
-				UNNEST($20::jsonb[]) AS signer_weights,
-				UNNEST($21::jsonb[]) AS thresholds,
-				UNNEST($22::jsonb[]) AS flags,
-				UNNEST($23::jsonb[]) AS key_value
+				UNNEST($12::text[]) AS offer_id,
+				UNNEST($13::text[]) AS signer_account_id,
+				UNNEST($14::text[]) AS spender_account_id,
+				UNNEST($15::text[]) AS sponsored_account_id,
+				UNNEST($16::text[]) AS sponsor_account_id,
+				UNNEST($17::text[]) AS deployer_account_id,
+				UNNEST($18::jsonb[]) AS signer_weights,
+				UNNEST($19::jsonb[]) AS thresholds,
+				UNNEST($20::jsonb[]) AS flags,
+				UNNEST($21::jsonb[]) AS key_value
 		),
 
 		-- STEP 3: Get state changes that reference existing accounts
@@ -156,13 +146,13 @@ func (m *StateChangeModel) BatchInsert(
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				claimable_balance_id, liquidity_pool_id, offer_id, signer_account_id,
+				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, signer_weights, thresholds, flags, key_value)
 			SELECT
 				state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				claimable_balance_id, liquidity_pool_id, offer_id, signer_account_id,
+				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, signer_weights, thresholds, flags, key_value
 			FROM valid_state_changes
@@ -187,8 +177,6 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(txHashes),
 		pq.Array(tokenIDs),
 		pq.Array(amounts),
-		pq.Array(claimableBalanceIDs),
-		pq.Array(liquidityPoolIDs),
 		pq.Array(offerIDs),
 		pq.Array(signerAccountIDs),
 		pq.Array(spenderAccountIDs),

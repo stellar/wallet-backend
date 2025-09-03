@@ -239,14 +239,6 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 	// Add specific identifiers based on the type of sponsored reserve
 	//exhaustive:ignore
 	switch effectType {
-	// For claimable balance sponsorship, include the balance ID
-	case effects.EffectClaimableBalanceSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipRemoved:
-		builder = builder.WithClaimableBalance(effect.Details["balance_id"].(string))
-	// For trustline sponsorship, include liquidity pool ID if applicable
-	case effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipUpdated, effects.EffectTrustlineSponsorshipRemoved:
-		if lpID, ok := effect.Details["liquidity_pool_id"]; ok {
-			builder = builder.WithLiquidityPool(lpID.(string))
-		}
 	// For signer sponsorship, include the signer key
 	case effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipUpdated, effects.EffectSignerSponsorshipRemoved:
 		builder = builder.WithSigner(effect.Details["signer"].(string), map[string]any{

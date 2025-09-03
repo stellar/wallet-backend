@@ -850,20 +850,6 @@ func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount str
 	assert.Equal(t, types.StateChangeReasonBurn, *change.StateChangeReason)
 }
 
-func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedToken string, expectedLPID string) {
-	t.Helper()
-	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedToken)
-	require.Equal(t, reason, *change.StateChangeReason)
-	require.Equal(t, expectedLPID, change.LiquidityPoolID.String)
-}
-
-func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedToken string, expectedCBID string) {
-	t.Helper()
-	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedToken)
-	require.Equal(t, reason, *change.StateChangeReason)
-	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
-}
-
 func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedContractID string) {
 	t.Helper()
 	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedContractID)

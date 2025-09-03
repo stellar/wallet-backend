@@ -180,55 +180,21 @@ func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, 
 	return []types.StateChange{debitChange, creditChange}
 }
 
-// createLiquidityPoolChange creates a state change for liquidity pool interactions.
-// Includes the liquidity pool ID to track which pool the tokens moved to/from.
-func (p *TokenTransferProcessor) createLiquidityPoolChange(category types.StateChangeCategory, reason types.StateChangeReason, accountID, poolID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
-	return builder.WithCategory(category).
-		WithReason(reason).
-		WithAccount(accountID).
-		WithAmount(amount).
-		WithToken(contractAddress).
-		WithLiquidityPool(poolID).
-		Build()
-}
-
-// createClaimableBalanceChange creates a state change for claimable balance interactions.
-// Includes the claimable balance ID to track which balance was created, claimed, or clawed back.
-func (p *TokenTransferProcessor) createClaimableBalanceChange(category types.StateChangeCategory, reason types.StateChangeReason, accountID, claimableBalanceID, amount string, contractAddress string, builder *StateChangeBuilder) types.StateChange {
-	return builder.WithCategory(category).
-		WithReason(reason).
-		WithAccount(accountID).
-		WithAmount(amount).
-		WithToken(contractAddress).
-		WithClaimableBalance(claimableBalanceID).
-		Build()
-}
-
 // handleTransfer processes transfer events based on the operation type.
 // Different operations require different state change patterns:
-// - Claimable balances: single debit/credit with claimable balance ID
-// - Liquidity pools: single debit/credit with liquidity pool ID
+// - Claimable balances: single debit/credit since we dont record claimable balance IDs as accounts
+// - Liquidity pools: single debit/credit since we dont record liquidity pool IDs as accounts
 // - Regular transfers: debit/credit pair between accounts
 func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contractAddress string, builder *StateChangeBuilder, operationType *xdr.OperationType) ([]types.StateChange, error) {
 	switch *operationType {
-	case xdr.OperationTypeCreateClaimableBalance:
+	case xdr.OperationTypeCreateClaimableBalance, xdr.OperationTypeLiquidityPoolDeposit:
 		// When creating a claimable balance, record debit from creator with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
-	case xdr.OperationTypeClaimClaimableBalance:
+	case xdr.OperationTypeClaimClaimableBalance, xdr.OperationTypeLiquidityPoolWithdraw:
 		// When claiming a claimable balance, record credit to claimer with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
-		return []types.StateChange{change}, nil
-
-	case xdr.OperationTypeLiquidityPoolDeposit:
-		// When depositing to LP, record debit from depositor with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
-		return []types.StateChange{change}, nil
-
-	case xdr.OperationTypeLiquidityPoolWithdraw:
-		// When withdrawing from LP, record credit to withdrawer with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, transfer.GetTo(), transfer.GetFrom(), transfer.GetAmount(), contractAddress, builder)
+		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	case xdr.OperationTypeSetTrustLineFlags, xdr.OperationTypeAllowTrust:
@@ -240,7 +206,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
 		}
 
-		// Normal transfer between two accounts (payments, account merge)
+		// Normal transfer between two accounts
 		return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
 	}
 }
@@ -254,12 +220,12 @@ func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.
 
 	// LP is sending tokens to account (e.g., path payment buying from LP)
 	if IsLiquidityPool(from) {
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, to, from, amount, contractAddress, builder)
+		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, to, amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
 
 	// LP is receiving tokens from account (e.g., path payment selling to LP)
-	change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, to, amount, contractAddress, builder)
+	change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, amount, contractAddress, builder)
 	return []types.StateChange{change}, nil
 }
 
@@ -290,14 +256,8 @@ func (p *TokenTransferProcessor) handleBurn(burn *ttp.Burn, contractAddress stri
 	asset := burn.GetAsset()
 
 	switch *operationType {
-	case xdr.OperationTypeClaimClaimableBalance:
-		// When issuer claims their own asset from claimable balance, it's burned with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
-		return []types.StateChange{change}, nil
-
-	case xdr.OperationTypeLiquidityPoolWithdraw:
-		// When issuer withdraws their own asset from LP, it's burned with LP ID
-		change := p.createLiquidityPoolChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, burn.GetFrom(), burn.GetAmount(), contractAddress, builder)
+	case xdr.OperationTypeClaimClaimableBalance, xdr.OperationTypeLiquidityPoolWithdraw:
+		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, burn.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:
@@ -313,8 +273,7 @@ func (p *TokenTransferProcessor) handleClawback(clawback *ttp.Clawback, contract
 
 	switch *operationType {
 	case xdr.OperationTypeClawbackClaimableBalance:
-		// Clawback of claimable balance creates burn with CB ID
-		change := p.createClaimableBalanceChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, clawback.GetFrom(), clawback.GetAmount(), contractAddress, builder)
+		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonBurn, opSourceAccount, clawback.GetAmount(), contractAddress, builder)
 		return []types.StateChange{change}, nil
 
 	default:

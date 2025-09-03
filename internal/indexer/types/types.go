@@ -167,8 +167,6 @@ type StateChange struct {
 	// Nullable fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
-	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
