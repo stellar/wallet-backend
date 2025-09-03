@@ -149,12 +149,12 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 	builder = builder.WithAmount(strconv.FormatInt(netFee, 10))
 	if netFee > 0 {
 		return builder.
-		WithCategory(types.StateChangeCategoryBalance).
-		WithReason(types.StateChangeReasonDebit).Build(), nil
+			WithCategory(types.StateChangeCategoryBalance).
+			WithReason(types.StateChangeReasonDebit).Build(), nil
 	}
 	return builder.
-	WithCategory(types.StateChangeCategoryBalance).
-	WithReason(types.StateChangeReasonCredit).Build(), nil
+		WithCategory(types.StateChangeCategoryBalance).
+		WithReason(types.StateChangeReasonCredit).Build(), nil
 }
 
 // createStateChange creates a basic state change with the common fields.
