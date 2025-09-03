@@ -159,12 +159,16 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 
 // createStateChange creates a basic state change with the common fields.
 func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCategory, reason types.StateChangeReason, account, amount, contractAddress string, builder *StateChangeBuilder) types.StateChange {
-	return builder.WithCategory(category).
+	b := builder.WithCategory(category).
 		WithReason(reason).
 		WithAccount(account).
-		WithAmount(amount).
-		WithToken(contractAddress).
-		Build()
+		WithAmount(amount)
+		
+	if contractAddress != "" {
+		b = b.WithToken(contractAddress)
+	}
+
+	return b.Build()
 }
 
 // createDebitCreditPair creates a pair of debit and credit state changes for normal transfers.
@@ -206,8 +210,18 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
 		}
 
+		// For account creation and merge, we add a 3rd state change (ACCOUNT/CREATE, ACCOUNT/MERGE)apart from the debit and credit ones.
+		stateChanges := []types.StateChange{}
+		switch *operationType {
+		case xdr.OperationTypeCreateAccount:
+			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), transfer.GetAmount(), "", builder.Clone()))
+		case xdr.OperationTypeAccountMerge:
+			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonMerge, transfer.GetTo(), transfer.GetAmount(), "", builder.Clone()))
+		}
+
 		// Normal transfer between two accounts
-		return p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder), nil
+		stateChanges = append(stateChanges, p.createDebitCreditPair(transfer.GetFrom(), transfer.GetTo(), transfer.GetAmount(), contractAddress, builder)...)
+		return stateChanges, nil
 	}
 }
 

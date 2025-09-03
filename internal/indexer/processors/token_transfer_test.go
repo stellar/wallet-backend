@@ -70,11 +70,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes := processTransaction(t, processor, tx)
-		requireEventCount(t, changes, 3)
+		requireEventCount(t, changes, 4)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
-		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
+		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountB.ToAccountId().Address(), "", "")
+		require.Equal(t, types.StateChangeReasonCreate, *changes[1].StateChangeReason)
+		assertDebitEvent(t, changes[2], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
+		assertCreditEvent(t, changes[3], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
 	})
 
 	t.Run("AccountMerge - extracts state changes for successful account merge with balance", func(t *testing.T) {
@@ -100,11 +102,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		processor := NewTokenTransferProcessor(networkPassphrase)
 		changes := processTransaction(t, processor, tx)
-		requireEventCount(t, changes, 3)
+		requireEventCount(t, changes, 4)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
-		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
+		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountB.ToAccountId().Address(), "", "")
+		require.Equal(t, types.StateChangeReasonMerge, *changes[1].StateChangeReason)
+		assertDebitEvent(t, changes[2], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
+		assertCreditEvent(t, changes[3], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
 	})
 
 	t.Run("AccountMerge - no events for empty account merge", func(t *testing.T) {
