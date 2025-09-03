@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -702,10 +701,6 @@ func generateLpEntryRemovedChange(poolID xdr.PoolId) xdr.LedgerEntryChange {
 			},
 		},
 	}
-}
-
-func lpIDToStrkey(lpID xdr.PoolId) string {
-	return strkey.MustEncode(strkey.VersionByteLiquidityPool, lpID[:])
 }
 
 // Manage offer operation helpers

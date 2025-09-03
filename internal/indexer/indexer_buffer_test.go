@@ -11,15 +11,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-func buildStateChange(toID int64, stateChangeCategory types.StateChangeCategory, reason types.StateChangeReason, accountID string, txHash string, operationID int64) types.StateChange {
+func buildStateChange(toID int64, reason types.StateChangeReason, accountID string, txHash string, operationID int64) types.StateChange {
 	return types.StateChange{
 		ToID:                toID,
-		StateChangeCategory: stateChangeCategory,
+		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		AccountID:           accountID,
 		TxHash:              txHash,
 		OperationID:         operationID,
-		SortKey:             fmt.Sprintf("%d:%s:%s", toID, stateChangeCategory, accountID),
+		SortKey:             fmt.Sprintf("%d:%s:%s", toID, types.StateChangeCategoryBalance, accountID),
 	}
 }
 
@@ -276,12 +276,12 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		indexerBuffer.PushParticipantOperation("someone", op1, tx1)
 		indexerBuffer.PushParticipantOperation("someone", op2, tx2)
 
-		sc1 := buildStateChange(3, types.StateChangeCategoryBalance, types.StateChangeReasonCredit, "alice", tx1.Hash, op1.ID)
-		sc2 := buildStateChange(4, types.StateChangeCategoryBalance, types.StateChangeReasonDebit, "alice", tx2.Hash, op2.ID)
-		sc3 := buildStateChange(4, types.StateChangeCategoryBalance, types.StateChangeReasonCredit, "eve", tx2.Hash, op2.ID)
+		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", tx1.Hash, op1.ID)
+		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", tx2.Hash, op2.ID)
+		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", tx2.Hash, op2.ID)
 		// These are fee state changes, so they don't have an operation ID.
-		sc4 := buildStateChange(1, types.StateChangeCategoryBalance, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
-		sc5 := buildStateChange(2, types.StateChangeCategoryBalance, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
+		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
+		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
 
 		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
 		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3, sc4})

@@ -163,7 +163,7 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 		WithReason(reason).
 		WithAccount(account).
 		WithAmount(amount)
-		
+
 	if contractAddress != "" {
 		b = b.WithToken(contractAddress)
 	}
@@ -212,6 +212,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 
 		// For account creation and merge, we add a 3rd state change (ACCOUNT/CREATE, ACCOUNT/MERGE)apart from the debit and credit ones.
 		stateChanges := []types.StateChange{}
+		//exhaustive:ignore
 		switch *operationType {
 		case xdr.OperationTypeCreateAccount:
 			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), transfer.GetAmount(), "", builder.Clone()))
