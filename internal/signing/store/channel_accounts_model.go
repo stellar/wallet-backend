@@ -173,24 +173,20 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecute
 	return channelAccounts, nil
 }
 
-func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) error {
-	query := `DELETE FROM channel_accounts WHERE public_key = $1`
+func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
+	query := `DELETE FROM channel_accounts WHERE public_key = ANY($1)`
 
-	result, err := sqlExec.ExecContext(ctx, query, publicKey)
+	result, err := sqlExec.ExecContext(ctx, query, pq.Array(publicKeys))
 	if err != nil {
-		return fmt.Errorf("deleting channel account %s: %w", publicKey, err)
+		return 0, fmt.Errorf("deleting channel accounts %v: %w", publicKeys, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("getting rows affected for delete: %w", err)
+		return 0, fmt.Errorf("getting rows affected for delete: %w", err)
 	}
 
-	if rowsAffected == 0 {
-		return ErrChannelAccountNotFound
-	}
-
-	return nil
+	return rowsAffected, nil
 }
 
 func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {

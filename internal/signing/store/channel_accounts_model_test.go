@@ -380,11 +380,10 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	testCases := []struct {
-		name                string
-		numberOfFixtures    int
-		limit               int
-		expectedCount       int
-		expectedErrContains string
+		name             string
+		numberOfFixtures int
+		limit            int
+		expectedCount    int
 	}{
 		{
 			name:             "🟡empty_database",
@@ -429,12 +428,8 @@ func TestChannelAccountModelGetAll(t *testing.T) {
 			}
 
 			accounts, err := m.GetAll(ctx, dbConnectionPool, tc.limit)
-			if tc.expectedErrContains != "" {
-				require.ErrorContains(t, err, tc.expectedErrContains)
-			} else {
-				require.NoError(t, err)
-				assert.Len(t, accounts, tc.expectedCount)
-			}
+			require.NoError(t, err)
+			assert.Len(t, accounts, tc.expectedCount)
 		})
 	}
 }
@@ -450,21 +445,35 @@ func TestChannelAccountModelDelete(t *testing.T) {
 	m := NewChannelAccountModel(dbConnectionPool)
 
 	testCases := []struct {
-		name          string
-		setupFixtures bool
-		publicKey     string
-		expectedErrIs error
+		name                 string
+		accountsToCreate     int
+		wantAccountsToDelete int
+		publicKeys           []string
+		expectedErrIs        error
 	}{
 		{
-			name:          "🔴account_not_found",
-			setupFixtures: false,
-			publicKey:     "GINVALID123456789",
-			expectedErrIs: ErrChannelAccountNotFound,
+			name:                 "🟡account_not_found",
+			accountsToCreate:     0,
+			wantAccountsToDelete: 0,
+			publicKeys:           []string{"GINVALID123456789"},
 		},
 		{
-			name:          "🟢successful_deletion",
-			setupFixtures: true,
-			publicKey:     "", // Will be set in test
+			name:                 "🟢create_1_delete_1",
+			accountsToCreate:     1,
+			wantAccountsToDelete: 1,
+			publicKeys:           nil, // Will be set in test
+		},
+		{
+			name:                 "🟢create_2_delete_2",
+			accountsToCreate:     2,
+			wantAccountsToDelete: 2,
+			publicKeys:           nil, // Will be set in test
+		},
+		{
+			name:                 "🟢create_2_delete_1",
+			accountsToCreate:     2,
+			wantAccountsToDelete: 1,
+			publicKeys:           nil, // Will be set in test
 		},
 	}
 
@@ -475,23 +484,27 @@ func TestChannelAccountModelDelete(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
-			publicKey := tc.publicKey
-			if tc.setupFixtures {
+			publicKeys := tc.publicKeys
+			accountsToCreate := tc.accountsToCreate
+			for accountsToCreate > 0 {
 				channelAccount := keypair.MustRandom()
-				publicKey = channelAccount.Address()
+				publicKeys = append(publicKeys, channelAccount.Address())
 				createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
 					PublicKey:           channelAccount.Address(),
 					EncryptedPrivateKey: channelAccount.Seed(),
 				})
+				accountsToCreate--
 			}
 
-			err := m.Delete(ctx, dbConnectionPool, publicKey)
-			if tc.expectedErrIs != nil {
-				require.ErrorIs(t, err, tc.expectedErrIs)
-			} else {
+			rowsAffected, err := m.Delete(ctx, dbConnectionPool, publicKeys[:tc.wantAccountsToDelete]...)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAccountsToDelete, int(rowsAffected))
+
+			if tc.wantAccountsToDelete > 0 {
+				// Verify account was deleted
+				n, err := m.Count(ctx)
 				require.NoError(t, err)
-				_, err = m.Get(ctx, dbConnectionPool, publicKey)
-				require.ErrorIs(t, err, ErrChannelAccountNotFound)
+				assert.Equal(t, tc.accountsToCreate-tc.wantAccountsToDelete, int(n))
 			}
 		})
 	}

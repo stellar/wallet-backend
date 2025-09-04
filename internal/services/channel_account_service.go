@@ -59,13 +59,27 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 		// Delete excess accounts
 		numAccountsToDelete := currentChannelAccountNumber - number
 		log.Ctx(ctx).Infof("⏳ Deleting %d excess channel accounts...", numAccountsToDelete)
-		return s.deleteChannelAccounts(ctx, int(numAccountsToDelete))
+		return s.deleteChannelAccountsInBatches(ctx, int(numAccountsToDelete))
 	} else {
 		// Create additional accounts
 		numOfChannelAccountsToCreate := number - currentChannelAccountNumber
 		log.Ctx(ctx).Infof("⏳ Creating %d additional channel accounts...", numOfChannelAccountsToCreate)
-		return s.createChannelAccounts(ctx, int(numOfChannelAccountsToCreate))
+		return s.createChannelAccountsInBatches(ctx, int(numOfChannelAccountsToCreate))
 	}
+}
+
+func (s *channelAccountService) createChannelAccountsInBatches(ctx context.Context, amount int) error {
+	for amount > 0 {
+		batchSize := min(amount, MaximumCreateAccountOperationsPerStellarTx)
+		log.Ctx(ctx).Debugf("batch size: %d", batchSize)
+		err := s.createChannelAccounts(ctx, batchSize)
+		if err != nil {
+			return fmt.Errorf("creating channel accounts in batch: %w", err)
+		}
+		amount -= batchSize
+	}
+
+	return nil
 }
 
 func (s *channelAccountService) createChannelAccounts(ctx context.Context, amount int) error {
@@ -126,6 +140,20 @@ func (s *channelAccountService) createChannelAccounts(ctx context.Context, amoun
 	return nil
 }
 
+func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Context, amount int) error {
+	for amount > 0 {
+		batchSize := min(amount, MaximumCreateAccountOperationsPerStellarTx)
+		log.Ctx(ctx).Debugf("batch size: %d", batchSize)
+		err := s.deleteChannelAccounts(ctx, batchSize)
+		if err != nil {
+			return fmt.Errorf("creating channel accounts in batch: %w", err)
+		}
+		amount -= batchSize
+	}
+
+	return nil
+}
+
 func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAccountsToDelete int) error {
 	// Get a channel account to delete
 	chAccounts, err := s.ChannelAccountStore.GetAll(ctx, s.DB, numAccountsToDelete)
@@ -133,102 +161,85 @@ func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAc
 		return fmt.Errorf("retrieving channel account to delete: %w", err)
 	}
 
-	for _, chAcc := range chAccounts {
-		err = s.deleteChannelAccount(ctx, chAcc)
-		if err != nil {
-			return fmt.Errorf("deleting channel account %s: %w", chAcc.PublicKey, err)
-		}
-	}
-
-	return nil
-}
-
-func (s *channelAccountService) deleteChannelAccount(ctx context.Context, chAcc *store.ChannelAccount) (err error) {
-	// Remove from database after successful on-chain deletion
-	defer func() {
-		if err == nil {
-			err = s.ChannelAccountStore.Delete(ctx, s.DB, chAcc.PublicKey)
-			if err != nil {
-				err = fmt.Errorf("deleting %s from database: %w", chAcc.PublicKey, err)
-			}
-		}
-	}()
-
-	// Check if account exists on the network
-	_, err = s.RPCService.GetAccountLedgerSequence(chAcc.PublicKey)
-	if errors.Is(err, ErrAccountNotFound) {
-		log.Ctx(ctx).Infof("⏭️ Account %s does not exist on the network, proceeding to delete it from the database", chAcc.PublicKey)
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("getting account ledger sequence for %s: %w", chAcc.PublicKey, err)
-	}
-	log.Ctx(ctx).Infof("⏳ Deleting Stellar account with address: %s", chAcc.PublicKey)
-
-	// Create account merge operation to delete the account
 	distAccPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 	if err != nil {
 		return fmt.Errorf("getting distribution account public key: %w", err)
 	}
-	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distAccPublicKey)
-	if err != nil {
-		return fmt.Errorf("getting ledger sequence for distribution account %s: %w", distAccPublicKey, err)
+
+	var ops []txnbuild.Operation
+	for _, chAcc := range chAccounts {
+		_, err = s.RPCService.GetAccountLedgerSequence(chAcc.PublicKey)
+		if errors.Is(err, ErrAccountNotFound) {
+			log.Ctx(ctx).Infof("⏭️ Account %s does not exist on the network, proceeding to delete it from the database", chAcc.PublicKey)
+			continue
+		}
+
+		ops = append(ops, &txnbuild.AccountMerge{
+			Destination:   distAccPublicKey,
+			SourceAccount: chAcc.PublicKey,
+		})
 	}
 
-	// Build the tx
-	tx, err := txnbuild.NewTransaction(
-		txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: distAccPublicKey,
-				Sequence:  accountSeq,
-			},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.AccountMerge{
-					Destination:   distAccPublicKey,
-					SourceAccount: chAcc.PublicKey,
+	if len(ops) > 0 {
+		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distAccPublicKey)
+		if err != nil {
+			return fmt.Errorf("getting ledger sequence for distribution account %s: %w", distAccPublicKey, err)
+		}
+
+		// Build the tx
+		tx, err := txnbuild.NewTransaction(
+			txnbuild.TransactionParams{
+				SourceAccount: &txnbuild.SimpleAccount{
+					AccountID: distAccPublicKey,
+					Sequence:  accountSeq,
 				},
+				IncrementSequenceNum: true,
+				Operations:           ops,
+				BaseFee:              s.BaseFee,
+				Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
 			},
-			BaseFee:       s.BaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("building delete account transaction: %w", err)
-	}
+		)
+		if err != nil {
+			return fmt.Errorf("building delete account transaction: %w", err)
+		}
 
-	// Sign the tx
-	tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, chAcc.PublicKey)
-	if err != nil {
-		return fmt.Errorf("signing delete account transaction: %w", err)
-	}
-	tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distAccPublicKey)
-	if err != nil {
-		return fmt.Errorf("signing delete account transaction: %w", err)
-	}
+		publicKeys := make([]string, len(chAccounts))
+		for i, chAcc := range chAccounts {
+			publicKeys[i] = chAcc.PublicKey
+		}
+		tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, publicKeys...)
+		if err != nil {
+			return fmt.Errorf("signing delete account transaction: %w", err)
+		}
+		tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distAccPublicKey)
+		if err != nil {
+			return fmt.Errorf("signing delete account transaction: %w", err)
+		}
 
-	// Get the tx hash and XDR
-	txHash, err := tx.HashHex(s.ChannelAccountSignatureClient.NetworkPassphrase())
-	if err != nil {
-		return fmt.Errorf("getting transaction hash: %w", err)
-	}
-	txXDR, err := tx.Base64()
-	if err != nil {
-		return fmt.Errorf("getting transaction envelope: %w", err)
-	}
+		txHash, err := tx.HashHex(s.ChannelAccountSignatureClient.NetworkPassphrase())
+		if err != nil {
+			return fmt.Errorf("getting transaction hash: %w", err)
+		}
+		txXDR, err := tx.Base64()
+		if err != nil {
+			return fmt.Errorf("getting transaction envelope: %w", err)
+		}
 
-	// Submit the tx and wait for confirmation
-	log.Ctx(ctx).Infof("🚧 Submitting delete channel account transaction to rpc service")
-	err = s.submitTransaction(ctx, txHash, txXDR)
-	if err != nil {
-		return fmt.Errorf("submitting delete channel account transaction: %w", err)
+		err = s.submitTransaction(ctx, txHash, txXDR)
+		if err != nil {
+			return fmt.Errorf("submitting delete account transaction: %w", err)
+		}
+		err = s.waitForTransactionConfirmation(ctx, txHash)
+		if err != nil {
+			return fmt.Errorf("waiting for delete transaction confirmation: %w", err)
+		}
+		log.Ctx(ctx).Infof("⛓️ Successfully deleted channel accounts on chain %v", publicKeys)
+
+		if _, err = s.ChannelAccountStore.Delete(ctx, s.DB, publicKeys...); err != nil {
+			return fmt.Errorf("deleting channel accounts from database: %w", err)
+		}
+		log.Ctx(ctx).Infof("✅ Successfully deleted channel accounts from the database %v", publicKeys)
 	}
-	log.Ctx(ctx).Infof("⏳ Successfully submitted delete channel account transaction, waiting for confirmation...")
-	err = s.waitForTransactionConfirmation(ctx, txHash)
-	if err != nil {
-		return fmt.Errorf("waiting for delete transaction confirmation: %w", err)
-	}
-	log.Ctx(ctx).Infof("✅ Successfully deleted channel account %s", chAcc.PublicKey)
 
 	return nil
 }

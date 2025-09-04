@@ -66,9 +66,13 @@ func (s *ChannelAccountStoreMock) GetAll(ctx context.Context, sqlExec db.SQLExec
 	return args.Get(0).([]*ChannelAccount), args.Error(1)
 }
 
-func (s *ChannelAccountStoreMock) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) error {
-	args := s.Called(ctx, sqlExec, publicKey)
-	return args.Error(0)
+func (s *ChannelAccountStoreMock) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
+	_ca := []any{ctx, sqlExec}
+	for _, publicKey := range publicKeys {
+		_ca = append(_ca, publicKey)
+	}
+	args := s.Called(_ca...)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 func (s *ChannelAccountStoreMock) Count(ctx context.Context) (int64, error) {
