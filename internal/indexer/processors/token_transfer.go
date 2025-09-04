@@ -210,7 +210,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
 		}
 
-		// For account creation and merge, we add a 3rd state change (ACCOUNT/CREATE, ACCOUNT/MERGE)apart from the debit and credit ones.
+		// For account creation and merge, we add a 3rd state change (ACCOUNT/CREATE, ACCOUNT/MERGE) apart from the debit and credit ones.
 		stateChanges := []types.StateChange{}
 		//exhaustive:ignore
 		switch *operationType {
