@@ -157,6 +157,42 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 	return nil
 }
 
+func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error) {
+	query := `
+		SELECT * FROM channel_accounts
+		ORDER BY created_at ASC
+		LIMIT $1
+	`
+
+	var channelAccounts []*ChannelAccount
+	err := sqlExec.SelectContext(ctx, &channelAccounts, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting all channel accounts: %w", err)
+	}
+
+	return channelAccounts, nil
+}
+
+func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKey string) error {
+	query := `DELETE FROM channel_accounts WHERE public_key = $1`
+
+	result, err := sqlExec.ExecContext(ctx, query, publicKey)
+	if err != nil {
+		return fmt.Errorf("deleting channel account %s: %w", publicKey, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("getting rows affected for delete: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrChannelAccountNotFound
+	}
+
+	return nil
+}
+
 func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {
 	query := `
 		SELECT

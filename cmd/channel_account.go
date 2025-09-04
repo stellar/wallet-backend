@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
 	internalUtils "github.com/stellar/wallet-backend/internal/utils"
@@ -98,6 +99,16 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				return fmt.Errorf("resolving distribution account signature client: %w", err)
 			}
 
+			chAccSigClient, err := utils.SignatureClientResolver(&utils.SignatureClientOptions{
+				Type:                 signing.ChannelAccountSignatureClientType,
+				NetworkPassphrase:    cfg.NetworkPassphrase,
+				EncryptionPassphrase: cfg.EncryptionPassphrase,
+				DBConnectionPool:     dbConnectionPool,
+			})
+			if err != nil {
+				return fmt.Errorf("resolving channel account signature client: %w", err)
+			}
+
 			db, err := dbConnectionPool.SqlxDB(ctx)
 			if err != nil {
 				return fmt.Errorf("getting sqlx db: %w", err)
@@ -115,6 +126,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 				DB:                                 dbConnectionPool,
 				BaseFee:                            int64(cfg.BaseFee),
 				DistributionAccountSignatureClient: distAccSigClient,
+				ChannelAccountSignatureClient:      chAccSigClient,
 				ChannelAccountStore:                &channelAccountModel,
 				PrivateKeyEncrypter:                &privateKeyEncrypter,
 				EncryptionPassphrase:               cfg.EncryptionPassphrase,
