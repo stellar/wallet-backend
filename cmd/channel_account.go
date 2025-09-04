@@ -76,7 +76,7 @@ func (c *channelAccountCmd) Command(cmdService ChAccCmdServiceInterface) *cobra.
 
 	ensureCmd := &cobra.Command{
 		Use:   "ensure {amount}",
-		Short: "Ensures that the number of channel accounts is at least the [amount] provided",
+		Short: "Ensures that the number of channel accounts is at exactly the [amount] provided",
 		Args:  cobra.ExactArgs(1),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfgOpts.RequireE(); err != nil {

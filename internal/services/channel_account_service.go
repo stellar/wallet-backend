@@ -53,7 +53,7 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	log.Ctx(ctx).Infof("🔍 Channel accounts amounts: {desired:%d, existing:%d}", number, currentChannelAccountNumber)
 
 	if currentChannelAccountNumber == number {
-		log.Ctx(ctx).Infof("✅ There are exactly %d channel accounts currently. Exiting...", number)
+		log.Ctx(ctx).Infof("✅ There are exactly %d channel accounts currently. Skipping...", number)
 		return nil
 	} else if currentChannelAccountNumber > number {
 		// Delete excess accounts
