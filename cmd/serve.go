@@ -51,6 +51,13 @@ func (c *serveCmd) Command() *cobra.Command {
 			Required:       true,
 		},
 		{
+			Name:      "client-auth-api-key",
+			Usage:     "The API key to use for client authentication. If provided, it will be accepted as a bearer token in the Authorization header.",
+			OptType:   types.String,
+			ConfigKey: &cfg.ClientAuthAPIKey,
+			Required:  false,
+		},
+		{
 			Name:        "client-auth-max-timeout-seconds",
 			Usage:       "The maximum timeout for client authentication.",
 			OptType:     types.Int,

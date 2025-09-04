@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -44,6 +45,7 @@ type Configs struct {
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
+	ClientAuthAPIKey            string
 	ClientAuthMaxTimeoutSeconds int
 	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
@@ -69,6 +71,7 @@ type handlerDeps struct {
 	DatabaseURL         string
 	ServerHostname      string
 	RequestAuthVerifier auth.HTTPRequestVerifier
+	ClientAuthAPIKey    string
 	NetworkPassphrase   string
 	RPCURL              string
 
@@ -195,6 +198,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		Models:                    models,
 		ServerHostname:            serverHostname.Hostname(),
 		RequestAuthVerifier:       requestAuthVerifier,
+		ClientAuthAPIKey:          strings.TrimSpace(cfg.ClientAuthAPIKey),
 		AccountService:            accountService,
 		AccountSponsorshipService: accountSponsorshipService,
 		PaymentService:            paymentService,
@@ -235,7 +239,7 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Authenticated routes
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService, deps.ClientAuthAPIKey))
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))

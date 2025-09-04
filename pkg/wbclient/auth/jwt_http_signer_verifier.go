@@ -85,6 +85,8 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience st
 		return fmt.Errorf("the Authorization header is invalid, expected 'Bearer <token>': %w", ErrUnauthorized)
 	}
 
+	tokenString := authHeader[len("Bearer "):] // Remove "Bearer " prefix
+
 	// Read the request body
 	var bodyBytes []byte
 	if req.Body != nil {
@@ -102,7 +104,6 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience st
 	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.Path)
 
 	// Parse the JWT
-	tokenString := authHeader[len("Bearer "):] // Remove "Bearer " prefix
 	_, _, err := s.parser.ParseJWT(tokenString, audience, methodAndPath, bodyBytes)
 	if err != nil {
 		return fmt.Errorf("verifying JWT: %w: %w", err, ErrUnauthorized)

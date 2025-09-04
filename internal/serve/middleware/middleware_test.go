@@ -29,7 +29,8 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	// GDQ2UMOTKA4RHL4ZH7QPOKPVF4DI3EATLL3GBNKULDH4ERXJ32E252VH
 	kpInvalid := keypair.MustParseFull("SDDAY7FIDYF4ROE6X2CJV5KHXBOF4R6QFLD4QT6DZ52UUJNUO6NECF3K")
 
-	jwtParser, err := auth.NewJWTTokenParser(10*time.Second, kpValid.Address())
+	const timeout = time.Second * 10
+	jwtParser, err := auth.NewJWTTokenParser(timeout, kpValid.Address())
 	require.NoError(t, err)
 	reqJWTVerifier := auth.NewHTTPRequestVerifier(jwtParser, auth.DefaultMaxBodySizeBytes)
 
@@ -40,13 +41,17 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	require.NoError(t, err)
 	invalidSigner := auth.NewHTTPRequestSigner(invalidJWTGenerator)
 
-	testCases := []struct {
+	const apiKey = "test-api-key-eBrGX2Cr7MNQbM6M"
+
+	type TestCase = struct {
 		name            string
 		setupRequest    func() *http.Request
 		setupMocks      func(t *testing.T, mAppTracker *apptracker.MockAppTracker, mMetricsService *metrics.MockMetricsService)
 		expectedStatus  int
 		expectedMessage string
-	}{
+	}
+
+	testCases := []TestCase{
 		{
 			name: "🔴missing_authorization_header",
 			setupRequest: func() *http.Request {
@@ -67,7 +72,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴invalid_token",
+			name: "🔴jwt/invalid_token",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", nil)
 				req.Header.Set("Authorization", "Bearer invalid-token")
@@ -77,10 +82,10 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴invalid_signer",
+			name: "🔴jwt/invalid_signer",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", nil)
-				err := invalidSigner.SignHTTPRequest(req, time.Second*5)
+				err := invalidSigner.SignHTTPRequest(req, timeout-time.Second)
 				require.NoError(t, err)
 				return req
 			},
@@ -88,7 +93,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴expired_token",
+			name: "🔴jwt/expired_token",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", nil)
 				err := validSigner.SignHTTPRequest(req, -time.Nanosecond*1)
@@ -104,10 +109,10 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴invalid_hostname",
+			name: "🔴jwt/invalid_hostname",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://invalid.test.com/authenticated", nil)
-				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				err := validSigner.SignHTTPRequest(req, timeout-time.Second)
 				require.NoError(t, err)
 				return req
 			},
@@ -115,10 +120,10 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🔴body_too_big",
+			name: "🔴jwt/body_too_big",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", bytes.NewBuffer(make([]byte, auth.DefaultMaxBodySizeBytes+1)))
-				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				err := validSigner.SignHTTPRequest(req, timeout-time.Second)
 				require.NoError(t, err)
 				return req
 			},
@@ -126,10 +131,10 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
 		{
-			name: "🟢valid_token_with_body",
+			name: "🟢jwt/valid_token_with_body",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", io.NopCloser(bytes.NewReader([]byte(`{"foo": "bar"}`))))
-				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				err := validSigner.SignHTTPRequest(req, timeout-time.Second)
 				require.NoError(t, err)
 				return req
 			},
@@ -137,11 +142,31 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			expectedMessage: `{"status":"ok"}`,
 		},
 		{
-			name: "🟢valid_token_without_body",
+			name: "🟢jwt/valid_token_without_body",
 			setupRequest: func() *http.Request {
 				req := httptest.NewRequest("GET", "https://test.com/authenticated", nil)
-				err := validSigner.SignHTTPRequest(req, time.Second*5)
+				err := validSigner.SignHTTPRequest(req, timeout-time.Second)
 				require.NoError(t, err)
+				return req
+			},
+			expectedStatus:  http.StatusOK,
+			expectedMessage: `{"status":"ok"}`,
+		},
+		{
+			name: "🟢api_key/valid_api_key_with_body",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "https://test.com/authenticated", io.NopCloser(bytes.NewReader([]byte(`{"foo": "bar"}`))))
+				req.Header.Set(APIKeyHeader, apiKey)
+				return req
+			},
+			expectedStatus:  http.StatusOK,
+			expectedMessage: `{"status":"ok"}`,
+		},
+		{
+			name: "🟢api_key/valid_api_key_without_body",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "https://test.com/authenticated", nil)
+				req.Header.Set(APIKeyHeader, apiKey)
 				return req
 			},
 			expectedStatus:  http.StatusOK,
@@ -159,7 +184,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 			if tc.setupMocks != nil {
 				tc.setupMocks(t, mAppTracker, mMetricsService)
 			}
-			authMiddleware := AuthenticationMiddleware("test.com", reqJWTVerifier, mAppTracker, mMetricsService)
+			authMiddleware := AuthenticationMiddleware("test.com", reqJWTVerifier, mAppTracker, mMetricsService, apiKey)
 
 			r := chi.NewRouter()
 			r.Use(authMiddleware)
