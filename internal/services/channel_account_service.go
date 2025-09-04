@@ -156,7 +156,7 @@ func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Conte
 		log.Ctx(ctx).Debugf("batch size: %d", batchSize)
 		err := s.deleteChannelAccounts(ctx, batchSize)
 		if err != nil {
-			return fmt.Errorf("creating channel accounts in batch: %w", err)
+			return fmt.Errorf("deleting channel accounts in batch: %w", err)
 		}
 		amount -= batchSize
 	}
@@ -207,6 +207,7 @@ func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAc
 				return tx, nil
 			}
 
+			log.Ctx(ctx).Infof("⛓️ Will merge accounts on chain: %v", publicKeys)
 			err = s.submitChannelAccountsTxOnChain(ctx, distAccPublicKey, ops, chAccSigner)
 			if err != nil {
 				return fmt.Errorf("submitting delete account transaction: %w", err)
@@ -327,7 +328,7 @@ func parseResultXDR(resultXDR string) string {
 	var xdrResult xdr.TransactionResult
 	err := xdr.SafeUnmarshalBase64(resultXDR, &xdrResult)
 	if err != nil {
-		log.Errorf("unmarshalling transaction result=%v", err)
+		log.Errorf("error unmarshalling transaction result: %v", err)
 		return resultXDR
 	}
 	return fmt.Sprintf("%+v", xdrResult)
