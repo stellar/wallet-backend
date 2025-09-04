@@ -368,3 +368,144 @@ func TestChannelAccountModelCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n)
 }
+
+func TestChannelAccountModelGetAll(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	testCases := []struct {
+		name             string
+		numberOfFixtures int
+		limit            int
+		expectedCount    int
+	}{
+		{
+			name:             "🟡empty_database",
+			numberOfFixtures: 0,
+			limit:            10,
+			expectedCount:    0,
+		},
+		{
+			name:             "🟢limit_greater_than_fixtures",
+			numberOfFixtures: 2,
+			limit:            10,
+			expectedCount:    2,
+		},
+		{
+			name:             "🟢limit_less_than_fixtures",
+			numberOfFixtures: 5,
+			limit:            3,
+			expectedCount:    3,
+		},
+		{
+			name:             "🟢exact_limit_match",
+			numberOfFixtures: 3,
+			limit:            3,
+			expectedCount:    3,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				require.NoError(t, err)
+			}()
+
+			// Create fixtures
+			for i := 0; i < tc.numberOfFixtures; i++ {
+				channelAccount := keypair.MustRandom()
+				createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+					PublicKey:           channelAccount.Address(),
+					EncryptedPrivateKey: channelAccount.Seed(),
+				})
+			}
+
+			accounts, err := m.GetAll(ctx, dbConnectionPool, tc.limit)
+			require.NoError(t, err)
+			assert.Len(t, accounts, tc.expectedCount)
+		})
+	}
+}
+
+func TestChannelAccountModelDelete(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	m := NewChannelAccountModel(dbConnectionPool)
+
+	testCases := []struct {
+		name                 string
+		accountsToCreate     int
+		wantAccountsToDelete int
+		publicKeys           []string
+		expectedErrIs        error
+	}{
+		{
+			name:                 "🟡account_not_found",
+			accountsToCreate:     0,
+			wantAccountsToDelete: 0,
+			publicKeys:           []string{"GINVALID123456789"},
+		},
+		{
+			name:                 "🟢create_1_delete_1",
+			accountsToCreate:     1,
+			wantAccountsToDelete: 1,
+			publicKeys:           nil, // Will be set in test
+		},
+		{
+			name:                 "🟢create_2_delete_2",
+			accountsToCreate:     2,
+			wantAccountsToDelete: 2,
+			publicKeys:           nil, // Will be set in test
+		},
+		{
+			name:                 "🟢create_2_delete_1",
+			accountsToCreate:     2,
+			wantAccountsToDelete: 1,
+			publicKeys:           nil, // Will be set in test
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				_, err := dbConnectionPool.ExecContext(ctx, `DELETE from channel_accounts`)
+				require.NoError(t, err)
+			}()
+
+			publicKeys := tc.publicKeys
+			accountsToCreate := tc.accountsToCreate
+			for accountsToCreate > 0 {
+				channelAccount := keypair.MustRandom()
+				publicKeys = append(publicKeys, channelAccount.Address())
+				createChannelAccountFixture(t, ctx, dbConnectionPool, ChannelAccount{
+					PublicKey:           channelAccount.Address(),
+					EncryptedPrivateKey: channelAccount.Seed(),
+				})
+				accountsToCreate--
+			}
+
+			rowsAffected, err := m.Delete(ctx, dbConnectionPool, publicKeys[:tc.wantAccountsToDelete]...)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAccountsToDelete, int(rowsAffected))
+
+			if tc.wantAccountsToDelete > 0 {
+				// Verify account was deleted
+				n, err := m.Count(ctx)
+				require.NoError(t, err)
+				assert.Equal(t, tc.accountsToCreate-tc.wantAccountsToDelete, int(n))
+			}
+		})
+	}
+}
