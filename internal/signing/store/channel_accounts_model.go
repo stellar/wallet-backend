@@ -128,6 +128,10 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 		return nil
 	}
 
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
 	publicKeys := make([]string, len(channelAccounts))
 	encryptedPrivateKeys := make([]string, len(channelAccounts))
 	for i, ca := range channelAccounts {
@@ -158,10 +162,15 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 }
 
 func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error) {
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
 	query := `
 		SELECT * FROM channel_accounts
 		ORDER BY created_at ASC
 		LIMIT $1
+		FOR UPDATE SKIP LOCKED
 	`
 
 	var channelAccounts []*ChannelAccount
@@ -174,6 +183,10 @@ func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecute
 }
 
 func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
 	query := `DELETE FROM channel_accounts WHERE public_key = ANY($1)`
 
 	result, err := sqlExec.ExecContext(ctx, query, pq.Array(publicKeys))

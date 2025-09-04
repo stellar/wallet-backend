@@ -68,6 +68,8 @@ func (s *channelAccountService) EnsureChannelAccounts(ctx context.Context, numbe
 	}
 }
 
+// createChannelAccountsInBatches creates channel accounts in batches of MaximumCreateAccountOperationsPerStellarTx (19).
+// It is used to create more than 19 channel accounts by submitting multiple transactions.
 func (s *channelAccountService) createChannelAccountsInBatches(ctx context.Context, amount int) error {
 	for amount > 0 {
 		batchSize := min(amount, MaximumCreateAccountOperationsPerStellarTx)
@@ -82,6 +84,8 @@ func (s *channelAccountService) createChannelAccountsInBatches(ctx context.Conte
 	return nil
 }
 
+// createChannelAccounts creates channel accounts in a single transaction. The maximum amount of channel accounts that
+// can be created in a single transaction is MaximumCreateAccountOperationsPerStellarTx (19), due to payload size limit.
 func (s *channelAccountService) createChannelAccounts(ctx context.Context, amount int) error {
 	if amount > MaximumCreateAccountOperationsPerStellarTx {
 		return fmt.Errorf("number of channel accounts to create is greater than the maximum allowed per transaction (%d)", MaximumCreateAccountOperationsPerStellarTx)
@@ -126,7 +130,11 @@ func (s *channelAccountService) createChannelAccounts(ctx context.Context, amoun
 		})
 	}
 
-	err = s.submitCreateChannelAccountsOnChainTransaction(ctx, distributionAccountPublicKey, ops, chAccKPs...)
+	chAccSigner := func(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.Transaction, error) {
+		return tx.Sign(s.ChannelAccountSignatureClient.NetworkPassphrase(), chAccKPs...)
+	}
+
+	err = s.submitChannelAccountsTxOnChain(ctx, distributionAccountPublicKey, ops, chAccSigner)
 	if err != nil {
 		return fmt.Errorf("submitting create channel account(s) on chain transaction: %w", err)
 	}
@@ -140,6 +148,8 @@ func (s *channelAccountService) createChannelAccounts(ctx context.Context, amoun
 	return nil
 }
 
+// deleteChannelAccountsInBatches deletes channel accounts in batches of MaximumCreateAccountOperationsPerStellarTx (19).
+// It is used to delete more than 19 channel accounts by submitting multiple transactions.
 func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Context, amount int) error {
 	for amount > 0 {
 		batchSize := min(amount, MaximumCreateAccountOperationsPerStellarTx)
@@ -154,102 +164,83 @@ func (s *channelAccountService) deleteChannelAccountsInBatches(ctx context.Conte
 	return nil
 }
 
+// deleteChannelAccounts deletes channel accounts in a single transaction. The maximum amount of channel accounts that
+// can be deleted in a single transaction is MaximumCreateAccountOperationsPerStellarTx (19), due to payload size limit.
 func (s *channelAccountService) deleteChannelAccounts(ctx context.Context, numAccountsToDelete int) error {
-	// Get a channel account to delete
-	chAccounts, err := s.ChannelAccountStore.GetAll(ctx, s.DB, numAccountsToDelete)
-	if err != nil {
-		return fmt.Errorf("retrieving channel account to delete: %w", err)
-	}
-
-	distAccPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
-	if err != nil {
-		return fmt.Errorf("getting distribution account public key: %w", err)
-	}
-
-	var ops []txnbuild.Operation
-	for _, chAcc := range chAccounts {
-		_, err = s.RPCService.GetAccountLedgerSequence(chAcc.PublicKey)
-		if errors.Is(err, ErrAccountNotFound) {
-			log.Ctx(ctx).Infof("⏭️ Account %s does not exist on the network, proceeding to delete it from the database", chAcc.PublicKey)
-			continue
-		}
-
-		ops = append(ops, &txnbuild.AccountMerge{
-			Destination:   distAccPublicKey,
-			SourceAccount: chAcc.PublicKey,
-		})
-	}
-
-	if len(ops) > 0 {
-		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distAccPublicKey)
+	dbTxErr := db.RunInTransaction(ctx, s.DB, nil, func(dbTx db.Transaction) error {
+		// Get a channel account to delete
+		chAccounts, err := s.ChannelAccountStore.GetAll(ctx, dbTx, numAccountsToDelete)
 		if err != nil {
-			return fmt.Errorf("getting ledger sequence for distribution account %s: %w", distAccPublicKey, err)
+			return fmt.Errorf("retrieving channel account to delete: %w", err)
 		}
 
-		// Build the tx
-		tx, err := txnbuild.NewTransaction(
-			txnbuild.TransactionParams{
-				SourceAccount: &txnbuild.SimpleAccount{
-					AccountID: distAccPublicKey,
-					Sequence:  accountSeq,
-				},
-				IncrementSequenceNum: true,
-				Operations:           ops,
-				BaseFee:              s.BaseFee,
-				Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-			},
-		)
+		distAccPublicKey, err := s.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
 		if err != nil {
-			return fmt.Errorf("building delete account transaction: %w", err)
+			return fmt.Errorf("getting distribution account public key: %w", err)
 		}
 
-		publicKeys := make([]string, len(chAccounts))
-		for i, chAcc := range chAccounts {
-			publicKeys[i] = chAcc.PublicKey
-		}
-		tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, publicKeys...)
-		if err != nil {
-			return fmt.Errorf("signing delete account transaction: %w", err)
-		}
-		tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distAccPublicKey)
-		if err != nil {
-			return fmt.Errorf("signing delete account transaction: %w", err)
+		var ops []txnbuild.Operation
+		for _, chAcc := range chAccounts {
+			_, err = s.RPCService.GetAccountLedgerSequence(chAcc.PublicKey)
+			if errors.Is(err, ErrAccountNotFound) {
+				log.Ctx(ctx).Infof("⏭️ Account %s does not exist on the network, proceeding to delete it from the database", chAcc.PublicKey)
+				continue
+			}
+
+			ops = append(ops, &txnbuild.AccountMerge{
+				Destination:   distAccPublicKey,
+				SourceAccount: chAcc.PublicKey,
+			})
 		}
 
-		txHash, err := tx.HashHex(s.ChannelAccountSignatureClient.NetworkPassphrase())
-		if err != nil {
-			return fmt.Errorf("getting transaction hash: %w", err)
-		}
-		txXDR, err := tx.Base64()
-		if err != nil {
-			return fmt.Errorf("getting transaction envelope: %w", err)
+		if len(ops) > 0 {
+			publicKeys := make([]string, len(chAccounts))
+			for i, chAcc := range chAccounts {
+				publicKeys[i] = chAcc.PublicKey
+			}
+
+			chAccSigner := func(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.Transaction, error) {
+				tx, err = s.ChannelAccountSignatureClient.SignStellarTransaction(ctx, tx, publicKeys...)
+				if err != nil {
+					return nil, fmt.Errorf("signing delete account transaction: %w", err)
+				}
+				return tx, nil
+			}
+
+			err = s.submitChannelAccountsTxOnChain(ctx, distAccPublicKey, ops, chAccSigner)
+			if err != nil {
+				return fmt.Errorf("submitting delete account transaction: %w", err)
+			}
+
+			if _, err = s.ChannelAccountStore.Delete(ctx, dbTx, publicKeys...); err != nil {
+				return fmt.Errorf("deleting channel accounts from database: %w", err)
+			}
+			log.Ctx(ctx).Infof("✅ Successfully deleted channel accounts from the database %v", publicKeys)
 		}
 
-		err = s.submitTransaction(ctx, txHash, txXDR)
-		if err != nil {
-			return fmt.Errorf("submitting delete account transaction: %w", err)
-		}
-		err = s.waitForTransactionConfirmation(ctx, txHash)
-		if err != nil {
-			return fmt.Errorf("waiting for delete transaction confirmation: %w", err)
-		}
-		log.Ctx(ctx).Infof("⛓️ Successfully deleted channel accounts on chain %v", publicKeys)
-
-		if _, err = s.ChannelAccountStore.Delete(ctx, s.DB, publicKeys...); err != nil {
-			return fmt.Errorf("deleting channel accounts from database: %w", err)
-		}
-		log.Ctx(ctx).Infof("✅ Successfully deleted channel accounts from the database %v", publicKeys)
+		return nil
+	})
+	if dbTxErr != nil {
+		return fmt.Errorf("deleting channel accounts in dbTx: %w", dbTxErr)
 	}
 
 	return nil
 }
 
-func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ctx context.Context, distributionAccountPublicKey string, ops []txnbuild.Operation, chAccKPs ...*keypair.Full) error {
+type ChannelAccSigner func(ctx context.Context, tx *txnbuild.Transaction) (*txnbuild.Transaction, error)
+
+func (s *channelAccountService) submitChannelAccountsTxOnChain(
+	ctx context.Context,
+	distributionAccountPublicKey string,
+	ops []txnbuild.Operation,
+	chAccSigner ChannelAccSigner,
+) error {
 	log.Ctx(ctx).Infof("⏳ Waiting for RPC service to become healthy")
 	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
+
 	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
 	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
 	case <-rpcHeartbeatChannel:
@@ -275,36 +266,33 @@ func (s *channelAccountService) submitCreateChannelAccountsOnChainTransaction(ct
 			return fmt.Errorf("building transaction: %w", err)
 		}
 
-		signedTx, err := s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
+		// Sign the transaction for the distribution account
+		tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
 		if err != nil {
 			return fmt.Errorf("signing transaction for distribution account: %w", err)
 		}
-
-		if len(chAccKPs) > 0 {
-			signedTx, err = signedTx.Sign(s.DistributionAccountSignatureClient.NetworkPassphrase(), chAccKPs...)
-			if err != nil {
-				return fmt.Errorf("signing transaction with channel account(s) keypairs: %w", err)
-			}
+		// Sign the transaction for the channel accounts
+		tx, err = chAccSigner(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("signing transaction with channel account(s) keypairs: %w", err)
 		}
 
-		hash, err := signedTx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
+		txHash, err := tx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
 		if err != nil {
 			return fmt.Errorf("getting transaction hash: %w", err)
 		}
-
-		signedTxXDR, err := signedTx.Base64()
+		txXDR, err := tx.Base64()
 		if err != nil {
 			return fmt.Errorf("getting transaction envelope: %w", err)
 		}
 
-		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to rpc service")
-		err = s.submitTransaction(ctx, hash, signedTxXDR)
+		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to RPC service")
+		err = s.submitTransaction(ctx, txHash, txXDR)
 		if err != nil {
-			return fmt.Errorf("submitting channel account transaction to rpc service: %w", err)
+			return fmt.Errorf("submitting channel account transaction to RPC service: %w", err)
 		}
-
-		log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to rpc service, waiting for confirmation...")
-		err = s.waitForTransactionConfirmation(ctx, hash)
+		log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to RPC service, waiting for confirmation...")
+		err = s.waitForTransactionConfirmation(ctx, txHash)
 		if err != nil {
 			return fmt.Errorf("getting transaction status: %w", err)
 		}
