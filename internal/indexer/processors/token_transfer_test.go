@@ -690,13 +690,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, stateChanges, 11)
 
 		assertFeeEvent(t, stateChanges[0], "100")
-		
+
 		/*
-		BTC -> XLM from BTC issuer to some XLM holder. This results in the following state changes:
-		- Debit the XLM holder's native balance by 2 units
-		- Credit the BTC issuer's native balance by 2 units
-		- Mint 1 unit of BTC from BTC issuer
-		- Credit the XLM holder's BTC balance by 1 unit
+			BTC -> XLM from BTC issuer to some XLM holder. This results in the following state changes:
+			- Debit the XLM holder's native balance by 2 units
+			- Credit the BTC issuer's native balance by 2 units
+			- Mint 1 unit of BTC from BTC issuer
+			- Credit the XLM holder's BTC balance by 1 unit
 		*/
 		assertDebitEvent(t, stateChanges[1],
 			someXlmSellerAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
@@ -705,14 +705,13 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		assertMintEvent(t, stateChanges[3], btcAccount.ToAccountId().Address(), "10000000", btcContractAddress)
 		assertCreditEvent(t, stateChanges[4],
 			someXlmSellerAccount.ToAccountId().Address(), "10000000", btcContractAddress)
-		
-		
+
 		/*
-		XLM -> ETH from some BTC issuer to some ETH holder. This results in the following state changes:
-		- Debit the ETH holder's ETH balance by 6 units
-		- Credit the BTC issuer's ETH balance by 6 units
-		- Debit the BTC issuer's native balance by 2 units
-		- Credit the ETH holder's native balance by 2 units
+			XLM -> ETH from some BTC issuer to some ETH holder. This results in the following state changes:
+			- Debit the ETH holder's ETH balance by 6 units
+			- Credit the BTC issuer's ETH balance by 6 units
+			- Debit the BTC issuer's native balance by 2 units
+			- Credit the ETH holder's native balance by 2 units
 		*/
 		assertDebitEvent(t, stateChanges[5],
 			someEthSellerAccount.ToAccountId().Address(), "60000000", ethContractAddress)
@@ -722,8 +721,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 			btcAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
 		assertCreditEvent(t, stateChanges[8],
 			someEthSellerAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
-		
-		
+
 		// Finally a burn change for the ETH issuer and debit change for the BTC issuer
 		assertBurnEvent(t, stateChanges[9],
 			ethAccount.ToAccountId().Address(), "60000000", ethContractAddress)
