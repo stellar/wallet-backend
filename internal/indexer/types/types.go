@@ -116,10 +116,8 @@ type Operation struct {
 type StateChangeCategory string
 
 const (
-	StateChangeCategoryDebit              StateChangeCategory = "DEBIT"
-	StateChangeCategoryCredit             StateChangeCategory = "CREDIT"
-	StateChangeCategoryMint               StateChangeCategory = "MINT"
-	StateChangeCategoryBurn               StateChangeCategory = "BURN"
+	StateChangeCategoryBalance            StateChangeCategory = "BALANCE"
+	StateChangeCategoryAccount            StateChangeCategory = "ACCOUNT"
 	StateChangeCategorySigner             StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata           StateChangeCategory = "METADATA"
@@ -136,6 +134,12 @@ const (
 type StateChangeReason string
 
 const (
+	StateChangeReasonCreate     StateChangeReason = "CREATE"
+	StateChangeReasonMerge      StateChangeReason = "MERGE"
+	StateChangeReasonDebit      StateChangeReason = "DEBIT"
+	StateChangeReasonCredit     StateChangeReason = "CREDIT"
+	StateChangeReasonMint       StateChangeReason = "MINT"
+	StateChangeReasonBurn       StateChangeReason = "BURN"
 	StateChangeReasonAdd        StateChangeReason = "ADD"
 	StateChangeReasonRemove     StateChangeReason = "REMOVE"
 	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
@@ -149,7 +153,6 @@ const (
 	StateChangeReasonBuy        StateChangeReason = "BUY"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
 	StateChangeReasonConsume    StateChangeReason = "CONSUME"
-	StateChangeReasonDeploy     StateChangeReason = "DEPLOY"
 	StateChangeReasonInvoke     StateChangeReason = "INVOKE"
 )
 
@@ -164,13 +167,13 @@ type StateChange struct {
 	// Nullable fields:
 	TokenID            sql.NullString `json:"tokenId,omitempty" db:"token_id"`
 	Amount             sql.NullString `json:"amount,omitempty" db:"amount"`
-	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
-	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 	OfferID            sql.NullString `json:"offerId,omitempty" db:"offer_id"`
 	SignerAccountID    sql.NullString `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID   sql.NullString `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	SponsoredAccountID sql.NullString `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
 	SponsorAccountID   sql.NullString `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
 	SignerWeights NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
 	Thresholds    NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`

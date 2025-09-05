@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +45,7 @@ var (
 	ethIssuer          = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
 	ethContractAddress = "CALRGFTIOIMM5475GTIAIX24SKD5HIVQV6CA2LWBESXTFZREDIP7WBB3"
 	ethAsset           = xdr.MustNewCreditAsset("ETH", ethIssuer)
+	ethAccount         = xdr.MustMuxedAddress(ethIssuer)
 
 	btcIssuer          = "GBT4YAEGJQ5YSFUMNKX6BPBUOCPNAIOFAVZOF6MIME2CECBMEIUXFZZN"
 	btcContractAddress = "CBJLNMRJL7B5E2OZXZTRI3XIYLFCT4BKQNOIF4X4HZ3A3PZCB4XFV2CV"
@@ -704,10 +704,6 @@ func generateLpEntryRemovedChange(poolID xdr.PoolId) xdr.LedgerEntryChange {
 	}
 }
 
-func lpIDToStrkey(lpID xdr.PoolId) string {
-	return strkey.MustEncode(strkey.VersionByteLiquidityPool, lpID[:])
-}
-
 // Manage offer operation helpers
 func manageBuyOfferOp(source *xdr.MuxedAccount) xdr.Operation {
 	return xdr.Operation{
@@ -811,8 +807,12 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 	t.Helper()
 	require.Equal(t, category, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
-	require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
+	if expectedAmount != "" {
+		require.Equal(t, utils.SQLNullString(expectedAmount), change.Amount)
+	}
+	if expectedToken != "" {
+		require.Equal(t, utils.SQLNullString(expectedToken), change.TokenID)
+	}
 	if change.OperationID != 0 {
 		require.Equal(t, change.OperationID, change.ToID)
 	}
@@ -821,43 +821,37 @@ func assertStateChangeBase(t *testing.T, change types.StateChange, category type
 // Assertion helpers for common patterns
 func assertFeeEvent(t *testing.T, change types.StateChange, expectedAmount string) {
 	t.Helper()
-	assertStateChangeBase(t, change, types.StateChangeCategoryDebit, someTxAccount.ToAccountId().Address(), expectedAmount, nativeContractAddress)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, someTxAccount.ToAccountId().Address(), expectedAmount, nativeContractAddress)
+	assert.Equal(t, types.StateChangeReasonDebit, *change.StateChangeReason)
 	assert.Equal(t, change.TxID, change.ToID)
 }
 
 func assertDebitEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
-	assertStateChangeBase(t, change, types.StateChangeCategoryDebit, expectedAccount, expectedAmount, expectedToken)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, expectedAccount, expectedAmount, expectedToken)
+	assert.Equal(t, types.StateChangeReasonDebit, *change.StateChangeReason)
 }
 
 func assertCreditEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
-	assertStateChangeBase(t, change, types.StateChangeCategoryCredit, expectedAccount, expectedAmount, expectedToken)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, expectedAccount, expectedAmount, expectedToken)
+	assert.Equal(t, types.StateChangeReasonCredit, *change.StateChangeReason)
 }
 
 func assertMintEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
-	assertStateChangeBase(t, change, types.StateChangeCategoryMint, expectedAccount, expectedAmount, expectedToken)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, expectedAccount, expectedAmount, expectedToken)
+	assert.Equal(t, types.StateChangeReasonMint, *change.StateChangeReason)
 }
 
 func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount string, expectedAmount string, expectedToken string) {
 	t.Helper()
-	assertStateChangeBase(t, change, types.StateChangeCategoryBurn, expectedAccount, expectedAmount, expectedToken)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, expectedAccount, expectedAmount, expectedToken)
+	assert.Equal(t, types.StateChangeReasonBurn, *change.StateChangeReason)
 }
 
-func assertLiquidityPoolEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedLPID string) {
-	t.Helper()
-	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedToken)
-	require.Equal(t, expectedLPID, change.LiquidityPoolID.String)
-}
-
-func assertClaimableBalanceEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedToken string, expectedCBID string) {
-	t.Helper()
-	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedToken)
-	require.Equal(t, expectedCBID, change.ClaimableBalanceID.String)
-}
-
-func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, expectedAccount string, expectedAmount string, expectedContractID string) {
+func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedContractID string) {
 	t.Helper()
 	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedContractID)
+	require.Equal(t, reason, *change.StateChangeReason)
 }
