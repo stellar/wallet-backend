@@ -23,6 +23,7 @@ CREATE TABLE state_changes (
     sponsored_account_id TEXT,
     sponsor_account_id TEXT,
     deployer_account_id TEXT,
+    funder_account_id TEXT,
     thresholds JSONB,
     PRIMARY KEY (to_id, state_change_order)
 );

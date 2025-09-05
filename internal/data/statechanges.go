@@ -44,6 +44,7 @@ func (m *StateChangeModel) BatchInsert(
 	sponsoredAccountIDs := make([]*string, len(stateChanges))
 	sponsorAccountIDs := make([]*string, len(stateChanges))
 	deployerAccountIDs := make([]*string, len(stateChanges))
+	funderAccountIDs := make([]*string, len(stateChanges))
 	signerWeights := make([]*types.NullableJSONB, len(stateChanges))
 	thresholds := make([]*types.NullableJSONB, len(stateChanges))
 	flags := make([]*types.NullableJSON, len(stateChanges))
@@ -88,6 +89,9 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.DeployerAccountID.Valid {
 			deployerAccountIDs[i] = &sc.DeployerAccountID.String
 		}
+		if sc.FunderAccountID.Valid {
+			funderAccountIDs[i] = &sc.FunderAccountID.String
+		}
 		if sc.SignerWeights != nil {
 			signerWeights[i] = &sc.SignerWeights
 		}
@@ -128,9 +132,10 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($15::text[]) AS sponsored_account_id,
 				UNNEST($16::text[]) AS sponsor_account_id,
 				UNNEST($17::text[]) AS deployer_account_id,
-				UNNEST($18::jsonb[]) AS signer_weights,
-				UNNEST($19::jsonb[]) AS thresholds,
-				UNNEST($20::jsonb[]) AS flags,
+				UNNEST($18::text[]) AS funder_account_id,
+				UNNEST($19::jsonb[]) AS signer_weights,
+				UNNEST($20::jsonb[]) AS thresholds,
+				UNNEST($21::jsonb[]) AS flags,
 				UNNEST($21::jsonb[]) AS key_value
 		),
 
@@ -148,13 +153,13 @@ func (m *StateChangeModel) BatchInsert(
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, signer_weights, thresholds, flags, key_value)
+				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value)
 			SELECT
 				state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, signer_weights, thresholds, flags, key_value
+				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value
 			FROM valid_state_changes
 			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
@@ -183,6 +188,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(sponsoredAccountIDs),
 		pq.Array(sponsorAccountIDs),
 		pq.Array(deployerAccountIDs),
+		pq.Array(funderAccountIDs),
 		pq.Array(signerWeights),
 		pq.Array(thresholds),
 		pq.Array(flags),

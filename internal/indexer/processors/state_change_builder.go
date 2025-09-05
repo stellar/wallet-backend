@@ -72,6 +72,12 @@ func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
 	return b
 }
 
+// WithFunder sets the funder account ID
+func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
+	b.base.FunderAccountID = utils.SQLNullString(funder)
+	return b
+}
+
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
 	b.base.SponsorAccountID = utils.SQLNullString(sponsor)
