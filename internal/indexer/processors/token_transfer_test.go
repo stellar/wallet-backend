@@ -655,6 +655,82 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		assertDebitEvent(t, stateChanges[6], btcAccount.ToAccountId().Address(), "60000000", usdcContractAddress)
 	})
 
+	t.Run("PathPaymentStrictReceive - A (BTC Issuer) sends BTC to B (ETH Issuer) as ETH - 2 Offers (BTC/XLM, XLM/ETH) - Mint, Transfer and Burn events", func(t *testing.T) {
+		path := []xdr.Asset{xlmAsset}
+
+		pathPaymentOp := pathPaymentStrictReceiveOp(
+			btcAsset, 1*oneUnit, ethAccount, ethAsset, 6*oneUnit, path, &btcAccount,
+		)
+
+		someXlmSellerAccount := xdr.MustMuxedAddress("GC7ERFCD7QLDFRSEPLYB3GYSWX6GYMCHLDL45N4S5Q2N5EJDOMOJ63V4")
+		someEthSellerAccount := xdr.MustMuxedAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY")
+
+		pathPaymentResult := &xdr.OperationResult{
+			Code: xdr.OperationResultCodeOpInner,
+			Tr: &xdr.OperationResultTr{
+				Type: xdr.OperationTypePathPaymentStrictReceive,
+				PathPaymentStrictReceiveResult: &xdr.PathPaymentStrictReceiveResult{
+					Code: xdr.PathPaymentStrictReceiveResultCodePathPaymentStrictReceiveSuccess,
+					Success: &xdr.PathPaymentStrictReceiveResultSuccess{
+						Offers: []xdr.ClaimAtom{
+							// source Account sold(minted) some of its BTC and bought XLM from some XLM holder
+							generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeOrderBook, &someXlmSellerAccount, nil, xlmAsset, 2*oneUnit, btcAsset, 1*oneUnit),
+							// source Account then sold XLM and bought ETH from some ETH holder
+							generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeOrderBook, &someEthSellerAccount, nil, ethAsset, 6*oneUnit, xlmAsset, 2*oneUnit),
+						},
+					},
+				},
+			},
+		}
+
+		tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase)
+		stateChanges := processTransaction(t, processor, tx)
+		requireEventCount(t, stateChanges, 11)
+
+		assertFeeEvent(t, stateChanges[0], "100")
+		
+		/*
+		BTC -> XLM from BTC issuer to some XLM holder. This results in the following state changes:
+		- Debit the XLM holder's native balance by 2 units
+		- Credit the BTC issuer's native balance by 2 units
+		- Mint 1 unit of BTC from BTC issuer
+		- Credit the XLM holder's BTC balance by 1 unit
+		*/
+		assertDebitEvent(t, stateChanges[1],
+			someXlmSellerAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
+		assertCreditEvent(t, stateChanges[2],
+			btcAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
+		assertMintEvent(t, stateChanges[3], btcAccount.ToAccountId().Address(), "10000000", btcContractAddress)
+		assertCreditEvent(t, stateChanges[4],
+			someXlmSellerAccount.ToAccountId().Address(), "10000000", btcContractAddress)
+		
+		
+		/*
+		XLM -> ETH from some BTC issuer to some ETH holder. This results in the following state changes:
+		- Debit the ETH holder's ETH balance by 6 units
+		- Credit the BTC issuer's ETH balance by 6 units
+		- Debit the BTC issuer's native balance by 2 units
+		- Credit the ETH holder's native balance by 2 units
+		*/
+		assertDebitEvent(t, stateChanges[5],
+			someEthSellerAccount.ToAccountId().Address(), "60000000", ethContractAddress)
+		assertCreditEvent(t, stateChanges[6],
+			btcAccount.ToAccountId().Address(), "60000000", ethContractAddress)
+		assertDebitEvent(t, stateChanges[7],
+			btcAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
+		assertCreditEvent(t, stateChanges[8],
+			someEthSellerAccount.ToAccountId().Address(), "20000000", nativeContractAddress)
+		
+		
+		// Finally a burn change for the ETH issuer and debit change for the BTC issuer
+		assertBurnEvent(t, stateChanges[9],
+			ethAccount.ToAccountId().Address(), "60000000", ethContractAddress)
+		assertDebitEvent(t, stateChanges[10],
+			btcAccount.ToAccountId().Address(), "60000000", ethContractAddress)
+	})
+
 	t.Run("ManageBuyOffer - Buy USDC for XLM (Source is USDC issuer)", func(t *testing.T) {
 		manageBuyOp := manageBuyOfferOp(&usdcAccount)
 
