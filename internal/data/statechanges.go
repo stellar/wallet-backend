@@ -136,7 +136,7 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($19::jsonb[]) AS signer_weights,
 				UNNEST($20::jsonb[]) AS thresholds,
 				UNNEST($21::jsonb[]) AS flags,
-				UNNEST($21::jsonb[]) AS key_value
+				UNNEST($22::jsonb[]) AS key_value
 		),
 
 		-- STEP 3: Get state changes that reference existing accounts
