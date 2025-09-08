@@ -45,6 +45,7 @@ type Indexer struct {
 	tokenTransferProcessor  TokenTransferProcessorInterface
 	effectsProcessor        OperationProcessorInterface
 	contractDeployProcessor OperationProcessorInterface
+	contractEventsProcessor OperationProcessorInterface
 }
 
 func NewIndexer(networkPassphrase string) *Indexer {
@@ -54,6 +55,7 @@ func NewIndexer(networkPassphrase string) *Indexer {
 		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
 		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase),
 		contractDeployProcessor: processors.NewContractDeployProcessor(networkPassphrase),
+		contractEventsProcessor: processors.NewEventsProcessor(networkPassphrase),
 	}
 }
 
@@ -80,7 +82,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	var dataOp *types.Operation
-	var effectsStateChanges, contractDeployStateChanges []types.StateChange
+	var effectsStateChanges, contractDeployStateChanges, contractEventsStateChanges []types.StateChange
 	for opID, opParticipants := range opsParticipants {
 		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
@@ -104,6 +106,13 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 			return fmt.Errorf("processing contract deploy state changes: %w", err)
 		}
 		i.Buffer.PushStateChanges(contractDeployStateChanges)
+
+		// 2.3 Index contract events state changes
+		contractEventsStateChanges, err = i.contractEventsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if err != nil {
+			return fmt.Errorf("processing contract events state changes: %w", err)
+		}
+		i.Buffer.PushStateChanges(contractEventsStateChanges)
 	}
 
 	// 3. Index token transfer state changes

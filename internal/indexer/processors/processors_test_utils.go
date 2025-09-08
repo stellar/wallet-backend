@@ -6,6 +6,8 @@ package processors
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"math"
 	"math/big"
 	"testing"
 
@@ -460,6 +462,126 @@ func createInvocationTx(
 		resp.Result.Result.Result.Results = &[]xdr.OperationResult{*opResult}
 	}
 	return resp
+}
+
+func createSep41InvocationTxV3(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+	data := makeBigAmount(amount)
+
+	topics := []xdr.ScVal{
+		makeSymbol("approve"),
+		makeAddress(from),
+		makeAddress(to),
+	}
+
+	metaV3 := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: []xdr.ContractEvent{
+				{
+					Type:       xdr.ContractEventTypeContract,
+					ContractId: &contractId,
+					Body: xdr.ContractEventBody{
+						V: 0,
+						V0: &xdr.ContractEventV0{
+							Topics: xdr.ScVec(topics),
+							Data:   data,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	resp := ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+	}
+	return resp
+}
+
+func makeSymbol(sym string) xdr.ScVal {
+	symbol := xdr.ScSymbol(sym)
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvSymbol,
+		Sym:  &symbol,
+	}
+}
+
+func makeAddress(address xdr.ContractId) xdr.ScVal {
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvAddress,
+		Address: &xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &address,
+		},
+	}
+}
+
+func makeBigAmount(amount *big.Int) xdr.ScVal {
+	if amount.BitLen() > 128 {
+		panic(fmt.Errorf(
+			"amount is too large: %d bits (max 128)",
+			amount.BitLen()))
+	}
+	//
+	// We create the two Uint64 parts as follows:
+	//
+	//  - take the upper 64 by shifting 64 right
+	//  - take the lower 64 by zeroing the top 64
+	//
+	keepLower := big.NewInt(0).SetUint64(math.MaxUint64)
+
+	hi := new(big.Int).Rsh(amount, 64)
+	lo := amount.And(amount, keepLower)
+
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvI128,
+		I128: &xdr.Int128Parts{
+			Lo: xdr.Uint64(lo.Uint64()),
+			Hi: xdr.Int64(hi.Int64()),
+		},
+	}
 }
 
 func createTx(op xdr.Operation, changes xdr.LedgerEntryChanges, opResult *xdr.OperationResult, isFailed bool) ingest.LedgerTransaction {
