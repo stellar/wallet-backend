@@ -12,6 +12,12 @@ import (
 	"github.com/stellar/go/strkey"
 )
 
+const (
+	approveFunctionName = "approve"
+	amountKeyName = "amount"
+	txMetaVersionV3 = 3
+	txMetaVersionV4 = 4
+)
 type EventsProcessor struct {
 	networkPassphrase string
 }
@@ -66,7 +72,7 @@ func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operati
 		amountStr := amount.String128Raw(amt)
 
 		switch string(fn) {
-		case "approve":
+		case approveFunctionName:
 			if len(topics) < 3 {
 				return nil, fmt.Errorf("insufficient topics for an `approve` event")
 			}
@@ -96,7 +102,7 @@ func parseV4MapDataForTokenEvents(mapData xdr.ScMap) (xdr.Int128Parts, error) {
 		if !ok {
 			return xdr.Int128Parts{}, fmt.Errorf("invalid key type in data map: %s", entry.Key.Type)
 		}
-		if string(key) == "amount" {
+		if string(key) == amountKeyName {
 			amt, ok := entry.Val.GetI128()
 			if !ok {
 				return xdr.Int128Parts{}, fmt.Errorf("amt field is not i128")
@@ -111,12 +117,12 @@ func extractAmount(value xdr.ScVal, txMetaVersion int32) (xdr.Int128Parts, error
 	var amt xdr.Int128Parts
 	var ok bool
 	switch txMetaVersion {
-	case 3:
+	case txMetaVersionV3:
 		amt, ok = value.GetI128()
 		if !ok {
 			return xdr.Int128Parts{}, fmt.Errorf("invalid event amount")
 		}
-	case 4:
+	case txMetaVersionV4:
 		// V4 data format can be:
 		// 1. Direct i128 (when there's no memo)
 		// 2. ScMap with exactly 2 fields: "amount" (i128) + "to_muxed_id" (u64/bytes/string)
