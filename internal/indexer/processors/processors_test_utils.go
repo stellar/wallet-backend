@@ -540,6 +540,427 @@ func createSep41InvocationTxV3(
 	return resp
 }
 
+func createSep41InvocationTxV4(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+	useMapFormat bool,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+
+	var data xdr.ScVal
+	if useMapFormat {
+		// V4 map format with amount and additional fields
+		data = makeV4MapData(amount)
+	} else {
+		// V4 direct i128 format
+		data = makeBigAmount(amount)
+	}
+
+	topics := []xdr.ScVal{
+		makeSymbol("approve"),
+		makeAddress(from),
+		makeAddress(to),
+	}
+
+	metaV4 := xdr.TransactionMetaV4{
+		Operations: []xdr.OperationMetaV2{
+			{
+			Events: []xdr.ContractEvent{
+				{
+					Type:       xdr.ContractEventTypeContract,
+					ContractId: &contractId,
+					Body: xdr.ContractEventBody{
+						V: 0,
+						V0: &xdr.ContractEventV0{
+							Topics: xdr.ScVec(topics),
+							Data:   data,
+						},
+					},
+				},
+			},
+			},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	resp := ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 4, V4: &metaV4}, // V4 format
+	}
+	return resp
+}
+
+// makeV4MapData creates a V4 map format data structure with amount and additional fields
+func makeV4MapData(amount *big.Int) xdr.ScVal {
+	mapEntries := []xdr.ScMapEntry{
+		{
+			Key: makeSymbol("amount"),
+			Val: makeBigAmount(amount),
+		},
+	}
+
+	scMap := xdr.ScMap(mapEntries)
+	scMapPtr := &scMap
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  &scMapPtr,
+	}
+}
+
+// createMultipleApproveEventsTx creates a transaction with multiple approve events
+func createMultipleApproveEventsTx(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+	data := makeBigAmount(amount)
+
+	// Create two approve events with different from/to addresses
+	events := []xdr.ContractEvent{
+		{
+			Type:       xdr.ContractEventTypeContract,
+			ContractId: &contractId,
+			Body: xdr.ContractEventBody{
+				V: 0,
+				V0: &xdr.ContractEventV0{
+					Topics: xdr.ScVec([]xdr.ScVal{
+						makeSymbol("approve"),
+						makeAddress(from),
+						makeAddress(to),
+					}),
+					Data: data,
+				},
+			},
+		},
+		{
+			Type:       xdr.ContractEventTypeContract,
+			ContractId: &contractId,
+			Body: xdr.ContractEventBody{
+				V: 0,
+				V0: &xdr.ContractEventV0{
+					Topics: xdr.ScVec([]xdr.ScVal{
+						makeSymbol("approve"),
+						makeAddress(to),
+						makeAddress(from),
+					}),
+					Data: data,
+				},
+			},
+		},
+	}
+
+	metaV3 := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: events,
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	return ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+	}
+}
+
+// createInvalidContractEventTx creates a transaction with invalid contract event structure
+func createInvalidContractEventTx(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+
+	// Create invalid event with wrong event type
+	event := xdr.ContractEvent{
+		Type:       xdr.ContractEventTypeSystem, // Invalid type
+		ContractId: &contractId,
+		Body: xdr.ContractEventBody{
+			V: 0,
+			V0: &xdr.ContractEventV0{
+				Topics: xdr.ScVec([]xdr.ScVal{
+					makeSymbol("approve"),
+					makeAddress(from),
+					makeAddress(to),
+				}),
+				Data: makeBigAmount(amount),
+			},
+		},
+	}
+
+	metaV3 := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: []xdr.ContractEvent{event},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	return ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+	}
+}
+
+// createInsufficientTopicsTx creates a transaction with insufficient topics for approve event
+func createInsufficientTopicsTx(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+
+	// Create approve event with only 2 topics (needs 3)
+	topics := []xdr.ScVal{
+		makeSymbol("approve"),
+		makeAddress(from),
+		// Missing third topic (spender address)
+	}
+
+	event := xdr.ContractEvent{
+		Type:       xdr.ContractEventTypeContract,
+		ContractId: &contractId,
+		Body: xdr.ContractEventBody{
+			V: 0,
+			V0: &xdr.ContractEventV0{
+				Topics: xdr.ScVec(topics),
+				Data:   makeBigAmount(amount),
+			},
+		},
+	}
+
+	metaV3 := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: []xdr.ContractEvent{event},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	return ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+	}
+}
+
+// createNonApproveEventTx creates a transaction with non-approve events
+func createNonApproveEventTx(
+	from, to xdr.ContractId,
+	admin string,
+	asset xdr.Asset,
+	amount *big.Int,
+) ingest.LedgerTransaction {
+	rawContractId, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractId := xdr.ContractId(rawContractId)
+
+	// Create transfer event instead of approve
+	topics := []xdr.ScVal{
+		makeSymbol("transfer"), // Different function name
+		makeAddress(from),
+		makeAddress(to),
+	}
+
+	event := xdr.ContractEvent{
+		Type:       xdr.ContractEventTypeContract,
+		ContractId: &contractId,
+		Body: xdr.ContractEventBody{
+			V: 0,
+			V0: &xdr.ContractEventV0{
+				Topics: xdr.ScVec(topics),
+				Data:   makeBigAmount(amount),
+			},
+		},
+	}
+
+	metaV3 := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{},
+		SorobanMeta: &xdr.SorobanTransactionMeta{
+			Events: []xdr.ContractEvent{event},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{
+				{
+					SourceAccount: xdr.MustMuxedAddressPtr(admin),
+					Body: xdr.OperationBody{
+						Type:                 xdr.OperationTypeInvokeHostFunction,
+						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+					},
+				},
+			},
+		},
+	}
+
+	return ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+	}
+}
+
 func makeSymbol(sym string) xdr.ScVal {
 	symbol := xdr.ScSymbol(sym)
 	return xdr.ScVal{
