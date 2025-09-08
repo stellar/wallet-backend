@@ -470,11 +470,11 @@ func createSep41InvocationTxV3(
 	asset xdr.Asset,
 	amount *big.Int,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 	data := makeBigAmount(amount)
 
 	topics := []xdr.ScVal{
@@ -489,7 +489,7 @@ func createSep41InvocationTxV3(
 			Events: []xdr.ContractEvent{
 				{
 					Type:       xdr.ContractEventTypeContract,
-					ContractId: &contractId,
+					ContractId: &contractID,
 					Body: xdr.ContractEventBody{
 						V: 0,
 						V0: &xdr.ContractEventV0{
@@ -547,11 +547,11 @@ func createSep41InvocationTxV4(
 	amount *big.Int,
 	useMapFormat bool,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 
 	var data xdr.ScVal
 	if useMapFormat {
@@ -571,19 +571,19 @@ func createSep41InvocationTxV4(
 	metaV4 := xdr.TransactionMetaV4{
 		Operations: []xdr.OperationMetaV2{
 			{
-			Events: []xdr.ContractEvent{
-				{
-					Type:       xdr.ContractEventTypeContract,
-					ContractId: &contractId,
-					Body: xdr.ContractEventBody{
-						V: 0,
-						V0: &xdr.ContractEventV0{
-							Topics: xdr.ScVec(topics),
-							Data:   data,
+				Events: []xdr.ContractEvent{
+					{
+						Type:       xdr.ContractEventTypeContract,
+						ContractId: &contractID,
+						Body: xdr.ContractEventBody{
+							V: 0,
+							V0: &xdr.ContractEventV0{
+								Topics: xdr.ScVec(topics),
+								Data:   data,
+							},
 						},
 					},
 				},
-			},
 			},
 		},
 	}
@@ -650,18 +650,18 @@ func createMultipleApproveEventsTx(
 	asset xdr.Asset,
 	amount *big.Int,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 	data := makeBigAmount(amount)
 
 	// Create two approve events with different from/to addresses
 	events := []xdr.ContractEvent{
 		{
 			Type:       xdr.ContractEventTypeContract,
-			ContractId: &contractId,
+			ContractId: &contractID,
 			Body: xdr.ContractEventBody{
 				V: 0,
 				V0: &xdr.ContractEventV0{
@@ -676,7 +676,7 @@ func createMultipleApproveEventsTx(
 		},
 		{
 			Type:       xdr.ContractEventTypeContract,
-			ContractId: &contractId,
+			ContractId: &contractID,
 			Body: xdr.ContractEventBody{
 				V: 0,
 				V0: &xdr.ContractEventV0{
@@ -742,16 +742,16 @@ func createInvalidContractEventTx(
 	asset xdr.Asset,
 	amount *big.Int,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 
 	// Create invalid event with wrong event type
 	event := xdr.ContractEvent{
 		Type:       xdr.ContractEventTypeSystem, // Invalid type
-		ContractId: &contractId,
+		ContractId: &contractID,
 		Body: xdr.ContractEventBody{
 			V: 0,
 			V0: &xdr.ContractEventV0{
@@ -811,16 +811,16 @@ func createInvalidContractEventTx(
 
 // createInsufficientTopicsTx creates a transaction with insufficient topics for approve event
 func createInsufficientTopicsTx(
-	from, to xdr.ContractId,
+	from xdr.ContractId,
 	admin string,
 	asset xdr.Asset,
 	amount *big.Int,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 
 	// Create approve event with only 2 topics (needs 3)
 	topics := []xdr.ScVal{
@@ -831,7 +831,7 @@ func createInsufficientTopicsTx(
 
 	event := xdr.ContractEvent{
 		Type:       xdr.ContractEventTypeContract,
-		ContractId: &contractId,
+		ContractId: &contractID,
 		Body: xdr.ContractEventBody{
 			V: 0,
 			V0: &xdr.ContractEventV0{
@@ -892,11 +892,11 @@ func createNonApproveEventTx(
 	asset xdr.Asset,
 	amount *big.Int,
 ) ingest.LedgerTransaction {
-	rawContractId, err := asset.ContractID(networkPassphrase)
+	rawContractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
 	}
-	contractId := xdr.ContractId(rawContractId)
+	contractID := xdr.ContractId(rawContractID)
 
 	// Create transfer event instead of approve
 	topics := []xdr.ScVal{
@@ -907,7 +907,7 @@ func createNonApproveEventTx(
 
 	event := xdr.ContractEvent{
 		Type:       xdr.ContractEventTypeContract,
-		ContractId: &contractId,
+		ContractId: &contractID,
 		Body: xdr.ContractEventBody{
 			V: 0,
 			V0: &xdr.ContractEventV0{

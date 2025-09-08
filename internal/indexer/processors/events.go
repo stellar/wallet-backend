@@ -5,19 +5,21 @@ import (
 	"errors"
 	"fmt"
 
-	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/xdr"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	amount "github.com/stellar/go/amount"
+	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/xdr"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 const (
 	approveFunctionName = "approve"
-	amountKeyName = "amount"
-	txMetaVersionV3 = 3
-	txMetaVersionV4 = 4
+	amountKeyName       = "amount"
+	txMetaVersionV3     = 3
+	txMetaVersionV4     = 4
 )
+
 type EventsProcessor struct {
 	networkPassphrase string
 }
@@ -83,12 +85,12 @@ func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operati
 			}
 
 			stateChanges = append(stateChanges, builder.WithCategory(types.StateChangeCategoryAllowance).
-					WithReason(types.StateChangeReasonSet).
-					WithAccount(from).
-					WithAmount(amountStr).
-					WithToken(contractAddress).
-					Build())
-			
+				WithReason(types.StateChangeReasonSet).
+				WithAccount(from).
+				WithAmount(amountStr).
+				WithToken(contractAddress).
+				Build())
+
 		default:
 			continue
 		}
@@ -154,5 +156,9 @@ func extractAddress(val xdr.ScVal) (string, error) {
 	if !ok {
 		return "", errors.New("invalid address")
 	}
-	return addr.String()
+	addrStr, err := addr.String()
+	if err != nil {
+		return "", fmt.Errorf("failed to convert address to string: %w", err)
+	}
+	return addrStr, nil
 }
