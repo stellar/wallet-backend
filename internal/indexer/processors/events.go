@@ -1,3 +1,4 @@
+// TODO: break contract processors by different types of contracts processed
 package processors
 
 import (
@@ -30,7 +31,7 @@ func NewEventsProcessor(networkPassphrase string) *EventsProcessor {
 	}
 }
 
-//TODO: break contract processors by different types of contracts processed
+// ProcessOperation processes contract events and converts them into state changes.
 func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
