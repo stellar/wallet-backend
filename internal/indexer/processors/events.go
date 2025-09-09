@@ -30,6 +30,7 @@ func NewEventsProcessor(networkPassphrase string) *EventsProcessor {
 	}
 }
 
+//TODO: break contract processors by different types of contracts processed
 func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
