@@ -109,7 +109,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 
 		// 2.3 Index contract events state changes
 		contractEventsStateChanges, err = i.contractEventsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
-		if err != nil {
+		if err != nil && !errors.Is(err, processors.ErrInvalidOpType) {
 			return fmt.Errorf("processing contract events state changes: %w", err)
 		}
 		i.Buffer.PushStateChanges(contractEventsStateChanges)
