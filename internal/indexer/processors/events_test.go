@@ -150,7 +150,7 @@ func TestEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Nil(t, stateChanges)
 	})
 
-	t.Run("Invalid Contract Event - should return error", func(t *testing.T) {
+	t.Run("Invalid Contract Event - should be ignored", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TEST_ASSET", admin)
 		amount := big.NewInt(100)
@@ -165,12 +165,11 @@ func TestEventsProcessor_ProcessOperation(t *testing.T) {
 			LedgerSequence: 12345,
 		}
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid contractEvent")
-		require.Nil(t, stateChanges)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
 	})
 
-	t.Run("Insufficient Topics - should return error", func(t *testing.T) {
+	t.Run("Insufficient Topics - should be ignored", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TEST_ASSET", admin)
 		amount := big.NewInt(100)
@@ -185,9 +184,8 @@ func TestEventsProcessor_ProcessOperation(t *testing.T) {
 			LedgerSequence: 12345,
 		}
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "insufficient topics for an `approve` event")
-		require.Nil(t, stateChanges)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
 	})
 
 	t.Run("Non-Approve Events - should be ignored", func(t *testing.T) {
@@ -206,6 +204,6 @@ func TestEventsProcessor_ProcessOperation(t *testing.T) {
 		}
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 0) // Should be empty as non-approve events are ignored
+		require.Empty(t, stateChanges)
 	})
 }

@@ -51,33 +51,29 @@ func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operati
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
-			return nil, fmt.Errorf("invalid contractEvent")
+			continue
 		}
 
+		// An approve event needs to have 3 topics: function name, from address and to address
 		topics := event.Body.V0.Topics
 		value := event.Body.V0.Data
-		if len(topics) < 2 {
-			return nil, fmt.Errorf("insufficient topics in contractEvent")
+		if len(topics) < 3 {
+			continue
 		}
 
 		fn, ok := topics[0].GetSym()
 		if !ok {
-			return nil, fmt.Errorf("invalid function name")
+			continue
 		}
-
-		contractAddress := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-
-		amt, err := extractAmount(value, tx.UnsafeMeta.V)
-		if err != nil {
-			return nil, fmt.Errorf("invalid event amount: %w", err)
-		}
-		amountStr := amount.String128Raw(amt)
 
 		switch string(fn) {
 		case approveFunctionName:
-			if len(topics) < 3 {
-				return nil, fmt.Errorf("insufficient topics for an `approve` event")
+			contractAddress := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
+			amt, err := extractAmount(value, tx.UnsafeMeta.V)
+			if err != nil {
+				return nil, fmt.Errorf("invalid event amount: %w", err)
 			}
+			amountStr := amount.String128Raw(amt)
 
 			from, err := extractAddress(topics[1])
 			if err != nil {
@@ -90,7 +86,6 @@ func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operati
 				WithAmount(amountStr).
 				WithToken(contractAddress).
 				Build())
-
 		default:
 			continue
 		}
