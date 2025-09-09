@@ -118,6 +118,7 @@ type StateChangeCategory string
 const (
 	StateChangeCategoryBalance            StateChangeCategory = "BALANCE"
 	StateChangeCategoryAccount            StateChangeCategory = "ACCOUNT"
+	StateChangeCategorySequence            StateChangeCategory = "SEQUENCE"
 	StateChangeCategorySigner             StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata           StateChangeCategory = "METADATA"
@@ -137,6 +138,7 @@ type StateChangeReason string
 const (
 	StateChangeReasonCreate     StateChangeReason = "CREATE"
 	StateChangeReasonMerge      StateChangeReason = "MERGE"
+	StateChangeReasonSequenceBump StateChangeReason = "BUMP"
 	StateChangeReasonDebit      StateChangeReason = "DEBIT"
 	StateChangeReasonCredit     StateChangeReason = "CREDIT"
 	StateChangeReasonMint       StateChangeReason = "MINT"

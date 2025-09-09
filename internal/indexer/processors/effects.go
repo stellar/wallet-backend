@@ -101,6 +101,11 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 		// Process different types of effects based on what account property they modify
 		//exhaustive:ignore
 		switch effectType {
+		case effects.EffectSequenceBumped:
+			stateChanges = append(stateChanges, changeBuilder.
+				WithCategory(types.StateChangeCategorySequence).
+				WithReason(types.StateChangeReasonSequenceBump).
+				Build())
 		// Signer effects: track changes to account signers (add/remove/update signer keys and weights)
 		case effects.EffectSignerCreated, effects.EffectSignerRemoved, effects.EffectSignerUpdated:
 			changeBuilder = changeBuilder.
@@ -289,17 +294,17 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	}
 	switch effectType {
 	case effects.EffectTrustlineCreated:
-		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithAccount(effect.Address).WithToken(assetStr).WithKeyValue(
+		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithKeyValue(
 			map[string]any{
 				"limit": effect.Details["limit"],
 			},
 		).Build()
 	case effects.EffectTrustlineRemoved:
-		change = baseBuilder.WithReason(types.StateChangeReasonRemove).WithAccount(effect.Address).WithToken(assetStr).Build()
+		change = baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithAccount(effect.Address).WithToken(assetStr).WithKeyValue(
+		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithKeyValue(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
