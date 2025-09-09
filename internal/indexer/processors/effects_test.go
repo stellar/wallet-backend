@@ -7,7 +7,9 @@ import (
 
 	"github.com/stellar/go/network"
 	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/toid"
+	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -249,7 +251,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeReasonDataEntry, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
 	})
-
 	t.Run("Sponsorship - account sponsorship created/updated/revoked", func(t *testing.T) {
 		envelopeXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAAAAAAAAAaAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvkAAAAAAAAAAABVvwF9wAAAEDHU95E9wxgETD8TqxUrkgC0/7XHyNDts6Q5huRHfDRyRcoHdv7aMp/sPvC3RPkXjOMjgbKJUX7SgExUeYB5f8F"
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
@@ -312,5 +313,123 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[5].AccountID)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[5].SponsorAccountID.String)
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[5].KeyValue["former_sponsor"])
+	})
+	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
+		envelopeXDR := "AAAAAKturFHJX/eRt5gM6qIXAMbaXvlImqLysA6Qr9tLemxfAAAAZAAAACYAAAABAAAAAAAAAAAAAAABAAAAAAAAAAYAAAABVVNEAAAAAAD5Jjibq+Rf5jsUyQ2/tGzCwiRg0Zd5nj9jARA1Skjz+H//////////AAAAAAAAAAFLemxfAAAAQKN8LftAafeoAGmvpsEokqm47jAuqw4g1UWjmL0j6QPm1jxoalzDwDS3W+N2HOHdjSJlEQaTxGBfQKHhr6nNsAA="
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
+		metaXDR := "AAAAAQAAAAIAAAADAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAABAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAMAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAQAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAFVU0QAAAAAAPkmOJur5F/mOxTJDb+0bMLCJGDRl3meP2MBEDVKSPP4AAAAAAAAAAB//////////wAAAAAAAAAAAAAAAA=="
+		feeChangesXDR := "AAAAAgAAAAMAAAAmAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+QAAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+OcAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "6fa467b53f5386d77ad35c2502ed2cd3dd8b460a5be22b6b2818b81bcd3ed2da"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
+		assert.Equal(t, "922337203685.4775807", changes[0].KeyValue["limit"])
+		asset := xdr.MustNewCreditAsset("USD", "GD4SMOE3VPSF7ZR3CTEQ3P5UNTBMEJDA2GLXTHR7MMARANKKJDZ7RPGF")
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+	})
+	t.Run("ChangeTrust - trustline updated", func(t *testing.T) {
+		envelopeXDR :=   "AAAAAHHbEhVipyZ2k4byyCZkS1Bdvpj7faBChuYo8S/Rt89UAAAAZAAQuJIAAAAHAAAAAQAAAAAAAAAAAAAAAF4XVskAAAAAAAAAAQAAAAAAAAAGAAAAAlRFU1RBU1NFVAAAAAAAAAA7JUkkD+tgCi2xTVyEcs4WZXOA0l7w2orZg/bghXOgkAAAAAA7msoAAAAAAAAAAAHRt89UAAAAQOCi2ylqRvvRzZaCFjGkLYFk7DCjJA5uZ1nXo8FaPCRl2LZczoMbc46sZIlHh0ENzk7fKjFnRPMo8XAirrrf2go="
+		resultXDR :=     "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAGAAAAAAAAAAA="
+		metaXDR :=       "AAAAAQAAAAIAAAADABE6jwAAAAAAAAAAcdsSFWKnJnaThvLIJmRLUF2+mPt9oEKG5ijxL9G3z1QAAAAAO5rHRAAQuJIAAAAGAAAAAgAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABABE6jwAAAAAAAAAAcdsSFWKnJnaThvLIJmRLUF2+mPt9oEKG5ijxL9G3z1QAAAAAO5rHRAAQuJIAAAAHAAAAAgAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAgAAAAMAETqAAAAAAQAAAABx2xIVYqcmdpOG8sgmZEtQXb6Y+32gQobmKPEv0bfPVAAAAAJURVNUQVNTRVQAAAAAAAAAOyVJJA/rYAotsU1chHLOFmVzgNJe8NqK2YP24IVzoJAAAAAAO5rKAAAAAAA7msoAAAAAAQAAAAAAAAAAAAAAAQAROo8AAAABAAAAAHHbEhVipyZ2k4byyCZkS1Bdvpj7faBChuYo8S/Rt89UAAAAAlRFU1RBU1NFVAAAAAAAAAA7JUkkD+tgCi2xTVyEcs4WZXOA0l7w2orZg/bghXOgkAAAAAA7msoAAAAAADuaygAAAAABAAAAAAAAAAA="
+		feeChangesXDR := "AAAAAgAAAAMAETp/AAAAAAAAAABx2xIVYqcmdpOG8sgmZEtQXb6Y+32gQobmKPEv0bfPVAAAAAA7mseoABC4kgAAAAYAAAACAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAETqPAAAAAAAAAABx2xIVYqcmdpOG8sgmZEtQXb6Y+32gQobmKPEv0bfPVAAAAAA7msdEABC4kgAAAAYAAAACAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash :=          "dc8d4714d7db3d0e27ae07f629bc72f1605fc24a2d178af04edbb602592791aa"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonUpdate, *changes[0].StateChangeReason)
+		asset := xdr.MustNewCreditAsset("TESTASSET", "GA5SKSJEB7VWACRNWFGVZBDSZYLGK44A2JPPBWUK3GB7NYEFOOQJAC2B")
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+		assert.Equal(t, types.NullableJSONB{	
+			"limit": map[string]any{
+				"new": "100.0000000",
+				"old": "1000000000",
+			},
+		}, changes[0].KeyValue)
+	})
+	t.Run("ChangeTrust - trustline removed", func(t *testing.T) {
+		envelopeXDR := "AAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAZAARM9kAAAADAAAAAQAAAAAAAAAAAAAAAF4XMm8AAAAAAAAAAQAAAAAAAAAGAAAAAk9DSVRva2VuAAAAAAAAAABJxf/HoI4oaD9CLBvECRhG9GPMNa/65PTI9N7F37o4nwAAAAAAAAAAAAAAAAAAAAGTI3ubAAAAQMHTFPeyHA+W2EYHVDut4dQ18zvF+47SsTPaePwZUaCgw/A3tKDx7sO7R8xlI3GwKQl91Ljmm1dbvAONU9nk/AQ="
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAGAAAAAAAAAAA="
+		metaXDR := "AAAAAQAAAAIAAAADABEz3wAAAAAAAAAAHANJ+0udNUAekpQZg9l9MmvqsiblnkioMdUEW5Mje5sAAAAXSHbm1AARM9kAAAACAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABABEz3wAAAAAAAAAAHANJ+0udNUAekpQZg9l9MmvqsiblnkioMdUEW5Mje5sAAAAXSHbm1AARM9kAAAADAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAABAAAAAMAETPeAAAAAQAAAAAcA0n7S501QB6SlBmD2X0ya+qyJuWeSKgx1QRbkyN7mwAAAAJPQ0lUb2tlbgAAAAAAAAAAScX/x6COKGg/QiwbxAkYRvRjzDWv+uT0yPTexd+6OJ8AAAAAAAAAAH//////////AAAAAQAAAAAAAAAAAAAAAgAAAAEAAAAAHANJ+0udNUAekpQZg9l9MmvqsiblnkioMdUEW5Mje5sAAAACT0NJVG9rZW4AAAAAAAAAAEnF/8egjihoP0IsG8QJGEb0Y8w1r/rk9Mj03sXfujifAAAAAwARM98AAAAAAAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAF0h25tQAETPZAAAAAwAAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAQARM98AAAAAAAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAF0h25tQAETPZAAAAAwAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAA"
+		feeChangesXDR := "AAAAAgAAAAMAETPeAAAAAAAAAAAcA0n7S501QB6SlBmD2X0ya+qyJuWeSKgx1QRbkyN7mwAAABdIduc4ABEz2QAAAAIAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAETPfAAAAAAAAAAAcA0n7S501QB6SlBmD2X0ya+qyJuWeSKgx1QRbkyN7mwAAABdIdubUABEz2QAAAAIAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "0f1e93ed9a83edb01ad8ccab67fd59dc7a513c413a8d5a580c5eb7a9c44f2844"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRemove, *changes[0].StateChangeReason)
+		asset := xdr.MustNewCreditAsset("OCIToken", "GBE4L76HUCHCQ2B7IIWBXRAJDBDPIY6MGWX7VZHUZD2N5RO7XI4J6GTJ")
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
 	})
 }

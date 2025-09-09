@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
 	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
@@ -135,6 +136,15 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
+		// Change trust effects
+		case effects.EffectTrustlineCreated, effects.EffectTrustlineRemoved, effects.EffectTrustlineUpdated:
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
+			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
+			if err != nil {
+				return nil, fmt.Errorf("parsing trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+			}
+			stateChanges = append(stateChanges, trustlineChange)
+
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
 			keyValueMap := p.parseKeyValue(&effect, effectType, changes, "name")
@@ -247,6 +257,58 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 	}
 
 	return builder.Build()
+}
+
+func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+	parseAsset := func(assetType, assetCode, assetIssuer string) (string, error) {
+		var asset xdr.Asset
+
+		switch assetType {
+		case "native":
+			asset = xdr.Asset{
+				Type: xdr.AssetTypeAssetTypeNative,
+			}
+		case "credit_alphanum4", "credit_alphanum12":
+			asset = xdr.MustNewCreditAsset(assetCode, assetIssuer)
+		default:
+			return "", fmt.Errorf("invalid asset type: %s", assetType)
+		}
+
+		contractID, err := asset.ContractID(p.networkPassphrase)
+		if err != nil {
+			return "", fmt.Errorf("getting asset contract ID: %w", err)
+		}
+
+		return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
+	}
+
+	var change types.StateChange
+	assetStr, err := parseAsset(effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+	}
+	switch effectType {
+	case effects.EffectTrustlineCreated:
+		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithAccount(effect.Address).WithToken(assetStr).WithKeyValue(
+			map[string]any{
+				"limit": effect.Details["limit"],
+			},
+		).Build()
+	case effects.EffectTrustlineRemoved:
+		change = baseBuilder.WithReason(types.StateChangeReasonRemove).WithAccount(effect.Address).WithToken(assetStr).Build()
+	case effects.EffectTrustlineUpdated:
+		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
+		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
+		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithAccount(effect.Address).WithToken(assetStr).WithKeyValue(
+			map[string]any{
+				"limit": map[string]any{
+					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
+					"new": effect.Details["limit"],
+				},
+			},
+		).Build()
+	}
+	return change, nil
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.

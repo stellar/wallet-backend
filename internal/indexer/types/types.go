@@ -124,6 +124,7 @@ const (
 	StateChangeCategoryFlags              StateChangeCategory = "FLAGS"
 	StateChangeCategoryLiability          StateChangeCategory = "LIABILITY"
 	StateChangeCategoryTrustlineFlags     StateChangeCategory = "TRUSTLINE_FLAGS"
+	StateChangeCategoryTrustline     	  StateChangeCategory = "TRUSTLINE"
 	StateChangeCategorySponsorship        StateChangeCategory = "SPONSORSHIP"
 	StateChangeCategoryUnsupported        StateChangeCategory = "UNSUPPORTED"
 	StateChangeCategoryAllowance          StateChangeCategory = "ALLOWANCE"
