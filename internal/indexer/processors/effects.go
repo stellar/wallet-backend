@@ -292,6 +292,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 	}
+	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithKeyValue(
