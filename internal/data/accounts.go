@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -145,4 +146,35 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return accounts, nil
+}
+
+// BatchGetByStateChangeIDs gets the accounts that are associated with the given state change IDs.
+func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.AccountWithStateChangeID, error) {
+	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
+
+	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
+	// it will be faster to search on this tuple.
+	tuples := make([]string, len(scOrders))
+	for i := range scOrders {
+		tuples[i] = fmt.Sprintf("(%d, %d)", scToIDs[i], scOrders[i])
+	}
+
+	query := fmt.Sprintf(`
+		SELECT %s, CONCAT(state_changes.to_id, '-', state_changes.state_change_order) AS state_change_id
+		FROM accounts
+		INNER JOIN state_changes ON accounts.stellar_address = state_changes.account_id
+		WHERE (state_changes.to_id, state_changes.state_change_order) IN (%s)
+		ORDER BY accounts.created_at DESC
+	`, columns, strings.Join(tuples, ", "))
+
+	var accountsWithStateChanges []*types.AccountWithStateChangeID
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &accountsWithStateChanges, query)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting accounts by state change IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return accountsWithStateChanges, nil
 }
