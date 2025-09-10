@@ -138,7 +138,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 
 		// Trustline flag effects: track changes to trustline authorization flags
 		case effects.EffectTrustlineFlagsUpdated:
-			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustlineFlags)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryAuthorization)
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		// Change trust effects
@@ -383,7 +383,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	if len(clearFlags) > 0 {
 		changes = append(changes, changeBuilder.
 			Clone().
-			WithReason(types.StateChangeReasonClear).
+			WithReason(types.StateChangeReasonRemove).
 			WithFlags(clearFlags).
 			Build())
 	}
