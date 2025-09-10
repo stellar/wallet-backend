@@ -381,7 +381,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.Len(t, changes, 1)
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
-		assert.Equal(t, "922337203685.4775807", changes[0].KeyValue["limit"])
+		assert.Equal(t, types.NullableJSONB{
+			"limit": map[string]any{
+				"new": "922337203685.4775807",
+			},
+		}, changes[0].TrustlineLimit)
 		asset := xdr.MustNewCreditAsset("USD", "GD4SMOE3VPSF7ZR3CTEQ3P5UNTBMEJDA2GLXTHR7MMARANKKJDZ7RPGF")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
@@ -428,7 +432,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				"new": "100.0000000",
 				"old": "1000000000",
 			},
-		}, changes[0].KeyValue)
+		}, changes[0].TrustlineLimit)
 	})
 	t.Run("ChangeTrust - trustline removed", func(t *testing.T) {
 		envelopeXDR := "AAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAZAARM9kAAAADAAAAAQAAAAAAAAAAAAAAAF4XMm8AAAAAAAAAAQAAAAAAAAAGAAAAAk9DSVRva2VuAAAAAAAAAABJxf/HoI4oaD9CLBvECRhG9GPMNa/65PTI9N7F37o4nwAAAAAAAAAAAAAAAAAAAAGTI3ubAAAAQMHTFPeyHA+W2EYHVDut4dQ18zvF+47SsTPaePwZUaCgw/A3tKDx7sO7R8xlI3GwKQl91Ljmm1dbvAONU9nk/AQ="

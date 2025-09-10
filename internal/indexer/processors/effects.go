@@ -295,9 +295,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
-		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithKeyValue(
+		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
-				"limit": effect.Details["limit"],
+				"limit": map[string]any{
+					"new": effect.Details["limit"],
+				},
 			},
 		).Build()
 	case effects.EffectTrustlineRemoved:
@@ -305,7 +307,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithKeyValue(
+		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
