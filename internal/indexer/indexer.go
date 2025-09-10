@@ -55,7 +55,6 @@ func NewIndexer(networkPassphrase string) *Indexer {
 		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
 		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase),
 		contractDeployProcessor: processors.NewContractDeployProcessor(networkPassphrase),
-		contractEventsProcessor: processors.NewEventsProcessor(networkPassphrase),
 	}
 }
 
