@@ -14,7 +14,6 @@ import (
 )
 
 func AuthenticationMiddleware(
-	serverHostname string,
 	requestAuthVerifier auth.HTTPRequestVerifier,
 	appTracker apptracker.AppTracker,
 	metricsService metrics.MetricsService,
@@ -23,7 +22,7 @@ func AuthenticationMiddleware(
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			ctx := req.Context()
 
-			err := requestAuthVerifier.VerifyHTTPRequest(req, serverHostname)
+			err := requestAuthVerifier.VerifyHTTPRequest(req)
 			if err == nil {
 				next.ServeHTTP(rw, req)
 				return
