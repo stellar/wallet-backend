@@ -12,36 +12,6 @@ import (
 )
 
 // Type is the resolver for the type field.
-func (r *allowanceStateChangeResolver) Type(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Account is the resolver for the account field.
-func (r *allowanceStateChangeResolver) Account(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// Operation is the resolver for the operation field.
-func (r *allowanceStateChangeResolver) Operation(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *allowanceStateChangeResolver) Transaction(ctx context.Context, obj *types.AllowanceStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// Reason is the resolver for the reason field.
-func (r *allowanceStateChangeResolver) Reason(ctx context.Context, obj *types.AllowanceStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
-}
-
-// SpenderAddress is the resolver for the spenderAddress field.
-func (r *allowanceStateChangeResolver) SpenderAddress(ctx context.Context, obj *types.AllowanceStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SpenderAccountID), nil
-}
-
-// Type is the resolver for the type field.
 func (r *balanceStateChangeResolver) Type(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
@@ -276,11 +246,6 @@ func (r *sponsorshipStateChangeResolver) SponsorAddress(ctx context.Context, obj
 	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
-// AllowanceStateChange returns graphql1.AllowanceStateChangeResolver implementation.
-func (r *Resolver) AllowanceStateChange() graphql1.AllowanceStateChangeResolver {
-	return &allowanceStateChangeResolver{r}
-}
-
 // BalanceStateChange returns graphql1.BalanceStateChangeResolver implementation.
 func (r *Resolver) BalanceStateChange() graphql1.BalanceStateChangeResolver {
 	return &balanceStateChangeResolver{r}
@@ -317,7 +282,6 @@ func (r *Resolver) SponsorshipStateChange() graphql1.SponsorshipStateChangeResol
 }
 
 type (
-	allowanceStateChangeResolver        struct{ *Resolver }
 	balanceStateChangeResolver          struct{ *Resolver }
 	flagsStateChangeResolver            struct{ *Resolver }
 	liabilityStateChangeResolver        struct{ *Resolver }

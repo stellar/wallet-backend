@@ -111,16 +111,3 @@ type MetadataStateChange implements BaseStateChange {
   reason:                     StateChangeReason! @goField(forceResolver: true)
   keyValue:                   String!
 }
-
-type AllowanceStateChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  spenderAddress:             String
-}
