@@ -17,6 +17,8 @@ import (
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -60,12 +62,14 @@ var (
 // It focuses on account state changes like signers, thresholds, flags, and sponsorship relationships.
 type EffectsProcessor struct {
 	networkPassphrase string
+	rpcService        services.RPCService // Add RPC service dependency
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
-func NewEffectsProcessor(networkPassphrase string) *EffectsProcessor {
+func NewEffectsProcessor(networkPassphrase string, rpcService services.RPCService) *EffectsProcessor {
 	return &EffectsProcessor{
 		networkPassphrase: networkPassphrase,
+		rpcService:        rpcService,
 	}
 }
 
@@ -148,7 +152,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			if err != nil {
 				return nil, fmt.Errorf("parsing trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 			}
-			stateChanges = append(stateChanges, trustlineChange)
+			stateChanges = append(stateChanges, trustlineChange...)
 
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
@@ -264,7 +268,7 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 	return builder.Build()
 }
 
-func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) ([]types.StateChange, error) {
 	parseAsset := func(assetType, assetCode, assetIssuer string) (string, error) {
 		var asset xdr.Asset
 
@@ -289,28 +293,39 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 	assetStr, err := parseAsset(effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
 	if err != nil {
-		return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+		return nil, fmt.Errorf("parsing asset: %w", err)
 	}
-	var stateChange types.StateChange
+
+	var stateChanges []types.StateChange
 
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
+		// Create the trustline state change
+		trustlineChange := baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
 				},
 			},
 		).Build()
+		stateChanges = append(stateChanges, trustlineChange)
+
+		// Generate balance authorization state change for new trustline
+		authChanges, err := p.generateBalanceAuthorizationForNewTrustline(baseBuilder, effect, assetStr)
+		if err != nil {
+			return nil, fmt.Errorf("generating balance authorization for new trustline: %w", err)
+		}
+		stateChanges = append(stateChanges, authChanges)
 
 	case effects.EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
+		stateChange := baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
+		stateChanges = append(stateChanges, stateChange)
 
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
+		stateChange := baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
@@ -318,9 +333,95 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 				},
 			},
 		).Build()
+		stateChanges = append(stateChanges, stateChange)
 	}
 
-	return stateChange, nil
+	return stateChanges, nil
+}
+
+// generateBalanceAuthorizationForNewTrustline generates balance authorization state changes
+// for newly created trustlines based on the asset issuer's account flags
+func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, assetContractID string) (types.StateChange, error) {
+	// Skip native assets as they don't have authorization
+	if effect.Details["asset_type"].(string) == "native" {
+		return types.StateChange{}, nil
+	}
+
+	assetIssuer := effect.Details["asset_issuer"].(string)
+
+	// Get issuer account flags via RPC
+	issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
+	if err != nil {
+		log.Errorf("failed to get issuer account flags for %s: %v", assetIssuer, err)
+		return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
+	}
+
+	// Determine default authorization flags for the new trustline
+	defaultFlags := p.determineDefaultTrustlineFlags(issuerFlags)
+
+	// Generate state changes for each flag that should be set
+	return baseBuilder.Clone().
+		WithCategory(types.StateChangeCategoryBalanceAuthorization).
+		WithReason(types.StateChangeReasonSet).
+		WithFlags(defaultFlags).
+		WithToken(assetContractID).
+		Build(), nil
+}
+
+// getIssuerAccountFlagsViaRPC retrieves the account flags for the asset issuer via RPC
+func (p *EffectsProcessor) getIssuerAccountFlags(issuerAddress string) (xdr.AccountFlags, error) {
+	if p.rpcService == nil {
+		return 0, fmt.Errorf("RPC service not available")
+	}
+
+	// Create account ledger key
+	keyXdr, err := utils.GetAccountLedgerKey(issuerAddress)
+	if err != nil {
+		return 0, fmt.Errorf("creating account ledger key: %w", err)
+	}
+
+	// Get ledger entry via RPC
+	result, err := p.rpcService.GetLedgerEntries([]string{keyXdr})
+	if err != nil {
+		return 0, fmt.Errorf("getting ledger entry for issuer account: %w", err)
+	}
+
+	if len(result.Entries) == 0 {
+		return 0, fmt.Errorf("issuer account not found: %s", issuerAddress)
+	}
+
+	// Parse the account entry
+	var ledgerEntryData xdr.LedgerEntryData
+	err = xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &ledgerEntryData)
+	if err != nil {
+		return 0, fmt.Errorf("decoding issuer account entry: %w", err)
+	}
+
+	accountEntry := ledgerEntryData.MustAccount()
+	return xdr.AccountFlags(accountEntry.Flags), nil
+}
+
+// determineDefaultTrustlineFlags determines what authorization flags should be set by default
+// for a new trustline based on the asset issuer's account flags
+func (p *EffectsProcessor) determineDefaultTrustlineFlags(issuerFlags xdr.AccountFlags) []string {
+	var flags []string
+
+	// If AUTH_REQUIRED_FLAG is set, new trustlines start unauthorized
+	if issuerFlags.IsAuthRequired() {
+		// New trustlines get authorized_to_maintain_liabilities by default
+		// They need explicit authorization to be fully authorized
+		flags = append(flags, "authorized_to_maintain_liabilites")
+	} else {
+		// If AUTH_REQUIRED_FLAG is not set, new trustlines are fully authorized by default
+		flags = append(flags, "authorized_flag")
+	}
+
+	// If AUTH_CLAWBACK_ENABLED_FLAG is set, new trustlines get clawback enabled
+	if issuerFlags.IsAuthClawbackEnabled() {
+		flags = append(flags, "clawback_enabled_flag")
+	}
+
+	return flags
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.
