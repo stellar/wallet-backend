@@ -1,7 +1,11 @@
 package processors
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -13,8 +17,89 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+// createRPCServiceAsLedgerEntryProvider creates an RPC service and returns it as a LedgerEntryProvider
+// This avoids import cycles by implementing RPC calls directly without importing the services package
+func createRPCServiceAsLedgerEntryProvider(t *testing.T, rpcURL string, networkPassphrase string) LedgerEntryProvider {
+	// Create HTTP client
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	
+	// Create a real implementation that makes actual RPC calls
+	// This is equivalent to services.NewRPCService but without the import cycle
+	return &realRPCLedgerEntryProvider{
+		rpcURL:            rpcURL,
+		networkPassphrase: networkPassphrase,
+		httpClient:        httpClient,
+	}
+}
+
+// realRPCLedgerEntryProvider implements LedgerEntryProvider using direct HTTP calls to RPC
+type realRPCLedgerEntryProvider struct {
+	rpcURL            string
+	networkPassphrase string
+	httpClient        *http.Client
+}
+
+func (r *realRPCLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	// Make direct HTTP RPC call to avoid import cycle
+	// This replicates the functionality of services.RPCService.GetLedgerEntries
+	
+	if len(keys) == 0 {
+		return entities.RPCGetLedgerEntriesResult{}, nil
+	}
+	
+	// Create RPC request payload
+	request := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "getLedgerEntries",
+		"params": map[string]interface{}{
+			"keys": keys,
+		},
+	}
+	
+	// Marshal request to JSON
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("marshaling RPC request: %w", err)
+	}
+	
+	// Make HTTP request
+	httpReq, err := http.NewRequest("POST", r.rpcURL, bytes.NewBuffer(requestBytes))
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("creating HTTP request: %w", err)
+	}
+	
+	httpReq.Header.Set("Content-Type", "application/json")
+	
+	resp, err := r.httpClient.Do(httpReq)
+	if err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// Parse response
+	var rpcResponse struct {
+		Result entities.RPCGetLedgerEntriesResult `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResponse); err != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
+	}
+	
+	if rpcResponse.Error != nil {
+		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("RPC error %d: %s", rpcResponse.Error.Code, rpcResponse.Error.Message)
+	}
+	
+	return rpcResponse.Result, nil
+}
 
 func TestEffects_ProcessTransaction(t *testing.T) {
 	t.Run("BumpSequence", func(t *testing.T) {
@@ -37,7 +122,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -72,7 +157,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -137,7 +222,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		transaction := createTx(setTrustlineFlagsOp, nil, nil, false)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -181,7 +266,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -221,7 +306,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -266,7 +351,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -305,7 +390,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -350,11 +435,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[5].KeyValue["former_sponsor"])
 	})
 	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
-		envelopeXDR := "AAAAAKturFHJX/eRt5gM6qIXAMbaXvlImqLysA6Qr9tLemxfAAAAZAAAACYAAAABAAAAAAAAAAAAAAABAAAAAAAAAAYAAAABVVNEAAAAAAD5Jjibq+Rf5jsUyQ2/tGzCwiRg0Zd5nj9jARA1Skjz+H//////////AAAAAAAAAAFLemxfAAAAQKN8LftAafeoAGmvpsEokqm47jAuqw4g1UWjmL0j6QPm1jxoalzDwDS3W+N2HOHdjSJlEQaTxGBfQKHhr6nNsAA="
-		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
+		envelopeXDR := "AAAAAgAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAAGQAB1eLAAAAAwAAAAEAAAAAAAAAAAAAAABowwQqAAAAAAAAAAEAAAAAAAAABgAAAAFURVNUAAAAAFrnJwiWP46hSSjcYc6wY93h556Qpe47SA8bIQGXMJTlf/////////8AAAAAAAAAAbUNOWYAAABAzWelNCrF4Q+iSKX30xHrBm76FMa2h89pPauijrWAVlcj/swEyYZqjU94SYU+8XEWUuvg2rpjCIHGPHHyzSXlAw=="
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAGAAAAAAAAAAA="
 		metaXDR := "AAAAAQAAAAIAAAADAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAABAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAMAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAQAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAFVU0QAAAAAAPkmOJur5F/mOxTJDb+0bMLCJGDRl3meP2MBEDVKSPP4AAAAAAAAAAB//////////wAAAAAAAAAAAAAAAA=="
-		feeChangesXDR := "AAAAAgAAAAMAAAAmAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+QAAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+OcAAAAJgAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
-		hash := "6fa467b53f5386d77ad35c2502ed2cd3dd8b460a5be22b6b2818b81bcd3ed2da"
+		feeChangesXDR := "AAAAAgAAAAMAB19pAAAAAAAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAABcM3B04AAdXiwAAAAIAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAHX2kAAAAAaMMDfAAAAAAAAAABAAdfhwAAAAAAAAAAH9ZokgWe43NE8SB1CzFKnY/nYm7ZIdSRBMCE1bUNOWYAAAAXDNwc1AAHV4sAAAACAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAAAB19pAAAAAGjDA3wAAAAA"
+		hash := "c7bee372d573009ac63ad7476e310ad29b1f7399a6941b57d84527d4015dba57"
 		transaction := buildTransactionFromXDR(
 			t,
 			testTransaction{
@@ -368,7 +453,8 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		ledgerEntryProvider := createRPCServiceAsLedgerEntryProvider(t, "https://soroban-testnet.stellar.org", network.TestNetworkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, ledgerEntryProvider)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -378,7 +464,9 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
-		require.Len(t, changes, 1)
+		require.Len(t, changes, 2)
+		
+		// First change should be the trustline creation
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{
@@ -386,10 +474,17 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				"new": "922337203685.4775807",
 			},
 		}, changes[0].TrustlineLimit)
-		asset := xdr.MustNewCreditAsset("USD", "GD4SMOE3VPSF7ZR3CTEQ3P5UNTBMEJDA2GLXTHR7MMARANKKJDZ7RPGF")
+		asset := xdr.MustNewCreditAsset("TEST", "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+		
+		// Second change should be the balance authorization
+		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonSet, *changes[1].StateChangeReason)
+		assert.Equal(t, "GAP5M2ESAWPOG42E6EQHKCZRJKOY7Z3CN3MSDVERATAIJVNVBU4WNTUH", changes[1].AccountID)
+		assert.Equal(t, types.NullableJSON(types.NullableJSON{"authorized_flag", "clawback_enabled_flag", "auth_revocable_flag"}), changes[1].Flags)
+		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[1].TokenID.String)
 	})
 	t.Run("ChangeTrust - trustline updated", func(t *testing.T) {
 		envelopeXDR := "AAAAAHHbEhVipyZ2k4byyCZkS1Bdvpj7faBChuYo8S/Rt89UAAAAZAAQuJIAAAAHAAAAAQAAAAAAAAAAAAAAAF4XVskAAAAAAAAAAQAAAAAAAAAGAAAAAlRFU1RBU1NFVAAAAAAAAAA7JUkkD+tgCi2xTVyEcs4WZXOA0l7w2orZg/bghXOgkAAAAAA7msoAAAAAAAAAAAHRt89UAAAAQOCi2ylqRvvRzZaCFjGkLYFk7DCjJA5uZ1nXo8FaPCRl2LZczoMbc46sZIlHh0ENzk7fKjFnRPMo8XAirrrf2go="
@@ -410,7 +505,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -453,7 +548,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,

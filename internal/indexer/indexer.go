@@ -48,12 +48,12 @@ type Indexer struct {
 	contractEventsProcessor OperationProcessorInterface
 }
 
-func NewIndexer(networkPassphrase string) *Indexer {
+func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider) *Indexer {
 	return &Indexer{
 		Buffer:                  NewIndexerBuffer(),
 		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
-		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase),
+		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
 		contractDeployProcessor: processors.NewContractDeployProcessor(networkPassphrase),
 	}
 }

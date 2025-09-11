@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	setAuthorizedFunctionName = "set_authorized"
-	authorizedKeyName       = "authorized"
-	AuthorizedFlagName = "authorized_flag"
+	setAuthorizedFunctionName              = "set_authorized"
+	authorizedKeyName                      = "authorized"
+	AuthorizedFlagName                     = "authorized_flag"
 	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites_flag"
-	txMetaVersionV3     = 3
-	txMetaVersionV4     = 4
+	txMetaVersionV3                        = 3
+	txMetaVersionV4                        = 4
 )
 
 type EventsProcessor struct {
@@ -86,24 +86,24 @@ func (p *EventsProcessor) ProcessOperation(_ context.Context, opWrapper *operati
 			if isAuthorized {
 				changes = []types.StateChange{
 					scBuilder.Clone().
-					WithReason(types.StateChangeReasonSet).
-					WithFlags([]string{AuthorizedFlagName}).
-					Build(),
+						WithReason(types.StateChangeReasonSet).
+						WithFlags([]string{AuthorizedFlagName}).
+						Build(),
 					scBuilder.Clone().
-					WithReason(types.StateChangeReasonRemove).
-					WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-					Build(),
+						WithReason(types.StateChangeReasonRemove).
+						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
+						Build(),
 				}
 			} else {
 				changes = []types.StateChange{
 					scBuilder.Clone().
-					WithReason(types.StateChangeReasonRemove).
-					WithFlags([]string{AuthorizedFlagName}).
-					Build(),
+						WithReason(types.StateChangeReasonRemove).
+						WithFlags([]string{AuthorizedFlagName}).
+						Build(),
 					scBuilder.Clone().
-					WithReason(types.StateChangeReasonSet).
-					WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-					Build(),
+						WithReason(types.StateChangeReasonSet).
+						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
+						Build(),
 				}
 			}
 
