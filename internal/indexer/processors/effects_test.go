@@ -1,13 +1,11 @@
 package processors
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/go/network"
 	operation_processor "github.com/stellar/go/processors/operation"
@@ -21,84 +19,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// createRPCServiceAsLedgerEntryProvider creates an RPC service and returns it as a LedgerEntryProvider
-// This avoids import cycles by implementing RPC calls directly without importing the services package
-func createRPCServiceAsLedgerEntryProvider(t *testing.T, rpcURL string, networkPassphrase string) LedgerEntryProvider {
-	// Create HTTP client
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	
-	// Create a real implementation that makes actual RPC calls
-	// This is equivalent to services.NewRPCService but without the import cycle
-	return &realRPCLedgerEntryProvider{
-		rpcURL:            rpcURL,
-		networkPassphrase: networkPassphrase,
-		httpClient:        httpClient,
-	}
+type mockLedgerEntryProvider struct {
+	mock.Mock
 }
 
-// realRPCLedgerEntryProvider implements LedgerEntryProvider using direct HTTP calls to RPC
-type realRPCLedgerEntryProvider struct {
-	rpcURL            string
-	networkPassphrase string
-	httpClient        *http.Client
-}
-
-func (r *realRPCLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
-	// Make direct HTTP RPC call to avoid import cycle
-	// This replicates the functionality of services.RPCService.GetLedgerEntries
-	
-	if len(keys) == 0 {
-		return entities.RPCGetLedgerEntriesResult{}, nil
-	}
-	
-	// Create RPC request payload
-	request := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "getLedgerEntries",
-		"params": map[string]interface{}{
-			"keys": keys,
-		},
-	}
-	
-	// Marshal request to JSON
-	requestBytes, err := json.Marshal(request)
-	if err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("marshaling RPC request: %w", err)
-	}
-	
-	// Make HTTP request
-	httpReq, err := http.NewRequest("POST", r.rpcURL, bytes.NewBuffer(requestBytes))
-	if err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("creating HTTP request: %w", err)
-	}
-	
-	httpReq.Header.Set("Content-Type", "application/json")
-	
-	resp, err := r.httpClient.Do(httpReq)
-	if err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	// Parse response
-	var rpcResponse struct {
-		Result entities.RPCGetLedgerEntriesResult `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResponse); err != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("parsing getLedgerEntries result JSON: %w", err)
-	}
-	
-	if rpcResponse.Error != nil {
-		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("RPC error %d: %s", rpcResponse.Error.Code, rpcResponse.Error.Message)
-	}
-	
-	return rpcResponse.Result, nil
+func (m *mockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	args := m.Called(keys)
+	return args.Get(0).(entities.RPCGetLedgerEntriesResult), args.Error(1)
 }
 
 func TestEffects_ProcessTransaction(t *testing.T) {
@@ -453,8 +380,17 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		ledgerEntryProvider := createRPCServiceAsLedgerEntryProvider(t, "https://soroban-testnet.stellar.org", network.TestNetworkPassphrase)
-		processor := NewEffectsProcessor(networkPassphrase, ledgerEntryProvider)
+		mockProvider := mockLedgerEntryProvider{}
+		mockProvider.On("GetLedgerEntries", []string{"AAAAAAAAAABa5ycIlj+OoUko3GHOsGPd4eeekKXuO0gPGyEBlzCU5Q=="}).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{
+				{
+					KeyXDR:             "AAAAAAAAAABa5ycIlj+OoUko3GHOsGPd4eeekKXuO0gPGyEBlzCU5Q==",
+					DataXDR:            "AAAAAAAAAABa5ycIlj+OoUko3GHOsGPd4eeekKXuO0gPGyEBlzCU5QAAAAA7msk4AAdfaQAAAAIAAAAAAAAAAAAAAAsAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAHX30AAAAAaMMD4A==",
+					LastModifiedLedger: 483197,
+				},
+			},
+		}, nil)
+		processor := NewEffectsProcessor(networkPassphrase, &mockProvider)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -465,7 +401,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, changes, 2)
-		
+
 		// First change should be the trustline creation
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
@@ -478,12 +414,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
-		
+
 		// Second change should be the balance authorization
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[1].StateChangeReason)
 		assert.Equal(t, "GAP5M2ESAWPOG42E6EQHKCZRJKOY7Z3CN3MSDVERATAIJVNVBU4WNTUH", changes[1].AccountID)
-		assert.Equal(t, types.NullableJSON(types.NullableJSON{"authorized_flag", "clawback_enabled_flag", "auth_revocable_flag"}), changes[1].Flags)
+		assert.Equal(t, types.NullableJSON{"authorized_flag", "clawback_enabled_flag", "auth_revocable_flag"}, changes[1].Flags)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[1].TokenID.String)
 	})
 	t.Run("ChangeTrust - trustline updated", func(t *testing.T) {
