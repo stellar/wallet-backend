@@ -116,20 +116,21 @@ type Operation struct {
 type StateChangeCategory string
 
 const (
-	StateChangeCategoryBalance            StateChangeCategory = "BALANCE"
-	StateChangeCategoryAccount            StateChangeCategory = "ACCOUNT"
-	StateChangeCategorySequence           StateChangeCategory = "SEQUENCE"
-	StateChangeCategorySigner             StateChangeCategory = "SIGNER"
-	StateChangeCategorySignatureThreshold StateChangeCategory = "SIGNATURE_THRESHOLD"
-	StateChangeCategoryMetadata           StateChangeCategory = "METADATA"
-	StateChangeCategoryFlags              StateChangeCategory = "FLAGS"
-	StateChangeCategoryLiability          StateChangeCategory = "LIABILITY"
-	StateChangeCategoryTrustline          StateChangeCategory = "TRUSTLINE"
-	StateChangeCategorySponsorship        StateChangeCategory = "SPONSORSHIP"
-	StateChangeCategoryUnsupported        StateChangeCategory = "UNSUPPORTED"
-	StateChangeCategoryAllowance          StateChangeCategory = "ALLOWANCE"
-	StateChangeCategoryContract           StateChangeCategory = "CONTRACT"
-	StateChangeCategoryAuthorization      StateChangeCategory = "AUTHORIZATION"
+	StateChangeCategoryBalance              StateChangeCategory = "BALANCE"
+	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
+	StateChangeCategorySequence             StateChangeCategory = "SEQUENCE"
+	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
+	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
+	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
+	StateChangeCategoryLiability            StateChangeCategory = "LIABILITY"
+	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
+	StateChangeCategorySponsorship          StateChangeCategory = "SPONSORSHIP"
+	StateChangeCategoryUnsupported          StateChangeCategory = "UNSUPPORTED"
+	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
+	StateChangeCategoryContract             StateChangeCategory = "CONTRACT"
+	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
+	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
 
 type StateChangeReason string

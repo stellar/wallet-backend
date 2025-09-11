@@ -138,7 +138,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 
 		// Trustline flag effects: track changes to trustline authorization flags
 		case effects.EffectTrustlineFlagsUpdated:
-			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryAuthorization)
+			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryBalanceAuthorization)
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		// Change trust effects
@@ -287,27 +287,30 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
 	}
 
-	var change types.StateChange
 	assetStr, err := parseAsset(effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 	}
+	var stateChange types.StateChange
+
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
-		change = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
 				},
 			},
 		).Build()
+
 	case effects.EffectTrustlineRemoved:
-		change = baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
+
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		change = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
@@ -316,7 +319,8 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 			},
 		).Build()
 	}
-	return change, nil
+
+	return stateChange, nil
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.

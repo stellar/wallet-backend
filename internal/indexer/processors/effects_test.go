@@ -152,11 +152,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryAuthorization, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSON{"authorized_to_maintain_liabilites"}, changes[0].Flags)
 
-		assert.Equal(t, types.StateChangeCategoryAuthorization, changes[1].StateChangeCategory)
+		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonRemove, *changes[1].StateChangeReason)
 		assert.Equal(t, types.NullableJSON{"authorized_flag", "clawback_enabled_flag"}, changes[1].Flags)
 	})
