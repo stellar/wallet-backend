@@ -144,7 +144,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		}
 	})
 
-	t.Run("SetTrustlineFlags", func(t *testing.T) {
+	t.Run("SetTrustlineFlags - generates balance authorization state changes", func(t *testing.T) {
 		setTrustlineFlagsOp := setTrustlineFlagsOp()
 		transaction := createTx(setTrustlineFlagsOp, nil, nil, false)
 		op, found := transaction.GetOperation(0)
