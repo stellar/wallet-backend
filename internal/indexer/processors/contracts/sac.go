@@ -6,6 +6,7 @@ import (
 
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
@@ -56,17 +57,25 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
+			log.Debugf("skipping event with invalid contract structure: txHash=%s opID=%d eventType=%d contractId=%v bodyV=%d",
+				txHash, opWrapper.ID(), event.Type, event.ContractId != nil, event.Body.V)
 			continue
 		}
 
 		// Validate if number of topics matches the expected number of topics for an SAC set_authorized event
 		topics := event.Body.V0.Topics
 		if !p.validateExpectedTopicsForSAC(len(topics), tx.UnsafeMeta.V) {
+			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
+			log.Debugf("skipping event with invalid topic count for SAC: txHash=%s opID=%d contractId=%s topicCount=%d metaVersion=%d",
+				txHash, opWrapper.ID(), contractID, len(topics), tx.UnsafeMeta.V)
 			continue
 		}
 
 		fn, ok := topics[0].GetSym()
 		if !ok {
+			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
+			log.Debugf("skipping event with non-symbol function name: txHash=%s opID=%d contractId=%s",
+				txHash, opWrapper.ID(), contractID)
 			continue
 		}
 
@@ -74,18 +83,25 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 		case setAuthorizedFunctionName:
 			accountToAuthorize, asset, err := p.extractAccountAndAsset(topics, tx.UnsafeMeta.V)
 			if err != nil {
+				contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
+				log.Debugf("skipping event due to account/asset extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+					txHash, opWrapper.ID(), contractID, err)
 				continue
 			}
 
 			// Since SAC contract IDs are deterministic, we can use the contract ID from the event to validate the SEP11 asset string
 			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
 			if !isSAC(contractID, asset, p.networkPassphrase) {
+				log.Debugf("skipping event with invalid SAC contract ID: txHash=%s opID=%d contractId=%s asset=%v",
+					txHash, opWrapper.ID(), contractID, asset)
 				continue
 			}
 
 			value := event.Body.V0.Data
 			isAuthorized, ok := value.GetB()
 			if !ok {
+				log.Debugf("skipping event with non-boolean authorization value: txHash=%s opID=%d contractId=%s",
+					txHash, opWrapper.ID(), contractID)
 				continue
 			}
 
