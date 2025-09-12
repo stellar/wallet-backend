@@ -72,6 +72,10 @@ func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEnt
 	}
 }
 
+func (p *EffectsProcessor) Name() string {
+	return "effects"
+}
+
 // ProcessOperation extracts effects from a Stellar operation and converts them into state changes.
 // It processes account state changes like signer modifications, threshold updates, flag changes,
 // home domain updates, data entry changes, and sponsorship relationship modifications.
