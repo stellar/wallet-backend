@@ -47,6 +47,12 @@ func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateCha
 	return b
 }
 
+// WithTrustlineLimit sets the trustline limit
+func (b *StateChangeBuilder) WithTrustlineLimit(limit map[string]any) *StateChangeBuilder {
+	b.base.TrustlineLimit = types.NullableJSONB(limit)
+	return b
+}
+
 // WithFlags sets the flags
 func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
 	b.base.Flags = types.NullableJSON(flags)

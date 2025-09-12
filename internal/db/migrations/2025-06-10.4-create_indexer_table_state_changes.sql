@@ -25,6 +25,7 @@ CREATE TABLE state_changes (
     deployer_account_id TEXT,
     funder_account_id TEXT,
     thresholds JSONB,
+    trustline_limit JSONB,
     PRIMARY KEY (to_id, state_change_order)
 );
 

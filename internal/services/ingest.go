@@ -315,7 +315,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 
 	var errs []error
 	errMu := sync.Mutex{}
-	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase)
+	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService)
 
 	// Submit tasks to the pool
 	for _, ledger := range getLedgersResponse.Ledgers {

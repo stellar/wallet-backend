@@ -19,6 +19,10 @@ func NewContractDeployProcessor(networkPassphrase string) *ContractDeployProcess
 	return &ContractDeployProcessor{networkPassphrase: networkPassphrase}
 }
 
+func (p *ContractDeployProcessor) Name() string {
+	return "contract_deploy"
+}
+
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
 func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
