@@ -14,7 +14,6 @@ import (
 
 const (
 	setAuthorizedFunctionName              = "set_authorized"
-	authorizedKeyName                      = "authorized"
 	AuthorizedFlagName                     = "authorized_flag"
 	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites_flag"
 	txMetaVersionV3                        = 3
@@ -135,9 +134,12 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	return stateChanges, nil
 }
 
+// validateExpectedTopicsForSAC validates the expected number of topics for a set_authorized event
 func (p *SACEventsProcessor) validateExpectedTopicsForSAC(numTopics int, txMetaVersion int32) bool {
-	// For meta V3, a set_authorized event will have 4 topics: ["set_authorized", admin: Address, id: Address, sep0011_asset: String]
-	// For meta V4, a set_authorized event will have 3 topics: ["set_authorized", id: Address, sep0011_asset: String]
+	/*
+	For meta V3, a set_authorized event will have 4 topics: ["set_authorized", admin: Address, id: Address, sep0011_asset: String]
+	For meta V4, a set_authorized event will have 3 topics: ["set_authorized", id: Address, sep0011_asset: String]
+	*/
 	switch txMetaVersion {
 	case txMetaVersionV3:
 		return numTopics == 4
@@ -148,6 +150,7 @@ func (p *SACEventsProcessor) validateExpectedTopicsForSAC(numTopics int, txMetaV
 	}
 }
 
+// extractAccountAndAsset extracts the account and asset from the topics
 func (p *SACEventsProcessor) extractAccountAndAsset(topics []xdr.ScVal, txMetaVersion int32) (string, xdr.Asset, error) {
 	var accountIdx, assetIdx int
 	switch txMetaVersion {

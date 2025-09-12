@@ -36,6 +36,7 @@ func extractAsset(val xdr.ScVal) (xdr.Asset, error) {
 	return assets[0], nil
 }
 
+// isSAC checks if a contract is an SAC contract
 func isSAC(expectedContractID string, asset xdr.Asset, networkPassphrase string) bool {
 	contractID, err := asset.ContractID(networkPassphrase)
 	if err != nil {
