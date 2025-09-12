@@ -42,18 +42,18 @@ type OperationProcessorInterface interface {
 }
 
 type Indexer struct {
-	Buffer                  IndexerBufferInterface
-	participantsProcessor   ParticipantsProcessorInterface
-	tokenTransferProcessor  TokenTransferProcessorInterface
-	processors              []OperationProcessorInterface
+	Buffer                 IndexerBufferInterface
+	participantsProcessor  ParticipantsProcessorInterface
+	tokenTransferProcessor TokenTransferProcessorInterface
+	processors             []OperationProcessorInterface
 }
 
 func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider) *Indexer {
 	return &Indexer{
-		Buffer:                  NewIndexerBuffer(),
-		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
-		processors:              []OperationProcessorInterface{
+		Buffer:                 NewIndexerBuffer(),
+		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
+		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
 			processors.NewContractDeployProcessor(networkPassphrase),
 			contractprocessors.NewSACEventsProcessor(networkPassphrase),
@@ -95,9 +95,9 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		for _, processor := range i.processors {
-			stateChanges, err := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
-			if err != nil && !errors.Is(err, processors.ErrInvalidOpType) {
-				return fmt.Errorf("processing %s state changes: %w", processor.Name(), err)
+			stateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
+				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
 			}
 			i.Buffer.PushStateChanges(stateChanges)
 		}

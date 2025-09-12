@@ -92,11 +92,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 
 			/*
 				According to the SAC contract spec: https://github.com/stellar/stellar-protocol/blob/master/core/cap-0046-06.md#set_authorized
-				- If the set_authorized function is called with authorize == true on an Account, it will set the accounts trustline's flag to AUTHORIZED_FLAG and 
+				- If the set_authorized function is called with authorize == true on an Account, it will set the accounts trustline's flag to AUTHORIZED_FLAG and
 				unset AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if the trustline currently does not have AUTHORIZED_FLAG set.
 
-				- If the set_authorized function is called with authorize == false on an Account, it will set the accounts trustline's flag to AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG 
-				and unset AUTHORIZED_FLAG if the trustline currently has AUTHORIZED_FLAG set. We set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG instead of clearing the flags to avoid pulling 
+				- If the set_authorized function is called with authorize == false on an Account, it will set the accounts trustline's flag to AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
+				and unset AUTHORIZED_FLAG if the trustline currently has AUTHORIZED_FLAG set. We set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG instead of clearing the flags to avoid pulling
 				all offers and pool shares that involve this trustline.
 
 				We will generate 2 balance authorization state changes: one to set the AUTHORIZED_FLAG and one to remove the AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG and vice versa for the case where isAuthorized is false.

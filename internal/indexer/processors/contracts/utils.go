@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"fmt"
+
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 )

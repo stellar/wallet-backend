@@ -264,7 +264,7 @@ func createInvalidContractEventTx(
 	}
 }
 
-// createInsufficientTopicsTx creates a transaction with insufficient topics for set_authorized event  
+// createInsufficientTopicsTx creates a transaction with insufficient topics for set_authorized event
 func createInsufficientTopicsTx(
 	account string,
 	admin string,
@@ -452,14 +452,10 @@ func makeAssetString(asset xdr.Asset) xdr.ScVal {
 	}
 }
 
-func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedContractID string) {
+func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
 	t.Helper()
-	require.Equal(t, category, change.StateChangeCategory)
+	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
 	require.Equal(t, expectedAccount, change.AccountID)
-	if expectedAmount != "" {
-		require.NotNil(t, change.Amount)
-		require.Equal(t, expectedAmount, change.Amount.String)
-	}
 	if expectedContractID != "" {
 		require.NotNil(t, change.TokenID)
 		require.Equal(t, expectedContractID, change.TokenID.String)

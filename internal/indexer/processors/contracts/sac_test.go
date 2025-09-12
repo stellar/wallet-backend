@@ -36,16 +36,16 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
-		
+
 		// First state change: Set AUTHORIZED_FLAG
-		assertContractEvent(t, stateChanges[0], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonSet,
-			account, "",
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
-		
+
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonRemove,
-			account, "",
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
 	})
@@ -69,16 +69,16 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
-		
+
 		// First state change: Set AUTHORIZED_FLAG
-		assertContractEvent(t, stateChanges[0], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonSet,
-			account, "",
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
-		
+
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonRemove,
-			account, "",
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
 	})
@@ -102,16 +102,16 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
-		
+
 		// First state change: Remove AUTHORIZED_FLAG
-		assertContractEvent(t, stateChanges[0], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonRemove,
-			account, "",
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonRemove,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
-		
+
 		// Second state change: Set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryBalanceAuthorization, types.StateChangeReasonSet,
-			account, "",
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonSet,
+			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
 	})
