@@ -137,8 +137,8 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 // validateExpectedTopicsForSAC validates the expected number of topics for a set_authorized event
 func (p *SACEventsProcessor) validateExpectedTopicsForSAC(numTopics int, txMetaVersion int32) bool {
 	/*
-	For meta V3, a set_authorized event will have 4 topics: ["set_authorized", admin: Address, id: Address, sep0011_asset: String]
-	For meta V4, a set_authorized event will have 3 topics: ["set_authorized", id: Address, sep0011_asset: String]
+		For meta V3, a set_authorized event will have 4 topics: ["set_authorized", admin: Address, id: Address, sep0011_asset: String]
+		For meta V4, a set_authorized event will have 3 topics: ["set_authorized", id: Address, sep0011_asset: String]
 	*/
 	switch txMetaVersion {
 	case txMetaVersionV3:
