@@ -134,7 +134,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.NullableJSON{"authorized_to_maintain_liabilites"}, changes[0].Flags)
 
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonRemove, *changes[1].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonClear, *changes[1].StateChangeReason)
 		assert.Equal(t, types.NullableJSON{"authorized", "clawback_enabled"}, changes[1].Flags)
 	})
 

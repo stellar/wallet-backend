@@ -492,7 +492,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	if len(clearFlags) > 0 {
 		changes = append(changes, changeBuilder.
 			Clone().
-			WithReason(types.StateChangeReasonRemove).
+			WithReason(types.StateChangeReasonClear).
 			WithFlags(clearFlags).
 			Build())
 	}

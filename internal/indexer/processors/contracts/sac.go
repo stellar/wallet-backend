@@ -146,7 +146,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
 				if wasMaintainLiabilities {
 					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonRemove).
+						WithReason(types.StateChangeReasonClear).
 						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 						Build())
 				}
@@ -154,7 +154,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
 				if wasAuthorized {
 					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonRemove).
+						WithReason(types.StateChangeReasonClear).
 						WithFlags([]string{AuthorizedFlagName}).
 						Build())
 				}

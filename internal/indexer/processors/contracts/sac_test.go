@@ -46,7 +46,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
 
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG (was set before)
-		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
@@ -81,7 +81,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
 
 		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
@@ -110,7 +110,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
 
 		// First state change: Remove AUTHORIZED_FLAG
-		assertContractEvent(t, stateChanges[0], types.StateChangeReasonRemove,
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonClear,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
