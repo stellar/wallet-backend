@@ -307,7 +307,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		// Create the trustline state change
-		trustlineChange := baseBuilder.WithReason(types.StateChangeReasonSet).WithToken(assetStr).WithTrustlineLimit(
+		trustlineChange := baseBuilder.WithReason(types.StateChangeReasonAdd).WithToken(assetStr).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],

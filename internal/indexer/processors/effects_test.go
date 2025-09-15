@@ -404,7 +404,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		// First change should be the trustline creation
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSet, *changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
 		assert.Equal(t, types.NullableJSONB{
 			"limit": map[string]any{
 				"new": "922337203685.4775807",
