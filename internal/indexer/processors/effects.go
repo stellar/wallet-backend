@@ -22,10 +22,10 @@ import (
 
 const (
 	// Threshold array indices for accessing account thresholds
-	lowThresholdIndex  = 1
-	medThresholdIndex  = 2
-	highThresholdIndex = 3
-	AuthorizedFlagName = "authorized"
+	lowThresholdIndex       = 1
+	medThresholdIndex       = 2
+	highThresholdIndex      = 3
+	AuthorizedFlagName      = "authorized"
 	ClawbackEnabledFlagName = "clawback_enabled"
 )
 

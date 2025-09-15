@@ -9,6 +9,8 @@ import (
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
+	"github.com/stellar/go/ingest"
+
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -50,6 +52,12 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	contractEvents, err := tx.GetContractEventsForOperation(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract events for operation %d: %w", opWrapper.ID(), err)
+	}
+
+	// Get operation changes to access previous trustline flag state
+	changes, err := tx.GetOperationChanges(opWrapper.Index)
+	if err != nil {
+		return nil, fmt.Errorf("getting operation changes for operation %d: %w", opWrapper.ID(), err)
 	}
 
 	stateChanges := make([]types.StateChange, 0)
@@ -109,44 +117,57 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				continue
 			}
 
-			/*
-				According to the SAC contract spec: https://github.com/stellar/stellar-protocol/blob/master/core/cap-0046-06.md#set_authorized
-				- If the set_authorized function is called with authorize == true on an Account, it will set the accounts trustline's flag to AUTHORIZED_FLAG and
-				unset AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if the trustline currently does not have AUTHORIZED_FLAG set.
+			// Extract previous trustline flag state to determine actual changes
+			wasAuthorized, wasMaintainLiabilities, err := p.extractTrustlineFlagChanges(changes, accountToAuthorize)
+			if err != nil {
+				log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+					p.Name(), txHash, opWrapper.ID(), contractID, err)
+				continue
+			}
 
-				- If the set_authorized function is called with authorize == false on an Account, it will set the accounts trustline's flag to AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-				and unset AUTHORIZED_FLAG if the trustline currently has AUTHORIZED_FLAG set. We set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG instead of clearing the flags to avoid pulling
-				all offers and pool shares that involve this trustline.
-
-				We will generate 2 balance authorization state changes: one to set the AUTHORIZED_FLAG and one to remove the AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG and vice versa for the case where isAuthorized is false.
-			*/
 			scBuilder := builder.WithCategory(types.StateChangeCategoryBalanceAuthorization).WithAccount(accountToAuthorize).WithToken(contractID)
-			var changes []types.StateChange
+			var flagChanges []types.StateChange
+
+			/*
+				Generate state changes based on actual flag transitions:
+				- If authorize == true: should set AUTHORIZED_FLAG and potentially clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
+				- If authorize == false: should clear AUTHORIZED_FLAG and potentially set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
+
+				Only generate state changes for flags that actually changed from their previous state.
+			*/
 			if isAuthorized {
-				changes = []types.StateChange{
-					scBuilder.Clone().
+				// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
+				if !wasAuthorized {
+					flagChanges = append(flagChanges, scBuilder.Clone().
 						WithReason(types.StateChangeReasonSet).
 						WithFlags([]string{AuthorizedFlagName}).
-						Build(),
-					scBuilder.Clone().
+						Build())
+				}
+				// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
+				if wasMaintainLiabilities {
+					flagChanges = append(flagChanges, scBuilder.Clone().
 						WithReason(types.StateChangeReasonRemove).
 						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-						Build(),
+						Build())
 				}
 			} else {
-				changes = []types.StateChange{
-					scBuilder.Clone().
+				// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
+				if wasAuthorized {
+					flagChanges = append(flagChanges, scBuilder.Clone().
 						WithReason(types.StateChangeReasonRemove).
 						WithFlags([]string{AuthorizedFlagName}).
-						Build(),
-					scBuilder.Clone().
+						Build())
+				}
+				// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
+				if !wasMaintainLiabilities {
+					flagChanges = append(flagChanges, scBuilder.Clone().
 						WithReason(types.StateChangeReasonSet).
 						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-						Build(),
+						Build())
 				}
 			}
 
-			stateChanges = append(stateChanges, changes...)
+			stateChanges = append(stateChanges, flagChanges...)
 		default:
 			continue
 		}
@@ -204,4 +225,30 @@ func (p *SACEventsProcessor) isSACContract(topics []xdr.ScVal, contractID string
 		return false, fmt.Errorf("invalid asset contract ID: %w", err)
 	}
 	return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]) == contractID, nil
+}
+
+// extractTrustlineFlagChanges extracts the previous trustline flags for the given account
+// from the operation changes to determine what flags were set before the SAC operation
+func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeTrustline {
+			continue
+		}
+
+		if change.Pre == nil {
+			continue
+		}
+
+		prevTrustline := change.Pre.Data.MustTrustLine()
+		trustlineAccount := prevTrustline.AccountId.Address()
+
+		if trustlineAccount == accountToAuthorize {
+			prevFlags := uint32(prevTrustline.Flags)
+			wasAuthorized = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
+			wasMaintainLiabilities = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
+			return wasAuthorized, wasMaintainLiabilities, nil
+		}
+	}
+
+	return false, false, fmt.Errorf("trustline change not found for account %s", accountToAuthorize)
 }
