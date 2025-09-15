@@ -452,6 +452,114 @@ func makeAssetString(asset xdr.Asset) xdr.ScVal {
 	}
 }
 
+// createSACInvocationTxWithTrustlineChanges creates a transaction with both SAC events and trustline changes
+func createSACInvocationTxWithTrustlineChanges(
+	account string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	previouslyAuthorized bool,
+	previouslyMaintainLiabilities bool,
+	version int,
+) ingest.LedgerTransaction {
+	// Create the base transaction
+	var tx ingest.LedgerTransaction
+	if version == 3 {
+		tx = createSACInvocationTxV3(account, admin, asset, isAuthorized)
+	} else {
+		tx = createSACInvocationTxV4(account, admin, asset, isAuthorized)
+	}
+
+	// Create trustline changes
+	accountID := xdr.MustAddress(account)
+
+	// Previous trustline state
+	var prevFlags xdr.Uint32
+	if previouslyAuthorized {
+		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	}
+	if previouslyMaintainLiabilities {
+		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	// New trustline state
+	var newFlags xdr.Uint32
+	if isAuthorized {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+		// Clear maintain liabilities when authorizing
+	} else {
+		// Clear authorized when deauthorizing, set maintain liabilities
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	prevTrustline := xdr.TrustLineEntry{
+		AccountId: accountID,
+		Asset:     asset.ToTrustLineAsset(),
+		Balance:   1000000,
+		Limit:     9223372036854775807,
+		Flags:     prevFlags,
+	}
+
+	newTrustline := prevTrustline
+	newTrustline.Flags = newFlags
+
+	// Create proper before/after changes as expected by stellar-go
+	stateChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+		State: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12344,
+			Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &prevTrustline,
+			},
+		},
+	}
+
+	updateChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+		Updated: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &newTrustline,
+			},
+		},
+	}
+
+	changes := []xdr.LedgerEntryChange{stateChange, updateChange}
+
+	// Add the trustline changes to the operation meta
+	if version == 3 {
+		if tx.UnsafeMeta.V3.Operations == nil {
+			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
+		}
+		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
+			Changes: changes,
+		})
+	} else {
+		if len(tx.UnsafeMeta.V4.Operations) > 0 {
+			tx.UnsafeMeta.V4.Operations[0].Changes = changes
+		}
+	}
+
+	return tx
+}
+
+// createTxWithoutTrustlineChanges creates a transaction with SAC events but no trustline changes
+// This simulates the error case where trustline changes are not found
+func createTxWithoutTrustlineChanges(
+	account string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	if version == 3 {
+		return createSACInvocationTxV3(account, admin, asset, isAuthorized)
+	}
+	return createSACInvocationTxV4(account, admin, asset, isAuthorized)
+}
+
 func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)

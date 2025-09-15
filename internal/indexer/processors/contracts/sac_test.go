@@ -17,13 +17,50 @@ import (
 func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 	processor := NewSACEventsProcessor(networkPassphrase)
 
-	t.Run("V3 Format - set_authorized = true", func(t *testing.T) {
+	t.Run("V3 Format - set_authorized = true (was unauthorized)", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		account := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
-		tx := createSACInvocationTxV3(account, admin, asset, true)
+
+		// Test case: account was not authorized, had maintain liabilities flag
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, true, 3)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
+
+		// First state change: Set AUTHORIZED_FLAG (was not set before)
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+
+		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG (was set before)
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
+			account,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
+	})
+
+	t.Run("V4 Format - set_authorized = true (was unauthorized)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Test case: account was not authorized, had maintain liabilities flag
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -50,46 +87,15 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
 	})
 
-	t.Run("V4 Format - set_authorized = true", func(t *testing.T) {
+	t.Run("V4 Format - set_authorized = false (was authorized)", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		account := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
-		tx := createSACInvocationTxV4(account, admin, asset, true)
-		op, found := tx.GetOperation(0)
-		require.True(t, found)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
-			Index:          0,
-			Operation:      op,
-			Network:        networkPassphrase,
-			Transaction:    tx,
-			LedgerSequence: 12345,
-		}
-		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
-		require.NoError(t, err)
-		require.Len(t, stateChanges, 2) // Should create 2 state changes for authorization flags
 
-		// First state change: Set AUTHORIZED_FLAG
-		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
-			account,
-			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
-
-		// Second state change: Remove AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-		assertContractEvent(t, stateChanges[1], types.StateChangeReasonRemove,
-			account,
-			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
-	})
-
-	t.Run("V4 Format - set_authorized = false", func(t *testing.T) {
-		admin := keypair.MustRandom().Address()
-		account := keypair.MustRandom().Address()
-		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
-		assetContractID, err := asset.ContractID(networkPassphrase)
-		require.NoError(t, err)
-		tx := createSACInvocationTxV4(account, admin, asset, false)
+		// Test case: account was authorized, no maintain liabilities flag
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, false, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -114,6 +120,107 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
 		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[1].Flags)
+	})
+
+	// Edge case tests for different flag combinations
+	t.Run("No state changes when flags already in desired state", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+
+		// Test case: account was already authorized, trying to authorize again
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, true, false, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // No changes needed as already in desired state
+	})
+
+	t.Run("Partial state changes when only some flags need changing", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Test case: account was not authorized, no maintain liabilities flag, authorizing
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, false, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Only one state change needed
+
+		// Only state change: Set AUTHORIZED_FLAG (maintain liabilities wasn't set, so no need to remove)
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+	})
+
+	t.Run("Deauthorizing when already deauthorized but with different maintain liabilities state", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Test case: account was not authorized, no maintain liabilities flag, deauthorizing
+		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, false, false, false, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Only one state change needed
+
+		// Only state change: Set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG (authorized flag wasn't set, so no need to remove)
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Equal(t, types.NullableJSON{AuthorizedToMaintainLiabilitesFlagName}, stateChanges[0].Flags)
+	})
+
+	t.Run("Trustline change not found - should skip event", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+
+		// Create transaction without trustline changes
+		tx := createTxWithoutTrustlineChanges(account, admin, asset, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // Should skip the event due to missing trustline changes
 	})
 
 	// Error case tests
