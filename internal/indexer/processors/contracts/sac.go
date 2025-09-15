@@ -3,7 +3,7 @@ package contracts
 import (
 	"context"
 	"fmt"
-
+	"errors"
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
@@ -14,6 +14,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+var (
+	errNoContractDataChangeFound = errors.New("no contract data change found")
+	errNoAuthorizedKeyFound     = errors.New("authorized key not found")
+)
+
 
 const (
 	setAuthorizedFunctionName              = "set_authorized"
@@ -117,12 +123,40 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				continue
 			}
 
-			// Extract previous trustline flag state to determine actual changes
-			wasAuthorized, wasMaintainLiabilities, err := p.extractTrustlineFlagChanges(changes, accountToAuthorize)
-			if err != nil {
-				log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
-				continue
+			/*
+				Extract previous authorization state based on address type.
+
+				Stellar Asset Contracts (SAC) handle authorization differently for classic accounts vs contract accounts:
+
+				1. Classic Accounts (G...):
+				   - Authorization is managed through trustline flags in the Stellar ledger
+				   - Two relevant flags: AUTHORIZED and AUTHORIZED_TO_MAINTAIN_LIABILITIES
+				   - When authorizing: set AUTHORIZED, clear AUTHORIZED_TO_MAINTAIN_LIABILITIES
+				   - When deauthorizing: clear AUTHORIZED, set AUTHORIZED_TO_MAINTAIN_LIABILITIES
+				   - This allows existing offers and liquidity pool shares to be maintained during deauth
+
+				2. Contract Accounts (C...):
+				   - Authorization is stored in the contract's BalanceValue struct
+				   - BalanceValue contains: {amount: i128, authorized: bool, clawback: bool}
+				   - Only the 'authorized' boolean flag is relevant for authorization
+			*/
+			var wasAuthorized, wasMaintainLiabilities bool
+			if isContractAddress(accountToAuthorize) {
+				// For contract addresses, check contract data changes for BalanceValue authorization
+				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize)
+				if err != nil {
+					log.Debugf("processor: %s: skipping event due to contract authorization extraction failure: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
+						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					continue
+				}
+			} else {
+				// For classic account addresses, check trustline flag changes
+				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize)
+				if err != nil {
+					log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
+						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					continue
+				}
 			}
 
 			scBuilder := builder.WithCategory(types.StateChangeCategoryBalanceAuthorization).WithAccount(accountToAuthorize).WithToken(contractID)
@@ -130,43 +164,61 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 
 			/*
 				Generate state changes based on actual flag transitions:
-				- If authorize == true: should set AUTHORIZED_FLAG and potentially clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
-				- If authorize == false: should clear AUTHORIZED_FLAG and potentially set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG
+				- For classic accounts: handle trustline flag changes: AUTHORIZED and AUTHORIZED_TO_MAINTAIN_LIABILITIES
+				- For contracts: only handle AUTHORIZED (contract accounts dont have trustlines)
 
-				Only generate state changes for flags that actually changed from their previous state.
+				Only generate state changes for cases when the authorization state actually changed from its previous state.
 			*/
-			if isAuthorized {
-				// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
-				if !wasAuthorized {
-					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonSet).
-						WithFlags([]string{AuthorizedFlagName}).
-						Build())
-				}
-				// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
-				if wasMaintainLiabilities {
-					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonClear).
-						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-						Build())
+			if isContractAddress(accountToAuthorize) {
+				// Contract authorization: handle AUTHORIZED state
+				if isAuthorized != wasAuthorized {
+					if isAuthorized {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonSet).
+							Build())
+					} else {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonClear).
+							Build())
+					}
 				}
 			} else {
-				// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
-				if wasAuthorized {
-					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonClear).
-						WithFlags([]string{AuthorizedFlagName}).
-						Build())
-				}
-				// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
-				if !wasMaintainLiabilities {
-					flagChanges = append(flagChanges, scBuilder.Clone().
-						WithReason(types.StateChangeReasonSet).
-						WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
-						Build())
+				// Account authorization: handle both flags as before
+				if isAuthorized {
+					// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
+					if !wasAuthorized {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonSet).
+							WithFlags([]string{AuthorizedFlagName}).
+							Build())
+					}
+					// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
+					if wasMaintainLiabilities {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonClear).
+							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
+							Build())
+					}
+				} else {
+					// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
+					if wasAuthorized {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonClear).
+							WithFlags([]string{AuthorizedFlagName}).
+							Build())
+					}
+					// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
+					if !wasMaintainLiabilities {
+						flagChanges = append(flagChanges, scBuilder.Clone().
+							WithReason(types.StateChangeReasonSet).
+							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
+							Build())
+					}
 				}
 			}
 
+			log.Debugf("processor: %s: generated %d state changes for address %s: txHash=%s opID=%d",
+				p.Name(), len(flagChanges), accountToAuthorize, txHash, opWrapper.ID())
 			stateChanges = append(stateChanges, flagChanges...)
 		default:
 			continue
@@ -251,4 +303,106 @@ func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change
 	}
 
 	return false, false, fmt.Errorf("trustline change not found for account %s", accountToAuthorize)
+}
+
+// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
+func isContractAddress(address string) bool {
+	// Contract addresses start with 'C' and account addresses start with 'G'
+	return len(address) > 0 && address[0] == 'C'
+}
+
+// extractContractAuthorizationChanges extracts the previous authorization state for a contract address
+// from the operation changes to determine what flags were set before the SAC operation
+func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []ingest.Change, contractAddress string) (wasAuthorized bool, err error) {
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeContractData {
+			continue
+		}
+
+		if change.Pre == nil {
+			continue
+		}
+
+		prevContractData := change.Pre.Data.MustContractData()
+
+		// Check if this is a balance entry by examining the key structure
+		// Balance keys are vectors: ["Balance", contractAddress]
+		if prevContractData.Key.Type == xdr.ScValTypeScvVec {
+			keyVec, ok := prevContractData.Key.GetVec()
+			if !ok || keyVec == nil || len(*keyVec) != 2 {
+				continue
+			}
+
+			// Check if first element is "Balance" symbol
+			balanceSymbol, ok := (*keyVec)[0].GetSym()
+			if !ok || string(balanceSymbol) != "Balance" {
+				continue
+			}
+
+			// Check if second element is our contract address
+			keyAddr, err := extractAddressFromScVal((*keyVec)[1])
+			if err != nil {
+				continue // Skip if we can't extract the address
+			}
+
+			if keyAddr == contractAddress {
+				// This is a balance entry for our contract address
+				// Extract authorization flags from the balance data
+				authorized, err := p.extractAuthorizedFromBalanceMap(prevContractData.Val)
+				if err != nil {
+					continue // Skip if we can't parse the balance value
+				}
+				return authorized, nil
+			}
+		}
+	}
+
+	return false, errNoContractDataChangeFound
+}
+
+// extractAuthorizedFromBalanceMap extracts the authorized flag from a SAC BalanceValue ScVal
+// The balance value is a map with: {"amount": Int128, "authorized": Bool, "clawback": Bool}
+// We only need the 'authorized' flag, but validate the map structure matches the BalanceValue definition
+// from stellar-core: https://github.com/stellar/stellar-core/blob/master/src/rust/soroban/.../storage_types.rs#L24-L28
+func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVal) (authorized bool, err error) {
+	// Balance data must be stored as a map
+	if balanceVal.Type != xdr.ScValTypeScvMap {
+		return false, fmt.Errorf("expected ScMap for balance value, got %v", balanceVal.Type)
+	}
+
+	balanceMap, ok := balanceVal.GetMap()
+	if !ok || balanceMap == nil {
+		return false, fmt.Errorf("failed to extract map from balance value")
+	}
+
+	if len(*balanceMap) != 3 {
+		return false, fmt.Errorf("invalid balance map structure: expected 3 entries (amount, authorized, clawback), got %d", len(*balanceMap))
+	}
+
+	// Find and extract the 'authorized' field using key-based lookup
+	for _, entry := range *balanceMap {
+		if entry.Key.Type != xdr.ScValTypeScvSymbol {
+			continue
+		}
+
+		keySymbol, ok := entry.Key.GetSym()
+		if !ok {
+			continue
+		}
+
+		switch string(keySymbol) {
+		case "authorized":
+			if entry.Val.Type != xdr.ScValTypeScvBool {
+				return false, fmt.Errorf("balance authorized value is not a boolean: %v", entry.Val.Type)
+			}
+			if authVal, ok := entry.Val.GetB(); ok {
+				return authVal, nil
+			}
+			return false, fmt.Errorf("failed to extract boolean value from authorized field")
+		default:
+			continue
+		}
+	}
+
+	return false, errNoAuthorizedKeyFound
 }
