@@ -110,11 +110,6 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 		// Process different types of effects based on what account property they modify
 		//exhaustive:ignore
 		switch effectType {
-		case effects.EffectSequenceBumped:
-			stateChanges = append(stateChanges, changeBuilder.
-				WithCategory(types.StateChangeCategorySequence).
-				WithReason(types.StateChangeReasonSequenceBump).
-				Build())
 		// Signer effects: track changes to account signers (add/remove/update signer keys and weights)
 		case effects.EffectSignerCreated, effects.EffectSignerRemoved, effects.EffectSignerUpdated:
 			changeBuilder = changeBuilder.

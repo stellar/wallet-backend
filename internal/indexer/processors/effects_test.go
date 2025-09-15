@@ -29,41 +29,6 @@ func (m *mockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCG
 }
 
 func TestEffects_ProcessTransaction(t *testing.T) {
-	t.Run("BumpSequence", func(t *testing.T) {
-		envelopeXDR := "AAAAAKGX7RT96eIn205uoUHYnqLbt2cPRNORraEoeTAcrRKUAAAAZAAAADkAAAABAAAAAAAAAAAAAAABAAAAAAAAAAsAAABF2WS4AAAAAAAAAAABHK0SlAAAAEDq0JVhKNIq9ag0sR+R/cv3d9tEuaYEm2BazIzILRdGj9alaVMZBhxoJ3ZIpP3rraCJzyoKZO+p5HBVe10a2+UG"
-		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAALAAAAAAAAAAA="
-		metaXDR := "AAAAAQAAAAIAAAADAAAAOgAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvjnAAAADkAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAOgAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvjnAAAADkAAAABAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAgAAAAMAAAA6AAAAAAAAAAChl+0U/eniJ9tObqFB2J6i27dnD0TTka2hKHkwHK0SlAAAAAJUC+OcAAAAOQAAAAEAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA6AAAAAAAAAAChl+0U/eniJ9tObqFB2J6i27dnD0TTka2hKHkwHK0SlAAAAAJUC+OcAAAARdlkuAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
-		feeChangesXDR := "AAAAAgAAAAMAAAA5AAAAAAAAAAChl+0U/eniJ9tObqFB2J6i27dnD0TTka2hKHkwHK0SlAAAAAJUC+QAAAAAOQAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA6AAAAAAAAAAChl+0U/eniJ9tObqFB2J6i27dnD0TTka2hKHkwHK0SlAAAAAJUC+OcAAAAOQAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
-		hash := "829d53f2dceebe10af8007564b0aefde819b95734ad431df84270651e7ed8a90"
-		transaction := buildTransactionFromXDR(
-			t,
-			testTransaction{
-				Index:         1,
-				EnvelopeXDR:   envelopeXDR,
-				ResultXDR:     resultXDR,
-				MetaXDR:       metaXDR,
-				FeeChangesXDR: feeChangesXDR,
-				Hash:          hash,
-			},
-		)
-
-		op, found := transaction.GetOperation(0)
-		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &operation_processor.TransactionOperationWrapper{
-			Index:          0,
-			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
-			LedgerSequence: 12345,
-		}
-		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
-		require.NoError(t, err)
-		require.Len(t, changes, 1)
-		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[0].AccountID)
-		assert.Equal(t, types.StateChangeCategorySequence, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSequenceBump, *changes[0].StateChangeReason)
-	})
 	t.Run("SetOption", func(t *testing.T) {
 		envelopeXDR := "AAAAALly/iTceP/82O3aZAmd8hyqUjYAANfc5RfN0/iibCtTAAAAZAAIGHoAAAAHAAAAAQAAAAAAAAAAAAAAAF4FFtcAAAAAAAAAAQAAAAAAAAAFAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAEAAAACAAAAAQAAAAEAAAABAAAAAwAAAAEAAAABAAAAAQAAAAIAAAABAAAAAwAAAAEAAAAVaHR0cHM6Ly93d3cuaG9tZS5vcmcvAAAAAAAAAQAAAAAge0MBDbX9OddsGMWIHbY1cGXuGYP4bl1ylIvUklO73AAAAAIAAAAAAAAAAaJsK1MAAABAiQjCxE53GjInjJtvNr6gdhztRi0GWOZKlUS2KZBLjX3n2N/y7RRNt7B1ZuFcZAxrnxWHD/fF2XcrEwFAuf4TDA=="
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAFAAAAAAAAAAA="

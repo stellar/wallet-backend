@@ -10,7 +10,7 @@ import (
 	operation_processor "github.com/stellar/go/processors/operation"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
-	contractprocessors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
+	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -56,7 +56,7 @@ func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerE
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
 			processors.NewContractDeployProcessor(networkPassphrase),
-			contractprocessors.NewSACEventsProcessor(networkPassphrase),
+			contract_processors.NewSACEventsProcessor(networkPassphrase),
 		},
 	}
 }
