@@ -57,8 +57,8 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
-			log.Debugf("skipping event with invalid contract structure: txHash=%s opID=%d eventType=%d contractId=%v bodyV=%d",
-				txHash, opWrapper.ID(), event.Type, event.ContractId != nil, event.Body.V)
+			log.Debugf("processor: %s: skipping event with invalid contract structure: txHash=%s opID=%d eventType=%d contractId=%v bodyV=%d",
+				p.Name(), txHash, opWrapper.ID(), event.Type, event.ContractId != nil, event.Body.V)
 			continue
 		}
 
@@ -66,42 +66,46 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 		topics := event.Body.V0.Topics
 		if !p.validateExpectedTopicsForSAC(len(topics), tx.UnsafeMeta.V) {
 			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			log.Debugf("skipping event with invalid topic count for SAC: txHash=%s opID=%d contractId=%s topicCount=%d metaVersion=%d",
-				txHash, opWrapper.ID(), contractID, len(topics), tx.UnsafeMeta.V)
+			log.Debugf("processor: %s: skipping event with invalid topic count for SAC: txHash=%s opID=%d contractId=%s topicCount=%d metaVersion=%d",
+				p.Name(), txHash, opWrapper.ID(), contractID, len(topics), tx.UnsafeMeta.V)
 			continue
 		}
 
 		fn, ok := topics[0].GetSym()
 		if !ok {
 			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			log.Debugf("skipping event with non-symbol function name: txHash=%s opID=%d contractId=%s",
-				txHash, opWrapper.ID(), contractID)
+			log.Debugf("processor: %s: skipping event with non-symbol function name: txHash=%s opID=%d contractId=%s",
+				p.Name(), txHash, opWrapper.ID(), contractID)
 			continue
 		}
 
 		switch string(fn) {
 		case setAuthorizedFunctionName:
-			accountToAuthorize, asset, err := p.extractAccountAndAsset(topics, tx.UnsafeMeta.V)
+			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
+			isSAC, err := p.isSACContract(topics, contractID, tx.UnsafeMeta.V)
 			if err != nil {
-				contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-				log.Debugf("skipping event due to account/asset extraction failure: txHash=%s opID=%d contractId=%s error=%v",
-					txHash, opWrapper.ID(), contractID, err)
+				log.Debugf("processor: %s: skipping event due to SAC contract validation failure: txHash=%s opID=%d contractId=%s error=%v",
+					p.Name(), txHash, opWrapper.ID(), contractID, err)
+				continue
+			}
+			if !isSAC {
+				log.Debugf("processor: %s: skipping event due to non-SAC contract: txHash=%s opID=%d contractId=%s",
+					p.Name(), txHash, opWrapper.ID(), contractID)
 				continue
 			}
 
-			// Since SAC contract IDs are deterministic, we can use the contract ID from the event to validate the SEP11 asset string
-			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			if !isSAC(contractID, asset, p.networkPassphrase) {
-				log.Debugf("skipping event with invalid SAC contract ID: txHash=%s opID=%d contractId=%s asset=%v",
-					txHash, opWrapper.ID(), contractID, asset)
+			accountToAuthorize, err := p.extractAccount(topics, tx.UnsafeMeta.V)
+			if err != nil {
+				log.Debugf("processor: %s: skipping event due to account extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+					p.Name(), txHash, opWrapper.ID(), contractID, err)
 				continue
 			}
 
 			value := event.Body.V0.Data
 			isAuthorized, ok := value.GetB()
 			if !ok {
-				log.Debugf("skipping event with non-boolean authorization value: txHash=%s opID=%d contractId=%s",
-					txHash, opWrapper.ID(), contractID)
+				log.Debugf("processor: %s: skipping event with non-boolean authorization value: txHash=%s opID=%d contractId=%s",
+					p.Name(), txHash, opWrapper.ID(), contractID)
 				continue
 			}
 
@@ -167,23 +171,37 @@ func (p *SACEventsProcessor) validateExpectedTopicsForSAC(numTopics int, txMetaV
 }
 
 // extractAccountAndAsset extracts the account and asset from the topics
-func (p *SACEventsProcessor) extractAccountAndAsset(topics []xdr.ScVal, txMetaVersion int32) (string, xdr.Asset, error) {
-	var accountIdx, assetIdx int
+func (p *SACEventsProcessor) extractAccount(topics []xdr.ScVal, txMetaVersion int32) (string, error) {
+	var accountIdx int
 	switch txMetaVersion {
 	case txMetaVersionV3:
 		accountIdx = 2
-		assetIdx = 3
 	case txMetaVersionV4:
 		accountIdx = 1
+	}
+	account, err := extractAddressFromScVal(topics[accountIdx])
+	if err != nil {
+		return "", fmt.Errorf("invalid account: %w", err)
+	}
+	return account, nil
+}
+
+// isSACContract checks if a contract is an SAC contract
+func (p *SACEventsProcessor) isSACContract(topics []xdr.ScVal, contractID string, txMetaVersion int32) (bool, error) {
+	var assetIdx int
+	switch txMetaVersion {
+	case txMetaVersionV3:
+		assetIdx = 3
+	case txMetaVersionV4:
 		assetIdx = 2
 	}
-	account, err := extractAddress(topics[accountIdx])
+	asset, err := extractAssetFromScVal(topics[assetIdx])
 	if err != nil {
-		return "", xdr.Asset{}, fmt.Errorf("invalid account: %w", err)
+		return false, fmt.Errorf("invalid asset: %w", err)
 	}
-	asset, err := extractAsset(topics[assetIdx])
+	assetContractID, err := asset.ContractID(p.networkPassphrase)
 	if err != nil {
-		return "", xdr.Asset{}, fmt.Errorf("invalid asset: %w", err)
+		return false, fmt.Errorf("invalid asset contract ID: %w", err)
 	}
-	return account, asset, nil
+	return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]) == contractID, nil
 }

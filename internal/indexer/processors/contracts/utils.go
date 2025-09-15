@@ -3,12 +3,11 @@ package contracts
 import (
 	"fmt"
 
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 )
 
-// extractAddress helps extract a string representation of an address from a ScVal
-func extractAddress(val xdr.ScVal) (string, error) {
+// extractAddressFromScVal helps extract a string representation of an address from a ScVal
+func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {
 		return "", fmt.Errorf("invalid address")
@@ -20,8 +19,8 @@ func extractAddress(val xdr.ScVal) (string, error) {
 	return addrStr, nil
 }
 
-// extractAsset helps extract an asset from a ScVal
-func extractAsset(val xdr.ScVal) (xdr.Asset, error) {
+// extractAssetFromScVal helps extract an asset from a ScVal
+func extractAssetFromScVal(val xdr.ScVal) (xdr.Asset, error) {
 	asset, ok := val.GetStr()
 	if !ok {
 		return xdr.Asset{}, fmt.Errorf("invalid asset")
@@ -34,13 +33,4 @@ func extractAsset(val xdr.ScVal) (xdr.Asset, error) {
 		return xdr.Asset{}, fmt.Errorf("no assets found")
 	}
 	return assets[0], nil
-}
-
-// isSAC checks if a contract is an SAC contract
-func isSAC(expectedContractID string, asset xdr.Asset, networkPassphrase string) bool {
-	contractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		return false
-	}
-	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]) == expectedContractID
 }
