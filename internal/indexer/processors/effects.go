@@ -25,6 +25,8 @@ const (
 	lowThresholdIndex  = 1
 	medThresholdIndex  = 2
 	highThresholdIndex = 3
+	AuthorizedFlagName = "authorized"
+	ClawbackEnabledFlagName = "clawback_enabled"
 )
 
 var (
@@ -468,11 +470,18 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	var setFlags, clearFlags []string
 
 	for _, flag := range flags {
+		flagName := flag
+		if flag == "authorized_flag" {
+			flagName = AuthorizedFlagName
+		}
+		if flag == "clawback_enabled_flag" {
+			flagName = ClawbackEnabledFlagName
+		}
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {
-				setFlags = append(setFlags, flag)
+				setFlags = append(setFlags, flagName)
 			} else {
-				clearFlags = append(clearFlags, flag)
+				clearFlags = append(clearFlags, flagName)
 			}
 		}
 	}

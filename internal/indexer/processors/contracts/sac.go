@@ -15,8 +15,8 @@ import (
 
 const (
 	setAuthorizedFunctionName              = "set_authorized"
-	AuthorizedFlagName                     = "authorized_flag"
-	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites_flag"
+	AuthorizedFlagName                     = "authorized"
+	AuthorizedToMaintainLiabilitesFlagName = "authorized_to_maintain_liabilites"
 	txMetaVersionV3                        = 3
 	txMetaVersionV4                        = 4
 )

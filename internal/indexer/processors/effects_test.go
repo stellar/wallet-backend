@@ -170,7 +170,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		assert.Equal(t, types.StateChangeCategoryBalanceAuthorization, changes[1].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonRemove, *changes[1].StateChangeReason)
-		assert.Equal(t, types.NullableJSON{"authorized_flag", "clawback_enabled_flag"}, changes[1].Flags)
+		assert.Equal(t, types.NullableJSON{"authorized", "clawback_enabled"}, changes[1].Flags)
 	})
 
 	t.Run("ManageData - data created", func(t *testing.T) {
