@@ -49,78 +49,78 @@ func newTestTxBuilder(account, admin string, asset xdr.Asset, isAuthorized bool,
 }
 
 // WithTrustlineState sets previous trustline flag states
-func (b *TxBuilder) WithTrustlineState(wasAuthorized, wasMaintainLiabilities bool) *TxBuilder {
+func (b *testTxBuilder) WithTrustlineState(wasAuthorized, wasMaintainLiabilities bool) *testTxBuilder {
 	b.previouslyAuthorized = wasAuthorized
 	b.previouslyMaintainLiabilities = wasMaintainLiabilities
 	return b
 }
 
 // WithContractState sets contract-specific state
-func (b *TxBuilder) WithContractState(contractAccount string, wasAuthorized bool) *TxBuilder {
+func (b *testTxBuilder) WithContractState(contractAccount string, wasAuthorized bool) *testTxBuilder {
 	b.contractAccount = contractAccount
 	b.previouslyContractAuthorized = wasAuthorized
 	return b
 }
 
 // WithInvalidEventType makes the event have wrong type
-func (b *TxBuilder) WithInvalidEventType() *TxBuilder {
+func (b *testTxBuilder) WithInvalidEventType() *testTxBuilder {
 	b.invalidEventType = true
 	return b
 }
 
 // WithInsufficientTopics makes the event have insufficient topics
-func (b *TxBuilder) WithInsufficientTopics() *TxBuilder {
+func (b *testTxBuilder) WithInsufficientTopics() *testTxBuilder {
 	b.insufficientTopics = true
 	return b
 }
 
 // WithNonSACEvent makes the event be a transfer instead of set_authorized
-func (b *TxBuilder) WithNonSACEvent() *TxBuilder {
+func (b *testTxBuilder) WithNonSACEvent() *testTxBuilder {
 	b.nonSACEvent = true
 	return b
 }
 
 // WithMismatchedAsset makes the ledger changes use a different asset
-func (b *TxBuilder) WithMismatchedAsset() *TxBuilder {
+func (b *testTxBuilder) WithMismatchedAsset() *testTxBuilder {
 	b.mismatchedAsset = true
 	return b
 }
 
 // WithInvalidBalanceMap sets invalid balance map structure for contract tests
-func (b *TxBuilder) WithInvalidBalanceMap(mapType string) *TxBuilder {
+func (b *testTxBuilder) WithInvalidBalanceMap(mapType string) *testTxBuilder {
 	b.invalidBalanceMap = mapType
 	return b
 }
 
 // WithMissingChanges creates transaction without any ledger changes
-func (b *TxBuilder) WithMissingChanges() *TxBuilder {
+func (b *testTxBuilder) WithMissingChanges() *testTxBuilder {
 	b.missingChanges = true
 	return b
 }
 
 // WithCreationOnly creates only creation changes (no previous state)
-func (b *TxBuilder) WithCreationOnly() *TxBuilder {
+func (b *testTxBuilder) WithCreationOnly() *testTxBuilder {
 	b.creationOnly = true
 	return b
 }
 
 // BuildTrustline builds a transaction with trustline changes
-func (b *TxBuilder) BuildTrustline() ingest.LedgerTransaction {
+func (b *testTxBuilder) BuildTrustline() ingest.LedgerTransaction {
 	return b.buildWithChanges(b.createTrustlineChanges())
 }
 
 // BuildContract builds a transaction with contract data changes
-func (b *TxBuilder) BuildContract() ingest.LedgerTransaction {
+func (b *testTxBuilder) BuildContract() ingest.LedgerTransaction {
 	return b.buildWithChanges(b.createContractDataChanges())
 }
 
 // BuildEventOnly builds a transaction with only contract events (no ledger changes)
-func (b *TxBuilder) BuildEventOnly() ingest.LedgerTransaction {
+func (b *testTxBuilder) BuildEventOnly() ingest.LedgerTransaction {
 	return b.buildWithChanges(nil)
 }
 
 // buildWithChanges creates the base transaction and applies ledger changes
-func (b *TxBuilder) buildWithChanges(changes []xdr.LedgerEntryChange) ingest.LedgerTransaction {
+func (b *testTxBuilder) buildWithChanges(changes []xdr.LedgerEntryChange) ingest.LedgerTransaction {
 	// Create base transaction with contract event
 	tx := b.createBaseTx()
 
@@ -133,7 +133,7 @@ func (b *TxBuilder) buildWithChanges(changes []xdr.LedgerEntryChange) ingest.Led
 }
 
 // createBaseTx creates the base transaction structure with contract event
-func (b *TxBuilder) createBaseTx() ingest.LedgerTransaction {
+func (b *testTxBuilder) createBaseTx() ingest.LedgerTransaction {
 	rawContractID, err := b.asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
@@ -203,7 +203,7 @@ func (b *TxBuilder) createBaseTx() ingest.LedgerTransaction {
 }
 
 // createContractEvent creates the contract event based on builder settings
-func (b *TxBuilder) createContractEvent(contractID xdr.ContractId) xdr.ContractEvent {
+func (b *testTxBuilder) createContractEvent(contractID xdr.ContractId) xdr.ContractEvent {
 	// Handle event type modification
 	eventType := xdr.ContractEventTypeContract
 	if b.invalidEventType {
@@ -254,7 +254,7 @@ func (b *TxBuilder) createContractEvent(contractID xdr.ContractId) xdr.ContractE
 }
 
 // getTargetAccount returns the appropriate target account (contract or regular)
-func (b *TxBuilder) getTargetAccount() string {
+func (b *testTxBuilder) getTargetAccount() string {
 	if b.contractAccount != "" {
 		return b.contractAccount
 	}
@@ -262,7 +262,7 @@ func (b *TxBuilder) getTargetAccount() string {
 }
 
 // createTrustlineChanges creates trustline ledger entry changes
-func (b *TxBuilder) createTrustlineChanges() []xdr.LedgerEntryChange {
+func (b *testTxBuilder) createTrustlineChanges() []xdr.LedgerEntryChange {
 	if b.creationOnly {
 		return b.createTrustlineCreationChanges()
 	}
@@ -327,7 +327,7 @@ func (b *TxBuilder) createTrustlineChanges() []xdr.LedgerEntryChange {
 }
 
 // createTrustlineCreationChanges creates only creation changes for trustline
-func (b *TxBuilder) createTrustlineCreationChanges() []xdr.LedgerEntryChange {
+func (b *testTxBuilder) createTrustlineCreationChanges() []xdr.LedgerEntryChange {
 	accountID := xdr.MustAddress(b.account)
 
 	var newFlags xdr.Uint32
@@ -358,7 +358,7 @@ func (b *TxBuilder) createTrustlineCreationChanges() []xdr.LedgerEntryChange {
 }
 
 // createContractDataChanges creates contract data ledger entry changes
-func (b *TxBuilder) createContractDataChanges() []xdr.LedgerEntryChange {
+func (b *testTxBuilder) createContractDataChanges() []xdr.LedgerEntryChange {
 	if b.creationOnly {
 		return b.createContractDataCreationChanges()
 	}
@@ -428,7 +428,7 @@ func (b *TxBuilder) createContractDataChanges() []xdr.LedgerEntryChange {
 }
 
 // createContractDataCreationChanges creates only creation changes for contract data
-func (b *TxBuilder) createContractDataCreationChanges() []xdr.LedgerEntryChange {
+func (b *testTxBuilder) createContractDataCreationChanges() []xdr.LedgerEntryChange {
 	assetContractIDBytes, err := b.asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
@@ -461,7 +461,7 @@ func (b *TxBuilder) createContractDataCreationChanges() []xdr.LedgerEntryChange 
 }
 
 // createInvalidContractDataChanges creates contract data with invalid balance map
-func (b *TxBuilder) createInvalidContractDataChanges() []xdr.LedgerEntryChange {
+func (b *testTxBuilder) createInvalidContractDataChanges() []xdr.LedgerEntryChange {
 	assetContractIDBytes, err := b.asset.ContractID(networkPassphrase)
 	if err != nil {
 		panic(err)
@@ -516,7 +516,7 @@ func (b *TxBuilder) createInvalidContractDataChanges() []xdr.LedgerEntryChange {
 }
 
 // addChangesToTx adds ledger entry changes to the transaction
-func (b *TxBuilder) addChangesToTx(tx *ingest.LedgerTransaction, changes []xdr.LedgerEntryChange) {
+func (b *testTxBuilder) addChangesToTx(tx *ingest.LedgerTransaction, changes []xdr.LedgerEntryChange) {
 	if b.version == 3 {
 		if tx.UnsafeMeta.V3.Operations == nil {
 			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
@@ -554,71 +554,69 @@ var (
 	}
 )
 
-// Legacy functions for backward compatibility - now use TxBuilder internally
-
 func createSACInvocationTxV3(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, 3).BuildEventOnly()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, 3).BuildEventOnly()
 }
 
 func createInvalidContractEventTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithInvalidEventType().BuildEventOnly()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, 3).WithInvalidEventType().BuildEventOnly()
 }
 
 func createInsufficientTopicsTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithInsufficientTopics().BuildEventOnly()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, 3).WithInsufficientTopics().BuildEventOnly()
 }
 
 func createNonSACEventTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithNonSACEvent().BuildEventOnly()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, 3).WithNonSACEvent().BuildEventOnly()
 }
 
 func createTxWithMismatchedTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, version).
+	return newTestTxBuilder(account, admin, asset, isAuthorized, version).
 		WithTrustlineState(false, false).
 		WithMismatchedAsset().
 		BuildTrustline()
 }
 
 func createTxWithMismatchedContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder("", admin, asset, isAuthorized, version).
+	return newTestTxBuilder("", admin, asset, isAuthorized, version).
 		WithContractState(contractAccount, previouslyAuthorized).
 		WithMismatchedAsset().
 		BuildContract()
 }
 
 func createTxWithTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized, previouslyMaintainLiabilities bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, version).
+	return newTestTxBuilder(account, admin, asset, isAuthorized, version).
 		WithTrustlineState(previouslyAuthorized, previouslyMaintainLiabilities).
 		BuildTrustline()
 }
 
 func createTxWithoutTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
 }
 
 func createTxWithTrustlineCreation(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder(account, admin, asset, isAuthorized, version).WithCreationOnly().BuildTrustline()
+	return newTestTxBuilder(account, admin, asset, isAuthorized, version).WithCreationOnly().BuildTrustline()
 }
 
 func createTxWithContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder("", admin, asset, isAuthorized, version).
+	return newTestTxBuilder("", admin, asset, isAuthorized, version).
 		WithContractState(contractAccount, previouslyAuthorized).
 		BuildContract()
 }
 
 func createTxWithoutContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder(contractAccount, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
+	return newTestTxBuilder(contractAccount, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
 }
 
 func createTxWithContractDataCreation(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
-	return NewTxBuilder("", admin, asset, isAuthorized, version).
+	return newTestTxBuilder("", admin, asset, isAuthorized, version).
 		WithContractState(contractAccount, false).
 		WithCreationOnly().
 		BuildContract()
 }
 
 func createInvalidBalanceMapTx(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, mapType string) ingest.LedgerTransaction {
-	return NewTxBuilder("", admin, asset, isAuthorized, 4).
+	return newTestTxBuilder("", admin, asset, isAuthorized, 4).
 		WithContractState(contractAccount, false).
 		WithInvalidBalanceMap(mapType).
 		BuildContract()
