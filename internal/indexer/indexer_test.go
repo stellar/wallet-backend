@@ -88,14 +88,14 @@ var (
 func TestIndexer_ProcessTransaction(t *testing.T) {
 	tests := []struct {
 		name            string
-		setupMocks      func(*MockParticipantsProcessor, *MockTokenTransferProcessor, *MockOperationProcessor, *MockOperationProcessor, *MockIndexerBuffer)
+		setupMocks      func(*MockParticipantsProcessor, *MockTokenTransferProcessor, *MockOperationProcessor, *MockOperationProcessor, *MockOperationProcessor, *MockIndexerBuffer)
 		wantError       string
 		txParticipants  set.Set[string]
 		opsParticipants map[int64]processors.OperationParticipants
 	}{
 		{
 			name: "🟢 successful processing with participants",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				participants := set.NewSet("alice", "bob")
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 
@@ -116,10 +116,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return(tokenStateChanges, nil)
 
 				effectsStateChanges := []types.StateChange{{ToID: 2, StateChangeOrder: 1}}
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(effectsStateChanges, nil)
+				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return(effectsStateChanges, nil)
 
 				contractDeployStateChanges := []types.StateChange{{ToID: 3, StateChangeOrder: 1}}
 				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return(contractDeployStateChanges, nil)
+
+				contractSACEventsStateChanges := []types.StateChange{{ToID: 4, StateChangeOrder: 1}}
+				mockSACEventsProcessor.On("ProcessOperation", mock.Anything, mock.Anything).Return(contractSACEventsStateChanges, nil)
 
 				// Verify transaction was pushed to buffer with correct participants
 				// PushParticipantTransaction is called once for each participant
@@ -157,6 +160,10 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
 						return len(stateChanges) == 1 && stateChanges[0].ToID == 3 && stateChanges[0].StateChangeOrder == 1
 					})).Return()
+				mockBuffer.On("PushStateChanges",
+					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
+						return len(stateChanges) == 1 && stateChanges[0].ToID == 4 && stateChanges[0].StateChangeOrder == 1
+					})).Return()
 			},
 			txParticipants: set.NewSet("alice", "bob"),
 			opsParticipants: map[int64]processors.OperationParticipants{
@@ -173,7 +180,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 		},
 		{
 			name: "🟢 successful processing without participants",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				participants := set.NewSet[string]()
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 
@@ -196,14 +203,14 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 		},
 		{
 			name: "🔴 error getting transaction participants",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(set.NewSet[string](), errors.New("participant error"))
 			},
 			wantError: "getting transaction participants: participant error",
 		},
 		{
 			name: "🔴 error getting operations participants",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				participants := set.NewSet[string]()
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
@@ -212,7 +219,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 		},
 		{
 			name: "🔴 error processing effects state changes",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				participants := set.NewSet[string]()
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 
@@ -231,12 +238,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				mockBuffer.On("PushParticipantOperation", mock.Anything, mock.Anything, mock.Anything).Return()
 				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("effects error"))
+				mockEffects.On("Name").Return("effects")
 			},
 			wantError: "processing effects state changes: effects error",
 		},
 		{
 			name: "🔴 error processing token transfer state changes",
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
+			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				participants := set.NewSet[string]()
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 
@@ -256,18 +264,18 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			mockTokenTransfer := &MockTokenTransferProcessor{}
 			mockEffects := &MockOperationProcessor{}
 			mockContractDeploy := &MockOperationProcessor{}
+			mockSACEventsProcessor := &MockOperationProcessor{}
 			mockBuffer := &MockIndexerBuffer{}
 
 			// Setup mock expectations
-			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockBuffer)
+			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEventsProcessor, mockBuffer)
 
 			// Create testable indexer with mocked dependencies
 			indexer := &Indexer{
-				Buffer:                  mockBuffer,
-				participantsProcessor:   mockParticipants,
-				tokenTransferProcessor:  mockTokenTransfer,
-				effectsProcessor:        mockEffects,
-				contractDeployProcessor: mockContractDeploy,
+				Buffer:                 mockBuffer,
+				participantsProcessor:  mockParticipants,
+				tokenTransferProcessor: mockTokenTransfer,
+				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEventsProcessor},
 			}
 
 			err := indexer.ProcessTransaction(context.Background(), testTx)
@@ -305,6 +313,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			mockParticipants.AssertExpectations(t)
 			mockTokenTransfer.AssertExpectations(t)
 			mockEffects.AssertExpectations(t)
+			mockContractDeploy.AssertExpectations(t)
+			mockSACEventsProcessor.AssertExpectations(t)
 			mockBuffer.AssertExpectations(t)
 		})
 	}

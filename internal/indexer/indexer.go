@@ -10,6 +10,7 @@ import (
 	operation_processor "github.com/stellar/go/processors/operation"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
+	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -37,23 +38,26 @@ type ParticipantsProcessorInterface interface {
 
 type OperationProcessorInterface interface {
 	ProcessOperation(ctx context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error)
+	Name() string
 }
 
 type Indexer struct {
-	Buffer                  IndexerBufferInterface
-	participantsProcessor   ParticipantsProcessorInterface
-	tokenTransferProcessor  TokenTransferProcessorInterface
-	effectsProcessor        OperationProcessorInterface
-	contractDeployProcessor OperationProcessorInterface
+	Buffer                 IndexerBufferInterface
+	participantsProcessor  ParticipantsProcessorInterface
+	tokenTransferProcessor TokenTransferProcessorInterface
+	processors             []OperationProcessorInterface
 }
 
-func NewIndexer(networkPassphrase string) *Indexer {
+func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider) *Indexer {
 	return &Indexer{
-		Buffer:                  NewIndexerBuffer(),
-		participantsProcessor:   processors.NewParticipantsProcessor(networkPassphrase),
-		tokenTransferProcessor:  processors.NewTokenTransferProcessor(networkPassphrase),
-		effectsProcessor:        processors.NewEffectsProcessor(networkPassphrase),
-		contractDeployProcessor: processors.NewContractDeployProcessor(networkPassphrase),
+		Buffer:                 NewIndexerBuffer(),
+		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
+		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
+		processors: []OperationProcessorInterface{
+			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
+			processors.NewContractDeployProcessor(networkPassphrase),
+			contract_processors.NewSACEventsProcessor(networkPassphrase),
+		},
 	}
 }
 
@@ -80,7 +84,6 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	var dataOp *types.Operation
-	var effectsStateChanges, contractDeployStateChanges []types.StateChange
 	for opID, opParticipants := range opsParticipants {
 		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
@@ -91,19 +94,13 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 
-		// 2.1. Index effects state changes
-		effectsStateChanges, err = i.effectsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
-		if err != nil {
-			return fmt.Errorf("processing effects state changes: %w", err)
+		for _, processor := range i.processors {
+			stateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
+				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
+			}
+			i.Buffer.PushStateChanges(stateChanges)
 		}
-		i.Buffer.PushStateChanges(effectsStateChanges)
-
-		// 2.2. Index contract deploy state changes
-		contractDeployStateChanges, err = i.contractDeployProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
-		if err != nil && !errors.Is(err, processors.ErrInvalidOpType) {
-			return fmt.Errorf("processing contract deploy state changes: %w", err)
-		}
-		i.Buffer.PushStateChanges(contractDeployStateChanges)
 	}
 
 	// 3. Index token transfer state changes

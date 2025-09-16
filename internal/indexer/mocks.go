@@ -45,6 +45,11 @@ func (m *MockOperationProcessor) ProcessOperation(ctx context.Context, opWrapper
 	return args.Get(0).([]types.StateChange), args.Error(1)
 }
 
+func (m *MockOperationProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 type MockIndexerBuffer struct {
 	mock.Mock
 }

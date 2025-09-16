@@ -116,44 +116,47 @@ type Operation struct {
 type StateChangeCategory string
 
 const (
-	StateChangeCategoryBalance            StateChangeCategory = "BALANCE"
-	StateChangeCategoryAccount            StateChangeCategory = "ACCOUNT"
-	StateChangeCategorySigner             StateChangeCategory = "SIGNER"
-	StateChangeCategorySignatureThreshold StateChangeCategory = "SIGNATURE_THRESHOLD"
-	StateChangeCategoryMetadata           StateChangeCategory = "METADATA"
-	StateChangeCategoryFlags              StateChangeCategory = "FLAGS"
-	StateChangeCategoryLiability          StateChangeCategory = "LIABILITY"
-	StateChangeCategoryTrustlineFlags     StateChangeCategory = "TRUSTLINE_FLAGS"
-	StateChangeCategorySponsorship        StateChangeCategory = "SPONSORSHIP"
-	StateChangeCategoryUnsupported        StateChangeCategory = "UNSUPPORTED"
-	StateChangeCategoryAllowance          StateChangeCategory = "ALLOWANCE"
-	StateChangeCategoryContract           StateChangeCategory = "CONTRACT"
-	StateChangeCategoryAuthorization      StateChangeCategory = "AUTHORIZATION"
+	StateChangeCategoryBalance              StateChangeCategory = "BALANCE"
+	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
+	StateChangeCategorySequence             StateChangeCategory = "SEQUENCE"
+	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
+	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
+	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
+	StateChangeCategoryLiability            StateChangeCategory = "LIABILITY"
+	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
+	StateChangeCategorySponsorship          StateChangeCategory = "SPONSORSHIP"
+	StateChangeCategoryUnsupported          StateChangeCategory = "UNSUPPORTED"
+	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
+	StateChangeCategoryContract             StateChangeCategory = "CONTRACT"
+	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
+	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
 
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate     StateChangeReason = "CREATE"
-	StateChangeReasonMerge      StateChangeReason = "MERGE"
-	StateChangeReasonDebit      StateChangeReason = "DEBIT"
-	StateChangeReasonCredit     StateChangeReason = "CREDIT"
-	StateChangeReasonMint       StateChangeReason = "MINT"
-	StateChangeReasonBurn       StateChangeReason = "BURN"
-	StateChangeReasonAdd        StateChangeReason = "ADD"
-	StateChangeReasonRemove     StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
-	StateChangeReasonLow        StateChangeReason = "LOW"
-	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh       StateChangeReason = "HIGH"
-	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
-	StateChangeReasonSet        StateChangeReason = "SET"
-	StateChangeReasonClear      StateChangeReason = "CLEAR"
-	StateChangeReasonSell       StateChangeReason = "SELL"
-	StateChangeReasonBuy        StateChangeReason = "BUY"
-	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonConsume    StateChangeReason = "CONSUME"
-	StateChangeReasonInvoke     StateChangeReason = "INVOKE"
+	StateChangeReasonCreate       StateChangeReason = "CREATE"
+	StateChangeReasonMerge        StateChangeReason = "MERGE"
+	StateChangeReasonSequenceBump StateChangeReason = "BUMP"
+	StateChangeReasonDebit        StateChangeReason = "DEBIT"
+	StateChangeReasonCredit       StateChangeReason = "CREDIT"
+	StateChangeReasonMint         StateChangeReason = "MINT"
+	StateChangeReasonBurn         StateChangeReason = "BURN"
+	StateChangeReasonAdd          StateChangeReason = "ADD"
+	StateChangeReasonRemove       StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate       StateChangeReason = "UPDATE"
+	StateChangeReasonLow          StateChangeReason = "LOW"
+	StateChangeReasonMedium       StateChangeReason = "MEDIUM"
+	StateChangeReasonHigh         StateChangeReason = "HIGH"
+	StateChangeReasonHomeDomain   StateChangeReason = "HOME_DOMAIN"
+	StateChangeReasonSet          StateChangeReason = "SET"
+	StateChangeReasonClear        StateChangeReason = "CLEAR"
+	StateChangeReasonSell         StateChangeReason = "SELL"
+	StateChangeReasonBuy          StateChangeReason = "BUY"
+	StateChangeReasonDataEntry    StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonConsume      StateChangeReason = "CONSUME"
+	StateChangeReasonInvoke       StateChangeReason = "INVOKE"
 )
 
 type StateChange struct {
@@ -175,10 +178,11 @@ type StateChange struct {
 	DeployerAccountID  sql.NullString `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
 	FunderAccountID    sql.NullString `json:"funderAccountId,omitempty" db:"funder_account_id"`
 	// Nullable JSONB fields: // TODO: update from `NullableJSONB` to custom objects, except for KeyValue.
-	SignerWeights NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
-	Thresholds    NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
-	Flags         NullableJSON  `json:"flags,omitempty" db:"flags"`
-	KeyValue      NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
+	SignerWeights  NullableJSONB `json:"signerWeights,omitempty" db:"signer_weights"`
+	Thresholds     NullableJSONB `json:"thresholds,omitempty" db:"thresholds"`
+	TrustlineLimit NullableJSONB `json:"trustlineLimit,omitempty" db:"trustline_limit"`
+	Flags          NullableJSON  `json:"flags,omitempty" db:"flags"`
+	KeyValue       NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 	// Relationships:
 	AccountID   string       `json:"accountId,omitempty" db:"account_id"`
 	Account     *Account     `json:"account,omitempty" db:"account"`
