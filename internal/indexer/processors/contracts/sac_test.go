@@ -25,7 +25,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: account was not authorized, had maintain liabilities flag
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, true, 3)
+		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, true, 3)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -60,7 +60,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: account was not authorized, had maintain liabilities flag
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, true, 4)
+		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -95,7 +95,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: account was authorized, no maintain liabilities flag
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, false, true, false, 4)
+		tx := createTxWithTrustlineChanges(account, admin, asset, false, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -129,7 +129,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 
 		// Test case: account was already authorized, trying to authorize again
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, true, false, 4)
+		tx := createTxWithTrustlineChanges(account, admin, asset, true, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -152,7 +152,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: account was not authorized, no maintain liabilities flag, authorizing
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, true, false, false, 4)
+		tx := createTxWithTrustlineChanges(account, admin, asset, true, false, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -181,7 +181,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: account was not authorized, no maintain liabilities flag, deauthorizing
-		tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, false, false, false, 4)
+		tx := createTxWithTrustlineChanges(account, admin, asset, false, false, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -231,7 +231,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create transaction where the trustline was just created (no Pre image)
-		tx := createSACInvocationTxWithTrustlineCreation(account, admin, asset, true, 4)
+		tx := createTxWithTrustlineCreation(account, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -299,7 +299,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		account := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 
-		tx := createSACInvocationTxWithMismatchedTrustlineChanges(account, admin, asset, true, 4)
+		tx := createTxWithMismatchedTrustlineChanges(account, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -361,7 +361,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: contract was not authorized, now authorizing
-		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, true, false, 4)
+		tx := createTxWithContractDataChanges(contractAccount, admin, asset, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -390,7 +390,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test case: contract was authorized, now deauthorizing
-		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, false, true, 4)
+		tx := createTxWithContractDataChanges(contractAccount, admin, asset, false, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -417,7 +417,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		contractAccount := generateContractAddress(asset)
 
 		// Test case: contract was already authorized, trying to authorize again
-		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, true, true, 4)
+		tx := createTxWithContractDataChanges(contractAccount, admin, asset, true, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -458,7 +458,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 		contractAccount := generateContractAddress(asset)
 
-		tx := createSACInvocationTxWithMismatchedContractDataChanges(contractAccount, admin, asset, true, false, 4)
+		tx := createTxWithMismatchedContractDataChanges(contractAccount, admin, asset, true, false, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
@@ -477,10 +477,11 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
 		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
 		contractAccount := generateContractAddress(asset)
 
 		// Create transaction where the contract balance was just created (no Pre image)
-		tx := createSACInvocationTxWithContractDataCreation(contractAccount, admin, asset, true, 4)
+		tx := createTxWithContractDataCreation(contractAccount, admin, asset, true, 4)
 		op, found := tx.GetOperation(0)
 		require.True(t, found)
 		opWrapper := &operation_processor.TransactionOperationWrapper{

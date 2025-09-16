@@ -11,6 +11,526 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// TxBuilder provides a fluent interface for building test transactions
+type testTxBuilder struct {
+	account      string
+	admin        string
+	asset        xdr.Asset
+	isAuthorized bool
+	version      int
+
+	// For trustline tests
+	previouslyAuthorized          bool
+	previouslyMaintainLiabilities bool
+
+	// For contract tests
+	contractAccount              string
+	previouslyContractAuthorized bool
+
+	// Event modifications
+	invalidEventType   bool
+	insufficientTopics bool
+	nonSACEvent        bool
+	mismatchedAsset    bool
+	invalidBalanceMap  string
+	missingChanges     bool
+	creationOnly       bool
+}
+
+// NewTxBuilder creates a new transaction builder
+func newTestTxBuilder(account, admin string, asset xdr.Asset, isAuthorized bool, version int) *testTxBuilder {
+	return &testTxBuilder{
+		account:      account,
+		admin:        admin,
+		asset:        asset,
+		isAuthorized: isAuthorized,
+		version:      version,
+	}
+}
+
+// WithTrustlineState sets previous trustline flag states
+func (b *TxBuilder) WithTrustlineState(wasAuthorized, wasMaintainLiabilities bool) *TxBuilder {
+	b.previouslyAuthorized = wasAuthorized
+	b.previouslyMaintainLiabilities = wasMaintainLiabilities
+	return b
+}
+
+// WithContractState sets contract-specific state
+func (b *TxBuilder) WithContractState(contractAccount string, wasAuthorized bool) *TxBuilder {
+	b.contractAccount = contractAccount
+	b.previouslyContractAuthorized = wasAuthorized
+	return b
+}
+
+// WithInvalidEventType makes the event have wrong type
+func (b *TxBuilder) WithInvalidEventType() *TxBuilder {
+	b.invalidEventType = true
+	return b
+}
+
+// WithInsufficientTopics makes the event have insufficient topics
+func (b *TxBuilder) WithInsufficientTopics() *TxBuilder {
+	b.insufficientTopics = true
+	return b
+}
+
+// WithNonSACEvent makes the event be a transfer instead of set_authorized
+func (b *TxBuilder) WithNonSACEvent() *TxBuilder {
+	b.nonSACEvent = true
+	return b
+}
+
+// WithMismatchedAsset makes the ledger changes use a different asset
+func (b *TxBuilder) WithMismatchedAsset() *TxBuilder {
+	b.mismatchedAsset = true
+	return b
+}
+
+// WithInvalidBalanceMap sets invalid balance map structure for contract tests
+func (b *TxBuilder) WithInvalidBalanceMap(mapType string) *TxBuilder {
+	b.invalidBalanceMap = mapType
+	return b
+}
+
+// WithMissingChanges creates transaction without any ledger changes
+func (b *TxBuilder) WithMissingChanges() *TxBuilder {
+	b.missingChanges = true
+	return b
+}
+
+// WithCreationOnly creates only creation changes (no previous state)
+func (b *TxBuilder) WithCreationOnly() *TxBuilder {
+	b.creationOnly = true
+	return b
+}
+
+// BuildTrustline builds a transaction with trustline changes
+func (b *TxBuilder) BuildTrustline() ingest.LedgerTransaction {
+	return b.buildWithChanges(b.createTrustlineChanges())
+}
+
+// BuildContract builds a transaction with contract data changes
+func (b *TxBuilder) BuildContract() ingest.LedgerTransaction {
+	return b.buildWithChanges(b.createContractDataChanges())
+}
+
+// BuildEventOnly builds a transaction with only contract events (no ledger changes)
+func (b *TxBuilder) BuildEventOnly() ingest.LedgerTransaction {
+	return b.buildWithChanges(nil)
+}
+
+// buildWithChanges creates the base transaction and applies ledger changes
+func (b *TxBuilder) buildWithChanges(changes []xdr.LedgerEntryChange) ingest.LedgerTransaction {
+	// Create base transaction with contract event
+	tx := b.createBaseTx()
+
+	// Apply ledger changes if any
+	if changes != nil && !b.missingChanges {
+		b.addChangesToTx(&tx, changes)
+	}
+
+	return tx
+}
+
+// createBaseTx creates the base transaction structure with contract event
+func (b *TxBuilder) createBaseTx() ingest.LedgerTransaction {
+	rawContractID, err := b.asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractID := xdr.ContractId(rawContractID)
+
+	// Create contract event
+	event := b.createContractEvent(contractID)
+
+	// Create transaction metadata based on version
+	var unsafeMeta xdr.TransactionMeta
+	if b.version == 3 {
+		unsafeMeta = xdr.TransactionMeta{
+			V: 3,
+			V3: &xdr.TransactionMetaV3{
+				Operations: []xdr.OperationMeta{},
+				SorobanMeta: &xdr.SorobanTransactionMeta{
+					Events: []xdr.ContractEvent{event},
+				},
+			},
+		}
+	} else {
+		unsafeMeta = xdr.TransactionMeta{
+			V: 4,
+			V4: &xdr.TransactionMetaV4{
+				Operations: []xdr.OperationMetaV2{{
+					Events: []xdr.ContractEvent{event},
+				}},
+			},
+		}
+	}
+
+	// Create transaction envelope
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{{
+				SourceAccount: xdr.MustMuxedAddressPtr(b.admin),
+				Body: xdr.OperationBody{
+					Type:                 xdr.OperationTypeInvokeHostFunction,
+					InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+				},
+			}},
+		},
+	}
+
+	return ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		UnsafeMeta: unsafeMeta,
+	}
+}
+
+// createContractEvent creates the contract event based on builder settings
+func (b *TxBuilder) createContractEvent(contractID xdr.ContractId) xdr.ContractEvent {
+	// Handle event type modification
+	eventType := xdr.ContractEventTypeContract
+	if b.invalidEventType {
+		eventType = xdr.ContractEventTypeSystem
+	}
+
+	// Create topics based on version and modifications
+	var topics []xdr.ScVal
+	functionName := "set_authorized"
+	if b.nonSACEvent {
+		functionName = "transfer"
+	}
+
+	if b.insufficientTopics {
+		// Only 2 topics (insufficient for both V3 and V4)
+		topics = []xdr.ScVal{
+			makeSymbol(functionName),
+			makeAddressFromString(b.getTargetAccount()),
+		}
+	} else if b.version == 3 {
+		// V3 format: [function, admin, account, asset]
+		topics = []xdr.ScVal{
+			makeSymbol(functionName),
+			makeAddressFromString(b.admin),
+			makeAddressFromString(b.getTargetAccount()),
+			makeAssetString(b.asset),
+		}
+	} else {
+		// V4 format: [function, account, asset]
+		topics = []xdr.ScVal{
+			makeSymbol(functionName),
+			makeAddressFromString(b.getTargetAccount()),
+			makeAssetString(b.asset),
+		}
+	}
+
+	return xdr.ContractEvent{
+		Type:       eventType,
+		ContractId: &contractID,
+		Body: xdr.ContractEventBody{
+			V: 0,
+			V0: &xdr.ContractEventV0{
+				Topics: xdr.ScVec(topics),
+				Data:   makeBooleanData(b.isAuthorized),
+			},
+		},
+	}
+}
+
+// getTargetAccount returns the appropriate target account (contract or regular)
+func (b *TxBuilder) getTargetAccount() string {
+	if b.contractAccount != "" {
+		return b.contractAccount
+	}
+	return b.account
+}
+
+// createTrustlineChanges creates trustline ledger entry changes
+func (b *TxBuilder) createTrustlineChanges() []xdr.LedgerEntryChange {
+	if b.creationOnly {
+		return b.createTrustlineCreationChanges()
+	}
+
+	accountID := xdr.MustAddress(b.account)
+	asset := b.asset
+	if b.mismatchedAsset {
+		asset = xdr.MustNewCreditAsset("ALTASSET", b.admin)
+	}
+
+	// Calculate previous flags
+	var prevFlags xdr.Uint32
+	if b.previouslyAuthorized {
+		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	}
+	if b.previouslyMaintainLiabilities {
+		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	// Calculate new flags based on authorization state
+	var newFlags xdr.Uint32
+	if b.isAuthorized {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	} else {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	// Create trustline entries
+	prevTrustline := xdr.TrustLineEntry{
+		AccountId: accountID,
+		Asset:     asset.ToTrustLineAsset(),
+		Balance:   1000000,
+		Limit:     9223372036854775807,
+		Flags:     prevFlags,
+	}
+
+	newTrustline := prevTrustline
+	newTrustline.Flags = newFlags
+
+	return []xdr.LedgerEntryChange{
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+			State: &xdr.LedgerEntry{
+				LastModifiedLedgerSeq: 12344,
+				Data: xdr.LedgerEntryData{
+					Type:      xdr.LedgerEntryTypeTrustline,
+					TrustLine: &prevTrustline,
+				},
+			},
+		},
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+			Updated: &xdr.LedgerEntry{
+				LastModifiedLedgerSeq: 12345,
+				Data: xdr.LedgerEntryData{
+					Type:      xdr.LedgerEntryTypeTrustline,
+					TrustLine: &newTrustline,
+				},
+			},
+		},
+	}
+}
+
+// createTrustlineCreationChanges creates only creation changes for trustline
+func (b *TxBuilder) createTrustlineCreationChanges() []xdr.LedgerEntryChange {
+	accountID := xdr.MustAddress(b.account)
+
+	var newFlags xdr.Uint32
+	if b.isAuthorized {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	} else {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	trustline := xdr.TrustLineEntry{
+		AccountId: accountID,
+		Asset:     b.asset.ToTrustLineAsset(),
+		Balance:   1000000,
+		Limit:     9223372036854775807,
+		Flags:     newFlags,
+	}
+
+	return []xdr.LedgerEntryChange{{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &trustline,
+			},
+		},
+	}}
+}
+
+// createContractDataChanges creates contract data ledger entry changes
+func (b *TxBuilder) createContractDataChanges() []xdr.LedgerEntryChange {
+	if b.creationOnly {
+		return b.createContractDataCreationChanges()
+	}
+	if b.invalidBalanceMap != "" {
+		return b.createInvalidContractDataChanges()
+	}
+
+	assetContractIDBytes, err := b.asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.ContractId(assetContractIDBytes)
+	if b.mismatchedAsset {
+		altAsset := xdr.MustNewCreditAsset("ALTASSET", b.admin)
+		altContractIDBytes, err := altAsset.ContractID(networkPassphrase)
+		if err != nil {
+			panic(err)
+		}
+		assetContractID = xdr.ContractId(altContractIDBytes)
+	}
+
+	// Create balance values
+	prevBalanceMap := makeBalanceValueMap(b.previouslyContractAuthorized)
+	newBalanceMap := makeBalanceValueMap(b.isAuthorized)
+
+	prevBalanceMapPtr := &prevBalanceMap
+	newBalanceMapPtr := &newBalanceMap
+
+	prevBalanceVal := xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &prevBalanceMapPtr}
+	newBalanceVal := xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &newBalanceMapPtr}
+
+	// Create contract data entries
+	contractDataKey := makeBalanceKey(b.contractAccount)
+	prevContractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractID},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        prevBalanceVal,
+	}
+
+	newContractData := prevContractData
+	newContractData.Val = newBalanceVal
+
+	return []xdr.LedgerEntryChange{
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+			State: &xdr.LedgerEntry{
+				LastModifiedLedgerSeq: 12344,
+				Data: xdr.LedgerEntryData{
+					Type:         xdr.LedgerEntryTypeContractData,
+					ContractData: &prevContractData,
+				},
+			},
+		},
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+			Updated: &xdr.LedgerEntry{
+				LastModifiedLedgerSeq: 12345,
+				Data: xdr.LedgerEntryData{
+					Type:         xdr.LedgerEntryTypeContractData,
+					ContractData: &newContractData,
+				},
+			},
+		},
+	}
+}
+
+// createContractDataCreationChanges creates only creation changes for contract data
+func (b *TxBuilder) createContractDataCreationChanges() []xdr.LedgerEntryChange {
+	assetContractIDBytes, err := b.asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.ContractId(assetContractIDBytes)
+
+	balanceMap := makeBalanceValueMap(b.isAuthorized)
+	balanceMapPtr := &balanceMap
+	balanceVal := xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &balanceMapPtr}
+
+	contractDataKey := makeBalanceKey(b.contractAccount)
+	contractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractID},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        balanceVal,
+	}
+
+	return []xdr.LedgerEntryChange{{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &contractData,
+			},
+		},
+	}}
+}
+
+// createInvalidContractDataChanges creates contract data with invalid balance map
+func (b *TxBuilder) createInvalidContractDataChanges() []xdr.LedgerEntryChange {
+	assetContractIDBytes, err := b.asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.ContractId(assetContractIDBytes)
+
+	var invalidBalanceMap xdr.ScMap
+	switch b.invalidBalanceMap {
+	case "wrong_entry_count":
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeBooleanData(true)},
+		}
+	case "missing_authorized_key":
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
+			xdr.ScMapEntry{Key: makeSymbol("other"), Val: makeBooleanData(true)},
+		}
+	case "wrong_authorized_type":
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeInt128(1)},
+			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
+		}
+	default:
+		invalidBalanceMap = makeBalanceValueMap(true)
+	}
+
+	invalidBalanceMapPtr := &invalidBalanceMap
+	invalidBalanceVal := xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &invalidBalanceMapPtr}
+
+	contractDataKey := makeBalanceKey(b.contractAccount)
+	contractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractID},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        invalidBalanceVal,
+	}
+
+	return []xdr.LedgerEntryChange{{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+		State: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12344,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &contractData,
+			},
+		},
+	}}
+}
+
+// addChangesToTx adds ledger entry changes to the transaction
+func (b *TxBuilder) addChangesToTx(tx *ingest.LedgerTransaction, changes []xdr.LedgerEntryChange) {
+	if b.version == 3 {
+		if tx.UnsafeMeta.V3.Operations == nil {
+			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
+		}
+		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
+			Changes: changes,
+		})
+	} else {
+		if len(tx.UnsafeMeta.V4.Operations) > 0 {
+			tx.UnsafeMeta.V4.Operations[0].Changes = changes
+		}
+	}
+}
+
 var (
 	networkPassphrase = "Public Global Stellar Network ; September 2015"
 	someTxAccount     = xdr.MustMuxedAddress("GBF3XFXGBGNQDN3HOSZ7NVRF6TJ2JOD5U6ELIWJOOEI6T5WKMQT2YSXQ")
@@ -34,388 +554,85 @@ var (
 	}
 )
 
-func createSACInvocationTxV3(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-) ingest.LedgerTransaction {
-	rawContractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	contractID := xdr.ContractId(rawContractID)
-	data := makeBooleanData(isAuthorized)
+// Legacy functions for backward compatibility - now use TxBuilder internally
 
-	// V3 format: ["set_authorized", admin: Address, id: Address, sep0011_asset: String]
-	topics := []xdr.ScVal{
-		makeSymbol("set_authorized"),
-		makeAddressFromString(admin),
-		makeAddressFromString(account),
-		makeAssetString(asset),
-	}
-
-	metaV3 := xdr.TransactionMetaV3{
-		Operations: []xdr.OperationMeta{},
-		SorobanMeta: &xdr.SorobanTransactionMeta{
-			Events: []xdr.ContractEvent{
-				{
-					Type:       xdr.ContractEventTypeContract,
-					ContractId: &contractID,
-					Body: xdr.ContractEventBody{
-						V: 0,
-						V0: &xdr.ContractEventV0{
-							Topics: xdr.ScVec(topics),
-							Data:   data,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	envelope := xdr.TransactionV1Envelope{
-		Tx: xdr.Transaction{
-			SourceAccount: someTxAccount,
-			SeqNum:        xdr.SequenceNumber(54321),
-			Operations: []xdr.Operation{
-				{
-					SourceAccount: xdr.MustMuxedAddressPtr(admin),
-					Body: xdr.OperationBody{
-						Type:                 xdr.OperationTypeInvokeHostFunction,
-						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
-					},
-				},
-			},
-		},
-	}
-
-	resp := ingest.LedgerTransaction{
-		Index:  0,
-		Ledger: someLcm,
-		Envelope: xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-			V1:   &envelope,
-		},
-		Result: xdr.TransactionResultPair{
-			TransactionHash: xdr.Hash([32]byte{}),
-			Result: xdr.TransactionResult{
-				FeeCharged: 1234,
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: &[]xdr.OperationResult{},
-				},
-			},
-		},
-		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
-	}
-	return resp
+func createSACInvocationTxV3(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, 3).BuildEventOnly()
 }
 
-func createSACInvocationTxV4(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-) ingest.LedgerTransaction {
-	rawContractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	contractID := xdr.ContractId(rawContractID)
-	data := makeBooleanData(isAuthorized)
-
-	// V4 format: ["set_authorized", id: Address, sep0011_asset: String]
-	topics := []xdr.ScVal{
-		makeSymbol("set_authorized"),
-		makeAddressFromString(account),
-		makeAssetString(asset),
-	}
-
-	metaV4 := xdr.TransactionMetaV4{
-		Operations: []xdr.OperationMetaV2{
-			{
-				Events: []xdr.ContractEvent{
-					{
-						Type:       xdr.ContractEventTypeContract,
-						ContractId: &contractID,
-						Body: xdr.ContractEventBody{
-							V: 0,
-							V0: &xdr.ContractEventV0{
-								Topics: xdr.ScVec(topics),
-								Data:   data,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	envelope := xdr.TransactionV1Envelope{
-		Tx: xdr.Transaction{
-			SourceAccount: someTxAccount,
-			SeqNum:        xdr.SequenceNumber(54321),
-			Operations: []xdr.Operation{
-				{
-					SourceAccount: xdr.MustMuxedAddressPtr(admin),
-					Body: xdr.OperationBody{
-						Type:                 xdr.OperationTypeInvokeHostFunction,
-						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
-					},
-				},
-			},
-		},
-	}
-
-	resp := ingest.LedgerTransaction{
-		Index:  0,
-		Ledger: someLcm,
-		Envelope: xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-			V1:   &envelope,
-		},
-		Result: xdr.TransactionResultPair{
-			TransactionHash: xdr.Hash([32]byte{}),
-			Result: xdr.TransactionResult{
-				FeeCharged: 1234,
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: &[]xdr.OperationResult{},
-				},
-			},
-		},
-		UnsafeMeta: xdr.TransactionMeta{V: 4, V4: &metaV4}, // V4 format
-	}
-	return resp
+func createInvalidContractEventTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithInvalidEventType().BuildEventOnly()
 }
 
-// createInvalidContractEventTx creates a transaction with invalid contract event structure
-func createInvalidContractEventTx(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-) ingest.LedgerTransaction {
-	rawContractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	contractID := xdr.ContractId(rawContractID)
-
-	// Create invalid event with wrong event type
-	event := xdr.ContractEvent{
-		Type:       xdr.ContractEventTypeSystem, // Invalid type
-		ContractId: &contractID,
-		Body: xdr.ContractEventBody{
-			V: 0,
-			V0: &xdr.ContractEventV0{
-				Topics: xdr.ScVec([]xdr.ScVal{
-					makeSymbol("set_authorized"),
-					makeAddressFromString(admin),
-					makeAddressFromString(account),
-					makeAssetString(asset),
-				}),
-				Data: makeBooleanData(isAuthorized),
-			},
-		},
-	}
-
-	metaV3 := xdr.TransactionMetaV3{
-		Operations: []xdr.OperationMeta{},
-		SorobanMeta: &xdr.SorobanTransactionMeta{
-			Events: []xdr.ContractEvent{event},
-		},
-	}
-
-	envelope := xdr.TransactionV1Envelope{
-		Tx: xdr.Transaction{
-			SourceAccount: someTxAccount,
-			SeqNum:        xdr.SequenceNumber(54321),
-			Operations: []xdr.Operation{
-				{
-					SourceAccount: xdr.MustMuxedAddressPtr(admin),
-					Body: xdr.OperationBody{
-						Type:                 xdr.OperationTypeInvokeHostFunction,
-						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
-					},
-				},
-			},
-		},
-	}
-
-	return ingest.LedgerTransaction{
-		Index:  0,
-		Ledger: someLcm,
-		Envelope: xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-			V1:   &envelope,
-		},
-		Result: xdr.TransactionResultPair{
-			TransactionHash: xdr.Hash([32]byte{}),
-			Result: xdr.TransactionResult{
-				FeeCharged: 1234,
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: &[]xdr.OperationResult{},
-				},
-			},
-		},
-		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
-	}
+func createInsufficientTopicsTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithInsufficientTopics().BuildEventOnly()
 }
 
-// createInsufficientTopicsTx creates a transaction with insufficient topics for set_authorized event
-func createInsufficientTopicsTx(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-) ingest.LedgerTransaction {
-	rawContractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	contractID := xdr.ContractId(rawContractID)
-
-	// Create set_authorized event with only 2 topics (V3 needs 4, V4 needs 3)
-	topics := []xdr.ScVal{
-		makeSymbol("set_authorized"),
-		makeAddressFromString(account),
-		// Missing other required topics
-	}
-
-	event := xdr.ContractEvent{
-		Type:       xdr.ContractEventTypeContract,
-		ContractId: &contractID,
-		Body: xdr.ContractEventBody{
-			V: 0,
-			V0: &xdr.ContractEventV0{
-				Topics: xdr.ScVec(topics),
-				Data:   makeBooleanData(isAuthorized),
-			},
-		},
-	}
-
-	metaV3 := xdr.TransactionMetaV3{
-		Operations: []xdr.OperationMeta{},
-		SorobanMeta: &xdr.SorobanTransactionMeta{
-			Events: []xdr.ContractEvent{event},
-		},
-	}
-
-	envelope := xdr.TransactionV1Envelope{
-		Tx: xdr.Transaction{
-			SourceAccount: someTxAccount,
-			SeqNum:        xdr.SequenceNumber(54321),
-			Operations: []xdr.Operation{
-				{
-					SourceAccount: xdr.MustMuxedAddressPtr(admin),
-					Body: xdr.OperationBody{
-						Type:                 xdr.OperationTypeInvokeHostFunction,
-						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
-					},
-				},
-			},
-		},
-	}
-
-	return ingest.LedgerTransaction{
-		Index:  0,
-		Ledger: someLcm,
-		Envelope: xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-			V1:   &envelope,
-		},
-		Result: xdr.TransactionResultPair{
-			TransactionHash: xdr.Hash([32]byte{}),
-			Result: xdr.TransactionResult{
-				FeeCharged: 1234,
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: &[]xdr.OperationResult{},
-				},
-			},
-		},
-		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
-	}
+func createNonSACEventTx(account, admin string, asset xdr.Asset, isAuthorized bool) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, 3).WithNonSACEvent().BuildEventOnly()
 }
 
-// createNonSACEventTx creates a transaction with non-set_authorized events
-func createNonSACEventTx(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-) ingest.LedgerTransaction {
-	rawContractID, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	contractID := xdr.ContractId(rawContractID)
+func createTxWithMismatchedTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, version).
+		WithTrustlineState(false, false).
+		WithMismatchedAsset().
+		BuildTrustline()
+}
 
-	// Create transfer event instead of set_authorized
-	topics := []xdr.ScVal{
-		makeSymbol("transfer"), // Different function name
-		makeAddressFromString(admin),
-		makeAddressFromString(account),
-		makeAssetString(asset),
-	}
+func createTxWithMismatchedContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder("", admin, asset, isAuthorized, version).
+		WithContractState(contractAccount, previouslyAuthorized).
+		WithMismatchedAsset().
+		BuildContract()
+}
 
-	event := xdr.ContractEvent{
-		Type:       xdr.ContractEventTypeContract,
-		ContractId: &contractID,
-		Body: xdr.ContractEventBody{
-			V: 0,
-			V0: &xdr.ContractEventV0{
-				Topics: xdr.ScVec(topics),
-				Data:   makeBooleanData(isAuthorized),
-			},
-		},
-	}
+func createTxWithTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized, previouslyMaintainLiabilities bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, version).
+		WithTrustlineState(previouslyAuthorized, previouslyMaintainLiabilities).
+		BuildTrustline()
+}
 
-	metaV3 := xdr.TransactionMetaV3{
-		Operations: []xdr.OperationMeta{},
-		SorobanMeta: &xdr.SorobanTransactionMeta{
-			Events: []xdr.ContractEvent{event},
-		},
-	}
+func createTxWithoutTrustlineChanges(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
+}
 
-	envelope := xdr.TransactionV1Envelope{
-		Tx: xdr.Transaction{
-			SourceAccount: someTxAccount,
-			SeqNum:        xdr.SequenceNumber(54321),
-			Operations: []xdr.Operation{
-				{
-					SourceAccount: xdr.MustMuxedAddressPtr(admin),
-					Body: xdr.OperationBody{
-						Type:                 xdr.OperationTypeInvokeHostFunction,
-						InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
-					},
-				},
-			},
-		},
-	}
+func createTxWithTrustlineCreation(account, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder(account, admin, asset, isAuthorized, version).WithCreationOnly().BuildTrustline()
+}
 
-	return ingest.LedgerTransaction{
-		Index:  0,
-		Ledger: someLcm,
-		Envelope: xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-			V1:   &envelope,
-		},
-		Result: xdr.TransactionResultPair{
-			TransactionHash: xdr.Hash([32]byte{}),
-			Result: xdr.TransactionResult{
-				FeeCharged: 1234,
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: &[]xdr.OperationResult{},
-				},
-			},
-		},
-		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &metaV3},
+func createTxWithContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized, previouslyAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder("", admin, asset, isAuthorized, version).
+		WithContractState(contractAccount, previouslyAuthorized).
+		BuildContract()
+}
+
+func createTxWithoutContractDataChanges(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder(contractAccount, admin, asset, isAuthorized, version).WithMissingChanges().BuildEventOnly()
+}
+
+func createTxWithContractDataCreation(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, version int) ingest.LedgerTransaction {
+	return NewTxBuilder("", admin, asset, isAuthorized, version).
+		WithContractState(contractAccount, false).
+		WithCreationOnly().
+		BuildContract()
+}
+
+func createInvalidBalanceMapTx(contractAccount, admin string, asset xdr.Asset, isAuthorized bool, mapType string) ingest.LedgerTransaction {
+	return NewTxBuilder("", admin, asset, isAuthorized, 4).
+		WithContractState(contractAccount, false).
+		WithInvalidBalanceMap(mapType).
+		BuildContract()
+}
+
+func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
+	t.Helper()
+	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
+	require.Equal(t, expectedAccount, change.AccountID)
+	if expectedContractID != "" {
+		require.NotNil(t, change.TokenID)
+		require.Equal(t, expectedContractID, change.TokenID.String)
 	}
+	require.Equal(t, reason, *change.StateChangeReason)
 }
 
 func makeSymbol(sym string) xdr.ScVal {
@@ -472,279 +689,6 @@ func makeAssetString(asset xdr.Asset) xdr.ScVal {
 	}
 }
 
-func createSACInvocationTxWithMismatchedTrustlineChanges(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, isAuthorized, false, false, version)
-	altAsset := xdr.MustNewCreditAsset("ALTASSET", admin)
-	overrideTrustlineAsset(&tx, altAsset.ToTrustLineAsset(), version)
-	return tx
-}
-
-func overrideTrustlineAsset(tx *ingest.LedgerTransaction, trustlineAsset xdr.TrustLineAsset, version int) {
-	updateEntry := func(entry *xdr.LedgerEntry) {
-		if entry == nil {
-			return
-		}
-		if entry.Data.Type != xdr.LedgerEntryTypeTrustline || entry.Data.TrustLine == nil {
-			return
-		}
-		entry.Data.TrustLine.Asset = trustlineAsset
-	}
-
-	if version == 3 {
-		for i := range tx.UnsafeMeta.V3.Operations {
-			op := &tx.UnsafeMeta.V3.Operations[i]
-			for j := range op.Changes {
-				change := &op.Changes[j]
-				updateEntry(change.State)
-				updateEntry(change.Updated)
-			}
-		}
-	} else {
-		for i := range tx.UnsafeMeta.V4.Operations {
-			op := &tx.UnsafeMeta.V4.Operations[i]
-			for j := range op.Changes {
-				change := &op.Changes[j]
-				updateEntry(change.State)
-				updateEntry(change.Updated)
-			}
-		}
-	}
-}
-
-func createSACInvocationTxWithMismatchedContractDataChanges(
-	contractAccount string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	previouslyAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, isAuthorized, previouslyAuthorized, version)
-	altAsset := xdr.MustNewCreditAsset("ALTASSET", admin)
-	altContractIDBytes, err := altAsset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	altContractID := xdr.ContractId(altContractIDBytes)
-	overrideContractDataContract(&tx, altContractID, version)
-	return tx
-}
-
-func overrideContractDataContract(tx *ingest.LedgerTransaction, contractID xdr.ContractId, version int) {
-	setContract := func(entry *xdr.LedgerEntry) {
-		if entry == nil {
-			return
-		}
-		if entry.Data.Type != xdr.LedgerEntryTypeContractData || entry.Data.ContractData == nil {
-			return
-		}
-		if entry.Data.ContractData.Contract.Type == xdr.ScAddressTypeScAddressTypeContract && entry.Data.ContractData.Contract.ContractId != nil {
-			*entry.Data.ContractData.Contract.ContractId = contractID
-			return
-		}
-		contractHash := contractID
-		entry.Data.ContractData.Contract = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &contractHash,
-		}
-	}
-
-	if version == 3 {
-		for i := range tx.UnsafeMeta.V3.Operations {
-			op := &tx.UnsafeMeta.V3.Operations[i]
-			for j := range op.Changes {
-				change := &op.Changes[j]
-				setContract(change.State)
-				setContract(change.Updated)
-			}
-		}
-	} else {
-		for i := range tx.UnsafeMeta.V4.Operations {
-			op := &tx.UnsafeMeta.V4.Operations[i]
-			for j := range op.Changes {
-				change := &op.Changes[j]
-				setContract(change.State)
-				setContract(change.Updated)
-			}
-		}
-	}
-}
-
-// createSACInvocationTxWithTrustlineChanges creates a transaction with both SAC events and trustline changes
-func createSACInvocationTxWithTrustlineChanges(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	previouslyAuthorized bool,
-	previouslyMaintainLiabilities bool,
-	version int,
-) ingest.LedgerTransaction {
-	// Create the base transaction
-	var tx ingest.LedgerTransaction
-	if version == 3 {
-		tx = createSACInvocationTxV3(account, admin, asset, isAuthorized)
-	} else {
-		tx = createSACInvocationTxV4(account, admin, asset, isAuthorized)
-	}
-
-	// Create trustline changes
-	accountID := xdr.MustAddress(account)
-
-	// Previous trustline state
-	var prevFlags xdr.Uint32
-	if previouslyAuthorized {
-		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
-	}
-	if previouslyMaintainLiabilities {
-		prevFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-	}
-
-	// New trustline state
-	var newFlags xdr.Uint32
-	if isAuthorized {
-		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
-		// Clear maintain liabilities when authorizing
-	} else {
-		// Clear authorized when deauthorizing, set maintain liabilities
-		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-	}
-
-	prevTrustline := xdr.TrustLineEntry{
-		AccountId: accountID,
-		Asset:     asset.ToTrustLineAsset(),
-		Balance:   1000000,
-		Limit:     9223372036854775807,
-		Flags:     prevFlags,
-	}
-
-	newTrustline := prevTrustline
-	newTrustline.Flags = newFlags
-
-	// Create proper before/after changes as expected by stellar-go
-	stateChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
-		State: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12344,
-			Data: xdr.LedgerEntryData{
-				Type:      xdr.LedgerEntryTypeTrustline,
-				TrustLine: &prevTrustline,
-			},
-		},
-	}
-
-	updateChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-		Updated: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12345,
-			Data: xdr.LedgerEntryData{
-				Type:      xdr.LedgerEntryTypeTrustline,
-				TrustLine: &newTrustline,
-			},
-		},
-	}
-
-	changes := []xdr.LedgerEntryChange{stateChange, updateChange}
-
-	// Add the trustline changes to the operation meta
-	if version == 3 {
-		if tx.UnsafeMeta.V3.Operations == nil {
-			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
-		}
-		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
-			Changes: changes,
-		})
-	} else {
-		if len(tx.UnsafeMeta.V4.Operations) > 0 {
-			tx.UnsafeMeta.V4.Operations[0].Changes = changes
-		}
-	}
-
-	return tx
-}
-
-// createTxWithoutTrustlineChanges creates a transaction with SAC events but no trustline changes
-// This simulates the error case where trustline changes are not found
-func createTxWithoutTrustlineChanges(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	if version == 3 {
-		return createSACInvocationTxV3(account, admin, asset, isAuthorized)
-	}
-	return createSACInvocationTxV4(account, admin, asset, isAuthorized)
-}
-
-// createSACInvocationTxWithTrustlineCreation creates a transaction where the trustline was just created
-// so only a Post image exists for the ledger entry change.
-func createSACInvocationTxWithTrustlineCreation(
-	account string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	tx := createTxWithoutTrustlineChanges(account, admin, asset, isAuthorized, version)
-
-	accountID := xdr.MustAddress(account)
-
-	var newFlags xdr.Uint32
-	if isAuthorized {
-		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
-	} else {
-		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-	}
-
-	trustline := xdr.TrustLineEntry{
-		AccountId: accountID,
-		Asset:     asset.ToTrustLineAsset(),
-		Balance:   1000000,
-		Limit:     9223372036854775807,
-		Flags:     newFlags,
-	}
-
-	createChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
-		Created: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12345,
-			Data: xdr.LedgerEntryData{
-				Type:      xdr.LedgerEntryTypeTrustline,
-				TrustLine: &trustline,
-			},
-		},
-	}
-
-	if version == 3 {
-		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
-			Changes: []xdr.LedgerEntryChange{createChange},
-		})
-	} else if len(tx.UnsafeMeta.V4.Operations) > 0 {
-		tx.UnsafeMeta.V4.Operations[0].Changes = []xdr.LedgerEntryChange{createChange}
-	}
-
-	return tx
-}
-
-func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
-	t.Helper()
-	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
-	require.Equal(t, expectedAccount, change.AccountID)
-	if expectedContractID != "" {
-		require.NotNil(t, change.TokenID)
-		require.Equal(t, expectedContractID, change.TokenID.String)
-	}
-	require.Equal(t, reason, *change.StateChangeReason)
-}
-
 // makeContractAddress creates a contract address ScVal from a contract address string (C...)
 func makeContractAddress(contractAddress string) xdr.ScVal {
 	// Parse the contract address (C...) to get the raw bytes
@@ -787,11 +731,11 @@ func makeInt128(value int64) xdr.ScVal {
 }
 
 // makeBalanceValueMap creates a BalanceValue ScMap with {amount, authorized, clawback}
-func makeBalanceValueMap(amount int64, authorized bool, clawback bool) xdr.ScMap {
+func makeBalanceValueMap(authorized bool) xdr.ScMap {
 	return xdr.ScMap{
 		xdr.ScMapEntry{
 			Key: makeSymbol("amount"),
-			Val: makeInt128(amount),
+			Val: makeInt128(1000000),
 		},
 		xdr.ScMapEntry{
 			Key: makeSymbol("authorized"),
@@ -799,7 +743,7 @@ func makeBalanceValueMap(amount int64, authorized bool, clawback bool) xdr.ScMap
 		},
 		xdr.ScMapEntry{
 			Key: makeSymbol("clawback"),
-			Val: makeBooleanData(clawback),
+			Val: makeBooleanData(false),
 		},
 	}
 }
@@ -815,256 +759,4 @@ func makeBalanceKey(contractAddress string) xdr.ScVal {
 		Type: xdr.ScValTypeScvVec,
 		Vec:  &balanceVecPtr,
 	}
-}
-
-// createSACInvocationTxWithContractDataChanges creates a transaction with SAC events and contract data changes
-func createSACInvocationTxWithContractDataChanges(
-	contractAccount string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	previouslyAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	// Create the base transaction
-	var tx ingest.LedgerTransaction
-	if version == 3 {
-		tx = createSACInvocationTxV3(contractAccount, admin, asset, isAuthorized)
-	} else {
-		tx = createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
-	}
-
-	// Create contract data changes for BalanceValue
-	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	assetContractID := xdr.Hash(assetContractIDBytes)
-
-	// Previous balance value
-	prevBalanceMap := makeBalanceValueMap(1000000, previouslyAuthorized, false)
-	prevBalanceMapPtr := &prevBalanceMap
-	prevBalanceVal := xdr.ScVal{
-		Type: xdr.ScValTypeScvMap,
-		Map:  &prevBalanceMapPtr,
-	}
-
-	// New balance value
-	newBalanceMap := makeBalanceValueMap(1000000, isAuthorized, false)
-	newBalanceMapPtr := &newBalanceMap
-	newBalanceVal := xdr.ScVal{
-		Type: xdr.ScValTypeScvMap,
-		Map:  &newBalanceMapPtr,
-	}
-
-	// Create contract data entry
-	contractDataKey := makeBalanceKey(contractAccount)
-
-	assetContractIDConverted := xdr.ContractId(assetContractID)
-	prevContractData := xdr.ContractDataEntry{
-		Ext:        xdr.ExtensionPoint{V: 0},
-		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractIDConverted},
-		Key:        contractDataKey,
-		Durability: xdr.ContractDataDurabilityPersistent,
-		Val:        prevBalanceVal,
-	}
-
-	newContractData := prevContractData
-	newContractData.Val = newBalanceVal
-
-	// Create proper before/after changes
-	stateChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
-		State: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12344,
-			Data: xdr.LedgerEntryData{
-				Type:         xdr.LedgerEntryTypeContractData,
-				ContractData: &prevContractData,
-			},
-		},
-	}
-
-	updateChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-		Updated: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12345,
-			Data: xdr.LedgerEntryData{
-				Type:         xdr.LedgerEntryTypeContractData,
-				ContractData: &newContractData,
-			},
-		},
-	}
-
-	changes := []xdr.LedgerEntryChange{stateChange, updateChange}
-
-	// Add the contract data changes to the operation meta
-	if version == 3 {
-		if tx.UnsafeMeta.V3.Operations == nil {
-			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
-		}
-		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
-			Changes: changes,
-		})
-	} else {
-		if len(tx.UnsafeMeta.V4.Operations) > 0 {
-			tx.UnsafeMeta.V4.Operations[0].Changes = changes
-		}
-	}
-
-	return tx
-}
-
-// createTxWithoutContractDataChanges creates a transaction with SAC events but no contract data changes
-func createTxWithoutContractDataChanges(
-	contractAccount string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	if version == 3 {
-		return createSACInvocationTxV3(contractAccount, admin, asset, isAuthorized)
-	}
-	return createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
-}
-
-// createSACInvocationTxWithContractDataCreation creates a transaction where the contract balance entry
-// is newly created so only a Post image exists for the ledger entry change.
-func createSACInvocationTxWithContractDataCreation(
-	contractAccount string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	version int,
-) ingest.LedgerTransaction {
-	tx := createTxWithoutContractDataChanges(contractAccount, admin, asset, isAuthorized, version)
-
-	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	assetContractID := xdr.ContractId(assetContractIDBytes)
-
-	balanceMap := makeBalanceValueMap(1000000, isAuthorized, false)
-	balanceMapPtr := &balanceMap
-	balanceVal := xdr.ScVal{
-		Type: xdr.ScValTypeScvMap,
-		Map:  &balanceMapPtr,
-	}
-
-	contractDataKey := makeBalanceKey(contractAccount)
-
-	contractData := xdr.ContractDataEntry{
-		Ext:        xdr.ExtensionPoint{V: 0},
-		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractID},
-		Key:        contractDataKey,
-		Durability: xdr.ContractDataDurabilityPersistent,
-		Val:        balanceVal,
-	}
-
-	createChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
-		Created: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12345,
-			Data: xdr.LedgerEntryData{
-				Type:         xdr.LedgerEntryTypeContractData,
-				ContractData: &contractData,
-			},
-		},
-	}
-
-	if version == 3 {
-		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
-			Changes: []xdr.LedgerEntryChange{createChange},
-		})
-	} else if len(tx.UnsafeMeta.V4.Operations) > 0 {
-		tx.UnsafeMeta.V4.Operations[0].Changes = []xdr.LedgerEntryChange{createChange}
-	}
-
-	return tx
-}
-
-// createInvalidBalanceMapTx creates a transaction with invalid balance map structure
-func createInvalidBalanceMapTx(
-	contractAccount string,
-	admin string,
-	asset xdr.Asset,
-	isAuthorized bool,
-	mapType string,
-) ingest.LedgerTransaction {
-	// Create base transaction
-	tx := createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
-
-	// Create contract data changes with invalid balance map
-	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
-	if err != nil {
-		panic(err)
-	}
-	assetContractID := xdr.Hash(assetContractIDBytes)
-
-	var invalidBalanceMap xdr.ScMap
-	switch mapType {
-	case "wrong_entry_count":
-		// Create map with wrong number of entries (only 2 instead of 3)
-		invalidBalanceMap = xdr.ScMap{
-			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
-			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeBooleanData(true)},
-			// Missing clawback entry
-		}
-	case "missing_authorized_key":
-		// Create map without 'authorized' key
-		invalidBalanceMap = xdr.ScMap{
-			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
-			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
-			xdr.ScMapEntry{Key: makeSymbol("other"), Val: makeBooleanData(true)},
-		}
-	case "wrong_authorized_type":
-		// Create map with wrong type for 'authorized' value
-		invalidBalanceMap = xdr.ScMap{
-			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
-			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeInt128(1)}, // Wrong type - should be bool
-			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
-		}
-	default:
-		// Default to valid map if unknown type
-		invalidBalanceMap = makeBalanceValueMap(1000000, true, false)
-	}
-
-	invalidBalanceMapPtr := &invalidBalanceMap
-	invalidBalanceVal := xdr.ScVal{
-		Type: xdr.ScValTypeScvMap,
-		Map:  &invalidBalanceMapPtr,
-	}
-
-	// Create contract data entry with invalid balance map
-	contractDataKey := makeBalanceKey(contractAccount)
-	assetContractIDConverted := xdr.ContractId(assetContractID)
-	contractData := xdr.ContractDataEntry{
-		Ext:        xdr.ExtensionPoint{V: 0},
-		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractIDConverted},
-		Key:        contractDataKey,
-		Durability: xdr.ContractDataDurabilityPersistent,
-		Val:        invalidBalanceVal,
-	}
-
-	// Create ledger entry changes with the invalid balance map
-	stateChange := xdr.LedgerEntryChange{
-		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
-		State: &xdr.LedgerEntry{
-			LastModifiedLedgerSeq: 12344,
-			Data: xdr.LedgerEntryData{
-				Type:         xdr.LedgerEntryTypeContractData,
-				ContractData: &contractData,
-			},
-		},
-	}
-
-	changes := []xdr.LedgerEntryChange{stateChange}
-
-	// Add the invalid contract data changes to the operation meta
-	if len(tx.UnsafeMeta.V4.Operations) > 0 {
-		tx.UnsafeMeta.V4.Operations[0].Changes = changes
-	}
-
-	return tx
 }
