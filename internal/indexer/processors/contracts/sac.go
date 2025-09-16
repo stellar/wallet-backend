@@ -311,7 +311,7 @@ func isContractAddress(address string) bool {
 }
 
 // extractContractAuthorizationChanges extracts the previous authorization state for a contract address
-// from the operation changes to determine what flags were set before the SAC operation
+// from the operation changes to determine the authorization state before the SAC operation
 func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []ingest.Change, contractAddress string) (wasAuthorized bool, err error) {
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractData {
@@ -346,7 +346,7 @@ func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []inges
 
 			if keyAddr == contractAddress {
 				// This is a balance entry for our contract address
-				// Extract authorization flags from the balance data
+				// Extract authorization state from the balance data
 				authorized, err := p.extractAuthorizedFromBalanceMap(prevContractData.Val)
 				if err != nil {
 					continue // Skip if we can't parse the balance value
@@ -378,7 +378,7 @@ func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVa
 		return false, fmt.Errorf("invalid balance map structure: expected 3 entries (amount, authorized, clawback), got %d", len(*balanceMap))
 	}
 
-	// Find and extract the 'authorized' field using key-based lookup
+	// Find and extract the 'authorized' field
 	for _, entry := range *balanceMap {
 		if entry.Key.Type != xdr.ScValTypeScvSymbol {
 			continue
