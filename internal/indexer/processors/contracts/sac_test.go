@@ -223,6 +223,33 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Empty(t, stateChanges) // Should skip the event due to missing trustline changes
 	})
 
+	t.Run("Trustline change missing previous state is ignored", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Create transaction where the trustline was just created (no Pre image)
+		tx := createSACInvocationTxWithTrustlineCreation(account, admin, asset, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Should create 1 state change for trustline authorization
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			account,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Equal(t, types.NullableJSON{AuthorizedFlagName}, stateChanges[0].Flags)
+	})
+
 	// Error case tests
 	t.Run("Invalid Operation Type - should return ErrInvalidOpType", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
@@ -444,6 +471,32 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Empty(t, stateChanges)
+	})
+
+	t.Run("Contract data change missing previous state is ignored", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		contractAccount := generateContractAddress(asset)
+
+		// Create transaction where the contract balance was just created (no Pre image)
+		tx := createSACInvocationTxWithContractDataCreation(contractAccount, admin, asset, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Should create 1 state change for contract authorization
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			contractAccount,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
 	})
 
 	// Contract Account Error Handling Tests

@@ -684,6 +684,56 @@ func createTxWithoutTrustlineChanges(
 	return createSACInvocationTxV4(account, admin, asset, isAuthorized)
 }
 
+// createSACInvocationTxWithTrustlineCreation creates a transaction where the trustline was just created
+// so only a Post image exists for the ledger entry change.
+func createSACInvocationTxWithTrustlineCreation(
+	account string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	tx := createTxWithoutTrustlineChanges(account, admin, asset, isAuthorized, version)
+
+	accountID := xdr.MustAddress(account)
+
+	var newFlags xdr.Uint32
+	if isAuthorized {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	} else {
+		newFlags |= xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	}
+
+	trustline := xdr.TrustLineEntry{
+		AccountId: accountID,
+		Asset:     asset.ToTrustLineAsset(),
+		Balance:   1000000,
+		Limit:     9223372036854775807,
+		Flags:     newFlags,
+	}
+
+	createChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &trustline,
+			},
+		},
+	}
+
+	if version == 3 {
+		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
+			Changes: []xdr.LedgerEntryChange{createChange},
+		})
+	} else if len(tx.UnsafeMeta.V4.Operations) > 0 {
+		tx.UnsafeMeta.V4.Operations[0].Changes = []xdr.LedgerEntryChange{createChange}
+	}
+
+	return tx
+}
+
 func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedContractID string) {
 	t.Helper()
 	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, change.StateChangeCategory)
@@ -876,6 +926,62 @@ func createTxWithoutContractDataChanges(
 		return createSACInvocationTxV3(contractAccount, admin, asset, isAuthorized)
 	}
 	return createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
+}
+
+// createSACInvocationTxWithContractDataCreation creates a transaction where the contract balance entry
+// is newly created so only a Post image exists for the ledger entry change.
+func createSACInvocationTxWithContractDataCreation(
+	contractAccount string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	tx := createTxWithoutContractDataChanges(contractAccount, admin, asset, isAuthorized, version)
+
+	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.ContractId(assetContractIDBytes)
+
+	balanceMap := makeBalanceValueMap(1000000, isAuthorized, false)
+	balanceMapPtr := &balanceMap
+	balanceVal := xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  &balanceMapPtr,
+	}
+
+	contractDataKey := makeBalanceKey(contractAccount)
+
+	contractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractID},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        balanceVal,
+	}
+
+	createChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &contractData,
+			},
+		},
+	}
+
+	if version == 3 {
+		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
+			Changes: []xdr.LedgerEntryChange{createChange},
+		})
+	} else if len(tx.UnsafeMeta.V4.Operations) > 0 {
+		tx.UnsafeMeta.V4.Operations[0].Changes = []xdr.LedgerEntryChange{createChange}
+	}
+
+	return tx
 }
 
 // createInvalidBalanceMapTx creates a transaction with invalid balance map structure
