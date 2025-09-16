@@ -17,7 +17,8 @@ import (
 )
 
 var (
-	errNoContractDataChangeFound = errors.New("no contract data change found")
+	errNoPreviousContractDataChangeFound = errors.New("no previous contract data change found")
+	errNoPreviousTrustlineFlagChangesFound = errors.New("no previous trustline flag changes found")
 	errNoAuthorizedKeyFound      = errors.New("authorized key not found")
 )
 
@@ -144,7 +145,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			if isContractAddress(accountToAuthorize) {
 				// For contract addresses, check contract data changes for BalanceValue authorization
 				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize)
-				if err != nil {
+				if err != nil && !errors.Is(err, errNoPreviousContractDataChangeFound) {
 					log.Debugf("processor: %s: skipping event due to contract authorization extraction failure: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
 					continue
@@ -152,7 +153,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			} else {
 				// For classic account addresses, check trustline flag changes
 				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize)
-				if err != nil {
+				if err != nil && !errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
 					log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
 					continue
@@ -301,7 +302,7 @@ func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change
 		}
 	}
 
-	return false, false, fmt.Errorf("trustline change not found for account %s", accountToAuthorize)
+	return false, false, errNoPreviousTrustlineFlagChangesFound
 }
 
 // isContractAddress determines if the given address is a contract address (C...) or account address (G...)
@@ -356,7 +357,7 @@ func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []inges
 		}
 	}
 
-	return false, errNoContractDataChangeFound
+	return false, errNoPreviousContractDataChangeFound
 }
 
 // extractAuthorizedFromBalanceMap extracts the authorized flag from a SAC BalanceValue ScVal
