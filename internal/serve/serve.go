@@ -42,13 +42,15 @@ import (
 var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
-	Port                    int
-	DatabaseURL             string
-	ServerBaseURL           string
-	ClientAuthPublicKeys    []string
-	LogLevel                logrus.Level
-	EncryptionPassphrase    string
-	NumberOfChannelAccounts int
+	Port                        int
+	DatabaseURL                 string
+	ServerBaseURL               string
+	ClientAuthPublicKeys        []string
+	ClientAuthMaxTimeoutSeconds int
+	ClientAuthMaxBodySizeBytes  int
+	LogLevel                    logrus.Level
+	EncryptionPassphrase        string
+	NumberOfChannelAccounts     int
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -120,14 +122,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	var requestAuthVerifier auth.HTTPRequestVerifier
-	if len(cfg.ClientAuthPublicKeys) > 0 {
-		jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
-		if err != nil {
-			return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
-		}
-		requestAuthVerifier = auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)

@@ -69,7 +69,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	sc1 := types.StateChange{
 		ToID:                1,
 		StateChangeOrder:    1,
-		StateChangeCategory: types.StateChangeCategoryCredit,
+		StateChangeCategory: types.StateChangeCategoryBalance,
 		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        1,
@@ -82,7 +82,8 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	sc2 := types.StateChange{
 		ToID:                2,
 		StateChangeOrder:    1,
-		StateChangeCategory: types.StateChangeCategoryDebit,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   &reason,
 		LedgerCreatedAt:     now,
 		LedgerNumber:        2,
 		AccountID:           kp2.Address(),
@@ -127,7 +128,8 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 				{
 					ToID:                3,
 					StateChangeOrder:    1,
-					StateChangeCategory: types.StateChangeCategoryCredit,
+					StateChangeCategory: types.StateChangeCategoryBalance,
+					StateChangeReason:   &reason,
 					LedgerCreatedAt:     now,
 					LedgerNumber:        3,
 					AccountID:           nonExistingAccount.Address(),
@@ -144,7 +146,8 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 				{
 					ToID:                4,
 					StateChangeOrder:    1,
-					StateChangeCategory: types.StateChangeCategoryCredit,
+					StateChangeCategory: types.StateChangeCategoryBalance,
+					StateChangeReason:   &reason,
 					LedgerCreatedAt:     now,
 					LedgerNumber:        4,
 					AccountID:           nonExistingAccount.Address(),

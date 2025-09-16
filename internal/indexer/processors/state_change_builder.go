@@ -47,6 +47,12 @@ func (b *StateChangeBuilder) WithThresholds(thresholds map[string]any) *StateCha
 	return b
 }
 
+// WithTrustlineLimit sets the trustline limit
+func (b *StateChangeBuilder) WithTrustlineLimit(limit map[string]any) *StateChangeBuilder {
+	b.base.TrustlineLimit = types.NullableJSONB(limit)
+	return b
+}
+
 // WithFlags sets the flags
 func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
 	b.base.Flags = types.NullableJSON(flags)
@@ -63,6 +69,18 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 func (b *StateChangeBuilder) WithSigner(signer string, weights map[string]any) *StateChangeBuilder {
 	b.base.SignerAccountID = utils.SQLNullString(signer)
 	b.base.SignerWeights = types.NullableJSONB(weights)
+	return b
+}
+
+// WithDeployer sets the deployer account ID, usually associated with a contract deployment.
+func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
+	b.base.DeployerAccountID = utils.SQLNullString(deployer)
+	return b
+}
+
+// WithFunder sets the funder account ID
+func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
+	b.base.FunderAccountID = utils.SQLNullString(funder)
 	return b
 }
 
@@ -87,18 +105,6 @@ func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
 // WithToken sets the token ID using the contract address
 func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
 	b.base.TokenID = utils.SQLNullString(contractAddress)
-	return b
-}
-
-// WithClaimableBalance sets the claimable balance ID
-func (b *StateChangeBuilder) WithClaimableBalance(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
-	return b
-}
-
-// WithLiquidityPool sets the liquidity pool ID
-func (b *StateChangeBuilder) WithLiquidityPool(poolID string) *StateChangeBuilder {
-	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
 	return b
 }
 
@@ -151,15 +157,13 @@ func (b *StateChangeBuilder) generateSortKey() string {
 	}
 
 	return fmt.Sprintf(
-		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
+		"%d:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s",
 		b.base.ToID,
 		b.base.StateChangeCategory,
 		reason,
 		b.base.AccountID,
 		b.base.TokenID.String,
 		b.base.Amount.String,
-		b.base.ClaimableBalanceID.String,
-		b.base.LiquidityPoolID.String,
 		b.base.OfferID.String,
 		b.base.SignerAccountID.String,
 		b.base.SpenderAccountID.String,

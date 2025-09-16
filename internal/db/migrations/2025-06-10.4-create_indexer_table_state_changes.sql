@@ -14,8 +14,6 @@ CREATE TABLE state_changes (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
     token_id TEXT,
     amount TEXT,
-    claimable_balance_id TEXT,
-    liquidity_pool_id TEXT,
     flags JSONB,
     key_value JSONB,
     offer_id TEXT,
@@ -24,7 +22,10 @@ CREATE TABLE state_changes (
     spender_account_id TEXT,
     sponsored_account_id TEXT,
     sponsor_account_id TEXT,
+    deployer_account_id TEXT,
+    funder_account_id TEXT,
     thresholds JSONB,
+    trustline_limit JSONB,
     PRIMARY KEY (to_id, state_change_order)
 );
 

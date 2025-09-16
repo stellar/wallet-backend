@@ -13,8 +13,6 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
-const MaxBodySize int64 = 10_240 // 10kb
-
 func AuthenticationMiddleware(
 	requestAuthVerifier auth.HTTPRequestVerifier,
 	appTracker apptracker.AppTracker,
