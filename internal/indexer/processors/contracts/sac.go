@@ -2,8 +2,9 @@ package contracts
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
+
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
@@ -17,9 +18,8 @@ import (
 
 var (
 	errNoContractDataChangeFound = errors.New("no contract data change found")
-	errNoAuthorizedKeyFound     = errors.New("authorized key not found")
+	errNoAuthorizedKeyFound      = errors.New("authorized key not found")
 )
-
 
 const (
 	setAuthorizedFunctionName              = "set_authorized"
@@ -183,7 +183,6 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 					}
 				}
 			} else {
-				// Account authorization: handle both flags as before
 				if isAuthorized {
 					// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
 					if !wasAuthorized {

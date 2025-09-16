@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/require"
 
@@ -433,13 +434,32 @@ func makeBooleanData(value bool) xdr.ScVal {
 }
 
 func makeAddressFromString(address string) xdr.ScVal {
-	addr := xdr.MustAddress(address)
-	return xdr.ScVal{
-		Type: xdr.ScValTypeScvAddress,
-		Address: &xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &addr,
-		},
+	if len(address) > 0 && address[0] == 'C' {
+		// Contract address (C...)
+		contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, address)
+		if err != nil {
+			panic(err)
+		}
+		var contractHash xdr.Hash
+		copy(contractHash[:], contractIDBytes)
+		contractID := xdr.ContractId(contractHash)
+		return xdr.ScVal{
+			Type: xdr.ScValTypeScvAddress,
+			Address: &xdr.ScAddress{
+				Type:       xdr.ScAddressTypeScAddressTypeContract,
+				ContractId: &contractID,
+			},
+		}
+	} else {
+		// Account address (G...)
+		addr := xdr.MustAddress(address)
+		return xdr.ScVal{
+			Type: xdr.ScValTypeScvAddress,
+			Address: &xdr.ScAddress{
+				Type:      xdr.ScAddressTypeScAddressTypeAccount,
+				AccountId: &addr,
+			},
+		}
 	}
 }
 
@@ -569,4 +589,272 @@ func assertContractEvent(t *testing.T, change types.StateChange, reason types.St
 		require.Equal(t, expectedContractID, change.TokenID.String)
 	}
 	require.Equal(t, reason, *change.StateChangeReason)
+}
+
+// makeContractAddress creates a contract address ScVal from a contract address string (C...)
+func makeContractAddress(contractAddress string) xdr.ScVal {
+	// Parse the contract address (C...) to get the raw bytes
+	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
+	if err != nil {
+		panic(err)
+	}
+	var contractHash xdr.Hash
+	copy(contractHash[:], contractIDBytes)
+	contractID := xdr.ContractId(contractHash)
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvAddress,
+		Address: &xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &contractID,
+		},
+	}
+}
+
+// generateContractAddress generates a valid contract address string (C...) from asset
+func generateContractAddress(asset xdr.Asset) string {
+	contractID, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	return strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+}
+
+// makeInt128 creates an ScVal with Int128 type for amount values
+func makeInt128(value int64) xdr.ScVal {
+	// Convert int64 to Int128Parts (high=0, low=value for positive values)
+	i128 := xdr.Int128Parts{
+		Lo: xdr.Uint64(value),
+		Hi: xdr.Int64(0),
+	}
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvI128,
+		I128: &i128,
+	}
+}
+
+// makeBalanceValueMap creates a BalanceValue ScMap with {amount, authorized, clawback}
+func makeBalanceValueMap(amount int64, authorized bool, clawback bool) xdr.ScMap {
+	return xdr.ScMap{
+		xdr.ScMapEntry{
+			Key: makeSymbol("amount"),
+			Val: makeInt128(amount),
+		},
+		xdr.ScMapEntry{
+			Key: makeSymbol("authorized"),
+			Val: makeBooleanData(authorized),
+		},
+		xdr.ScMapEntry{
+			Key: makeSymbol("clawback"),
+			Val: makeBooleanData(clawback),
+		},
+	}
+}
+
+// makeBalanceKey creates a ["Balance", contractAddress] key for contract data
+func makeBalanceKey(contractAddress string) xdr.ScVal {
+	balanceVec := xdr.ScVec{
+		makeSymbol("Balance"),
+		makeContractAddress(contractAddress),
+	}
+	balanceVecPtr := &balanceVec
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvVec,
+		Vec:  &balanceVecPtr,
+	}
+}
+
+// createSACInvocationTxWithContractDataChanges creates a transaction with SAC events and contract data changes
+func createSACInvocationTxWithContractDataChanges(
+	contractAccount string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	previouslyAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	// Create the base transaction
+	var tx ingest.LedgerTransaction
+	if version == 3 {
+		tx = createSACInvocationTxV3(contractAccount, admin, asset, isAuthorized)
+	} else {
+		tx = createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
+	}
+
+	// Create contract data changes for BalanceValue
+	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.Hash(assetContractIDBytes)
+
+	// Previous balance value
+	prevBalanceMap := makeBalanceValueMap(1000000, previouslyAuthorized, false)
+	prevBalanceMapPtr := &prevBalanceMap
+	prevBalanceVal := xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  &prevBalanceMapPtr,
+	}
+
+	// New balance value
+	newBalanceMap := makeBalanceValueMap(1000000, isAuthorized, false)
+	newBalanceMapPtr := &newBalanceMap
+	newBalanceVal := xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  &newBalanceMapPtr,
+	}
+
+	// Create contract data entry
+	contractDataKey := makeBalanceKey(contractAccount)
+
+	assetContractIDConverted := xdr.ContractId(assetContractID)
+	prevContractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractIDConverted},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        prevBalanceVal,
+	}
+
+	newContractData := prevContractData
+	newContractData.Val = newBalanceVal
+
+	// Create proper before/after changes
+	stateChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+		State: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12344,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &prevContractData,
+			},
+		},
+	}
+
+	updateChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+		Updated: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &newContractData,
+			},
+		},
+	}
+
+	changes := []xdr.LedgerEntryChange{stateChange, updateChange}
+
+	// Add the contract data changes to the operation meta
+	if version == 3 {
+		if tx.UnsafeMeta.V3.Operations == nil {
+			tx.UnsafeMeta.V3.Operations = []xdr.OperationMeta{}
+		}
+		tx.UnsafeMeta.V3.Operations = append(tx.UnsafeMeta.V3.Operations, xdr.OperationMeta{
+			Changes: changes,
+		})
+	} else {
+		if len(tx.UnsafeMeta.V4.Operations) > 0 {
+			tx.UnsafeMeta.V4.Operations[0].Changes = changes
+		}
+	}
+
+	return tx
+}
+
+// createTxWithoutContractDataChanges creates a transaction with SAC events but no contract data changes
+func createTxWithoutContractDataChanges(
+	contractAccount string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	if version == 3 {
+		return createSACInvocationTxV3(contractAccount, admin, asset, isAuthorized)
+	}
+	return createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
+}
+
+// createInvalidBalanceMapTx creates a transaction with invalid balance map structure
+func createInvalidBalanceMapTx(
+	contractAccount string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	mapType string,
+) ingest.LedgerTransaction {
+	// Create base transaction
+	tx := createSACInvocationTxV4(contractAccount, admin, asset, isAuthorized)
+
+	// Create contract data changes with invalid balance map
+	assetContractIDBytes, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	assetContractID := xdr.Hash(assetContractIDBytes)
+
+	var invalidBalanceMap xdr.ScMap
+	switch mapType {
+	case "wrong_entry_count":
+		// Create map with wrong number of entries (only 2 instead of 3)
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeBooleanData(true)},
+			// Missing clawback entry
+		}
+	case "missing_authorized_key":
+		// Create map without 'authorized' key
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
+			xdr.ScMapEntry{Key: makeSymbol("other"), Val: makeBooleanData(true)},
+		}
+	case "wrong_authorized_type":
+		// Create map with wrong type for 'authorized' value
+		invalidBalanceMap = xdr.ScMap{
+			xdr.ScMapEntry{Key: makeSymbol("amount"), Val: makeInt128(1000000)},
+			xdr.ScMapEntry{Key: makeSymbol("authorized"), Val: makeInt128(1)}, // Wrong type - should be bool
+			xdr.ScMapEntry{Key: makeSymbol("clawback"), Val: makeBooleanData(false)},
+		}
+	default:
+		// Default to valid map if unknown type
+		invalidBalanceMap = makeBalanceValueMap(1000000, true, false)
+	}
+
+	invalidBalanceMapPtr := &invalidBalanceMap
+	invalidBalanceVal := xdr.ScVal{
+		Type: xdr.ScValTypeScvMap,
+		Map:  &invalidBalanceMapPtr,
+	}
+
+	// Create contract data entry with invalid balance map
+	contractDataKey := makeBalanceKey(contractAccount)
+	assetContractIDConverted := xdr.ContractId(assetContractID)
+	contractData := xdr.ContractDataEntry{
+		Ext:        xdr.ExtensionPoint{V: 0},
+		Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &assetContractIDConverted},
+		Key:        contractDataKey,
+		Durability: xdr.ContractDataDurabilityPersistent,
+		Val:        invalidBalanceVal,
+	}
+
+	// Create ledger entry changes with the invalid balance map
+	stateChange := xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+		State: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12344,
+			Data: xdr.LedgerEntryData{
+				Type:         xdr.LedgerEntryTypeContractData,
+				ContractData: &contractData,
+			},
+		},
+	}
+
+	changes := []xdr.LedgerEntryChange{stateChange}
+
+	// Add the invalid contract data changes to the operation meta
+	if len(tx.UnsafeMeta.V4.Operations) > 0 {
+		tx.UnsafeMeta.V4.Operations[0].Changes = changes
+	}
+
+	return tx
 }

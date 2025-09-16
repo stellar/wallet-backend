@@ -304,4 +304,169 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, stateChanges)
 	})
+
+	// Contract Account Tests
+	t.Run("Contract Account - set_authorized = true (was unauthorized)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset) // Generate actual contract address
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Test case: contract was not authorized, now authorizing
+		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, true, false, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Should create 1 state change for contract authorization
+
+		// State change: Set authorization for contract
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+			contractAccount,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
+	})
+
+	t.Run("Contract Account - set_authorized = false (was authorized)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+
+		// Test case: contract was authorized, now deauthorizing
+		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, false, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 1) // Should create 1 state change for contract deauthorization
+
+		// State change: Clear authorization for contract
+		assertContractEvent(t, stateChanges[0], types.StateChangeReasonClear,
+			contractAccount,
+			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		require.Nil(t, stateChanges[0].Flags) // Contract accounts don't use flags
+	})
+
+	t.Run("Contract Account - No state changes when already in desired state", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		// Test case: contract was already authorized, trying to authorize again
+		tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, true, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // No changes needed as already in desired state
+	})
+
+	t.Run("Contract Account - Contract data change not found", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		// Create transaction without contract data changes
+		tx := createTxWithoutContractDataChanges(contractAccount, admin, asset, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // Should skip the event due to missing contract data changes
+	})
+
+	// Contract Account Error Handling Tests
+	t.Run("Contract Account - Invalid balance map (wrong entry count)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		// Create transaction with invalid balance map (wrong entry count)
+		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "wrong_entry_count")
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // Should skip due to invalid balance map structure
+	})
+
+	t.Run("Contract Account - Invalid balance map (missing authorized key)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		// Create transaction with balance map missing 'authorized' key
+		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "missing_authorized_key")
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // Should skip due to missing authorized key
+	})
+
+	t.Run("Contract Account - Invalid balance map (wrong authorized type)", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		// Create transaction with wrong type for 'authorized' value
+		tx := createInvalidBalanceMapTx(contractAccount, admin, asset, true, "wrong_authorized_type")
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges) // Should skip due to wrong data type for authorized
+	})
 }
