@@ -267,6 +267,26 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Empty(t, stateChanges)
 	})
 
+	t.Run("Trustline change for different asset is ignored", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		account := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+
+		tx := createSACInvocationTxWithMismatchedTrustlineChanges(account, admin, asset, true, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
+	})
+
 	t.Run("Insufficient Topics - should be ignored", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		account := keypair.MustRandom().Address()
@@ -404,6 +424,26 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
 		require.Empty(t, stateChanges) // Should skip the event due to missing contract data changes
+	})
+
+	t.Run("Contract data change for different contract is ignored", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
+		contractAccount := generateContractAddress(asset)
+
+		tx := createSACInvocationTxWithMismatchedContractDataChanges(contractAccount, admin, asset, true, false, 4)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		}
+		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
 	})
 
 	// Contract Account Error Handling Tests

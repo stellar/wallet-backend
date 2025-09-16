@@ -472,6 +472,110 @@ func makeAssetString(asset xdr.Asset) xdr.ScVal {
 	}
 }
 
+func createSACInvocationTxWithMismatchedTrustlineChanges(
+	account string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	tx := createSACInvocationTxWithTrustlineChanges(account, admin, asset, isAuthorized, false, false, version)
+	altAsset := xdr.MustNewCreditAsset("ALTASSET", admin)
+	overrideTrustlineAsset(&tx, altAsset.ToTrustLineAsset(), version)
+	return tx
+}
+
+func overrideTrustlineAsset(tx *ingest.LedgerTransaction, trustlineAsset xdr.TrustLineAsset, version int) {
+	updateEntry := func(entry *xdr.LedgerEntry) {
+		if entry == nil {
+			return
+		}
+		if entry.Data.Type != xdr.LedgerEntryTypeTrustline || entry.Data.TrustLine == nil {
+			return
+		}
+		entry.Data.TrustLine.Asset = trustlineAsset
+	}
+
+	if version == 3 {
+		for i := range tx.UnsafeMeta.V3.Operations {
+			op := &tx.UnsafeMeta.V3.Operations[i]
+			for j := range op.Changes {
+				change := &op.Changes[j]
+				updateEntry(change.State)
+				updateEntry(change.Updated)
+			}
+		}
+	} else {
+		for i := range tx.UnsafeMeta.V4.Operations {
+			op := &tx.UnsafeMeta.V4.Operations[i]
+			for j := range op.Changes {
+				change := &op.Changes[j]
+				updateEntry(change.State)
+				updateEntry(change.Updated)
+			}
+		}
+	}
+}
+
+func createSACInvocationTxWithMismatchedContractDataChanges(
+	contractAccount string,
+	admin string,
+	asset xdr.Asset,
+	isAuthorized bool,
+	previouslyAuthorized bool,
+	version int,
+) ingest.LedgerTransaction {
+	tx := createSACInvocationTxWithContractDataChanges(contractAccount, admin, asset, isAuthorized, previouslyAuthorized, version)
+	altAsset := xdr.MustNewCreditAsset("ALTASSET", admin)
+	altContractIDBytes, err := altAsset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	altContractID := xdr.ContractId(altContractIDBytes)
+	overrideContractDataContract(&tx, altContractID, version)
+	return tx
+}
+
+func overrideContractDataContract(tx *ingest.LedgerTransaction, contractID xdr.ContractId, version int) {
+	setContract := func(entry *xdr.LedgerEntry) {
+		if entry == nil {
+			return
+		}
+		if entry.Data.Type != xdr.LedgerEntryTypeContractData || entry.Data.ContractData == nil {
+			return
+		}
+		if entry.Data.ContractData.Contract.Type == xdr.ScAddressTypeScAddressTypeContract && entry.Data.ContractData.Contract.ContractId != nil {
+			*entry.Data.ContractData.Contract.ContractId = contractID
+			return
+		}
+		contractHash := contractID
+		entry.Data.ContractData.Contract = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &contractHash,
+		}
+	}
+
+	if version == 3 {
+		for i := range tx.UnsafeMeta.V3.Operations {
+			op := &tx.UnsafeMeta.V3.Operations[i]
+			for j := range op.Changes {
+				change := &op.Changes[j]
+				setContract(change.State)
+				setContract(change.Updated)
+			}
+		}
+	} else {
+		for i := range tx.UnsafeMeta.V4.Operations {
+			op := &tx.UnsafeMeta.V4.Operations[i]
+			for j := range op.Changes {
+				change := &op.Changes[j]
+				setContract(change.State)
+				setContract(change.Updated)
+			}
+		}
+	}
+}
+
 // createSACInvocationTxWithTrustlineChanges creates a transaction with both SAC events and trustline changes
 func createSACInvocationTxWithTrustlineChanges(
 	account string,

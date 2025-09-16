@@ -17,9 +17,11 @@ import (
 )
 
 var (
-	errNoPreviousContractDataChangeFound = errors.New("no previous contract data change found")
+	errNoContractDataChangeFound           = errors.New("no contract data change found")
+	errNoTrustlineChangeFound              = errors.New("no trustline change found")
+	errNoPreviousContractDataChangeFound   = errors.New("no previous contract data change found")
 	errNoPreviousTrustlineFlagChangesFound = errors.New("no previous trustline flag changes found")
-	errNoAuthorizedKeyFound      = errors.New("authorized key not found")
+	errNoAuthorizedKeyFound                = errors.New("authorized key not found")
 )
 
 const (
@@ -97,7 +99,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 		switch string(fn) {
 		case setAuthorizedFunctionName:
 			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			isSAC, err := p.isSACContract(topics, contractID, tx.UnsafeMeta.V)
+			asset, err := p.extractAsset(topics, tx.UnsafeMeta.V)
+			if err != nil {
+				log.Debugf("processor: %s: skipping event due to asset extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+					p.Name(), txHash, opWrapper.ID(), contractID, err)
+				continue
+			}
+
+			isSAC, err := p.isSACContract(asset, contractID)
 			if err != nil {
 				log.Debugf("processor: %s: skipping event due to SAC contract validation failure: txHash=%s opID=%d contractId=%s error=%v",
 					p.Name(), txHash, opWrapper.ID(), contractID, err)
@@ -144,7 +153,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			var wasAuthorized, wasMaintainLiabilities bool
 			if isContractAddress(accountToAuthorize) {
 				// For contract addresses, check contract data changes for BalanceValue authorization
-				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize)
+				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousContractDataChangeFound) {
 					log.Debugf("processor: %s: skipping event due to contract authorization extraction failure: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
@@ -152,7 +161,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				}
 			} else {
 				// For classic account addresses, check trustline flag changes
-				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize)
+				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
 					log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
@@ -243,7 +252,21 @@ func (p *SACEventsProcessor) validateExpectedTopicsForSAC(numTopics int, txMetaV
 	}
 }
 
-// extractAccountAndAsset extracts the account and asset from the topics
+// extractAsset obtains the SAC asset from the event topics for the provided meta version.
+func (p *SACEventsProcessor) extractAsset(topics []xdr.ScVal, txMetaVersion int32) (xdr.Asset, error) {
+	var assetIdx int
+	switch txMetaVersion {
+	case txMetaVersionV3:
+		assetIdx = 3
+	case txMetaVersionV4:
+		assetIdx = 2
+	default:
+		return xdr.Asset{}, fmt.Errorf("unsupported tx meta version %d", txMetaVersion)
+	}
+	return extractAssetFromScVal(topics[assetIdx])
+}
+
+// extractAccount extracts the account from the topics
 func (p *SACEventsProcessor) extractAccount(topics []xdr.ScVal, txMetaVersion int32) (string, error) {
 	var accountIdx int
 	switch txMetaVersion {
@@ -260,18 +283,7 @@ func (p *SACEventsProcessor) extractAccount(topics []xdr.ScVal, txMetaVersion in
 }
 
 // isSACContract checks if a contract is an SAC contract
-func (p *SACEventsProcessor) isSACContract(topics []xdr.ScVal, contractID string, txMetaVersion int32) (bool, error) {
-	var assetIdx int
-	switch txMetaVersion {
-	case txMetaVersionV3:
-		assetIdx = 3
-	case txMetaVersionV4:
-		assetIdx = 2
-	}
-	asset, err := extractAssetFromScVal(topics[assetIdx])
-	if err != nil {
-		return false, fmt.Errorf("invalid asset: %w", err)
-	}
+func (p *SACEventsProcessor) isSACContract(asset xdr.Asset, contractID string) (bool, error) {
 	assetContractID, err := asset.ContractID(p.networkPassphrase)
 	if err != nil {
 		return false, fmt.Errorf("invalid asset contract ID: %w", err)
@@ -279,30 +291,40 @@ func (p *SACEventsProcessor) isSACContract(topics []xdr.ScVal, contractID string
 	return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]) == contractID, nil
 }
 
-// extractTrustlineFlagChanges extracts the previous trustline flags for the given account
-// from the operation changes to determine what flags were set before the SAC operation
-func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
+// extractTrustlineFlagChanges extracts the previous trustline flags for the given account.
+// The change scan now verifies the trustline belongs to the same SAC contract referenced by the event so
+// unrelated trustlines updated in the same operation are ignored.
+func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string, contractID string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
+	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
+	if err != nil {
+		return false, false, fmt.Errorf("invalid contract id %s: %w", contractID, err)
+	}
+	var expectedContract xdr.ContractId
+	copy(expectedContract[:], contractIDBytes)
+
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeTrustline {
 			continue
 		}
 
-		if change.Pre == nil {
+		if !p.trustlineEntryMatches(change, accountToAuthorize, expectedContract) {
 			continue
 		}
 
-		prevTrustline := change.Pre.Data.MustTrustLine()
-		trustlineAccount := prevTrustline.AccountId.Address()
-
-		if trustlineAccount == accountToAuthorize {
-			prevFlags := uint32(prevTrustline.Flags)
-			wasAuthorized = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
-			wasMaintainLiabilities = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
-			return wasAuthorized, wasMaintainLiabilities, nil
+		// If the trustline change only has a Post image, it means the trustline was just created.
+		// There was no authorization state before the SAC operation.
+		if change.Pre == nil {
+			return false, false, errNoPreviousTrustlineFlagChangesFound
 		}
+
+		prevTrustline := change.Pre.Data.MustTrustLine()
+		prevFlags := uint32(prevTrustline.Flags)
+		wasAuthorized = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
+		wasMaintainLiabilities = (prevFlags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
+		return wasAuthorized, wasMaintainLiabilities, nil
 	}
 
-	return false, false, errNoPreviousTrustlineFlagChangesFound
+	return false, false, errNoTrustlineChangeFound
 }
 
 // isContractAddress determines if the given address is a contract address (C...) or account address (G...)
@@ -311,59 +333,46 @@ func isContractAddress(address string) bool {
 	return len(address) > 0 && address[0] == 'C'
 }
 
-// extractContractAuthorizationChanges extracts the previous authorization state for a contract address
-// from the operation changes to determine the authorization state before the SAC operation
-func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []ingest.Change, contractAddress string) (wasAuthorized bool, err error) {
+// extractContractAuthorizationChanges extracts the previous authorization bit for a contract address.
+// It filters for balance entries that match both the address and the SAC contract id, and returns a sentinel
+// error when only a Post image exists (meaning the contract balance was just created).
+func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []ingest.Change, contractAddress string, contractID string) (wasAuthorized bool, err error) {
+	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
+	if err != nil {
+		return false, fmt.Errorf("invalid contract id %s: %w", contractID, err)
+	}
+	var expectedContract xdr.ContractId
+	copy(expectedContract[:], contractIDBytes)
+
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeContractData {
 			continue
 		}
 
-		if change.Pre == nil {
+		if !p.contractDataChangeMatches(change, contractAddress, expectedContract) {
 			continue
 		}
 
-		prevContractData := change.Pre.Data.MustContractData()
-
-		// Check if this is a balance entry by examining the key structure
-		// Balance keys are vectors: ["Balance", contractAddress]
-		if prevContractData.Key.Type == xdr.ScValTypeScvVec {
-			keyVec, ok := prevContractData.Key.GetVec()
-			if !ok || keyVec == nil || len(*keyVec) != 2 {
-				continue
-			}
-
-			// Check if first element is "Balance" symbol
-			balanceSymbol, ok := (*keyVec)[0].GetSym()
-			if !ok || string(balanceSymbol) != "Balance" {
-				continue
-			}
-
-			// Check if second element is our contract address
-			keyAddr, err := extractAddressFromScVal((*keyVec)[1])
-			if err != nil {
-				continue // Skip if we can't extract the address
-			}
-
-			if keyAddr == contractAddress {
-				// This is a balance entry for our contract address
-				// Extract authorization state from the balance data
-				authorized, err := p.extractAuthorizedFromBalanceMap(prevContractData.Val)
-				if err != nil {
-					continue // Skip if we can't parse the balance value
-				}
-				return authorized, nil
-			}
+		// If the contract data change only has a Post image, it means the contract balance was just created.
+		// There was no authorization state before the SAC operation.
+		if change.Pre == nil {
+			return false, errNoPreviousContractDataChangeFound
 		}
+
+		prevContractData := change.Pre.Data.MustContractData()
+		authorized, err := p.extractAuthorizedFromBalanceMap(prevContractData.Val)
+		if err != nil {
+			return false, err
+		}
+		return authorized, nil
 	}
 
-	return false, errNoPreviousContractDataChangeFound
+	return false, errNoContractDataChangeFound
 }
 
-// extractAuthorizedFromBalanceMap extracts the authorized flag from a SAC BalanceValue ScVal
-// The balance value is a map with: {"amount": Int128, "authorized": Bool, "clawback": Bool}
-// We only need the 'authorized' flag, but validate the map structure matches the BalanceValue definition
-// from stellar-core: https://github.com/stellar/stellar-core/blob/master/src/rust/soroban/.../storage_types.rs#L24-L28
+// extractAuthorizedFromBalanceMap extracts the authorized flag from a SAC BalanceValue ScVal.
+// The balance value is a map with: {"amount": Int128, "authorized": Bool, "clawback": Bool}.
+// We only need the 'authorized' flag, but validate the map structure matches the BalanceValue definition.
 func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVal) (authorized bool, err error) {
 	// Balance data must be stored as a map
 	if balanceVal.Type != xdr.ScValTypeScvMap {
@@ -405,4 +414,95 @@ func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVa
 	}
 
 	return false, errNoAuthorizedKeyFound
+}
+
+// trustlineEntryMatches verifies the ledger entry represents the SAC trustline for the target account.
+func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account string, expectedContract xdr.ContractId) bool {
+	var entry *xdr.LedgerEntry
+	if change.Pre != nil {
+		entry = change.Pre
+	} else {
+		entry = change.Post
+	}
+
+	if entry == nil || entry.Data.Type != xdr.LedgerEntryTypeTrustline {
+		return false
+	}
+
+	trustline := entry.Data.MustTrustLine()
+	if trustline.AccountId.Address() != account {
+		return false
+	}
+
+	asset, err := trustLineAssetToAsset(trustline.Asset)
+	if err != nil {
+		return false
+	}
+
+	contractID, err := asset.ContractID(p.networkPassphrase)
+	if err != nil {
+		return false
+	}
+
+	return xdr.ContractId(contractID) == expectedContract
+}
+
+// contractDataChangeMatches ensures the contract-data change belongs to the SAC token and target balance key.
+func (p *SACEventsProcessor) contractDataChangeMatches(change ingest.Change, contractAddress string, expectedContract xdr.ContractId) bool {
+	var entry *xdr.LedgerEntry
+	if change.Pre != nil {
+		entry = change.Pre
+	} else {
+		entry = change.Post
+	}
+
+	if entry == nil || entry.Data.Type != xdr.LedgerEntryTypeContractData {
+		return false
+	}
+
+	contractData := entry.Data.MustContractData()
+	actualContractID, ok := contractData.Contract.GetContractId()
+	if !ok || actualContractID != expectedContract {
+		return false
+	}
+
+	return isBalanceKeyForAddress(contractData.Key, contractAddress)
+}
+
+// isBalanceKeyForAddress returns true when the SCVec key encodes a Balance entry for the supplied address.
+func isBalanceKeyForAddress(key xdr.ScVal, contractAddress string) bool {
+	if key.Type != xdr.ScValTypeScvVec {
+		return false
+	}
+
+	keyVec, ok := key.GetVec()
+	if !ok || keyVec == nil || len(*keyVec) != 2 {
+		return false
+	}
+
+	balanceSymbol, ok := (*keyVec)[0].GetSym()
+	if !ok || string(balanceSymbol) != "Balance" {
+		return false
+	}
+
+	addr, err := extractAddressFromScVal((*keyVec)[1])
+	if err != nil {
+		return false
+	}
+
+	return addr == contractAddress
+}
+
+// trustLineAssetToAsset converts a TrustLineAsset to an Asset.
+func trustLineAssetToAsset(tlAsset xdr.TrustLineAsset) (xdr.Asset, error) {
+	switch tlAsset.Type {
+	case xdr.AssetTypeAssetTypeCreditAlphanum4:
+		alpha := tlAsset.MustAlphaNum4()
+		return xdr.Asset{Type: xdr.AssetTypeAssetTypeCreditAlphanum4, AlphaNum4: &alpha}, nil
+	case xdr.AssetTypeAssetTypeCreditAlphanum12:
+		alpha := tlAsset.MustAlphaNum12()
+		return xdr.Asset{Type: xdr.AssetTypeAssetTypeCreditAlphanum12, AlphaNum12: &alpha}, nil
+	default:
+		return xdr.Asset{}, fmt.Errorf("unsupported trustline asset type %d", tlAsset.Type)
+	}
 }
