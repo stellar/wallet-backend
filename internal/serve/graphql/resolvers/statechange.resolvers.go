@@ -6,7 +6,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -14,67 +13,67 @@ import (
 
 // Type is the resolver for the type field.
 func (r *accountStateChangeResolver) Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error) {
-	panic(fmt.Errorf("not implemented: Type - type"))
+	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
 func (r *accountStateChangeResolver) Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error) {
-	panic(fmt.Errorf("not implemented: Reason - reason"))
+	return *obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
 func (r *accountStateChangeResolver) Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Account - account"))
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
 func (r *accountStateChangeResolver) Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operation - operation"))
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *accountStateChangeResolver) Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error) {
-	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // TokenID is the resolver for the tokenId field.
 func (r *accountStateChangeResolver) TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	panic(fmt.Errorf("not implemented: TokenID - tokenId"))
+	return r.resolveRequiredString(obj.TokenID), nil
 }
 
 // Amount is the resolver for the amount field.
 func (r *accountStateChangeResolver) Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	panic(fmt.Errorf("not implemented: Amount - amount"))
+	return r.resolveRequiredString(obj.Amount), nil
 }
 
 // Type is the resolver for the type field.
 func (r *balanceAuthorizationStateChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
-	panic(fmt.Errorf("not implemented: Type - type"))
+	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
 func (r *balanceAuthorizationStateChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error) {
-	panic(fmt.Errorf("not implemented: Reason - reason"))
+	return *obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
 func (r *balanceAuthorizationStateChangeResolver) Account(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Account - account"))
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
 func (r *balanceAuthorizationStateChangeResolver) Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operation - operation"))
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *balanceAuthorizationStateChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error) {
-	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Flags is the resolver for the flags field.
 func (r *balanceAuthorizationStateChangeResolver) Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error) {
-	panic(fmt.Errorf("not implemented: Flags - flags"))
+	return obj.Flags, nil
 }
 
 // Type is the resolver for the type field.
@@ -84,7 +83,7 @@ func (r *balanceStateChangeResolver) Type(ctx context.Context, obj *types.Balanc
 
 // Reason is the resolver for the reason field.
 func (r *balanceStateChangeResolver) Reason(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeReason, error) {
-	panic(fmt.Errorf("not implemented: Reason - reason"))
+	return *obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
@@ -139,7 +138,7 @@ func (r *flagsStateChangeResolver) Transaction(ctx context.Context, obj *types.F
 
 // Flags is the resolver for the flags field.
 func (r *flagsStateChangeResolver) Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error) {
-	return r.resolveStringArray([]string(obj.Flags)), nil
+	return obj.Flags, nil
 }
 
 // Type is the resolver for the type field.
@@ -174,37 +173,37 @@ func (r *metadataStateChangeResolver) KeyValue(ctx context.Context, obj *types.M
 
 // Type is the resolver for the type field.
 func (r *reservesStateChangeResolver) Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error) {
-	panic(fmt.Errorf("not implemented: Type - type"))
+	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
 func (r *reservesStateChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
-	panic(fmt.Errorf("not implemented: Reason - reason"))
+	return *obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
 func (r *reservesStateChangeResolver) Account(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Account - account"))
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
 func (r *reservesStateChangeResolver) Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operation - operation"))
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *reservesStateChangeResolver) Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error) {
-	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // SponsoredAddress is the resolver for the sponsoredAddress field.
 func (r *reservesStateChangeResolver) SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	panic(fmt.Errorf("not implemented: SponsoredAddress - sponsoredAddress"))
+	return r.resolveNullableString(obj.SponsoredAccountID), nil
 }
 
 // SponsorAddress is the resolver for the sponsorAddress field.
 func (r *reservesStateChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	panic(fmt.Errorf("not implemented: SponsorAddress - sponsorAddress"))
+	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
 // Type is the resolver for the type field.
@@ -274,32 +273,32 @@ func (r *signerThresholdsStateChangeResolver) Thresholds(ctx context.Context, ob
 
 // Type is the resolver for the type field.
 func (r *trustlineStateChangeResolver) Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error) {
-	panic(fmt.Errorf("not implemented: Type - type"))
+	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
 func (r *trustlineStateChangeResolver) Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error) {
-	panic(fmt.Errorf("not implemented: Reason - reason"))
+	return *obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
 func (r *trustlineStateChangeResolver) Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error) {
-	panic(fmt.Errorf("not implemented: Account - account"))
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
 func (r *trustlineStateChangeResolver) Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error) {
-	panic(fmt.Errorf("not implemented: Operation - operation"))
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *trustlineStateChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error) {
-	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Limit is the resolver for the limit field.
 func (r *trustlineStateChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error) {
-	panic(fmt.Errorf("not implemented: Limit - limit"))
+	return r.resolveRequiredJSONBField(obj.TrustlineLimit)
 }
 
 // AccountStateChange returns graphql1.AccountStateChangeResolver implementation.

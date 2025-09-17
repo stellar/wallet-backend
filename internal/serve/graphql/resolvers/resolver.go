@@ -107,15 +107,6 @@ func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) 
 	return string(jsonBytes), nil
 }
 
-// resolveStringArray resolves string array fields
-// Returns empty slice if nil to satisfy non-nullable GraphQL array fields
-func (r *Resolver) resolveStringArray(field []string) []string {
-	if field == nil {
-		return []string{}
-	}
-	return field
-}
-
 // Shared resolver functions for BaseStateChange interface
 // These functions provide common logic that all state change types can use
 
