@@ -293,6 +293,10 @@ type StateChangeCursor struct {
 	StateChangeOrder int64 `db:"cursor_state_change_order"`
 }
 
+type StateChangeCursorGetter interface {
+	GetCursor() StateChangeCursor
+}
+
 type NullableJSONB map[string]any
 
 // NullableJSON represents a nullable JSON array of strings
@@ -439,6 +443,14 @@ func (sc StateChange) GetOperation() *Operation {
 // GetTransaction returns the transaction containing the operation that caused this state change.
 func (sc StateChange) GetTransaction() *Transaction {
 	return sc.Transaction
+}
+
+// GetCursor returns the cursor for this state change.
+func (sc StateChange) GetCursor() StateChangeCursor {
+	return StateChangeCursor{
+		ToID:             sc.ToID,
+		StateChangeOrder: sc.StateChangeOrder,
+	}
 }
 
 // GraphQL Adapter Model Structs

@@ -161,51 +161,9 @@ func cleanUpDB(ctx context.Context, t *testing.T, dbConnectionPool db.Connection
 
 func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor {
 	switch v := sc.(type) {
-	case *types.BalanceStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.AccountStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.SponsorshipStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.TrustlineStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.SignerStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.SignerThresholdsStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.FlagsStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.MetadataStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
-	case *types.BalanceAuthorizationStateChangeModel:
-		return types.StateChangeCursor{
-			ToID:             v.ToID,
-			StateChangeOrder: v.StateChangeOrder,
-		}
+	case types.StateChangeCursorGetter:
+		return v.GetCursor()
+	default:
+		return types.StateChangeCursor{}
 	}
-	return types.StateChangeCursor{}
 }
