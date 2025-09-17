@@ -193,7 +193,6 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
 	var sponsorChanges []types.StateChange
-	var targetChange types.StateChange
 
 	// Handle different sponsorship effect types and create appropriate state changes
 	//exhaustive:ignore
@@ -241,7 +240,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		)
 	}
 
-	return append(sponsorChanges, targetChange), nil
+	return sponsorChanges, nil
 }
 
 // createSponsorChangeForSponsoringAccount creates a state change for the sponsoring account in a sponsorship relationship.
