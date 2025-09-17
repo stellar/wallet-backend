@@ -173,6 +173,41 @@ func (r *metadataStateChangeResolver) KeyValue(ctx context.Context, obj *types.M
 }
 
 // Type is the resolver for the type field.
+func (r *reservesStateChangeResolver) Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error) {
+	panic(fmt.Errorf("not implemented: Type - type"))
+}
+
+// Reason is the resolver for the reason field.
+func (r *reservesStateChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
+	panic(fmt.Errorf("not implemented: Reason - reason"))
+}
+
+// Account is the resolver for the account field.
+func (r *reservesStateChangeResolver) Account(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Account, error) {
+	panic(fmt.Errorf("not implemented: Account - account"))
+}
+
+// Operation is the resolver for the operation field.
+func (r *reservesStateChangeResolver) Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error) {
+	panic(fmt.Errorf("not implemented: Operation - operation"))
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *reservesStateChangeResolver) Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error) {
+	panic(fmt.Errorf("not implemented: Transaction - transaction"))
+}
+
+// SponsoredAddress is the resolver for the sponsoredAddress field.
+func (r *reservesStateChangeResolver) SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	panic(fmt.Errorf("not implemented: SponsoredAddress - sponsoredAddress"))
+}
+
+// SponsorAddress is the resolver for the sponsorAddress field.
+func (r *reservesStateChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	panic(fmt.Errorf("not implemented: SponsorAddress - sponsorAddress"))
+}
+
+// Type is the resolver for the type field.
 func (r *signerStateChangeResolver) Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
@@ -238,41 +273,6 @@ func (r *signerThresholdsStateChangeResolver) Thresholds(ctx context.Context, ob
 }
 
 // Type is the resolver for the type field.
-func (r *sponsorshipStateChangeResolver) Type(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *sponsorshipStateChangeResolver) Reason(ctx context.Context, obj *types.SponsorshipStateChangeModel) (types.StateChangeReason, error) {
-	return *obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *sponsorshipStateChangeResolver) Account(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// Operation is the resolver for the operation field.
-func (r *sponsorshipStateChangeResolver) Operation(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *sponsorshipStateChangeResolver) Transaction(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
-}
-
-// SponsoredAddress is the resolver for the sponsoredAddress field.
-func (r *sponsorshipStateChangeResolver) SponsoredAddress(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsoredAccountID), nil
-}
-
-// SponsorAddress is the resolver for the sponsorAddress field.
-func (r *sponsorshipStateChangeResolver) SponsorAddress(ctx context.Context, obj *types.SponsorshipStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsorAccountID), nil
-}
-
-// Type is the resolver for the type field.
 func (r *trustlineStateChangeResolver) Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error) {
 	panic(fmt.Errorf("not implemented: Type - type"))
 }
@@ -327,6 +327,11 @@ func (r *Resolver) MetadataStateChange() graphql1.MetadataStateChangeResolver {
 	return &metadataStateChangeResolver{r}
 }
 
+// ReservesStateChange returns graphql1.ReservesStateChangeResolver implementation.
+func (r *Resolver) ReservesStateChange() graphql1.ReservesStateChangeResolver {
+	return &reservesStateChangeResolver{r}
+}
+
 // SignerStateChange returns graphql1.SignerStateChangeResolver implementation.
 func (r *Resolver) SignerStateChange() graphql1.SignerStateChangeResolver {
 	return &signerStateChangeResolver{r}
@@ -335,11 +340,6 @@ func (r *Resolver) SignerStateChange() graphql1.SignerStateChangeResolver {
 // SignerThresholdsStateChange returns graphql1.SignerThresholdsStateChangeResolver implementation.
 func (r *Resolver) SignerThresholdsStateChange() graphql1.SignerThresholdsStateChangeResolver {
 	return &signerThresholdsStateChangeResolver{r}
-}
-
-// SponsorshipStateChange returns graphql1.SponsorshipStateChangeResolver implementation.
-func (r *Resolver) SponsorshipStateChange() graphql1.SponsorshipStateChangeResolver {
-	return &sponsorshipStateChangeResolver{r}
 }
 
 // TrustlineStateChange returns graphql1.TrustlineStateChangeResolver implementation.
@@ -353,8 +353,8 @@ type (
 	balanceStateChangeResolver              struct{ *Resolver }
 	flagsStateChangeResolver                struct{ *Resolver }
 	metadataStateChangeResolver             struct{ *Resolver }
+	reservesStateChangeResolver             struct{ *Resolver }
 	signerStateChangeResolver               struct{ *Resolver }
 	signerThresholdsStateChangeResolver     struct{ *Resolver }
-	sponsorshipStateChangeResolver          struct{ *Resolver }
 	trustlineStateChangeResolver            struct{ *Resolver }
 )

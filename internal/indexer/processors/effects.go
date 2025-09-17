@@ -171,7 +171,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			effects.EffectSignerSponsorshipCreated, effects.EffectSignerSponsorshipRemoved, effects.EffectSignerSponsorshipUpdated,
 			effects.EffectTrustlineSponsorshipCreated, effects.EffectTrustlineSponsorshipRemoved, effects.EffectTrustlineSponsorshipUpdated:
 
-			sponsorshipChanges, err := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone(), changes)
+			sponsorshipChanges, err := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone())
 			if err != nil {
 				return nil, fmt.Errorf("processing sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 			}
@@ -189,7 +189,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 // processSponsorshipEffect handles sponsorship-related effects and creates appropriate state changes.
 // Sponsorship in Stellar allows one account to pay the base reserves for another account's ledger entries.
 // This function creates state changes for both the sponsor and the sponsored account/entry.
-func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder, changes []ingest.Change) ([]types.StateChange, error) {
+func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder) ([]types.StateChange, error) {
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
 	var sponsorChanges []types.StateChange
@@ -204,7 +204,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		if err != nil {
 			return nil, fmt.Errorf("extracting sponsor from sponsorship created effect: %w", err)
 		}
-		sponsorChanges = append(sponsorChanges, 
+		sponsorChanges = append(sponsorChanges,
 			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(sponsor), effect.Address),
 			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor),
 		)
@@ -216,7 +216,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
-		sponsorChanges = append(sponsorChanges, 
+		sponsorChanges = append(sponsorChanges,
 			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), effect.Address),
 			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor),
 		)
