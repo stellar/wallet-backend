@@ -111,7 +111,7 @@ type TrustlineStateChange implements BaseStateChange {
   limit:                      String!
 }
 
-type SponsorshipStateChange implements BaseStateChange{
+type ReservesStateChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!

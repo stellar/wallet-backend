@@ -119,8 +119,8 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 		return &types.AccountStateChangeModel{
 			StateChange: stateChange,
 		}
-	case types.StateChangeCategorySponsorship:
-		return &types.SponsorshipStateChangeModel{
+	case types.StateChangeCategoryReserves:
+		return &types.ReservesStateChangeModel{
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategorySigner:

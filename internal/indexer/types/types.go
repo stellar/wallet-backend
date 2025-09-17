@@ -195,7 +195,7 @@ const (
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
-	StateChangeCategorySponsorship          StateChangeCategory = "SPONSORSHIP"
+	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
@@ -219,6 +219,8 @@ const (
 	StateChangeReasonSet        StateChangeReason = "SET"
 	StateChangeReasonClear      StateChangeReason = "CLEAR"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
+	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
 // StateChange represents a unified database model for all types of blockchain state changes.
@@ -533,8 +535,8 @@ type BalanceAuthorizationStateChangeModel struct {
 	StateChange
 }
 
-// SponsorshipStateChangeModel represents account sponsorship changes.
-// Maps to SponsorshipStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
-type SponsorshipStateChangeModel struct {
+// ReservesStateChangeModel represents account reserves sponsorship changes.
+// Maps to ReservesStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
+type ReservesStateChangeModel struct {
 	StateChange
 }

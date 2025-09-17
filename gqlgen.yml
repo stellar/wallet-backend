@@ -194,9 +194,9 @@ models:
   BalanceAuthorizationStateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationStateChangeModel
-  SponsorshipStateChange:
+  ReservesStateChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipStateChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.ReservesStateChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType
