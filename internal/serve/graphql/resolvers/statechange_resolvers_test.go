@@ -25,8 +25,8 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	t.Run("all valid", func(t *testing.T) {
 		obj := &types.BalanceStateChangeModel{
 			StateChange: types.StateChange{
-				TokenID:            sql.NullString{String: "token1", Valid: true},
-				Amount:             sql.NullString{String: "100.5", Valid: true},
+				TokenID: sql.NullString{String: "token1", Valid: true},
+				Amount:  sql.NullString{String: "100.5", Valid: true},
 			},
 		}
 
@@ -141,7 +141,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
-			StateChangeCategory: types.StateChangeCategoryCredit,
+			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
 	}
 
@@ -168,7 +168,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
-				StateChangeCategory: types.StateChangeCategoryCredit,
+				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -198,7 +198,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
-			StateChangeCategory: types.StateChangeCategoryCredit,
+			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
 	}
 
@@ -225,7 +225,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
-				StateChangeCategory: types.StateChangeCategoryCredit,
+				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -255,7 +255,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 0).ToInt64(),
 			StateChangeOrder:    1,
-			StateChangeCategory: types.StateChangeCategoryCredit,
+			StateChangeCategory: types.StateChangeCategoryBalance,
 		},
 	}
 
@@ -283,7 +283,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 				ToID:                9999,
 				StateChangeOrder:    1,
 				TxHash:              "non-existent-tx",
-				StateChangeCategory: types.StateChangeCategoryCredit,
+				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
 		loaders := dataloaders.NewDataloaders(resolver.models)

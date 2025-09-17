@@ -203,22 +203,22 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate       StateChangeReason = "CREATE"
-	StateChangeReasonMerge        StateChangeReason = "MERGE"
-	StateChangeReasonDebit        StateChangeReason = "DEBIT"
-	StateChangeReasonCredit       StateChangeReason = "CREDIT"
-	StateChangeReasonMint         StateChangeReason = "MINT"
-	StateChangeReasonBurn         StateChangeReason = "BURN"
-	StateChangeReasonAdd          StateChangeReason = "ADD"
-	StateChangeReasonRemove       StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate       StateChangeReason = "UPDATE"
-	StateChangeReasonLow          StateChangeReason = "LOW"
-	StateChangeReasonMedium       StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh         StateChangeReason = "HIGH"
-	StateChangeReasonHomeDomain   StateChangeReason = "HOME_DOMAIN"
-	StateChangeReasonSet          StateChangeReason = "SET"
-	StateChangeReasonClear        StateChangeReason = "CLEAR"
-	StateChangeReasonDataEntry    StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonCreate     StateChangeReason = "CREATE"
+	StateChangeReasonMerge      StateChangeReason = "MERGE"
+	StateChangeReasonDebit      StateChangeReason = "DEBIT"
+	StateChangeReasonCredit     StateChangeReason = "CREDIT"
+	StateChangeReasonMint       StateChangeReason = "MINT"
+	StateChangeReasonBurn       StateChangeReason = "BURN"
+	StateChangeReasonAdd        StateChangeReason = "ADD"
+	StateChangeReasonRemove     StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
+	StateChangeReasonLow        StateChangeReason = "LOW"
+	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
+	StateChangeReasonHigh       StateChangeReason = "HIGH"
+	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
+	StateChangeReasonSet        StateChangeReason = "SET"
+	StateChangeReasonClear      StateChangeReason = "CLEAR"
+	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
 )
 
 // StateChange represents a unified database model for all types of blockchain state changes.

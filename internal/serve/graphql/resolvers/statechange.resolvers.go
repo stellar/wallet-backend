@@ -347,12 +347,14 @@ func (r *Resolver) TrustlineStateChange() graphql1.TrustlineStateChangeResolver 
 	return &trustlineStateChangeResolver{r}
 }
 
-type accountStateChangeResolver struct{ *Resolver }
-type balanceAuthorizationStateChangeResolver struct{ *Resolver }
-type balanceStateChangeResolver struct{ *Resolver }
-type flagsStateChangeResolver struct{ *Resolver }
-type metadataStateChangeResolver struct{ *Resolver }
-type signerStateChangeResolver struct{ *Resolver }
-type signerThresholdsStateChangeResolver struct{ *Resolver }
-type sponsorshipStateChangeResolver struct{ *Resolver }
-type trustlineStateChangeResolver struct{ *Resolver }
+type (
+	accountStateChangeResolver              struct{ *Resolver }
+	balanceAuthorizationStateChangeResolver struct{ *Resolver }
+	balanceStateChangeResolver              struct{ *Resolver }
+	flagsStateChangeResolver                struct{ *Resolver }
+	metadataStateChangeResolver             struct{ *Resolver }
+	signerStateChangeResolver               struct{ *Resolver }
+	signerThresholdsStateChangeResolver     struct{ *Resolver }
+	sponsorshipStateChangeResolver          struct{ *Resolver }
+	trustlineStateChangeResolver            struct{ *Resolver }
+)

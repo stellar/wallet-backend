@@ -76,13 +76,14 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 	// Create 2 state changes per operation (20 total: 2 per operation × 8 operations + 4 fee state changes)
 	stateChanges := make([]*types.StateChange, 0, 20)
+	creditReason := types.StateChangeReasonCredit
 	for _, op := range ops {
 		for scOrder := range 2 {
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
 				StateChangeCategory: types.StateChangeCategoryBalance,
-				StateChangeReason:   &types.StateChangeReasonCredit,
+				StateChangeReason:   &creditReason,
 				TxHash:              op.TxHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
@@ -92,12 +93,13 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		}
 	}
 	// Create fee state changes per transaction
+	debitReason := types.StateChangeReasonDebit
 	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
 			StateChangeOrder:    int64(1),
 			StateChangeCategory: types.StateChangeCategoryBalance,
-			StateChangeReason:   &types.StateChangeReasonDebit,
+			StateChangeReason:   &debitReason,
 			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
@@ -164,12 +166,17 @@ func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
+	case *types.AccountStateChangeModel:
+		return types.StateChangeCursor{
+			ToID:             v.ToID,
+			StateChangeOrder: v.StateChangeOrder,
+		}
 	case *types.SponsorshipStateChangeModel:
 		return types.StateChangeCursor{
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
-	case *types.LiabilityStateChangeModel:
+	case *types.TrustlineStateChangeModel:
 		return types.StateChangeCursor{
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
@@ -194,7 +201,7 @@ func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
 		}
-	case *types.AllowanceStateChangeModel:
+	case *types.BalanceAuthorizationStateChangeModel:
 		return types.StateChangeCursor{
 			ToID:             v.ToID,
 			StateChangeOrder: v.StateChangeOrder,
