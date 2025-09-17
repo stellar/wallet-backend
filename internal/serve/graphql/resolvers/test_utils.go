@@ -81,7 +81,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
-				StateChangeCategory: types.StateChangeCategoryCredit,
+				StateChangeCategory: types.StateChangeCategoryBalance,
+				StateChangeReason:   &types.StateChangeReasonCredit,
 				TxHash:              op.TxHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
@@ -95,7 +96,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
 			StateChangeOrder:    int64(1),
-			StateChangeCategory: types.StateChangeCategoryCredit,
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   &types.StateChangeReasonDebit,
 			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),

@@ -27,8 +27,6 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 			StateChange: types.StateChange{
 				TokenID:            sql.NullString{String: "token1", Valid: true},
 				Amount:             sql.NullString{String: "100.5", Valid: true},
-				ClaimableBalanceID: sql.NullString{String: "cb1", Valid: true},
-				LiquidityPoolID:    sql.NullString{String: "lp1", Valid: true},
 			},
 		}
 
@@ -39,14 +37,6 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 		amount, err := resolver.Amount(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, "100.5", amount)
-
-		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "cb1", *cbID)
-
-		lpID, err := resolver.LiquidityPoolID(ctx, obj)
-		require.NoError(t, err)
-		assert.Equal(t, "lp1", *lpID)
 	})
 
 	t.Run("all null", func(t *testing.T) {
@@ -59,10 +49,6 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 		amount, err := resolver.Amount(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, "", amount)
-
-		cbID, err := resolver.ClaimableBalanceID(ctx, obj)
-		require.NoError(t, err)
-		assert.Nil(t, cbID)
 	})
 }
 

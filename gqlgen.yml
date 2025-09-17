@@ -173,27 +173,30 @@ models:
   BalanceStateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.BalanceStateChangeModel
-  AllowanceStateChange:
+  AccountStateChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.AllowanceStateChangeModel
-  LiabilityStateChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.LiabilityStateChangeModel
-  SponsorshipStateChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipStateChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountStateChangeModel
   SignerStateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.SignerStateChangeModel
   SignerThresholdsStateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.SignerThresholdsStateChangeModel
-  FlagsStateChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.FlagsStateChangeModel
   MetadataStateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.MetadataStateChangeModel
+  FlagsStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.FlagsStateChangeModel
+  TrustlineStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineStateChangeModel
+  BalanceAuthorizationStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationStateChangeModel
+  SponsorshipStateChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipStateChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType

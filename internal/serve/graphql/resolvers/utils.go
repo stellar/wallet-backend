@@ -111,12 +111,12 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 // This method determines which concrete GraphQL type to return based on StateChangeCategory
 func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
 	switch stateChange.StateChangeCategory {
-	case types.StateChangeCategoryCredit, types.StateChangeCategoryDebit, types.StateChangeCategoryMint, types.StateChangeCategoryBurn:
+	case types.StateChangeCategoryBalance:
 		return &types.BalanceStateChangeModel{
 			StateChange: stateChange,
 		}
-	case types.StateChangeCategoryLiability:
-		return &types.LiabilityStateChangeModel{
+	case types.StateChangeCategoryAccount:
+		return &types.AccountStateChangeModel{
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategorySponsorship:
@@ -131,7 +131,7 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 		return &types.SignerThresholdsStateChangeModel{
 			StateChange: stateChange,
 		}
-	case types.StateChangeCategoryFlags, types.StateChangeCategoryTrustlineFlags:
+	case types.StateChangeCategoryFlags:
 		return &types.FlagsStateChangeModel{
 			StateChange: stateChange,
 		}
@@ -139,8 +139,12 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 		return &types.MetadataStateChangeModel{
 			StateChange: stateChange,
 		}
-	case types.StateChangeCategoryAllowance:
-		return &types.AllowanceStateChangeModel{
+	case types.StateChangeCategoryTrustline:
+		return &types.TrustlineStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryBalanceAuthorization:
+		return &types.BalanceAuthorizationStateChangeModel{
 			StateChange: stateChange,
 		}
 	default:

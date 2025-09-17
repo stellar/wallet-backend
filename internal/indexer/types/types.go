@@ -190,17 +190,12 @@ type StateChangeCategory string
 const (
 	StateChangeCategoryBalance              StateChangeCategory = "BALANCE"
 	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
-	StateChangeCategorySequence             StateChangeCategory = "SEQUENCE"
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
-	StateChangeCategoryLiability            StateChangeCategory = "LIABILITY"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategorySponsorship          StateChangeCategory = "SPONSORSHIP"
-	StateChangeCategoryUnsupported          StateChangeCategory = "UNSUPPORTED"
-	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
-	StateChangeCategoryContract             StateChangeCategory = "CONTRACT"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
@@ -210,7 +205,6 @@ type StateChangeReason string
 const (
 	StateChangeReasonCreate       StateChangeReason = "CREATE"
 	StateChangeReasonMerge        StateChangeReason = "MERGE"
-	StateChangeReasonSequenceBump StateChangeReason = "BUMP"
 	StateChangeReasonDebit        StateChangeReason = "DEBIT"
 	StateChangeReasonCredit       StateChangeReason = "CREDIT"
 	StateChangeReasonMint         StateChangeReason = "MINT"
@@ -224,11 +218,7 @@ const (
 	StateChangeReasonHomeDomain   StateChangeReason = "HOME_DOMAIN"
 	StateChangeReasonSet          StateChangeReason = "SET"
 	StateChangeReasonClear        StateChangeReason = "CLEAR"
-	StateChangeReasonSell         StateChangeReason = "SELL"
-	StateChangeReasonBuy          StateChangeReason = "BUY"
 	StateChangeReasonDataEntry    StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonConsume      StateChangeReason = "CONSUME"
-	StateChangeReasonInvoke       StateChangeReason = "INVOKE"
 )
 
 // StateChange represents a unified database model for all types of blockchain state changes.
@@ -415,8 +405,8 @@ func (sc StateChange) GetType() StateChangeCategory {
 
 // GetReason returns the reason for this state change for GraphQL 'reason' field.
 // This method satisfies the GraphQL BaseStateChange interface requirement.
-func (sc StateChange) GetReason() *StateChangeReason {
-	return sc.StateChangeReason
+func (sc StateChange) GetReason() StateChangeReason {
+	return *sc.StateChangeReason
 }
 
 // GetIngestedAt returns when this state change was processed by the indexer.
@@ -484,26 +474,14 @@ func (sc StateChange) GetTransaction() *Transaction {
 // strong typing requirements. See gqlgen.yml lines 170-196 for the GraphQL-to-Go type mappings.
 
 // BalanceStateChangeModel represents payment-related state changes (CREDIT/DEBIT/MINT/BURN).
-// Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount, claimableBalanceId, liquidityPoolId.
+// Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount.
 type BalanceStateChangeModel struct {
 	StateChange
 }
 
-// AllowanceStateChangeModel represents trustline allowance changes.
-// Maps to AllowanceStateChange in GraphQL schema. Exposes spenderAccountId.
-type AllowanceStateChangeModel struct {
-	StateChange
-}
-
-// LiabilityStateChangeModel represents trading liability changes.
-// Maps to LiabilityStateChange in GraphQL schema. Exposes tokenId, amount, offerId.
-type LiabilityStateChangeModel struct {
-	StateChange
-}
-
-// SponsorshipStateChangeModel represents account sponsorship changes.
-// Maps to SponsorshipStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
-type SponsorshipStateChangeModel struct {
+// AccountStateChangeModel represents account state changes.
+// Maps to AccountStateChange in GraphQL schema. Exposes tokenId, amount.
+type AccountStateChangeModel struct {
 	StateChange
 }
 
@@ -519,14 +497,32 @@ type SignerThresholdsStateChangeModel struct {
 	StateChange
 }
 
+// MetadataStateChangeModel represents account data entry changes.
+// Maps to MetadataStateChange in GraphQL schema. Exposes keyValue.
+type MetadataStateChangeModel struct {
+	StateChange
+}
+
 // FlagsStateChangeModel represents account and trustline flag changes.
 // Maps to FlagsStateChange in GraphQL schema. Exposes flags array.
 type FlagsStateChangeModel struct {
 	StateChange
 }
 
-// MetadataStateChangeModel represents account data entry changes.
-// Maps to MetadataStateChange in GraphQL schema. Exposes keyValue.
-type MetadataStateChangeModel struct {
+// TrustlineStateChangeModel represents trustline changes.
+// Maps to TrustlineStateChange in GraphQL schema. Exposes limit.
+type TrustlineStateChangeModel struct {
+	StateChange
+}
+
+// BalanceAuthorizationStateChangeModel represents balance authorization changes.
+// Maps to BalanceAuthorizationStateChange in GraphQL schema. Exposes flags array.
+type BalanceAuthorizationStateChangeModel struct {
+	StateChange
+}
+
+// SponsorshipStateChangeModel represents account sponsorship changes.
+// Maps to SponsorshipStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
+type SponsorshipStateChangeModel struct {
 	StateChange
 }
