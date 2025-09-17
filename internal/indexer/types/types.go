@@ -487,9 +487,9 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 // This approach maintains the single-table database efficiency while satisfying GraphQL's
 // strong typing requirements. See gqlgen.yml lines 170-196 for the GraphQL-to-Go type mappings.
 
-// BalanceStateChangeModel represents payment-related state changes (CREDIT/DEBIT/MINT/BURN).
+// StandardBalanceStateChangeModel represents payment-related state changes from classic/SAC/SEP41 balances(CREDIT/DEBIT/MINT/BURN).
 // Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount.
-type BalanceStateChangeModel struct {
+type StandardBalanceStateChangeModel struct {
 	StateChange
 }
 

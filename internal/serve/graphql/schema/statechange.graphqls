@@ -17,7 +17,7 @@ interface BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 }
 
-type BalanceStateChange implements BaseStateChange {
+type StandardBalanceChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -31,7 +31,7 @@ type BalanceStateChange implements BaseStateChange {
   amount:                     String!
 }
 
-type AccountStateChange implements BaseStateChange {
+type AccountChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -45,7 +45,7 @@ type AccountStateChange implements BaseStateChange {
   amount:                     String!
 }
 
-type SignerStateChange implements BaseStateChange {
+type SignerChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -59,7 +59,7 @@ type SignerStateChange implements BaseStateChange {
   signerWeights:              String
 }
 
-type SignerThresholdsStateChange implements BaseStateChange {
+type SignerThresholdsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -72,7 +72,7 @@ type SignerThresholdsStateChange implements BaseStateChange {
   thresholds:                 String!
 }
 
-type MetadataStateChange implements BaseStateChange {
+type MetadataChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -85,7 +85,7 @@ type MetadataStateChange implements BaseStateChange {
   keyValue:                   String!
 }
 
-type FlagsStateChange implements BaseStateChange {
+type FlagsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -98,7 +98,7 @@ type FlagsStateChange implements BaseStateChange {
   flags:                      [String!]!
 }
 
-type TrustlineStateChange implements BaseStateChange {
+type TrustlineChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -111,7 +111,7 @@ type TrustlineStateChange implements BaseStateChange {
   limit:                      String!
 }
 
-type ReservesStateChange implements BaseStateChange{
+type ReservesChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -125,7 +125,7 @@ type ReservesStateChange implements BaseStateChange{
   sponsorAddress:           String
 }
 
-type BalanceAuthorizationStateChange implements BaseStateChange{
+type BalanceAuthorizationChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!

@@ -42,19 +42,19 @@ type Config struct {
 
 type ResolverRoot interface {
 	Account() AccountResolver
-	AccountStateChange() AccountStateChangeResolver
-	BalanceAuthorizationStateChange() BalanceAuthorizationStateChangeResolver
-	BalanceStateChange() BalanceStateChangeResolver
-	FlagsStateChange() FlagsStateChangeResolver
-	MetadataStateChange() MetadataStateChangeResolver
+	AccountChange() AccountChangeResolver
+	BalanceAuthorizationChange() BalanceAuthorizationChangeResolver
+	FlagsChange() FlagsChangeResolver
+	MetadataChange() MetadataChangeResolver
 	Mutation() MutationResolver
 	Operation() OperationResolver
 	Query() QueryResolver
-	ReservesStateChange() ReservesStateChangeResolver
-	SignerStateChange() SignerStateChangeResolver
-	SignerThresholdsStateChange() SignerThresholdsStateChangeResolver
+	ReservesChange() ReservesChangeResolver
+	SignerChange() SignerChangeResolver
+	SignerThresholdsChange() SignerThresholdsChangeResolver
+	StandardBalanceChange() StandardBalanceChangeResolver
 	Transaction() TransactionResolver
-	TrustlineStateChange() TrustlineStateChangeResolver
+	TrustlineChange() TrustlineChangeResolver
 }
 
 type DirectiveRoot struct {
@@ -68,7 +68,7 @@ type ComplexityRoot struct {
 		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
-	AccountStateChange struct {
+	AccountChange struct {
 		Account         func(childComplexity int) int
 		Amount          func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -81,7 +81,7 @@ type ComplexityRoot struct {
 		Type            func(childComplexity int) int
 	}
 
-	BalanceAuthorizationStateChange struct {
+	BalanceAuthorizationChange struct {
 		Account         func(childComplexity int) int
 		Flags           func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -89,19 +89,6 @@ type ComplexityRoot struct {
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
-		Transaction     func(childComplexity int) int
-		Type            func(childComplexity int) int
-	}
-
-	BalanceStateChange struct {
-		Account         func(childComplexity int) int
-		Amount          func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
-		LedgerCreatedAt func(childComplexity int) int
-		LedgerNumber    func(childComplexity int) int
-		Operation       func(childComplexity int) int
-		Reason          func(childComplexity int) int
-		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -116,7 +103,7 @@ type ComplexityRoot struct {
 		Success func(childComplexity int) int
 	}
 
-	FlagsStateChange struct {
+	FlagsChange struct {
 		Account         func(childComplexity int) int
 		Flags           func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -128,7 +115,7 @@ type ComplexityRoot struct {
 		Type            func(childComplexity int) int
 	}
 
-	MetadataStateChange struct {
+	MetadataChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		KeyValue        func(childComplexity int) int
@@ -189,7 +176,7 @@ type ComplexityRoot struct {
 		Success func(childComplexity int) int
 	}
 
-	ReservesStateChange struct {
+	ReservesChange struct {
 		Account          func(childComplexity int) int
 		IngestedAt       func(childComplexity int) int
 		LedgerCreatedAt  func(childComplexity int) int
@@ -202,7 +189,7 @@ type ComplexityRoot struct {
 		Type             func(childComplexity int) int
 	}
 
-	SignerStateChange struct {
+	SignerChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
@@ -215,7 +202,7 @@ type ComplexityRoot struct {
 		Type            func(childComplexity int) int
 	}
 
-	SignerThresholdsStateChange struct {
+	SignerThresholdsChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
@@ -223,6 +210,19 @@ type ComplexityRoot struct {
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		Thresholds      func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
+	}
+
+	StandardBalanceChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -260,7 +260,7 @@ type ComplexityRoot struct {
 		Node   func(childComplexity int) int
 	}
 
-	TrustlineStateChange struct {
+	TrustlineChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
@@ -279,7 +279,7 @@ type AccountResolver interface {
 	Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
-type AccountStateChangeResolver interface {
+type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error)
 
@@ -289,7 +289,7 @@ type AccountStateChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error)
 	Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error)
 }
-type BalanceAuthorizationStateChangeResolver interface {
+type BalanceAuthorizationChangeResolver interface {
 	Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error)
 
@@ -298,17 +298,7 @@ type BalanceAuthorizationStateChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error)
 	Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error)
 }
-type BalanceStateChangeResolver interface {
-	Type(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.BalanceStateChangeModel) (types.StateChangeReason, error)
-
-	Account(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.BalanceStateChangeModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.BalanceStateChangeModel) (string, error)
-	Amount(ctx context.Context, obj *types.BalanceStateChangeModel) (string, error)
-}
-type FlagsStateChangeResolver interface {
+type FlagsChangeResolver interface {
 	Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error)
 
@@ -317,7 +307,7 @@ type FlagsStateChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error)
 	Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error)
 }
-type MetadataStateChangeResolver interface {
+type MetadataChangeResolver interface {
 	Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error)
 
@@ -344,7 +334,7 @@ type QueryResolver interface {
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
 	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
-type ReservesStateChangeResolver interface {
+type ReservesChangeResolver interface {
 	Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error)
 
@@ -354,7 +344,7 @@ type ReservesStateChangeResolver interface {
 	SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 	SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 }
-type SignerStateChangeResolver interface {
+type SignerChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error)
 
@@ -364,7 +354,7 @@ type SignerStateChangeResolver interface {
 	SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error)
 	SignerWeights(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error)
 }
-type SignerThresholdsStateChangeResolver interface {
+type SignerThresholdsChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error)
 
@@ -373,12 +363,22 @@ type SignerThresholdsStateChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Transaction, error)
 	Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error)
 }
+type StandardBalanceChangeResolver interface {
+	Type(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
+	Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error)
+}
 type TransactionResolver interface {
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
-type TrustlineStateChangeResolver interface {
+type TrustlineChangeResolver interface {
 	Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error)
 	Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error)
 
@@ -450,208 +450,138 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Account.Transactions(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
-	case "AccountStateChange.account":
-		if e.complexity.AccountStateChange.Account == nil {
+	case "AccountChange.account":
+		if e.complexity.AccountChange.Account == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Account(childComplexity), true
+		return e.complexity.AccountChange.Account(childComplexity), true
 
-	case "AccountStateChange.amount":
-		if e.complexity.AccountStateChange.Amount == nil {
+	case "AccountChange.amount":
+		if e.complexity.AccountChange.Amount == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Amount(childComplexity), true
+		return e.complexity.AccountChange.Amount(childComplexity), true
 
-	case "AccountStateChange.ingestedAt":
-		if e.complexity.AccountStateChange.IngestedAt == nil {
+	case "AccountChange.ingestedAt":
+		if e.complexity.AccountChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.IngestedAt(childComplexity), true
+		return e.complexity.AccountChange.IngestedAt(childComplexity), true
 
-	case "AccountStateChange.ledgerCreatedAt":
-		if e.complexity.AccountStateChange.LedgerCreatedAt == nil {
+	case "AccountChange.ledgerCreatedAt":
+		if e.complexity.AccountChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.AccountChange.LedgerCreatedAt(childComplexity), true
 
-	case "AccountStateChange.ledgerNumber":
-		if e.complexity.AccountStateChange.LedgerNumber == nil {
+	case "AccountChange.ledgerNumber":
+		if e.complexity.AccountChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.AccountChange.LedgerNumber(childComplexity), true
 
-	case "AccountStateChange.operation":
-		if e.complexity.AccountStateChange.Operation == nil {
+	case "AccountChange.operation":
+		if e.complexity.AccountChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Operation(childComplexity), true
+		return e.complexity.AccountChange.Operation(childComplexity), true
 
-	case "AccountStateChange.reason":
-		if e.complexity.AccountStateChange.Reason == nil {
+	case "AccountChange.reason":
+		if e.complexity.AccountChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Reason(childComplexity), true
+		return e.complexity.AccountChange.Reason(childComplexity), true
 
-	case "AccountStateChange.tokenId":
-		if e.complexity.AccountStateChange.TokenID == nil {
+	case "AccountChange.tokenId":
+		if e.complexity.AccountChange.TokenID == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.TokenID(childComplexity), true
+		return e.complexity.AccountChange.TokenID(childComplexity), true
 
-	case "AccountStateChange.transaction":
-		if e.complexity.AccountStateChange.Transaction == nil {
+	case "AccountChange.transaction":
+		if e.complexity.AccountChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Transaction(childComplexity), true
+		return e.complexity.AccountChange.Transaction(childComplexity), true
 
-	case "AccountStateChange.type":
-		if e.complexity.AccountStateChange.Type == nil {
+	case "AccountChange.type":
+		if e.complexity.AccountChange.Type == nil {
 			break
 		}
 
-		return e.complexity.AccountStateChange.Type(childComplexity), true
+		return e.complexity.AccountChange.Type(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.account":
-		if e.complexity.BalanceAuthorizationStateChange.Account == nil {
+	case "BalanceAuthorizationChange.account":
+		if e.complexity.BalanceAuthorizationChange.Account == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Account(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Account(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.flags":
-		if e.complexity.BalanceAuthorizationStateChange.Flags == nil {
+	case "BalanceAuthorizationChange.flags":
+		if e.complexity.BalanceAuthorizationChange.Flags == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Flags(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Flags(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.ingestedAt":
-		if e.complexity.BalanceAuthorizationStateChange.IngestedAt == nil {
+	case "BalanceAuthorizationChange.ingestedAt":
+		if e.complexity.BalanceAuthorizationChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.IngestedAt(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.IngestedAt(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.ledgerCreatedAt":
-		if e.complexity.BalanceAuthorizationStateChange.LedgerCreatedAt == nil {
+	case "BalanceAuthorizationChange.ledgerCreatedAt":
+		if e.complexity.BalanceAuthorizationChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.LedgerCreatedAt(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.ledgerNumber":
-		if e.complexity.BalanceAuthorizationStateChange.LedgerNumber == nil {
+	case "BalanceAuthorizationChange.ledgerNumber":
+		if e.complexity.BalanceAuthorizationChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.LedgerNumber(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.operation":
-		if e.complexity.BalanceAuthorizationStateChange.Operation == nil {
+	case "BalanceAuthorizationChange.operation":
+		if e.complexity.BalanceAuthorizationChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Operation(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Operation(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.reason":
-		if e.complexity.BalanceAuthorizationStateChange.Reason == nil {
+	case "BalanceAuthorizationChange.reason":
+		if e.complexity.BalanceAuthorizationChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Reason(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Reason(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.transaction":
-		if e.complexity.BalanceAuthorizationStateChange.Transaction == nil {
+	case "BalanceAuthorizationChange.transaction":
+		if e.complexity.BalanceAuthorizationChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Transaction(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Transaction(childComplexity), true
 
-	case "BalanceAuthorizationStateChange.type":
-		if e.complexity.BalanceAuthorizationStateChange.Type == nil {
+	case "BalanceAuthorizationChange.type":
+		if e.complexity.BalanceAuthorizationChange.Type == nil {
 			break
 		}
 
-		return e.complexity.BalanceAuthorizationStateChange.Type(childComplexity), true
-
-	case "BalanceStateChange.account":
-		if e.complexity.BalanceStateChange.Account == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Account(childComplexity), true
-
-	case "BalanceStateChange.amount":
-		if e.complexity.BalanceStateChange.Amount == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Amount(childComplexity), true
-
-	case "BalanceStateChange.ingestedAt":
-		if e.complexity.BalanceStateChange.IngestedAt == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.IngestedAt(childComplexity), true
-
-	case "BalanceStateChange.ledgerCreatedAt":
-		if e.complexity.BalanceStateChange.LedgerCreatedAt == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.LedgerCreatedAt(childComplexity), true
-
-	case "BalanceStateChange.ledgerNumber":
-		if e.complexity.BalanceStateChange.LedgerNumber == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.LedgerNumber(childComplexity), true
-
-	case "BalanceStateChange.operation":
-		if e.complexity.BalanceStateChange.Operation == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Operation(childComplexity), true
-
-	case "BalanceStateChange.reason":
-		if e.complexity.BalanceStateChange.Reason == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Reason(childComplexity), true
-
-	case "BalanceStateChange.tokenId":
-		if e.complexity.BalanceStateChange.TokenID == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.TokenID(childComplexity), true
-
-	case "BalanceStateChange.transaction":
-		if e.complexity.BalanceStateChange.Transaction == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Transaction(childComplexity), true
-
-	case "BalanceStateChange.type":
-		if e.complexity.BalanceStateChange.Type == nil {
-			break
-		}
-
-		return e.complexity.BalanceStateChange.Type(childComplexity), true
+		return e.complexity.BalanceAuthorizationChange.Type(childComplexity), true
 
 	case "BuildTransactionPayload.success":
 		if e.complexity.BuildTransactionPayload.Success == nil {
@@ -681,131 +611,131 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.DeregisterAccountPayload.Success(childComplexity), true
 
-	case "FlagsStateChange.account":
-		if e.complexity.FlagsStateChange.Account == nil {
+	case "FlagsChange.account":
+		if e.complexity.FlagsChange.Account == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Account(childComplexity), true
+		return e.complexity.FlagsChange.Account(childComplexity), true
 
-	case "FlagsStateChange.flags":
-		if e.complexity.FlagsStateChange.Flags == nil {
+	case "FlagsChange.flags":
+		if e.complexity.FlagsChange.Flags == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Flags(childComplexity), true
+		return e.complexity.FlagsChange.Flags(childComplexity), true
 
-	case "FlagsStateChange.ingestedAt":
-		if e.complexity.FlagsStateChange.IngestedAt == nil {
+	case "FlagsChange.ingestedAt":
+		if e.complexity.FlagsChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.IngestedAt(childComplexity), true
+		return e.complexity.FlagsChange.IngestedAt(childComplexity), true
 
-	case "FlagsStateChange.ledgerCreatedAt":
-		if e.complexity.FlagsStateChange.LedgerCreatedAt == nil {
+	case "FlagsChange.ledgerCreatedAt":
+		if e.complexity.FlagsChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.FlagsChange.LedgerCreatedAt(childComplexity), true
 
-	case "FlagsStateChange.ledgerNumber":
-		if e.complexity.FlagsStateChange.LedgerNumber == nil {
+	case "FlagsChange.ledgerNumber":
+		if e.complexity.FlagsChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.FlagsChange.LedgerNumber(childComplexity), true
 
-	case "FlagsStateChange.operation":
-		if e.complexity.FlagsStateChange.Operation == nil {
+	case "FlagsChange.operation":
+		if e.complexity.FlagsChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Operation(childComplexity), true
+		return e.complexity.FlagsChange.Operation(childComplexity), true
 
-	case "FlagsStateChange.reason":
-		if e.complexity.FlagsStateChange.Reason == nil {
+	case "FlagsChange.reason":
+		if e.complexity.FlagsChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Reason(childComplexity), true
+		return e.complexity.FlagsChange.Reason(childComplexity), true
 
-	case "FlagsStateChange.transaction":
-		if e.complexity.FlagsStateChange.Transaction == nil {
+	case "FlagsChange.transaction":
+		if e.complexity.FlagsChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Transaction(childComplexity), true
+		return e.complexity.FlagsChange.Transaction(childComplexity), true
 
-	case "FlagsStateChange.type":
-		if e.complexity.FlagsStateChange.Type == nil {
+	case "FlagsChange.type":
+		if e.complexity.FlagsChange.Type == nil {
 			break
 		}
 
-		return e.complexity.FlagsStateChange.Type(childComplexity), true
+		return e.complexity.FlagsChange.Type(childComplexity), true
 
-	case "MetadataStateChange.account":
-		if e.complexity.MetadataStateChange.Account == nil {
+	case "MetadataChange.account":
+		if e.complexity.MetadataChange.Account == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.Account(childComplexity), true
+		return e.complexity.MetadataChange.Account(childComplexity), true
 
-	case "MetadataStateChange.ingestedAt":
-		if e.complexity.MetadataStateChange.IngestedAt == nil {
+	case "MetadataChange.ingestedAt":
+		if e.complexity.MetadataChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.IngestedAt(childComplexity), true
+		return e.complexity.MetadataChange.IngestedAt(childComplexity), true
 
-	case "MetadataStateChange.keyValue":
-		if e.complexity.MetadataStateChange.KeyValue == nil {
+	case "MetadataChange.keyValue":
+		if e.complexity.MetadataChange.KeyValue == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.KeyValue(childComplexity), true
+		return e.complexity.MetadataChange.KeyValue(childComplexity), true
 
-	case "MetadataStateChange.ledgerCreatedAt":
-		if e.complexity.MetadataStateChange.LedgerCreatedAt == nil {
+	case "MetadataChange.ledgerCreatedAt":
+		if e.complexity.MetadataChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.MetadataChange.LedgerCreatedAt(childComplexity), true
 
-	case "MetadataStateChange.ledgerNumber":
-		if e.complexity.MetadataStateChange.LedgerNumber == nil {
+	case "MetadataChange.ledgerNumber":
+		if e.complexity.MetadataChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.MetadataChange.LedgerNumber(childComplexity), true
 
-	case "MetadataStateChange.operation":
-		if e.complexity.MetadataStateChange.Operation == nil {
+	case "MetadataChange.operation":
+		if e.complexity.MetadataChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.Operation(childComplexity), true
+		return e.complexity.MetadataChange.Operation(childComplexity), true
 
-	case "MetadataStateChange.reason":
-		if e.complexity.MetadataStateChange.Reason == nil {
+	case "MetadataChange.reason":
+		if e.complexity.MetadataChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.Reason(childComplexity), true
+		return e.complexity.MetadataChange.Reason(childComplexity), true
 
-	case "MetadataStateChange.transaction":
-		if e.complexity.MetadataStateChange.Transaction == nil {
+	case "MetadataChange.transaction":
+		if e.complexity.MetadataChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.Transaction(childComplexity), true
+		return e.complexity.MetadataChange.Transaction(childComplexity), true
 
-	case "MetadataStateChange.type":
-		if e.complexity.MetadataStateChange.Type == nil {
+	case "MetadataChange.type":
+		if e.complexity.MetadataChange.Type == nil {
 			break
 		}
 
-		return e.complexity.MetadataStateChange.Type(childComplexity), true
+		return e.complexity.MetadataChange.Type(childComplexity), true
 
 	case "Mutation.buildTransaction":
 		if e.complexity.Mutation.BuildTransaction == nil {
@@ -1053,208 +983,278 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.RegisterAccountPayload.Success(childComplexity), true
 
-	case "ReservesStateChange.account":
-		if e.complexity.ReservesStateChange.Account == nil {
+	case "ReservesChange.account":
+		if e.complexity.ReservesChange.Account == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.Account(childComplexity), true
+		return e.complexity.ReservesChange.Account(childComplexity), true
 
-	case "ReservesStateChange.ingestedAt":
-		if e.complexity.ReservesStateChange.IngestedAt == nil {
+	case "ReservesChange.ingestedAt":
+		if e.complexity.ReservesChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.IngestedAt(childComplexity), true
+		return e.complexity.ReservesChange.IngestedAt(childComplexity), true
 
-	case "ReservesStateChange.ledgerCreatedAt":
-		if e.complexity.ReservesStateChange.LedgerCreatedAt == nil {
+	case "ReservesChange.ledgerCreatedAt":
+		if e.complexity.ReservesChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.ReservesChange.LedgerCreatedAt(childComplexity), true
 
-	case "ReservesStateChange.ledgerNumber":
-		if e.complexity.ReservesStateChange.LedgerNumber == nil {
+	case "ReservesChange.ledgerNumber":
+		if e.complexity.ReservesChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.ReservesChange.LedgerNumber(childComplexity), true
 
-	case "ReservesStateChange.operation":
-		if e.complexity.ReservesStateChange.Operation == nil {
+	case "ReservesChange.operation":
+		if e.complexity.ReservesChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.Operation(childComplexity), true
+		return e.complexity.ReservesChange.Operation(childComplexity), true
 
-	case "ReservesStateChange.reason":
-		if e.complexity.ReservesStateChange.Reason == nil {
+	case "ReservesChange.reason":
+		if e.complexity.ReservesChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.Reason(childComplexity), true
+		return e.complexity.ReservesChange.Reason(childComplexity), true
 
-	case "ReservesStateChange.sponsorAddress":
-		if e.complexity.ReservesStateChange.SponsorAddress == nil {
+	case "ReservesChange.sponsorAddress":
+		if e.complexity.ReservesChange.SponsorAddress == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.SponsorAddress(childComplexity), true
+		return e.complexity.ReservesChange.SponsorAddress(childComplexity), true
 
-	case "ReservesStateChange.sponsoredAddress":
-		if e.complexity.ReservesStateChange.SponsoredAddress == nil {
+	case "ReservesChange.sponsoredAddress":
+		if e.complexity.ReservesChange.SponsoredAddress == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.SponsoredAddress(childComplexity), true
+		return e.complexity.ReservesChange.SponsoredAddress(childComplexity), true
 
-	case "ReservesStateChange.transaction":
-		if e.complexity.ReservesStateChange.Transaction == nil {
+	case "ReservesChange.transaction":
+		if e.complexity.ReservesChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.Transaction(childComplexity), true
+		return e.complexity.ReservesChange.Transaction(childComplexity), true
 
-	case "ReservesStateChange.type":
-		if e.complexity.ReservesStateChange.Type == nil {
+	case "ReservesChange.type":
+		if e.complexity.ReservesChange.Type == nil {
 			break
 		}
 
-		return e.complexity.ReservesStateChange.Type(childComplexity), true
+		return e.complexity.ReservesChange.Type(childComplexity), true
 
-	case "SignerStateChange.account":
-		if e.complexity.SignerStateChange.Account == nil {
+	case "SignerChange.account":
+		if e.complexity.SignerChange.Account == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.Account(childComplexity), true
+		return e.complexity.SignerChange.Account(childComplexity), true
 
-	case "SignerStateChange.ingestedAt":
-		if e.complexity.SignerStateChange.IngestedAt == nil {
+	case "SignerChange.ingestedAt":
+		if e.complexity.SignerChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.IngestedAt(childComplexity), true
+		return e.complexity.SignerChange.IngestedAt(childComplexity), true
 
-	case "SignerStateChange.ledgerCreatedAt":
-		if e.complexity.SignerStateChange.LedgerCreatedAt == nil {
+	case "SignerChange.ledgerCreatedAt":
+		if e.complexity.SignerChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.SignerChange.LedgerCreatedAt(childComplexity), true
 
-	case "SignerStateChange.ledgerNumber":
-		if e.complexity.SignerStateChange.LedgerNumber == nil {
+	case "SignerChange.ledgerNumber":
+		if e.complexity.SignerChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.SignerChange.LedgerNumber(childComplexity), true
 
-	case "SignerStateChange.operation":
-		if e.complexity.SignerStateChange.Operation == nil {
+	case "SignerChange.operation":
+		if e.complexity.SignerChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.Operation(childComplexity), true
+		return e.complexity.SignerChange.Operation(childComplexity), true
 
-	case "SignerStateChange.reason":
-		if e.complexity.SignerStateChange.Reason == nil {
+	case "SignerChange.reason":
+		if e.complexity.SignerChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.Reason(childComplexity), true
+		return e.complexity.SignerChange.Reason(childComplexity), true
 
-	case "SignerStateChange.signerAddress":
-		if e.complexity.SignerStateChange.SignerAddress == nil {
+	case "SignerChange.signerAddress":
+		if e.complexity.SignerChange.SignerAddress == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.SignerAddress(childComplexity), true
+		return e.complexity.SignerChange.SignerAddress(childComplexity), true
 
-	case "SignerStateChange.signerWeights":
-		if e.complexity.SignerStateChange.SignerWeights == nil {
+	case "SignerChange.signerWeights":
+		if e.complexity.SignerChange.SignerWeights == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.SignerWeights(childComplexity), true
+		return e.complexity.SignerChange.SignerWeights(childComplexity), true
 
-	case "SignerStateChange.transaction":
-		if e.complexity.SignerStateChange.Transaction == nil {
+	case "SignerChange.transaction":
+		if e.complexity.SignerChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.Transaction(childComplexity), true
+		return e.complexity.SignerChange.Transaction(childComplexity), true
 
-	case "SignerStateChange.type":
-		if e.complexity.SignerStateChange.Type == nil {
+	case "SignerChange.type":
+		if e.complexity.SignerChange.Type == nil {
 			break
 		}
 
-		return e.complexity.SignerStateChange.Type(childComplexity), true
+		return e.complexity.SignerChange.Type(childComplexity), true
 
-	case "SignerThresholdsStateChange.account":
-		if e.complexity.SignerThresholdsStateChange.Account == nil {
+	case "SignerThresholdsChange.account":
+		if e.complexity.SignerThresholdsChange.Account == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Account(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Account(childComplexity), true
 
-	case "SignerThresholdsStateChange.ingestedAt":
-		if e.complexity.SignerThresholdsStateChange.IngestedAt == nil {
+	case "SignerThresholdsChange.ingestedAt":
+		if e.complexity.SignerThresholdsChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.IngestedAt(childComplexity), true
+		return e.complexity.SignerThresholdsChange.IngestedAt(childComplexity), true
 
-	case "SignerThresholdsStateChange.ledgerCreatedAt":
-		if e.complexity.SignerThresholdsStateChange.LedgerCreatedAt == nil {
+	case "SignerThresholdsChange.ledgerCreatedAt":
+		if e.complexity.SignerThresholdsChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.SignerThresholdsChange.LedgerCreatedAt(childComplexity), true
 
-	case "SignerThresholdsStateChange.ledgerNumber":
-		if e.complexity.SignerThresholdsStateChange.LedgerNumber == nil {
+	case "SignerThresholdsChange.ledgerNumber":
+		if e.complexity.SignerThresholdsChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.SignerThresholdsChange.LedgerNumber(childComplexity), true
 
-	case "SignerThresholdsStateChange.operation":
-		if e.complexity.SignerThresholdsStateChange.Operation == nil {
+	case "SignerThresholdsChange.operation":
+		if e.complexity.SignerThresholdsChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Operation(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Operation(childComplexity), true
 
-	case "SignerThresholdsStateChange.reason":
-		if e.complexity.SignerThresholdsStateChange.Reason == nil {
+	case "SignerThresholdsChange.reason":
+		if e.complexity.SignerThresholdsChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Reason(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Reason(childComplexity), true
 
-	case "SignerThresholdsStateChange.thresholds":
-		if e.complexity.SignerThresholdsStateChange.Thresholds == nil {
+	case "SignerThresholdsChange.thresholds":
+		if e.complexity.SignerThresholdsChange.Thresholds == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Thresholds(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Thresholds(childComplexity), true
 
-	case "SignerThresholdsStateChange.transaction":
-		if e.complexity.SignerThresholdsStateChange.Transaction == nil {
+	case "SignerThresholdsChange.transaction":
+		if e.complexity.SignerThresholdsChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Transaction(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Transaction(childComplexity), true
 
-	case "SignerThresholdsStateChange.type":
-		if e.complexity.SignerThresholdsStateChange.Type == nil {
+	case "SignerThresholdsChange.type":
+		if e.complexity.SignerThresholdsChange.Type == nil {
 			break
 		}
 
-		return e.complexity.SignerThresholdsStateChange.Type(childComplexity), true
+		return e.complexity.SignerThresholdsChange.Type(childComplexity), true
+
+	case "StandardBalanceChange.account":
+		if e.complexity.StandardBalanceChange.Account == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Account(childComplexity), true
+
+	case "StandardBalanceChange.amount":
+		if e.complexity.StandardBalanceChange.Amount == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Amount(childComplexity), true
+
+	case "StandardBalanceChange.ingestedAt":
+		if e.complexity.StandardBalanceChange.IngestedAt == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.IngestedAt(childComplexity), true
+
+	case "StandardBalanceChange.ledgerCreatedAt":
+		if e.complexity.StandardBalanceChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.LedgerCreatedAt(childComplexity), true
+
+	case "StandardBalanceChange.ledgerNumber":
+		if e.complexity.StandardBalanceChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.LedgerNumber(childComplexity), true
+
+	case "StandardBalanceChange.operation":
+		if e.complexity.StandardBalanceChange.Operation == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Operation(childComplexity), true
+
+	case "StandardBalanceChange.reason":
+		if e.complexity.StandardBalanceChange.Reason == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Reason(childComplexity), true
+
+	case "StandardBalanceChange.tokenId":
+		if e.complexity.StandardBalanceChange.TokenID == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.TokenID(childComplexity), true
+
+	case "StandardBalanceChange.transaction":
+		if e.complexity.StandardBalanceChange.Transaction == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Transaction(childComplexity), true
+
+	case "StandardBalanceChange.type":
+		if e.complexity.StandardBalanceChange.Type == nil {
+			break
+		}
+
+		return e.complexity.StandardBalanceChange.Type(childComplexity), true
 
 	case "StateChangeConnection.edges":
 		if e.complexity.StateChangeConnection.Edges == nil {
@@ -1392,68 +1392,68 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TransactionEdge.Node(childComplexity), true
 
-	case "TrustlineStateChange.account":
-		if e.complexity.TrustlineStateChange.Account == nil {
+	case "TrustlineChange.account":
+		if e.complexity.TrustlineChange.Account == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Account(childComplexity), true
+		return e.complexity.TrustlineChange.Account(childComplexity), true
 
-	case "TrustlineStateChange.ingestedAt":
-		if e.complexity.TrustlineStateChange.IngestedAt == nil {
+	case "TrustlineChange.ingestedAt":
+		if e.complexity.TrustlineChange.IngestedAt == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.IngestedAt(childComplexity), true
+		return e.complexity.TrustlineChange.IngestedAt(childComplexity), true
 
-	case "TrustlineStateChange.ledgerCreatedAt":
-		if e.complexity.TrustlineStateChange.LedgerCreatedAt == nil {
+	case "TrustlineChange.ledgerCreatedAt":
+		if e.complexity.TrustlineChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.LedgerCreatedAt(childComplexity), true
+		return e.complexity.TrustlineChange.LedgerCreatedAt(childComplexity), true
 
-	case "TrustlineStateChange.ledgerNumber":
-		if e.complexity.TrustlineStateChange.LedgerNumber == nil {
+	case "TrustlineChange.ledgerNumber":
+		if e.complexity.TrustlineChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.LedgerNumber(childComplexity), true
+		return e.complexity.TrustlineChange.LedgerNumber(childComplexity), true
 
-	case "TrustlineStateChange.limit":
-		if e.complexity.TrustlineStateChange.Limit == nil {
+	case "TrustlineChange.limit":
+		if e.complexity.TrustlineChange.Limit == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Limit(childComplexity), true
+		return e.complexity.TrustlineChange.Limit(childComplexity), true
 
-	case "TrustlineStateChange.operation":
-		if e.complexity.TrustlineStateChange.Operation == nil {
+	case "TrustlineChange.operation":
+		if e.complexity.TrustlineChange.Operation == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Operation(childComplexity), true
+		return e.complexity.TrustlineChange.Operation(childComplexity), true
 
-	case "TrustlineStateChange.reason":
-		if e.complexity.TrustlineStateChange.Reason == nil {
+	case "TrustlineChange.reason":
+		if e.complexity.TrustlineChange.Reason == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Reason(childComplexity), true
+		return e.complexity.TrustlineChange.Reason(childComplexity), true
 
-	case "TrustlineStateChange.transaction":
-		if e.complexity.TrustlineStateChange.Transaction == nil {
+	case "TrustlineChange.transaction":
+		if e.complexity.TrustlineChange.Transaction == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Transaction(childComplexity), true
+		return e.complexity.TrustlineChange.Transaction(childComplexity), true
 
-	case "TrustlineStateChange.type":
-		if e.complexity.TrustlineStateChange.Type == nil {
+	case "TrustlineChange.type":
+		if e.complexity.TrustlineChange.Type == nil {
 			break
 		}
 
-		return e.complexity.TrustlineStateChange.Type(childComplexity), true
+		return e.complexity.TrustlineChange.Type(childComplexity), true
 
 	}
 	return 0, false
@@ -1845,7 +1845,7 @@ interface BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 }
 
-type BalanceStateChange implements BaseStateChange {
+type StandardBalanceChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1859,7 +1859,7 @@ type BalanceStateChange implements BaseStateChange {
   amount:                     String!
 }
 
-type AccountStateChange implements BaseStateChange {
+type AccountChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1873,7 +1873,7 @@ type AccountStateChange implements BaseStateChange {
   amount:                     String!
 }
 
-type SignerStateChange implements BaseStateChange {
+type SignerChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1887,7 +1887,7 @@ type SignerStateChange implements BaseStateChange {
   signerWeights:              String
 }
 
-type SignerThresholdsStateChange implements BaseStateChange {
+type SignerThresholdsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1900,7 +1900,7 @@ type SignerThresholdsStateChange implements BaseStateChange {
   thresholds:                 String!
 }
 
-type MetadataStateChange implements BaseStateChange {
+type MetadataChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1913,7 +1913,7 @@ type MetadataStateChange implements BaseStateChange {
   keyValue:                   String!
 }
 
-type FlagsStateChange implements BaseStateChange {
+type FlagsChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1926,7 +1926,7 @@ type FlagsStateChange implements BaseStateChange {
   flags:                      [String!]!
 }
 
-type TrustlineStateChange implements BaseStateChange {
+type TrustlineChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1939,7 +1939,7 @@ type TrustlineStateChange implements BaseStateChange {
   limit:                      String!
 }
 
-type ReservesStateChange implements BaseStateChange{
+type ReservesChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -1953,7 +1953,7 @@ type ReservesStateChange implements BaseStateChange{
   sponsorAddress:           String
 }
 
-type BalanceAuthorizationStateChange implements BaseStateChange{
+type BalanceAuthorizationChange implements BaseStateChange{
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3168,8 +3168,8 @@ func (ec *executionContext) fieldContext_Account_stateChanges(ctx context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_type(ctx, field)
+func (ec *executionContext) _AccountChange_type(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3182,7 +3182,7 @@ func (ec *executionContext) _AccountStateChange_type(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Type(rctx, obj)
+		return ec.resolvers.AccountChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3199,9 +3199,9 @@ func (ec *executionContext) _AccountStateChange_type(ctx context.Context, field 
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3212,8 +3212,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_type(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_reason(ctx, field)
+func (ec *executionContext) _AccountChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3226,7 +3226,7 @@ func (ec *executionContext) _AccountStateChange_reason(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Reason(rctx, obj)
+		return ec.resolvers.AccountChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3243,9 +3243,9 @@ func (ec *executionContext) _AccountStateChange_reason(ctx context.Context, fiel
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3256,8 +3256,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_reason(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _AccountChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3287,9 +3287,9 @@ func (ec *executionContext) _AccountStateChange_ingestedAt(ctx context.Context, 
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3300,8 +3300,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_ingestedAt(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _AccountChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3331,9 +3331,9 @@ func (ec *executionContext) _AccountStateChange_ledgerCreatedAt(ctx context.Cont
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3344,8 +3344,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_ledgerCreatedAt(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _AccountChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3375,9 +3375,9 @@ func (ec *executionContext) _AccountStateChange_ledgerNumber(ctx context.Context
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3388,8 +3388,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_ledgerNumber(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_account(ctx, field)
+func (ec *executionContext) _AccountChange_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3402,7 +3402,7 @@ func (ec *executionContext) _AccountStateChange_account(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Account(rctx, obj)
+		return ec.resolvers.AccountChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3419,9 +3419,9 @@ func (ec *executionContext) _AccountStateChange_account(ctx context.Context, fie
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3442,8 +3442,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_account(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_operation(ctx, field)
+func (ec *executionContext) _AccountChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3456,7 +3456,7 @@ func (ec *executionContext) _AccountStateChange_operation(ctx context.Context, f
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Operation(rctx, obj)
+		return ec.resolvers.AccountChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3470,9 +3470,9 @@ func (ec *executionContext) _AccountStateChange_operation(ctx context.Context, f
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3503,8 +3503,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_operation(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_transaction(ctx, field)
+func (ec *executionContext) _AccountChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3517,7 +3517,7 @@ func (ec *executionContext) _AccountStateChange_transaction(ctx context.Context,
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Transaction(rctx, obj)
+		return ec.resolvers.AccountChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3534,9 +3534,9 @@ func (ec *executionContext) _AccountStateChange_transaction(ctx context.Context,
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3569,8 +3569,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_transaction(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_tokenId(ctx, field)
+func (ec *executionContext) _AccountChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_tokenId(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3583,7 +3583,7 @@ func (ec *executionContext) _AccountStateChange_tokenId(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().TokenID(rctx, obj)
+		return ec.resolvers.AccountChange().TokenID(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3600,9 +3600,9 @@ func (ec *executionContext) _AccountStateChange_tokenId(ctx context.Context, fie
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3613,8 +3613,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_tokenId(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountStateChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountStateChange_amount(ctx, field)
+func (ec *executionContext) _AccountChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_amount(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3627,7 +3627,7 @@ func (ec *executionContext) _AccountStateChange_amount(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountStateChange().Amount(rctx, obj)
+		return ec.resolvers.AccountChange().Amount(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3644,9 +3644,9 @@ func (ec *executionContext) _AccountStateChange_amount(ctx context.Context, fiel
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountStateChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountStateChange",
+		Object:     "AccountChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3657,8 +3657,8 @@ func (ec *executionContext) fieldContext_AccountStateChange_amount(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_type(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_type(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3671,7 +3671,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_type(ctx context.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Type(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3688,9 +3688,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_type(ctx context.Co
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3701,8 +3701,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_type(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_reason(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3715,7 +3715,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_reason(ctx context.
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Reason(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3732,9 +3732,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_reason(ctx context.
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3745,8 +3745,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_reason(
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3776,9 +3776,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_ingestedAt(ctx cont
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3789,8 +3789,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ingeste
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3820,9 +3820,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_ledgerCreatedAt(ctx
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3833,8 +3833,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ledgerC
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3864,9 +3864,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_ledgerNumber(ctx co
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -3877,8 +3877,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_ledgerN
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_account(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3891,7 +3891,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_account(ctx context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Account(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3908,9 +3908,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_account(ctx context
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3931,8 +3931,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_account
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_operation(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3945,7 +3945,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_operation(ctx conte
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Operation(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -3959,9 +3959,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_operation(ctx conte
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -3992,8 +3992,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_operati
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_transaction(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4006,7 +4006,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_transaction(ctx con
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Transaction(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4023,9 +4023,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_transaction(ctx con
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4058,8 +4058,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_transac
 	return fc, nil
 }
 
-func (ec *executionContext) _BalanceAuthorizationStateChange_flags(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceAuthorizationStateChange_flags(ctx, field)
+func (ec *executionContext) _BalanceAuthorizationChange_flags(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_flags(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4072,7 +4072,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_flags(ctx context.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceAuthorizationStateChange().Flags(rctx, obj)
+		return ec.resolvers.BalanceAuthorizationChange().Flags(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4089,498 +4089,9 @@ func (ec *executionContext) _BalanceAuthorizationStateChange_flags(ctx context.C
 	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_BalanceAuthorizationStateChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "BalanceAuthorizationStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_type(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Type(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(types.StateChangeCategory)
-	fc.Result = res
-	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type StateChangeCategory does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_reason(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Reason(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(types.StateChangeReason)
-	fc.Result = res
-	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type StateChangeReason does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_ingestedAt(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.IngestedAt, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(time.Time)
-	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_ledgerCreatedAt(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerCreatedAt, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(time.Time)
-	fc.Result = res
-	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_ledgerNumber(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.LedgerNumber, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(uint32)
-	fc.Result = res
-	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_account(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Account(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(*types.Account)
-	fc.Result = res
-	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "address":
-				return ec.fieldContext_Account_address(ctx, field)
-			case "transactions":
-				return ec.fieldContext_Account_transactions(ctx, field)
-			case "operations":
-				return ec.fieldContext_Account_operations(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Account_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_operation(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Operation(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		return graphql.Null
-	}
-	res := resTmp.(*types.Operation)
-	fc.Result = res
-	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_Operation_id(ctx, field)
-			case "operationType":
-				return ec.fieldContext_Operation_operationType(ctx, field)
-			case "operationXdr":
-				return ec.fieldContext_Operation_operationXdr(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
-			case "transaction":
-				return ec.fieldContext_Operation_transaction(ctx, field)
-			case "accounts":
-				return ec.fieldContext_Operation_accounts(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Operation_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_transaction(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Transaction(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(*types.Transaction)
-	fc.Result = res
-	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "hash":
-				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "envelopeXdr":
-				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
-			case "resultXdr":
-				return ec.fieldContext_Transaction_resultXdr(ctx, field)
-			case "metaXdr":
-				return ec.fieldContext_Transaction_metaXdr(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
-			case "operations":
-				return ec.fieldContext_Transaction_operations(ctx, field)
-			case "accounts":
-				return ec.fieldContext_Transaction_accounts(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Transaction_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_tokenId(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().TokenID(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BalanceStateChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BalanceStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_BalanceStateChange_amount(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.BalanceStateChange().Amount(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_BalanceStateChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BalanceStateChange",
+		Object:     "BalanceAuthorizationChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4764,8 +4275,8 @@ func (ec *executionContext) fieldContext_DeregisterAccountPayload_message(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_type(ctx, field)
+func (ec *executionContext) _FlagsChange_type(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4778,7 +4289,7 @@ func (ec *executionContext) _FlagsStateChange_type(ctx context.Context, field gr
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Type(rctx, obj)
+		return ec.resolvers.FlagsChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4795,9 +4306,9 @@ func (ec *executionContext) _FlagsStateChange_type(ctx context.Context, field gr
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4808,8 +4319,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_type(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_reason(ctx, field)
+func (ec *executionContext) _FlagsChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4822,7 +4333,7 @@ func (ec *executionContext) _FlagsStateChange_reason(ctx context.Context, field 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Reason(rctx, obj)
+		return ec.resolvers.FlagsChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -4839,9 +4350,9 @@ func (ec *executionContext) _FlagsStateChange_reason(ctx context.Context, field 
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4852,8 +4363,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_reason(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _FlagsChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4883,9 +4394,9 @@ func (ec *executionContext) _FlagsStateChange_ingestedAt(ctx context.Context, fi
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4896,8 +4407,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_ingestedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _FlagsChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4927,9 +4438,9 @@ func (ec *executionContext) _FlagsStateChange_ledgerCreatedAt(ctx context.Contex
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4940,8 +4451,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_ledgerCreatedAt(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _FlagsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4971,9 +4482,9 @@ func (ec *executionContext) _FlagsStateChange_ledgerNumber(ctx context.Context, 
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4984,8 +4495,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_ledgerNumber(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_account(ctx, field)
+func (ec *executionContext) _FlagsChange_account(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -4998,7 +4509,7 @@ func (ec *executionContext) _FlagsStateChange_account(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Account(rctx, obj)
+		return ec.resolvers.FlagsChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5015,9 +4526,9 @@ func (ec *executionContext) _FlagsStateChange_account(ctx context.Context, field
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5038,8 +4549,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_account(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_operation(ctx, field)
+func (ec *executionContext) _FlagsChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5052,7 +4563,7 @@ func (ec *executionContext) _FlagsStateChange_operation(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Operation(rctx, obj)
+		return ec.resolvers.FlagsChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5066,9 +4577,9 @@ func (ec *executionContext) _FlagsStateChange_operation(ctx context.Context, fie
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5099,8 +4610,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_operation(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_transaction(ctx, field)
+func (ec *executionContext) _FlagsChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5113,7 +4624,7 @@ func (ec *executionContext) _FlagsStateChange_transaction(ctx context.Context, f
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Transaction(rctx, obj)
+		return ec.resolvers.FlagsChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5130,9 +4641,9 @@ func (ec *executionContext) _FlagsStateChange_transaction(ctx context.Context, f
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5165,8 +4676,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _FlagsStateChange_flags(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_FlagsStateChange_flags(ctx, field)
+func (ec *executionContext) _FlagsChange_flags(ctx context.Context, field graphql.CollectedField, obj *types.FlagsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FlagsChange_flags(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5179,7 +4690,7 @@ func (ec *executionContext) _FlagsStateChange_flags(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.FlagsStateChange().Flags(rctx, obj)
+		return ec.resolvers.FlagsChange().Flags(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5196,9 +4707,9 @@ func (ec *executionContext) _FlagsStateChange_flags(ctx context.Context, field g
 	return ec.marshalNString2ᚕstringᚄ(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_FlagsStateChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_FlagsChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "FlagsStateChange",
+		Object:     "FlagsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5209,8 +4720,8 @@ func (ec *executionContext) fieldContext_FlagsStateChange_flags(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_type(ctx, field)
+func (ec *executionContext) _MetadataChange_type(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5223,7 +4734,7 @@ func (ec *executionContext) _MetadataStateChange_type(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().Type(rctx, obj)
+		return ec.resolvers.MetadataChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5240,9 +4751,9 @@ func (ec *executionContext) _MetadataStateChange_type(ctx context.Context, field
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5253,8 +4764,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_type(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_reason(ctx, field)
+func (ec *executionContext) _MetadataChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5267,7 +4778,7 @@ func (ec *executionContext) _MetadataStateChange_reason(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().Reason(rctx, obj)
+		return ec.resolvers.MetadataChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5284,9 +4795,9 @@ func (ec *executionContext) _MetadataStateChange_reason(ctx context.Context, fie
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5297,8 +4808,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_reason(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _MetadataChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5328,9 +4839,9 @@ func (ec *executionContext) _MetadataStateChange_ingestedAt(ctx context.Context,
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -5341,8 +4852,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_ingestedAt(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _MetadataChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5372,9 +4883,9 @@ func (ec *executionContext) _MetadataStateChange_ledgerCreatedAt(ctx context.Con
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -5385,8 +4896,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_ledgerCreatedAt(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _MetadataChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5416,9 +4927,9 @@ func (ec *executionContext) _MetadataStateChange_ledgerNumber(ctx context.Contex
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -5429,8 +4940,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_ledgerNumber(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_account(ctx, field)
+func (ec *executionContext) _MetadataChange_account(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5443,7 +4954,7 @@ func (ec *executionContext) _MetadataStateChange_account(ctx context.Context, fi
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().Account(rctx, obj)
+		return ec.resolvers.MetadataChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5460,9 +4971,9 @@ func (ec *executionContext) _MetadataStateChange_account(ctx context.Context, fi
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5483,8 +4994,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_account(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_operation(ctx, field)
+func (ec *executionContext) _MetadataChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5497,7 +5008,7 @@ func (ec *executionContext) _MetadataStateChange_operation(ctx context.Context, 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().Operation(rctx, obj)
+		return ec.resolvers.MetadataChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5511,9 +5022,9 @@ func (ec *executionContext) _MetadataStateChange_operation(ctx context.Context, 
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5544,8 +5055,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_operation(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_transaction(ctx, field)
+func (ec *executionContext) _MetadataChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5558,7 +5069,7 @@ func (ec *executionContext) _MetadataStateChange_transaction(ctx context.Context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().Transaction(rctx, obj)
+		return ec.resolvers.MetadataChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5575,9 +5086,9 @@ func (ec *executionContext) _MetadataStateChange_transaction(ctx context.Context
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5610,8 +5121,8 @@ func (ec *executionContext) fieldContext_MetadataStateChange_transaction(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _MetadataStateChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_MetadataStateChange_keyValue(ctx, field)
+func (ec *executionContext) _MetadataChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.MetadataStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_MetadataChange_keyValue(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -5624,7 +5135,7 @@ func (ec *executionContext) _MetadataStateChange_keyValue(ctx context.Context, f
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.MetadataStateChange().KeyValue(rctx, obj)
+		return ec.resolvers.MetadataChange().KeyValue(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -5641,9 +5152,9 @@ func (ec *executionContext) _MetadataStateChange_keyValue(ctx context.Context, f
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_MetadataStateChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_MetadataChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "MetadataStateChange",
+		Object:     "MetadataChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7263,8 +6774,8 @@ func (ec *executionContext) fieldContext_RegisterAccountPayload_account(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_type(ctx, field)
+func (ec *executionContext) _ReservesChange_type(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7277,7 +6788,7 @@ func (ec *executionContext) _ReservesStateChange_type(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().Type(rctx, obj)
+		return ec.resolvers.ReservesChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7294,9 +6805,9 @@ func (ec *executionContext) _ReservesStateChange_type(ctx context.Context, field
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7307,8 +6818,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_type(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_reason(ctx, field)
+func (ec *executionContext) _ReservesChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7321,7 +6832,7 @@ func (ec *executionContext) _ReservesStateChange_reason(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().Reason(rctx, obj)
+		return ec.resolvers.ReservesChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7338,9 +6849,9 @@ func (ec *executionContext) _ReservesStateChange_reason(ctx context.Context, fie
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7351,8 +6862,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_reason(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _ReservesChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7382,9 +6893,9 @@ func (ec *executionContext) _ReservesStateChange_ingestedAt(ctx context.Context,
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7395,8 +6906,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_ingestedAt(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _ReservesChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7426,9 +6937,9 @@ func (ec *executionContext) _ReservesStateChange_ledgerCreatedAt(ctx context.Con
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7439,8 +6950,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_ledgerCreatedAt(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _ReservesChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7470,9 +6981,9 @@ func (ec *executionContext) _ReservesStateChange_ledgerNumber(ctx context.Contex
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7483,8 +6994,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_ledgerNumber(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_account(ctx, field)
+func (ec *executionContext) _ReservesChange_account(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7497,7 +7008,7 @@ func (ec *executionContext) _ReservesStateChange_account(ctx context.Context, fi
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().Account(rctx, obj)
+		return ec.resolvers.ReservesChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7514,9 +7025,9 @@ func (ec *executionContext) _ReservesStateChange_account(ctx context.Context, fi
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7537,8 +7048,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_account(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_operation(ctx, field)
+func (ec *executionContext) _ReservesChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7551,7 +7062,7 @@ func (ec *executionContext) _ReservesStateChange_operation(ctx context.Context, 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().Operation(rctx, obj)
+		return ec.resolvers.ReservesChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7565,9 +7076,9 @@ func (ec *executionContext) _ReservesStateChange_operation(ctx context.Context, 
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7598,8 +7109,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_operation(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_transaction(ctx, field)
+func (ec *executionContext) _ReservesChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7612,7 +7123,7 @@ func (ec *executionContext) _ReservesStateChange_transaction(ctx context.Context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().Transaction(rctx, obj)
+		return ec.resolvers.ReservesChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7629,9 +7140,9 @@ func (ec *executionContext) _ReservesStateChange_transaction(ctx context.Context
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7664,8 +7175,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_transaction(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_sponsoredAddress(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_sponsoredAddress(ctx, field)
+func (ec *executionContext) _ReservesChange_sponsoredAddress(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_sponsoredAddress(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7678,7 +7189,7 @@ func (ec *executionContext) _ReservesStateChange_sponsoredAddress(ctx context.Co
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().SponsoredAddress(rctx, obj)
+		return ec.resolvers.ReservesChange().SponsoredAddress(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7692,9 +7203,9 @@ func (ec *executionContext) _ReservesStateChange_sponsoredAddress(ctx context.Co
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_sponsoredAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_sponsoredAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7705,8 +7216,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_sponsoredAddress(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _ReservesStateChange_sponsorAddress(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_ReservesStateChange_sponsorAddress(ctx, field)
+func (ec *executionContext) _ReservesChange_sponsorAddress(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_sponsorAddress(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7719,7 +7230,7 @@ func (ec *executionContext) _ReservesStateChange_sponsorAddress(ctx context.Cont
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.ReservesStateChange().SponsorAddress(rctx, obj)
+		return ec.resolvers.ReservesChange().SponsorAddress(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7733,9 +7244,9 @@ func (ec *executionContext) _ReservesStateChange_sponsorAddress(ctx context.Cont
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_ReservesStateChange_sponsorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ReservesChange_sponsorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ReservesStateChange",
+		Object:     "ReservesChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7746,8 +7257,8 @@ func (ec *executionContext) fieldContext_ReservesStateChange_sponsorAddress(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_type(ctx, field)
+func (ec *executionContext) _SignerChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7760,7 +7271,7 @@ func (ec *executionContext) _SignerStateChange_type(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().Type(rctx, obj)
+		return ec.resolvers.SignerChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7777,9 +7288,9 @@ func (ec *executionContext) _SignerStateChange_type(ctx context.Context, field g
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7790,8 +7301,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_type(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_reason(ctx, field)
+func (ec *executionContext) _SignerChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7804,7 +7315,7 @@ func (ec *executionContext) _SignerStateChange_reason(ctx context.Context, field
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().Reason(rctx, obj)
+		return ec.resolvers.SignerChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7821,9 +7332,9 @@ func (ec *executionContext) _SignerStateChange_reason(ctx context.Context, field
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7834,8 +7345,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_reason(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _SignerChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7865,9 +7376,9 @@ func (ec *executionContext) _SignerStateChange_ingestedAt(ctx context.Context, f
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7878,8 +7389,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_ingestedAt(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _SignerChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7909,9 +7420,9 @@ func (ec *executionContext) _SignerStateChange_ledgerCreatedAt(ctx context.Conte
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7922,8 +7433,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_ledgerCreatedAt(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _SignerChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7953,9 +7464,9 @@ func (ec *executionContext) _SignerStateChange_ledgerNumber(ctx context.Context,
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7966,8 +7477,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_ledgerNumber(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_account(ctx, field)
+func (ec *executionContext) _SignerChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -7980,7 +7491,7 @@ func (ec *executionContext) _SignerStateChange_account(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().Account(rctx, obj)
+		return ec.resolvers.SignerChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -7997,9 +7508,9 @@ func (ec *executionContext) _SignerStateChange_account(ctx context.Context, fiel
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8020,8 +7531,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_account(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_operation(ctx, field)
+func (ec *executionContext) _SignerChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8034,7 +7545,7 @@ func (ec *executionContext) _SignerStateChange_operation(ctx context.Context, fi
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().Operation(rctx, obj)
+		return ec.resolvers.SignerChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8048,9 +7559,9 @@ func (ec *executionContext) _SignerStateChange_operation(ctx context.Context, fi
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8081,8 +7592,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_operation(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_transaction(ctx, field)
+func (ec *executionContext) _SignerChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8095,7 +7606,7 @@ func (ec *executionContext) _SignerStateChange_transaction(ctx context.Context, 
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().Transaction(rctx, obj)
+		return ec.resolvers.SignerChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8112,9 +7623,9 @@ func (ec *executionContext) _SignerStateChange_transaction(ctx context.Context, 
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8147,8 +7658,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_transaction(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_signerAddress(ctx, field)
+func (ec *executionContext) _SignerChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_signerAddress(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8161,7 +7672,7 @@ func (ec *executionContext) _SignerStateChange_signerAddress(ctx context.Context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().SignerAddress(rctx, obj)
+		return ec.resolvers.SignerChange().SignerAddress(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8175,9 +7686,9 @@ func (ec *executionContext) _SignerStateChange_signerAddress(ctx context.Context
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8188,8 +7699,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_signerAddress(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerStateChange_signerWeights(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerStateChange_signerWeights(ctx, field)
+func (ec *executionContext) _SignerChange_signerWeights(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerChange_signerWeights(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8202,7 +7713,7 @@ func (ec *executionContext) _SignerStateChange_signerWeights(ctx context.Context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerStateChange().SignerWeights(rctx, obj)
+		return ec.resolvers.SignerChange().SignerWeights(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8216,9 +7727,9 @@ func (ec *executionContext) _SignerStateChange_signerWeights(ctx context.Context
 	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerStateChange_signerWeights(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerChange_signerWeights(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerStateChange",
+		Object:     "SignerChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8229,8 +7740,8 @@ func (ec *executionContext) fieldContext_SignerStateChange_signerWeights(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_type(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8243,7 +7754,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_type(ctx context.Contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Type(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8260,9 +7771,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_type(ctx context.Contex
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8273,8 +7784,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_type(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_reason(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8287,7 +7798,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_reason(ctx context.Cont
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Reason(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8304,9 +7815,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_reason(ctx context.Cont
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8317,8 +7828,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_reason(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8348,9 +7859,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_ingestedAt(ctx context.
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -8361,8 +7872,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ingestedAt(
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8392,9 +7903,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_ledgerCreatedAt(ctx con
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -8405,8 +7916,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ledgerCreat
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8436,9 +7947,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_ledgerNumber(ctx contex
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -8449,8 +7960,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_ledgerNumbe
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_account(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8463,7 +7974,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_account(ctx context.Con
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Account(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8480,9 +7991,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_account(ctx context.Con
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8503,8 +8014,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_account(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_operation(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8517,7 +8028,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_operation(ctx context.C
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Operation(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8531,9 +8042,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_operation(ctx context.C
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8564,8 +8075,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_operation(_
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_transaction(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8578,7 +8089,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_transaction(ctx context
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Transaction(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8595,9 +8106,9 @@ func (ec *executionContext) _SignerThresholdsStateChange_transaction(ctx context
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -8630,8 +8141,8 @@ func (ec *executionContext) fieldContext_SignerThresholdsStateChange_transaction
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerThresholdsStateChange_thresholds(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_SignerThresholdsStateChange_thresholds(ctx, field)
+func (ec *executionContext) _SignerThresholdsChange_thresholds(ctx context.Context, field graphql.CollectedField, obj *types.SignerThresholdsStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SignerThresholdsChange_thresholds(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -8644,7 +8155,7 @@ func (ec *executionContext) _SignerThresholdsStateChange_thresholds(ctx context.
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.SignerThresholdsStateChange().Thresholds(rctx, obj)
+		return ec.resolvers.SignerThresholdsChange().Thresholds(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -8661,9 +8172,498 @@ func (ec *executionContext) _SignerThresholdsStateChange_thresholds(ctx context.
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_SignerThresholdsStateChange_thresholds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerThresholdsChange_thresholds(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerThresholdsStateChange",
+		Object:     "SignerThresholdsChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_type(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_type(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Type(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(types.StateChangeCategory)
+	fc.Result = res
+	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_reason(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Reason(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(types.StateChangeReason)
+	fc.Result = res
+	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_ingestedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IngestedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(time.Time)
+	fc.Result = res
+	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_ledgerCreatedAt(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LedgerCreatedAt, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(time.Time)
+	fc.Result = res
+	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_ledgerNumber(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LedgerNumber, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(uint32)
+	fc.Result = res
+	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_account(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_account(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Account(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*types.Account)
+	fc.Result = res
+	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_operation(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Operation(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*types.Operation)
+	fc.Result = res
+	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "operationType":
+				return ec.fieldContext_Operation_operationType(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_transaction(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Transaction(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*types.Transaction)
+	fc.Result = res
+	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "envelopeXdr":
+				return ec.fieldContext_Transaction_envelopeXdr(ctx, field)
+			case "resultXdr":
+				return ec.fieldContext_Transaction_resultXdr(ctx, field)
+			case "metaXdr":
+				return ec.fieldContext_Transaction_metaXdr(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_tokenId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().TokenID(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StandardBalanceChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.StandardBalanceStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_StandardBalanceChange_amount(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.StandardBalanceChange().Amount(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_StandardBalanceChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StandardBalanceChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9546,8 +9546,8 @@ func (ec *executionContext) fieldContext_TransactionEdge_cursor(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_type(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_type(ctx, field)
+func (ec *executionContext) _TrustlineChange_type(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_type(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9560,7 +9560,7 @@ func (ec *executionContext) _TrustlineStateChange_type(ctx context.Context, fiel
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Type(rctx, obj)
+		return ec.resolvers.TrustlineChange().Type(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9577,9 +9577,9 @@ func (ec *executionContext) _TrustlineStateChange_type(ctx context.Context, fiel
 	return ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9590,8 +9590,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_type(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_reason(ctx, field)
+func (ec *executionContext) _TrustlineChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_reason(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9604,7 +9604,7 @@ func (ec *executionContext) _TrustlineStateChange_reason(ctx context.Context, fi
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Reason(rctx, obj)
+		return ec.resolvers.TrustlineChange().Reason(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9621,9 +9621,9 @@ func (ec *executionContext) _TrustlineStateChange_reason(ctx context.Context, fi
 	return ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9634,8 +9634,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_reason(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_ingestedAt(ctx, field)
+func (ec *executionContext) _TrustlineChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_ingestedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9665,9 +9665,9 @@ func (ec *executionContext) _TrustlineStateChange_ingestedAt(ctx context.Context
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -9678,8 +9678,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_ingestedAt(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_ledgerCreatedAt(ctx, field)
+func (ec *executionContext) _TrustlineChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_ledgerCreatedAt(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9709,9 +9709,9 @@ func (ec *executionContext) _TrustlineStateChange_ledgerCreatedAt(ctx context.Co
 	return ec.marshalNTime2timeᚐTime(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -9722,8 +9722,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_ledgerCreatedAt(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_ledgerNumber(ctx, field)
+func (ec *executionContext) _TrustlineChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_ledgerNumber(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9753,9 +9753,9 @@ func (ec *executionContext) _TrustlineStateChange_ledgerNumber(ctx context.Conte
 	return ec.marshalNUInt322uint32(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -9766,8 +9766,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_ledgerNumber(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_account(ctx, field)
+func (ec *executionContext) _TrustlineChange_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_account(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9780,7 +9780,7 @@ func (ec *executionContext) _TrustlineStateChange_account(ctx context.Context, f
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Account(rctx, obj)
+		return ec.resolvers.TrustlineChange().Account(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9797,9 +9797,9 @@ func (ec *executionContext) _TrustlineStateChange_account(ctx context.Context, f
 	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9820,8 +9820,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_account(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_operation(ctx, field)
+func (ec *executionContext) _TrustlineChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_operation(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9834,7 +9834,7 @@ func (ec *executionContext) _TrustlineStateChange_operation(ctx context.Context,
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Operation(rctx, obj)
+		return ec.resolvers.TrustlineChange().Operation(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9848,9 +9848,9 @@ func (ec *executionContext) _TrustlineStateChange_operation(ctx context.Context,
 	return ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9881,8 +9881,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_operation(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_transaction(ctx, field)
+func (ec *executionContext) _TrustlineChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_transaction(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9895,7 +9895,7 @@ func (ec *executionContext) _TrustlineStateChange_transaction(ctx context.Contex
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Transaction(rctx, obj)
+		return ec.resolvers.TrustlineChange().Transaction(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9912,9 +9912,9 @@ func (ec *executionContext) _TrustlineStateChange_transaction(ctx context.Contex
 	return ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -9947,8 +9947,8 @@ func (ec *executionContext) fieldContext_TrustlineStateChange_transaction(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineStateChange_limit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineStateChange_limit(ctx, field)
+func (ec *executionContext) _TrustlineChange_limit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_limit(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -9961,7 +9961,7 @@ func (ec *executionContext) _TrustlineStateChange_limit(ctx context.Context, fie
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineStateChange().Limit(rctx, obj)
+		return ec.resolvers.TrustlineChange().Limit(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -9978,9 +9978,9 @@ func (ec *executionContext) _TrustlineStateChange_limit(ctx context.Context, fie
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineStateChange_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineChange_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineStateChange",
+		Object:     "TrustlineChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12135,68 +12135,68 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 	case nil:
 		return graphql.Null
 	case types.TrustlineStateChangeModel:
-		return ec._TrustlineStateChange(ctx, sel, &obj)
+		return ec._TrustlineChange(ctx, sel, &obj)
 	case *types.TrustlineStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._TrustlineStateChange(ctx, sel, obj)
+		return ec._TrustlineChange(ctx, sel, obj)
+	case types.StandardBalanceStateChangeModel:
+		return ec._StandardBalanceChange(ctx, sel, &obj)
+	case *types.StandardBalanceStateChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._StandardBalanceChange(ctx, sel, obj)
 	case types.SignerThresholdsStateChangeModel:
-		return ec._SignerThresholdsStateChange(ctx, sel, &obj)
+		return ec._SignerThresholdsChange(ctx, sel, &obj)
 	case *types.SignerThresholdsStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._SignerThresholdsStateChange(ctx, sel, obj)
+		return ec._SignerThresholdsChange(ctx, sel, obj)
 	case types.SignerStateChangeModel:
-		return ec._SignerStateChange(ctx, sel, &obj)
+		return ec._SignerChange(ctx, sel, &obj)
 	case *types.SignerStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._SignerStateChange(ctx, sel, obj)
+		return ec._SignerChange(ctx, sel, obj)
 	case types.ReservesStateChangeModel:
-		return ec._ReservesStateChange(ctx, sel, &obj)
+		return ec._ReservesChange(ctx, sel, &obj)
 	case *types.ReservesStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._ReservesStateChange(ctx, sel, obj)
+		return ec._ReservesChange(ctx, sel, obj)
 	case types.MetadataStateChangeModel:
-		return ec._MetadataStateChange(ctx, sel, &obj)
+		return ec._MetadataChange(ctx, sel, &obj)
 	case *types.MetadataStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._MetadataStateChange(ctx, sel, obj)
+		return ec._MetadataChange(ctx, sel, obj)
 	case types.FlagsStateChangeModel:
-		return ec._FlagsStateChange(ctx, sel, &obj)
+		return ec._FlagsChange(ctx, sel, &obj)
 	case *types.FlagsStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._FlagsStateChange(ctx, sel, obj)
-	case types.BalanceStateChangeModel:
-		return ec._BalanceStateChange(ctx, sel, &obj)
-	case *types.BalanceStateChangeModel:
-		if obj == nil {
-			return graphql.Null
-		}
-		return ec._BalanceStateChange(ctx, sel, obj)
+		return ec._FlagsChange(ctx, sel, obj)
 	case types.BalanceAuthorizationStateChangeModel:
-		return ec._BalanceAuthorizationStateChange(ctx, sel, &obj)
+		return ec._BalanceAuthorizationChange(ctx, sel, &obj)
 	case *types.BalanceAuthorizationStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._BalanceAuthorizationStateChange(ctx, sel, obj)
+		return ec._BalanceAuthorizationChange(ctx, sel, obj)
 	case types.AccountStateChangeModel:
-		return ec._AccountStateChange(ctx, sel, &obj)
+		return ec._AccountChange(ctx, sel, &obj)
 	case *types.AccountStateChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._AccountStateChange(ctx, sel, obj)
+		return ec._AccountChange(ctx, sel, obj)
 	default:
 		panic(fmt.Errorf("unexpected type %T", obj))
 	}
@@ -12375,17 +12375,17 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 	return out
 }
 
-var accountStateChangeImplementors = []string{"AccountStateChange", "BaseStateChange"}
+var accountChangeImplementors = []string{"AccountChange", "BaseStateChange"}
 
-func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.AccountStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, accountStateChangeImplementors)
+func (ec *executionContext) _AccountChange(ctx context.Context, sel ast.SelectionSet, obj *types.AccountStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accountChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("AccountStateChange")
+			out.Values[i] = graphql.MarshalString("AccountChange")
 		case "type":
 			field := field
 
@@ -12395,7 +12395,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_type(ctx, field, obj)
+				res = ec._AccountChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12431,7 +12431,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_reason(ctx, field, obj)
+				res = ec._AccountChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12459,17 +12459,17 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._AccountStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._AccountStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._AccountStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._AccountChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -12482,7 +12482,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_account(ctx, field, obj)
+				res = ec._AccountChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12518,7 +12518,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_operation(ctx, field, obj)
+				res = ec._AccountChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -12551,7 +12551,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_transaction(ctx, field, obj)
+				res = ec._AccountChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12587,7 +12587,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_tokenId(ctx, field, obj)
+				res = ec._AccountChange_tokenId(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12623,7 +12623,7 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountStateChange_amount(ctx, field, obj)
+				res = ec._AccountChange_amount(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12673,17 +12673,17 @@ func (ec *executionContext) _AccountStateChange(ctx context.Context, sel ast.Sel
 	return out
 }
 
-var balanceAuthorizationStateChangeImplementors = []string{"BalanceAuthorizationStateChange", "BaseStateChange"}
+var balanceAuthorizationChangeImplementors = []string{"BalanceAuthorizationChange", "BaseStateChange"}
 
-func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.BalanceAuthorizationStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, balanceAuthorizationStateChangeImplementors)
+func (ec *executionContext) _BalanceAuthorizationChange(ctx context.Context, sel ast.SelectionSet, obj *types.BalanceAuthorizationStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, balanceAuthorizationChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("BalanceAuthorizationStateChange")
+			out.Values[i] = graphql.MarshalString("BalanceAuthorizationChange")
 		case "type":
 			field := field
 
@@ -12693,7 +12693,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_type(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12729,7 +12729,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_reason(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12757,17 +12757,17 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._BalanceAuthorizationStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._BalanceAuthorizationChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._BalanceAuthorizationStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._BalanceAuthorizationChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._BalanceAuthorizationStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._BalanceAuthorizationChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -12780,7 +12780,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_account(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12816,7 +12816,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_operation(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -12849,7 +12849,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_transaction(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -12885,305 +12885,7 @@ func (ec *executionContext) _BalanceAuthorizationStateChange(ctx context.Context
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._BalanceAuthorizationStateChange_flags(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.processDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var balanceStateChangeImplementors = []string{"BalanceStateChange", "BaseStateChange"}
-
-func (ec *executionContext) _BalanceStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.BalanceStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, balanceStateChangeImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("BalanceStateChange")
-		case "type":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_type(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "reason":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_reason(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._BalanceStateChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerCreatedAt":
-			out.Values[i] = ec._BalanceStateChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._BalanceStateChange_ledgerNumber(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "account":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_account(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "operation":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_operation(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "transaction":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_transaction(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "tokenId":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_tokenId(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "amount":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._BalanceStateChange_amount(ctx, field, obj)
+				res = ec._BalanceAuthorizationChange_flags(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13318,17 +13020,17 @@ func (ec *executionContext) _DeregisterAccountPayload(ctx context.Context, sel a
 	return out
 }
 
-var flagsStateChangeImplementors = []string{"FlagsStateChange", "BaseStateChange"}
+var flagsChangeImplementors = []string{"FlagsChange", "BaseStateChange"}
 
-func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.FlagsStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, flagsStateChangeImplementors)
+func (ec *executionContext) _FlagsChange(ctx context.Context, sel ast.SelectionSet, obj *types.FlagsStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, flagsChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("FlagsStateChange")
+			out.Values[i] = graphql.MarshalString("FlagsChange")
 		case "type":
 			field := field
 
@@ -13338,7 +13040,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_type(ctx, field, obj)
+				res = ec._FlagsChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13374,7 +13076,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_reason(ctx, field, obj)
+				res = ec._FlagsChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13402,17 +13104,17 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._FlagsStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._FlagsChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._FlagsStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._FlagsChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._FlagsStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._FlagsChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -13425,7 +13127,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_account(ctx, field, obj)
+				res = ec._FlagsChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13461,7 +13163,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_operation(ctx, field, obj)
+				res = ec._FlagsChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -13494,7 +13196,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_transaction(ctx, field, obj)
+				res = ec._FlagsChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13530,7 +13232,7 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._FlagsStateChange_flags(ctx, field, obj)
+				res = ec._FlagsChange_flags(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13580,17 +13282,17 @@ func (ec *executionContext) _FlagsStateChange(ctx context.Context, sel ast.Selec
 	return out
 }
 
-var metadataStateChangeImplementors = []string{"MetadataStateChange", "BaseStateChange"}
+var metadataChangeImplementors = []string{"MetadataChange", "BaseStateChange"}
 
-func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.MetadataStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, metadataStateChangeImplementors)
+func (ec *executionContext) _MetadataChange(ctx context.Context, sel ast.SelectionSet, obj *types.MetadataStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, metadataChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("MetadataStateChange")
+			out.Values[i] = graphql.MarshalString("MetadataChange")
 		case "type":
 			field := field
 
@@ -13600,7 +13302,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_type(ctx, field, obj)
+				res = ec._MetadataChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13636,7 +13338,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_reason(ctx, field, obj)
+				res = ec._MetadataChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13664,17 +13366,17 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._MetadataStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._MetadataChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._MetadataStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._MetadataChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._MetadataStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._MetadataChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -13687,7 +13389,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_account(ctx, field, obj)
+				res = ec._MetadataChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13723,7 +13425,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_operation(ctx, field, obj)
+				res = ec._MetadataChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -13756,7 +13458,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_transaction(ctx, field, obj)
+				res = ec._MetadataChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13792,7 +13494,7 @@ func (ec *executionContext) _MetadataStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._MetadataStateChange_keyValue(ctx, field, obj)
+				res = ec._MetadataChange_keyValue(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14409,17 +14111,17 @@ func (ec *executionContext) _RegisterAccountPayload(ctx context.Context, sel ast
 	return out
 }
 
-var reservesStateChangeImplementors = []string{"ReservesStateChange", "BaseStateChange"}
+var reservesChangeImplementors = []string{"ReservesChange", "BaseStateChange"}
 
-func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.ReservesStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, reservesStateChangeImplementors)
+func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.SelectionSet, obj *types.ReservesStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, reservesChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("ReservesStateChange")
+			out.Values[i] = graphql.MarshalString("ReservesChange")
 		case "type":
 			field := field
 
@@ -14429,7 +14131,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_type(ctx, field, obj)
+				res = ec._ReservesChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14465,7 +14167,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_reason(ctx, field, obj)
+				res = ec._ReservesChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14493,17 +14195,17 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._ReservesStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._ReservesChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._ReservesStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._ReservesChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._ReservesStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._ReservesChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -14516,7 +14218,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_account(ctx, field, obj)
+				res = ec._ReservesChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14552,7 +14254,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_operation(ctx, field, obj)
+				res = ec._ReservesChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -14585,7 +14287,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_transaction(ctx, field, obj)
+				res = ec._ReservesChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14621,7 +14323,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_sponsoredAddress(ctx, field, obj)
+				res = ec._ReservesChange_sponsoredAddress(ctx, field, obj)
 				return res
 			}
 
@@ -14654,7 +14356,7 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ReservesStateChange_sponsorAddress(ctx, field, obj)
+				res = ec._ReservesChange_sponsorAddress(ctx, field, obj)
 				return res
 			}
 
@@ -14701,17 +14403,17 @@ func (ec *executionContext) _ReservesStateChange(ctx context.Context, sel ast.Se
 	return out
 }
 
-var signerStateChangeImplementors = []string{"SignerStateChange", "BaseStateChange"}
+var signerChangeImplementors = []string{"SignerChange", "BaseStateChange"}
 
-func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, signerStateChangeImplementors)
+func (ec *executionContext) _SignerChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, signerChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SignerStateChange")
+			out.Values[i] = graphql.MarshalString("SignerChange")
 		case "type":
 			field := field
 
@@ -14721,7 +14423,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_type(ctx, field, obj)
+				res = ec._SignerChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14757,7 +14459,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_reason(ctx, field, obj)
+				res = ec._SignerChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14785,17 +14487,17 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._SignerStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._SignerStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._SignerStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._SignerChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -14808,7 +14510,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_account(ctx, field, obj)
+				res = ec._SignerChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14844,7 +14546,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_operation(ctx, field, obj)
+				res = ec._SignerChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -14877,7 +14579,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_transaction(ctx, field, obj)
+				res = ec._SignerChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14913,7 +14615,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_signerAddress(ctx, field, obj)
+				res = ec._SignerChange_signerAddress(ctx, field, obj)
 				return res
 			}
 
@@ -14946,7 +14648,7 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerStateChange_signerWeights(ctx, field, obj)
+				res = ec._SignerChange_signerWeights(ctx, field, obj)
 				return res
 			}
 
@@ -14993,17 +14695,17 @@ func (ec *executionContext) _SignerStateChange(ctx context.Context, sel ast.Sele
 	return out
 }
 
-var signerThresholdsStateChangeImplementors = []string{"SignerThresholdsStateChange", "BaseStateChange"}
+var signerThresholdsChangeImplementors = []string{"SignerThresholdsChange", "BaseStateChange"}
 
-func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerThresholdsStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, signerThresholdsStateChangeImplementors)
+func (ec *executionContext) _SignerThresholdsChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerThresholdsStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, signerThresholdsChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SignerThresholdsStateChange")
+			out.Values[i] = graphql.MarshalString("SignerThresholdsChange")
 		case "type":
 			field := field
 
@@ -15013,7 +14715,7 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_type(ctx, field, obj)
+				res = ec._SignerThresholdsChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15049,7 +14751,7 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_reason(ctx, field, obj)
+				res = ec._SignerThresholdsChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15077,17 +14779,17 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._SignerThresholdsStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerThresholdsChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._SignerThresholdsStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerThresholdsChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._SignerThresholdsStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._SignerThresholdsChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -15100,7 +14802,7 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_account(ctx, field, obj)
+				res = ec._SignerThresholdsChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15136,7 +14838,7 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_operation(ctx, field, obj)
+				res = ec._SignerThresholdsChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -15169,7 +14871,7 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_transaction(ctx, field, obj)
+				res = ec._SignerThresholdsChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15205,7 +14907,305 @@ func (ec *executionContext) _SignerThresholdsStateChange(ctx context.Context, se
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerThresholdsStateChange_thresholds(ctx, field, obj)
+				res = ec._SignerThresholdsChange_thresholds(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var standardBalanceChangeImplementors = []string{"StandardBalanceChange", "BaseStateChange"}
+
+func (ec *executionContext) _StandardBalanceChange(ctx context.Context, sel ast.SelectionSet, obj *types.StandardBalanceStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, standardBalanceChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StandardBalanceChange")
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._StandardBalanceChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._StandardBalanceChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._StandardBalanceChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_operation(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_tokenId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StandardBalanceChange_amount(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15590,17 +15590,17 @@ func (ec *executionContext) _TransactionEdge(ctx context.Context, sel ast.Select
 	return out
 }
 
-var trustlineStateChangeImplementors = []string{"TrustlineStateChange", "BaseStateChange"}
+var trustlineChangeImplementors = []string{"TrustlineChange", "BaseStateChange"}
 
-func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineStateChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineStateChangeImplementors)
+func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("TrustlineStateChange")
+			out.Values[i] = graphql.MarshalString("TrustlineChange")
 		case "type":
 			field := field
 
@@ -15610,7 +15610,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_type(ctx, field, obj)
+				res = ec._TrustlineChange_type(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15646,7 +15646,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_reason(ctx, field, obj)
+				res = ec._TrustlineChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15674,17 +15674,17 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._TrustlineStateChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._TrustlineStateChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._TrustlineStateChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._TrustlineChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -15697,7 +15697,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_account(ctx, field, obj)
+				res = ec._TrustlineChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15733,7 +15733,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_operation(ctx, field, obj)
+				res = ec._TrustlineChange_operation(ctx, field, obj)
 				return res
 			}
 
@@ -15766,7 +15766,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_transaction(ctx, field, obj)
+				res = ec._TrustlineChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -15802,7 +15802,7 @@ func (ec *executionContext) _TrustlineStateChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineStateChange_limit(ctx, field, obj)
+				res = ec._TrustlineChange_limit(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

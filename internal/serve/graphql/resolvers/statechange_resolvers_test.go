@@ -19,11 +19,11 @@ import (
 )
 
 func TestStateChangeResolver_NullableStringFields(t *testing.T) {
-	resolver := &balanceStateChangeResolver{&Resolver{}}
+	resolver := &standardBalanceChangeResolver{&Resolver{}}
 	ctx := context.Background()
 
 	t.Run("all valid", func(t *testing.T) {
-		obj := &types.BalanceStateChangeModel{
+		obj := &types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				TokenID: sql.NullString{String: "token1", Valid: true},
 				Amount:  sql.NullString{String: "100.5", Valid: true},
@@ -40,7 +40,7 @@ func TestStateChangeResolver_NullableStringFields(t *testing.T) {
 	})
 
 	t.Run("all null", func(t *testing.T) {
-		obj := &types.BalanceStateChangeModel{} // All fields are zero-valued (Valid: false)
+		obj := &types.StandardBalanceStateChangeModel{} // All fields are zero-valued (Valid: false)
 
 		tokenID, err := resolver.TokenID(ctx, obj)
 		require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("signer weights", func(t *testing.T) {
-		resolver := &signerStateChangeResolver{&Resolver{}}
+		resolver := &signerChangeResolver{&Resolver{}}
 		obj := &types.SignerStateChangeModel{
 			StateChange: types.StateChange{
 				SignerWeights: types.NullableJSONB{"weight": 1},
@@ -76,7 +76,7 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("thresholds", func(t *testing.T) {
-		resolver := &signerThresholdsStateChangeResolver{&Resolver{}}
+		resolver := &signerThresholdsChangeResolver{&Resolver{}}
 		obj := &types.SignerThresholdsStateChangeModel{
 			StateChange: types.StateChange{
 				Thresholds: types.NullableJSONB{"low": 1, "med": 2},
@@ -91,7 +91,7 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("flags", func(t *testing.T) {
-		resolver := &flagsStateChangeResolver{&Resolver{}}
+		resolver := &flagsChangeResolver{&Resolver{}}
 		obj := &types.FlagsStateChangeModel{
 			StateChange: types.StateChange{
 				Flags: types.NullableJSON{"auth_required", "auth_revocable"},
@@ -108,7 +108,7 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 	})
 
 	t.Run("key value", func(t *testing.T) {
-		resolver := &metadataStateChangeResolver{&Resolver{}}
+		resolver := &metadataChangeResolver{&Resolver{}}
 		obj := &types.MetadataStateChangeModel{
 			StateChange: types.StateChange{
 				KeyValue: types.NullableJSONB{"key": "value"},
@@ -129,7 +129,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &balanceStateChangeResolver{&Resolver{
+	resolver := &standardBalanceChangeResolver{&Resolver{
 		models: &data.Models{
 			Account: &data.AccountModel{
 				DB:             testDBConnectionPool,
@@ -137,7 +137,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.BalanceStateChangeModel{
+	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
@@ -164,7 +164,7 @@ func TestStateChangeResolver_Account(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent account", func(t *testing.T) {
-		nonExistentSC := types.BalanceStateChangeModel{
+		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
@@ -186,7 +186,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &balanceStateChangeResolver{&Resolver{
+	resolver := &standardBalanceChangeResolver{&Resolver{
 		models: &data.Models{
 			Operations: &data.OperationModel{
 				DB:             testDBConnectionPool,
@@ -194,7 +194,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.BalanceStateChangeModel{
+	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 1).ToInt64(),
 			StateChangeOrder:    1,
@@ -221,7 +221,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent operation", func(t *testing.T) {
-		nonExistentSC := types.BalanceStateChangeModel{
+		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,
@@ -243,7 +243,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
-	resolver := &balanceStateChangeResolver{&Resolver{
+	resolver := &standardBalanceChangeResolver{&Resolver{
 		models: &data.Models{
 			Transactions: &data.TransactionModel{
 				DB:             testDBConnectionPool,
@@ -251,7 +251,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentSC := types.BalanceStateChangeModel{
+	parentSC := types.StandardBalanceStateChangeModel{
 		StateChange: types.StateChange{
 			ToID:                toid.New(1000, 1, 0).ToInt64(),
 			StateChangeOrder:    1,
@@ -278,7 +278,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("state change with non-existent transaction", func(t *testing.T) {
-		nonExistentSC := types.BalanceStateChangeModel{
+		nonExistentSC := types.StandardBalanceStateChangeModel{
 			StateChange: types.StateChange{
 				ToID:                9999,
 				StateChangeOrder:    1,

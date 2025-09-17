@@ -112,7 +112,7 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
-		return &types.BalanceStateChangeModel{
+		return &types.StandardBalanceStateChangeModel{
 			StateChange: stateChange,
 		}
 	case types.StateChangeCategoryAccount:
