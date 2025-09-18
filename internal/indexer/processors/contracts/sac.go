@@ -146,7 +146,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			if isContractAddress(accountToAuthorize) {
 				// For contract addresses, check contract data changes for BalanceValue authorization
 				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize, contractID)
-				if err != nil &&!errors.Is(err, errNoPreviousContractDataChangeFound) && !errors.Is(err, errNoContractDataChangeFound) {
+				if err != nil && !errors.Is(err, errNoPreviousContractDataChangeFound) && !errors.Is(err, errNoContractDataChangeFound) {
 					log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
 					continue
@@ -314,7 +314,7 @@ func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change
 		return wasAuthorized, wasMaintainLiabilities, nil
 	}
 
-	// If no trustline change is found, that means there was no change to the 
+	// If no trustline change is found, that means there was no change to the
 	// trustline authorization flags
 	return false, false, errNoTrustlineChangeFound
 }
@@ -359,7 +359,7 @@ func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []inges
 		return authorized, nil
 	}
 
-	// If no contract data change is found, that means there was no change to the 
+	// If no contract data change is found, that means there was no change to the
 	// contract authorization state
 	return false, errNoContractDataChangeFound
 }
