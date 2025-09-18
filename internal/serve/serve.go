@@ -172,6 +172,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
 		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
@@ -209,7 +210,7 @@ func ensureChannelAccounts(ctx context.Context, channelAccountService services.C
 		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
 		return
 	}
-	log.Ctx(ctx).Infof("Ensured that at least %d channel accounts exist in the database", numberOfChannelAccounts)
+	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
 func handler(deps handlerDeps) http.Handler {

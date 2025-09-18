@@ -128,6 +128,10 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 		return nil
 	}
 
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
 	publicKeys := make([]string, len(channelAccounts))
 	encryptedPrivateKeys := make([]string, len(channelAccounts))
 	for i, ca := range channelAccounts {
@@ -155,6 +159,47 @@ func (ca *ChannelAccountModel) BatchInsert(ctx context.Context, sqlExec db.SQLEx
 	}
 
 	return nil
+}
+
+func (ca *ChannelAccountModel) GetAll(ctx context.Context, sqlExec db.SQLExecuter, limit int) ([]*ChannelAccount, error) {
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
+	query := `
+		SELECT * FROM channel_accounts
+		ORDER BY created_at ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	`
+
+	var channelAccounts []*ChannelAccount
+	err := sqlExec.SelectContext(ctx, &channelAccounts, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting all channel accounts: %w", err)
+	}
+
+	return channelAccounts, nil
+}
+
+func (ca *ChannelAccountModel) Delete(ctx context.Context, sqlExec db.SQLExecuter, publicKeys ...string) (int64, error) {
+	if sqlExec == nil {
+		sqlExec = ca.DB
+	}
+
+	query := `DELETE FROM channel_accounts WHERE public_key = ANY($1)`
+
+	result, err := sqlExec.ExecContext(ctx, query, pq.Array(publicKeys))
+	if err != nil {
+		return 0, fmt.Errorf("deleting channel accounts %v: %w", publicKeys, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("getting rows affected for delete: %w", err)
+	}
+
+	return rowsAffected, nil
 }
 
 func (ca *ChannelAccountModel) Count(ctx context.Context) (int64, error) {
