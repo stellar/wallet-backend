@@ -314,6 +314,8 @@ func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change
 		return wasAuthorized, wasMaintainLiabilities, nil
 	}
 
+	// If no trustline change is found, that means there was no change to the 
+	// trustline authorization flags
 	return false, false, errNoTrustlineChangeFound
 }
 
@@ -357,6 +359,8 @@ func (p *SACEventsProcessor) extractContractAuthorizationChanges(changes []inges
 		return authorized, nil
 	}
 
+	// If no contract data change is found, that means there was no change to the 
+	// contract authorization state
 	return false, errNoContractDataChangeFound
 }
 
