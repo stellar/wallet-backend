@@ -282,9 +282,32 @@ func (p *EffectsProcessor) createTargetSponsorshipChange(reason types.StateChang
 }
 
 func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
-	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
-		return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
+	}
+	if assetType == "liquidity_pool_shares" {
+		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
+		}
+		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
+			"liquidity_pool_id": poolID,
+		})
+	} else {
+		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+		}
+		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+		}
+		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+		}
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 	}
 
 	var stateChange types.StateChange
@@ -293,7 +316,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		// Create the trustline state change
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithToken(assetContractID).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
@@ -302,12 +325,12 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case effects.EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetContractID).Build()
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetContractID).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
@@ -324,17 +347,28 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 // for newly created trustlines based on the asset issuer's account flags
 func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput) (types.StateChange, error) {
 	// Skip native assets as they don't have authorization
-	if effect.Details["asset_type"].(string) == "native" {
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
+	}
+	if assetType == "native" {
 		return types.StateChange{}, nil
 	}
 
-	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
+	assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+	}
+	assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+	}
+	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("getting asset contract ID: %w", err)
 	}
 
 	// Get issuer account flags via RPC
-	assetIssuer := effect.Details["asset_issuer"].(string)
 	issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
