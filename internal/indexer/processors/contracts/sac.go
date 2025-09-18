@@ -74,25 +74,17 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
-			log.Debugf("processor: %s: skipping event with invalid contract structure: txHash=%s opID=%d eventType=%d contractId=%v bodyV=%d",
-				p.Name(), txHash, opWrapper.ID(), event.Type, event.ContractId != nil, event.Body.V)
 			continue
 		}
 
 		// Validate if number of topics matches the expected number of topics for an SAC set_authorized event
 		topics := event.Body.V0.Topics
 		if !p.validateExpectedTopicsForSAC(len(topics), tx.UnsafeMeta.V) {
-			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			log.Debugf("processor: %s: skipping event with invalid topic count for SAC: txHash=%s opID=%d contractId=%s topicCount=%d metaVersion=%d",
-				p.Name(), txHash, opWrapper.ID(), contractID, len(topics), tx.UnsafeMeta.V)
 			continue
 		}
 
 		fn, ok := topics[0].GetSym()
 		if !ok {
-			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
-			log.Debugf("processor: %s: skipping event with non-symbol function name: txHash=%s opID=%d contractId=%s",
-				p.Name(), txHash, opWrapper.ID(), contractID)
 			continue
 		}
 
@@ -101,14 +93,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			contractID := strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:])
 			asset, err := p.extractAsset(topics, tx.UnsafeMeta.V)
 			if err != nil {
-				log.Debugf("processor: %s: skipping event due to asset extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+				log.Debugf("processor: %s: extracting asset from tx meta: txHash=%s opID=%d contractId=%s error=%v",
 					p.Name(), txHash, opWrapper.ID(), contractID, err)
 				continue
 			}
 
 			isSAC, err := p.isSACContract(asset, contractID)
 			if err != nil {
-				log.Debugf("processor: %s: skipping event due to SAC contract validation failure: txHash=%s opID=%d contractId=%s error=%v",
+				log.Debugf("processor: %s: validating SAC contract: txHash=%s opID=%d contractId=%s error=%v",
 					p.Name(), txHash, opWrapper.ID(), contractID, err)
 				continue
 			}
@@ -120,7 +112,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 
 			accountToAuthorize, err := p.extractAccount(topics, tx.UnsafeMeta.V)
 			if err != nil {
-				log.Debugf("processor: %s: skipping event due to account extraction failure: txHash=%s opID=%d contractId=%s error=%v",
+				log.Debugf("processor: %s: extracting account from tx meta: txHash=%s opID=%d contractId=%s error=%v",
 					p.Name(), txHash, opWrapper.ID(), contractID, err)
 				continue
 			}
@@ -128,7 +120,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 			value := event.Body.V0.Data
 			isAuthorized, ok := value.GetB()
 			if !ok {
-				log.Debugf("processor: %s: skipping event with non-boolean authorization value: txHash=%s opID=%d contractId=%s",
+				log.Debugf("processor: %s: extracting authorization value from event data: txHash=%s opID=%d contractId=%s",
 					p.Name(), txHash, opWrapper.ID(), contractID)
 				continue
 			}
@@ -155,7 +147,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				// For contract addresses, check contract data changes for BalanceValue authorization
 				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousContractDataChangeFound) {
-					log.Debugf("processor: %s: skipping event due to contract authorization extraction failure: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
+					log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
 					continue
 				}
@@ -163,7 +155,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				// For classic account addresses, check trustline flag changes
 				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
-					log.Debugf("processor: %s: skipping event due to trustline flag extraction failure: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
+					log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
 						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
 					continue
 				}
@@ -226,8 +218,6 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				}
 			}
 
-			log.Debugf("processor: %s: generated %d state changes for address %s: txHash=%s opID=%d",
-				p.Name(), len(flagChanges), accountToAuthorize, txHash, opWrapper.ID())
 			stateChanges = append(stateChanges, flagChanges...)
 		default:
 			continue
