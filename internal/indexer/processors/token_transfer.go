@@ -63,18 +63,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		event := e.GetEvent()
 
 		// For non-fee events, we need operation details to determine the correct state change type
-		opID, opType, opSourceAccount, err := p.parseOperationDetails(tx, ledgerNumber, tx.Index, opIdx)
-		if err != nil {
-			if errors.Is(err, ErrOperationNotFound) {
-				// While we should never see this since ttp sends valid events, this is meant as a defensive check to ensure
-				// the indexer doesn't crash. We still log it to help debug issues.
-				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", txHash, opID)
-				continue
-			}
-			log.Ctx(ctx).Errorf("failed to parse operation details for transaction hash: %s, operation ID: %d, err: %v", txHash, opID, err)
-			continue
-		}
-
+		opID, opType, opSourceAccount := p.parseOperationDetails(tx, ledgerNumber, tx.Index, opIdx)
 		changes := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
 		stateChanges = append(stateChanges, changes...)
 	}
@@ -84,17 +73,12 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.
 // Returns operation ID, type, and source account which determine how events should be categorized.
-func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string, error) {
-	op, found := tx.GetOperation(opIdx - 1)
-	if !found {
-		return 0, nil, "", ErrOperationNotFound
-	}
-
+func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string) {
+	op, _ := tx.GetOperation(opIdx - 1)
 	operationType := &op.Body.Type
 	opSourceAccount := operationSourceAccount(tx, op)
 	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx+1)).ToInt64()
-
-	return opID, operationType, opSourceAccount, nil
+	return opID, operationType, opSourceAccount
 }
 
 // processNonFeeEvent routes different types of non-fee token transfer events to their specific handlers.
