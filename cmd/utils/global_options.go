@@ -205,6 +205,17 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 	return awsOpts
 }
 
+func NetworkOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "network",
+		Usage:       "Stellar network to connect to. Options: testnet, mainnet",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "testnet",
+		Required:    true,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))

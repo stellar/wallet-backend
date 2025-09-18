@@ -36,6 +36,7 @@ type Configs struct {
 	LogLevel          logrus.Level
 	AppTracker        apptracker.AppTracker
 	RPCURL            string
+	Network           string
 	NetworkPassphrase string
 	GetLedgersLimit   int
 }
