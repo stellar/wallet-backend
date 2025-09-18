@@ -2,6 +2,7 @@ package processors
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -466,5 +467,64 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
+	})
+
+	t.Run("Error in balance authorization continues processing", func(t *testing.T) {
+		envelopeXDR := "AAAAAgAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAAGQAB1eLAAAAAwAAAAEAAAAAAAAAAAAAAABowwQqAAAAAAAAAAEAAAAAAAAABgAAAAFURVNUAAAAAFrnJwiWP46hSSjcYc6wY93h556Qpe47SA8bIQGXMJTlf/////////8AAAAAAAAAAbUNOWYAAABAzWelNCrF4Q+iSKX30xHrBm76FMa2h89pPauijrWAVlcj/swEyYZqjU94SYU+8XEWUuvg2rpjCIHGPHHyzSXlAw=="
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAGAAAAAAAAAAA="
+		metaXDR := "AAAAAQAAAAIAAAADAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAKAAAAAAAAAAAq26sUclf95G3mAzqohcAxtpe+UiaovKwDpCv20t6bF8AAAACVAvjOAAAACYAAAABAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAMAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAAoAAAAAAAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAJUC+M4AAAAJgAAAAEAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAQAAAACrbqxRyV/3kbeYDOqiFwDG2l75SJqi8rAOkK/bS3psXwAAAAFVU0QAAAAAAPkmOJur5F/mOxTJDb+0bMLCJGDRl3meP2MBEDVKSPP4AAAAAAAAAAB//////////wAAAAAAAAAAAAAAAA=="
+		feeChangesXDR := "AAAAAgAAAAMAB19pAAAAAAAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAABcM3B04AAdXiwAAAAIAAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADAAAAAAAHX2kAAAAAaMMDfAAAAAAAAAABAAdfhwAAAAAAAAAAH9ZokgWe43NE8SB1CzFKnY/nYm7ZIdSRBMCE1bUNOWYAAAAXDNwc1AAHV4sAAAACAAAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAwAAAAAAB19pAAAAAGjDA3wAAAAA"
+		hash := "c7bee372d573009ac63ad7476e310ad29b1f7399a6941b57d84527d4015dba57"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+
+		// Set up mock provider - return error for the issuer lookup to trigger error handling
+		mockProvider := mockLedgerEntryProvider{}
+		issuerKey := "AAAAAAAAAABa5ycIlj+OoUko3GHOsGPd4eeekKXuO0gPGyEBlzCU5Q=="
+		mockProvider.On("GetLedgerEntries", []string{issuerKey}).Return(
+			entities.RPCGetLedgerEntriesResult{},
+			fmt.Errorf("mock RPC error for testing error handling"),
+		)
+
+		processor := NewEffectsProcessor(networkPassphrase, &mockProvider)
+		opWrapper := &operation_processor.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+
+		// Process the operation - should handle error gracefully and continue
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+
+		// Verify that processing succeeded despite the error in balance authorization
+		require.NoError(t, err, "ProcessOperation should not fail due to balance authorization error")
+
+		// Should still get the trustline creation state change, just not the balance authorization
+		require.Len(t, changes, 1, "Should get trustline creation change even when balance authorization fails")
+
+		// Verify the trustline creation change was processed correctly
+		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, *changes[0].StateChangeReason)
+		assert.Equal(t, types.NullableJSONB{
+			"limit": map[string]any{
+				"new": "922337203685.4775807",
+			},
+		}, changes[0].TrustlineLimit)
+
+		// Verify mock was called (showing the error path was triggered)
+		mockProvider.AssertExpectations(t)
 	})
 }
