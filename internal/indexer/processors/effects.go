@@ -116,7 +116,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 				WithReason(signerEffectToReasonMap[effect.Type])
 			signerChanges, err := p.parseSigners(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				log.Debugf("failed to parse signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to parse signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, signerChanges...)
@@ -150,7 +150,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
 			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				log.Debugf("failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, trustlineChange)
@@ -160,7 +160,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			if effectType == effects.EffectTrustlineCreated {
 				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect)
 				if err != nil {
-					log.Debugf("failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+					log.Debugf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 					continue
 				}
 				stateChanges = append(stateChanges, authChanges)
@@ -185,7 +185,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 
 			sponsorshipChanges, err := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone(), changes)
 			if err != nil {
-				log.Debugf("failed to process sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to process sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, sponsorshipChanges...)
@@ -355,34 +355,45 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		return types.StateChange{}, nil
 	}
 
-	assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
-	if err != nil {
-		return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
-	}
-	assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
-	if err != nil {
-		return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
-	}
-	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
-	if err != nil {
-		return types.StateChange{}, fmt.Errorf("getting asset contract ID: %w", err)
-	}
+	var defaultFlags []string
+	if assetType == "liquidity_pool_shares" {
+		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
+		}
+		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
+			"liquidity_pool_id": poolID,
+		})
+	} else {
+		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+		}
+		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+		}
+		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("getting asset contract ID: %w", err)
+		}
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 
-	// Get issuer account flags via RPC
-	issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
-	if err != nil {
-		return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
-	}
+		// Get issuer account flags via RPC
+		issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
+		}
 
-	// Determine default authorization flags for the new trustline
-	defaultFlags := p.determineDefaultTrustlineFlags(issuerFlags)
+		// Determine default authorization flags for the new trustline
+		defaultFlags = p.determineDefaultTrustlineFlags(issuerFlags)
+	}
 
 	// Generate state changes for each flag that should be set
 	return baseBuilder.Clone().
 		WithCategory(types.StateChangeCategoryBalanceAuthorization).
 		WithReason(types.StateChangeReasonSet).
 		WithFlags(defaultFlags).
-		WithToken(assetContractID).
 		Build(), nil
 }
 
