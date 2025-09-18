@@ -1,21 +1,51 @@
 services:
+  # db:
+  #   container_name: db
+  #   image: postgres:14-alpine
+  #   healthcheck:
+  #     test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wallet-backend"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 40s
+  #   environment:
+  #     POSTGRES_HOST_AUTH_METHOD: trust
+  #     POSTGRES_DB: wallet-backend
+  #     PGDATA: /data/postgres
+  #   volumes:
+  #     - postgres-db:/data/postgres
+  #   ports:
+  #     - 5432:5432
   db:
     container_name: db
     image: postgres:14-alpine
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wallet-backend"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_DB: wallet-backend
       PGDATA: /data/postgres
+      POSTGRES_INITDB_ARGS: "--auth-host=trust"
     volumes:
       - postgres-db:/data/postgres
     ports:
       - 5432:5432
+    command: |
+      bash -c "
+      # Run default postgres initialization
+      /usr/local/bin/docker-entrypoint.sh postgres &
+
+      # Wait for startup
+      sleep 10
+
+      # Create schemas (only on first run)
+      if [ ! -f /data/postgres/schemas_created ]; then
+        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;'
+        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;'
+        touch /data/postgres/schemas_created
+      fi
+
+      # Keep postgres running
+      wait
+      "
 
   stellar-rpc:
     container_name: stellar-rpc
