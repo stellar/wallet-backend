@@ -71,7 +71,8 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 				log.Ctx(ctx).Debugf("skipping event for operation that couldn't be found: txHash: %s, opID: %d", txHash, opID)
 				continue
 			}
-			return nil, fmt.Errorf("parsing operation details for transaction hash: %s, operation ID: %d, err: %w", txHash, opID, err)
+			log.Ctx(ctx).Errorf("failed to parse operation details for transaction hash: %s, operation ID: %d, err: %v", txHash, opID, err)
+			continue
 		}
 
 		changes, err := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)

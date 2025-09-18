@@ -155,7 +155,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			}
 			stateChanges = append(stateChanges, trustlineChange)
 
-			// Generate balance authorization state change for new trustline. 
+			// Generate balance authorization state change for new trustline.
 			// We will extract the default authorization flags from the asset issuer's account.
 			if effectType == effects.EffectTrustlineCreated {
 				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect)
