@@ -208,7 +208,7 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 func NetworkOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "network",
-		Usage:       "Stellar network to connect to. Options: testnet, mainnet",
+		Usage:       "Stellar network to connect to",
 		OptType:     types.String,
 		ConfigKey:   configKey,
 		FlagDefault: "testnet",

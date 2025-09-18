@@ -82,7 +82,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
