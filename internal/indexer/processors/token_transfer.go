@@ -76,7 +76,10 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 
 		changes, err := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
 		if err != nil {
-			return nil, err
+			// We dont want to exit the ingestion process if we fail to process an event. We still log the details
+			// and keep processing the other events.
+			log.Ctx(ctx).Errorf("failed to process non-fee event for transaction hash: %s, operation ID: %d, err: %v", txHash, opID, err)
+			continue
 		}
 		stateChanges = append(stateChanges, changes...)
 	}
@@ -93,7 +96,7 @@ func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransacti
 	}
 
 	operationType := &op.Body.Type
-	opSourceAccount := OperationSourceAccount(tx, op)
+	opSourceAccount := operationSourceAccount(tx, op)
 	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx+1)).ToInt64()
 
 	return opID, operationType, opSourceAccount, nil
@@ -206,7 +209,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		return nil, nil
 
 	default:
-		if IsLiquidityPool(transfer.GetFrom()) || IsLiquidityPool(transfer.GetTo()) {
+		if isLiquidityPool(transfer.GetFrom()) || isLiquidityPool(transfer.GetTo()) {
 			return p.handleTransfersWithLiquidityPool(transfer, contractAddress, builder)
 		}
 
@@ -235,7 +238,7 @@ func (p *TokenTransferProcessor) handleTransfersWithLiquidityPool(transfer *ttp.
 	amount := transfer.GetAmount()
 
 	// LP is sending tokens to account (e.g., path payment buying from LP)
-	if IsLiquidityPool(from) {
+	if isLiquidityPool(from) {
 		change := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, to, amount, contractAddress, builder)
 		return []types.StateChange{change}, nil
 	}
@@ -258,7 +261,7 @@ func (p *TokenTransferProcessor) handleMint(mint *ttp.Mint, contractAddress stri
 	}
 
 	// Create credit state change for the receiving account. Skip mints to liquidity pools since we dont track LP accounts
-	if !IsLiquidityPool(mint.GetTo()) {
+	if !isLiquidityPool(mint.GetTo()) {
 		creditChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonCredit, mint.GetTo(), mint.GetAmount(), contractAddress, builder)
 		changes = append(changes, creditChange)
 	}
@@ -311,7 +314,7 @@ func (p *TokenTransferProcessor) handleDefaultBurnOrClawback(from string, amount
 	}
 
 	// Always record debit from the account losing the tokens. Skip burns from LP accounts since we dont track LP accounts
-	if !IsLiquidityPool(from) {
+	if !isLiquidityPool(from) {
 		debitChange := p.createStateChange(types.StateChangeCategoryBalance, types.StateChangeReasonDebit, from, amount, contractAddress, builder)
 		changes = append(changes, debitChange)
 	}
