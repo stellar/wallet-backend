@@ -147,16 +147,22 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 				// For contract addresses, check contract data changes for BalanceValue authorization
 				wasAuthorized, err = p.extractContractAuthorizationChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousContractDataChangeFound) {
-					log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
-						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					// We dont want to log errors for no contract data change found. We can simply skip processing.
+					if !errors.Is(err, errNoContractDataChangeFound) {
+						log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
+							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					}
 					continue
 				}
 			} else {
 				// For classic account addresses, check trustline flag changes
 				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize, contractID)
 				if err != nil && !errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
-					log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
-						p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					// We dont want to log errors for no trustline change found. We can simply skip processing.
+					if !errors.Is(err, errNoTrustlineChangeFound) {
+						log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
+							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+					}
 					continue
 				}
 			}
