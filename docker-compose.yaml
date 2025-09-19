@@ -1,4 +1,10 @@
 services:
+  wallet-backend:
+    image: wallet-backend:latest
+    build:
+      context: ./
+      dockerfile: Dockerfile
+
   db:
     container_name: db
     image: postgres:14-alpine
@@ -66,15 +72,15 @@ services:
 
   api-testnet:
     container_name: api-testnet
+    image: wallet-backend:latest
     healthcheck:
       test: "curl --fail --silent --show-error --location 'http://localhost:8002/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
     depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       stellar-rpc-testnet:
@@ -126,15 +132,15 @@ services:
 
   api-mainnet:
     container_name: api-mainnet
+    image: wallet-backend:latest
     healthcheck:
       test: "curl --fail --silent --show-error --location 'http://localhost:8003/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
     depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       stellar-rpc-mainnet:
@@ -186,15 +192,15 @@ services:
 
   ingest-testnet:
     container_name: ingest-testnet
+    image: wallet-backend:latest
     healthcheck:
       test: "curl --fail --silent --show-error --location 'http://localhost:8004/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
     depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       stellar-rpc-testnet:
@@ -229,15 +235,15 @@ services:
 
   ingest-mainnet:
     container_name: ingest-mainnet
+    image: wallet-backend:latest
     healthcheck:
       test: "curl --fail --silent --show-error --location 'http://localhost:8005/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
     depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       stellar-rpc-mainnet:
