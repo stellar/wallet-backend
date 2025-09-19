@@ -64,11 +64,70 @@ services:
       NETWORK: testnet
     entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
 
-  api:
-    container_name: api
-    image: stellar/wallet-backend:development
+  api-testnet:
+    container_name: api-testnet
     healthcheck:
-      test: "curl --fail --silent --show-error --location 'http://localhost:8001/health' | grep -q '\"status\": \"ok\"'"
+      test: "curl --fail --silent --show-error --location 'http://localhost:8002/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      stellar-rpc-testnet:
+        condition: service_started
+      ingest-testnet:
+        condition: service_healthy
+    ports:
+      - 8002:8002
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
+        ./wallet-backend serve
+    environment:
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      PORT: 8002
+      SERVER_BASE_URL: http://api-testnet:8002
+      LOG_LEVEL: TRACE
+      NETWORK: testnet
+      NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS:-GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N}
+      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY:-GC2BRLN55MHAW6QPKJBTXARC35IWK55DX6OGDPRTANYWXVLS3LPY5BWR}
+      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY:-SAJKJRHPCQFZH5PBLXOM2OBXZJT323F7N23Y7ZFNW4ABUBMM334HB7PY}
+      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER:-ENV}
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE:-GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7}
+      TRACKER_DSN: ${TRACKER_DSN:-https://9b10ac2181e82635470275775a73f36f@o381898.ingest.us.sentry.io/4507964973449216}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY:-GD6CFUZGJI7X3RWOUBC3PDBWW3MZQVXJBRZYIHZWU26IGJ4DUDAPK4H4}
+
+      # Integration Tests & Wallet Source Accounts
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY:-SBLIQC4PO4OJDNAUGJJL23H7HWME4VCW4PFAPIJ6SI4HHEYKJ2QO32HN}
+      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY:-SCZWYUF3CSYOYY2HPGRDKMAZ2YP3FXRXW77OLWO7KBOQ5BCSDURSHOJ5}
+      PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY:-GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO}
+      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY:-SAOY3DAVRJBAPDDFX3VXSQDEQ7J36DLRCOQ6AOWFKVV4LBFTSPFUELVQ}
+      SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY:-GBKFMWTIBN5S7CT5QC2OYIAALZYKCTZKZ2MNG4ODXR6BAMOEWH2NSK43}
+      WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: ${WALLET_SOURCE_ACCOUNT_PRIVATE_KEY:-SAYU5NKZ3OB5CQE4BLFOUEDGZZRLXNRZD2YX23TEOUK44VTFI6JXRNII}
+      WALLET_SOURCE_ACCOUNT_PUBLIC_KEY: ${WALLET_SOURCE_ACCOUNT_PUBLIC_KEY:-GCVNHILQOWABEPTOW2X3MOVKHEZE7NO4MUR5XPWAC2F6UZKL7W3W5A5W}
+
+      # (optional) KMS Signature Client
+      KMS_KEY_ARN: ${KMS_KEY_ARN}
+      AWS_REGIONG: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+
+  api-mainnet:
+    container_name: api-mainnet
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8003/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
@@ -80,10 +139,10 @@ services:
         condition: service_healthy
       stellar-rpc-mainnet:
         condition: service_started
-      ingest:
+      ingest-mainnet:
         condition: service_healthy
     ports:
-      - 8001:8001
+      - 8003:8003
     entrypoint: ""
     command:
       - sh
@@ -92,42 +151,86 @@ services:
         ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
         ./wallet-backend serve
     environment:
-      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
-      PORT: 8001
-      SERVER_BASE_URL: http://api:8001
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      PORT: 8003
+      SERVER_BASE_URL: http://api-mainnet:8003
       LOG_LEVEL: TRACE
-      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
-      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
-      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER}
+      NETWORK: mainnet
+      NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS:-GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N}
+      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY:-GC2BRLN55MHAW6QPKJBTXARC35IWK55DX6OGDPRTANYWXVLS3LPY5BWR}
+      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY:-SAJKJRHPCQFZH5PBLXOM2OBXZJT323F7N23Y7ZFNW4ABUBMM334HB7PY}
+      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER:-ENV}
       NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE:-GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7}
+      TRACKER_DSN: ${TRACKER_DSN:-https://9b10ac2181e82635470275775a73f36f@o381898.ingest.us.sentry.io/4507964973449216}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY:-GD6CFUZGJI7X3RWOUBC3PDBWW3MZQVXJBRZYIHZWU26IGJ4DUDAPK4H4}
 
-      # Env Signature Client
-      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
+      # Integration Tests & Wallet Source Accounts
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY:-SBLIQC4PO4OJDNAUGJJL23H7HWME4VCW4PFAPIJ6SI4HHEYKJ2QO32HN}
+      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY:-SCZWYUF3CSYOYY2HPGRDKMAZ2YP3FXRXW77OLWO7KBOQ5BCSDURSHOJ5}
+      PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY:-GAIG422GCQ5NPTYE34NYBELVKV543LMAQW3MTHEDZB7DPE673AOKLEXO}
+      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY:-SAOY3DAVRJBAPDDFX3VXSQDEQ7J36DLRCOQ6AOWFKVV4LBFTSPFUELVQ}
+      SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY:-GBKFMWTIBN5S7CT5QC2OYIAALZYKCTZKZ2MNG4ODXR6BAMOEWH2NSK43}
+      WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: ${WALLET_SOURCE_ACCOUNT_PRIVATE_KEY:-SAYU5NKZ3OB5CQE4BLFOUEDGZZRLXNRZD2YX23TEOUK44VTFI6JXRNII}
+      WALLET_SOURCE_ACCOUNT_PUBLIC_KEY: ${WALLET_SOURCE_ACCOUNT_PUBLIC_KEY:-GCVNHILQOWABEPTOW2X3MOVKHEZE7NO4MUR5XPWAC2F6UZKL7W3W5A5W}
 
       # (optional) KMS Signature Client
       KMS_KEY_ARN: ${KMS_KEY_ARN}
       AWS_REGIONG: ${AWS_REGION}
-      # (optional) Using KMS locally is necessary to inject the AWS credentials envs.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
 
-      # Channel Account
-      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
-      TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
-
-      # (optional) Integration Tests
-      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
-      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY}
-      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY}
-
-  ingest:
-    container_name: ingest
-    image: stellar/wallet-backend:development
+  ingest-testnet:
+    container_name: ingest-testnet
     healthcheck:
-      test: "curl --fail --silent --show-error --location 'http://localhost:8002/health' | grep -q '\"status\": \"ok\"'"
+      test: "curl --fail --silent --show-error --location 'http://localhost:8004/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      stellar-rpc-testnet:
+        condition: service_started
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        ./wallet-backend migrate up
+        if [ "$STELLAR_ENVIRONMENT" = "GITHUB_WORKFLOW" ]; then
+          HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "${RPC_URL}")
+          LATEST_LEDGER=$(echo "$$HEALTH_RESPONSE" | grep -oE '"latestLedger":[0-9]+' | grep -oE '[0-9]+' || true)
+          if [ -z "$$LATEST_LEDGER" ] || [ "$$LATEST_LEDGER" = "" ]; then
+            ./wallet-backend ingest
+          else
+            ./wallet-backend ingest --start-ledger "$$LATEST_LEDGER"
+          fi
+        else
+          ./wallet-backend ingest
+        fi
+    environment:
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      INGEST_SERVER_PORT: 8004
+      NETWORK: testnet
+      NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      LOG_LEVEL: TRACE
+      GET_LEDGERS_LIMIT: ${GET_LEDGERS_LIMIT:-150}
+      TRACKER_DSN: ${TRACKER_DSN:-https://9b10ac2181e82635470275775a73f36f@o381898.ingest.us.sentry.io/4507964973449216}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+
+  ingest-mainnet:
+    container_name: ingest-mainnet
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8005/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
@@ -158,9 +261,14 @@ services:
         fi
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
-      TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      INGEST_SERVER_PORT: 8005
+      NETWORK: mainnet
+      NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+      LOG_LEVEL: TRACE
+      GET_LEDGERS_LIMIT: ${GET_LEDGERS_LIMIT:-100}
+      TRACKER_DSN: ${TRACKER_DSN:-https://9b10ac2181e82635470275775a73f36f@o381898.ingest.us.sentry.io/4507964973449216}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
 volumes:
   postgres-db:
     driver: local
