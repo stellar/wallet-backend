@@ -27,7 +27,6 @@ func (c *serveCmd) Command() *cobra.Command {
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
-		utils.NetworkOption(&cfg.Network),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.BaseFeeOption(&cfg.BaseFee),
 		utils.RPCURLOption(&cfg.RPCURL),

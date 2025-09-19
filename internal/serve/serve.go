@@ -46,7 +46,6 @@ type Configs struct {
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
-	Network                            string
 	NetworkPassphrase                  string
 	MaxSponsoredBaseReserves           int
 	BaseFee                            int
