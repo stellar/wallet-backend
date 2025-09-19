@@ -1,21 +1,4 @@
 services:
-  # db:
-  #   container_name: db
-  #   image: postgres:14-alpine
-  #   healthcheck:
-  #     test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wallet-backend"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 40s
-  #   environment:
-  #     POSTGRES_HOST_AUTH_METHOD: trust
-  #     POSTGRES_DB: wallet-backend
-  #     PGDATA: /data/postgres
-  #   volumes:
-  #     - postgres-db:/data/postgres
-  #   ports:
-  #     - 5432:5432
   db:
     container_name: db
     image: postgres:14-alpine
@@ -47,9 +30,9 @@ services:
       wait
       "
 
-  stellar-rpc:
-    container_name: stellar-rpc
-    image: stellar/stellar-rpc:stable
+  stellar-rpc-mainnet:
+    container_name: stellar-rpc-mainnet
+    image: stellar/stellar-rpc:23.0.1
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
@@ -61,8 +44,25 @@ services:
     volumes:
       - ./config:/config
     environment:
-      NETWORK: ${NETWORK}
-    entrypoint: ["/bin/bash", "/config/soroban_rpc_startup.sh"]
+      NETWORK: pubnet
+    entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
+
+  stellar-rpc-testnet:
+    container_name: stellar-rpc-testnet
+    image: stellar/stellar-rpc:23.0.1
+    healthcheck:
+      test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 10s
+    ports:
+      - 8001:8000
+    volumes:
+      - ./config:/config
+    environment:
+      NETWORK: testnet
+    entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
 
   api:
     container_name: api
@@ -78,7 +78,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      stellar-rpc:
+      stellar-rpc-mainnet:
         condition: service_started
       ingest:
         condition: service_healthy
@@ -137,7 +137,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      stellar-rpc:
+      stellar-rpc-mainnet:
         condition: service_started
     entrypoint: ""
     command:
@@ -157,7 +157,7 @@ services:
           ./wallet-backend ingest
         fi
     environment:
-      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
       DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
