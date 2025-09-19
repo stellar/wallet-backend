@@ -31,6 +31,7 @@ func (e OperationNotAllowedError) Error() string {
 
 type FeeBumpService interface {
 	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error)
+	GetMaximumBaseFee() int64
 }
 
 type feeBumpService struct {
@@ -100,6 +101,11 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 	}
 
 	return feeBumpTxe, s.DistributionAccountSignatureClient.NetworkPassphrase(), nil
+}
+
+// GetMaximumBaseFee returns the maximum base fee allowed for fee bump transactions
+func (s *feeBumpService) GetMaximumBaseFee() int64 {
+	return s.BaseFee
 }
 
 type FeeBumpServiceOptions struct {
