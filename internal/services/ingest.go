@@ -329,6 +329,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService)
 
 	// Submit tasks to the pool
+	startTime := time.Now()
 	for _, ledger := range getLedgersResponse.Ledgers {
 		pool.Submit(func() {
 			if err := m.processLedger(ctx, ledger, ledgerIndexer); err != nil {
@@ -345,11 +346,14 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	if len(errs) > 0 {
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
+	log.Ctx(ctx).Infof("🚧 Done processing %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
 
+	startTime = time.Now()
 	err := m.ingestProcessedData(ctx, ledgerIndexer)
 	if err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
+	log.Ctx(ctx).Infof("🚧 Done ingesting processed data in %vs", time.Since(startTime).Seconds())
 
 	// Log a summary
 	memStats := new(runtime.MemStats)
