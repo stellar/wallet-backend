@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
 	operation_processor "github.com/stellar/go/processors/operation"
-	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
@@ -117,7 +116,8 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 				WithReason(signerEffectToReasonMap[effect.Type])
 			signerChanges, err := p.parseSigners(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				return nil, fmt.Errorf("parsing signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to parse signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
 			}
 			stateChanges = append(stateChanges, signerChanges...)
 
@@ -150,9 +150,21 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
 			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				return nil, fmt.Errorf("parsing trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
 			}
-			stateChanges = append(stateChanges, trustlineChange...)
+			stateChanges = append(stateChanges, trustlineChange)
+
+			// Generate balance authorization state change for new trustline.
+			// We will extract the default authorization flags from the asset issuer's account.
+			if effectType == effects.EffectTrustlineCreated {
+				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect)
+				if err != nil {
+					log.Debugf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+					continue
+				}
+				stateChanges = append(stateChanges, authChanges)
+			}
 
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case effects.EffectDataCreated, effects.EffectDataRemoved, effects.EffectDataUpdated:
@@ -173,7 +185,8 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 
 			sponsorshipChanges, err := p.processSponsorshipEffect(effectType, effect, changeBuilder.Clone())
 			if err != nil {
-				return nil, fmt.Errorf("processing sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %w", effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Debugf("processor: %s: failed to process sponsorship effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
 			}
 			stateChanges = append(stateChanges, sponsorshipChanges...)
 
@@ -200,7 +213,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Created cases: when sponsorship relationships are established
 	case effects.EffectAccountSponsorshipCreated, effects.EffectClaimableBalanceSponsorshipCreated,
 		effects.EffectDataSponsorshipCreated, effects.EffectSignerSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
-		sponsor, err := SafeStringFromDetails(effect.Details, "sponsor")
+		sponsor, err := safeStringFromDetails(effect.Details, "sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting sponsor from sponsorship created effect: %w", err)
 		}
@@ -212,7 +225,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Removed cases: when sponsorship relationships are terminated
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
 		effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
-		formerSponsor, err := SafeStringFromDetails(effect.Details, "former_sponsor")
+		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
@@ -224,11 +237,11 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	// Updated cases: when sponsorship relationships are transferred from one sponsor to another
 	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,
 		effects.EffectDataSponsorshipUpdated, effects.EffectSignerSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
-		newSponsor, err := SafeStringFromDetails(effect.Details, "new_sponsor")
+		newSponsor, err := safeStringFromDetails(effect.Details, "new_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting new sponsor from sponsorship updated effect: %w", err)
 		}
-		formerSponsor, err := SafeStringFromDetails(effect.Details, "former_sponsor")
+		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship updated effect: %w", err)
 		}
@@ -261,64 +274,56 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.S
 		Build()
 }
 
-func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) ([]types.StateChange, error) {
-	parseAsset := func(assetType, assetCode, assetIssuer string) (string, error) {
-		var asset xdr.Asset
-
-		switch assetType {
-		case "native":
-			asset = xdr.Asset{
-				Type: xdr.AssetTypeAssetTypeNative,
-			}
-		case "credit_alphanum4", "credit_alphanum12":
-			asset = xdr.MustNewCreditAsset(assetCode, assetIssuer)
-		default:
-			return "", fmt.Errorf("invalid asset type: %s", assetType)
-		}
-
-		contractID, err := asset.ContractID(p.networkPassphrase)
-		if err != nil {
-			return "", fmt.Errorf("getting asset contract ID: %w", err)
-		}
-
-		return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
-	}
-
-	assetStr, err := parseAsset(effect.Details["asset_type"].(string), effect.Details["asset_code"].(string), effect.Details["asset_issuer"].(string))
+func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
-		return nil, fmt.Errorf("parsing asset: %w", err)
+		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
+	}
+	if assetType == "liquidity_pool_shares" {
+		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
+		}
+		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
+			"liquidity_pool_id": poolID,
+		})
+	} else {
+		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+		}
+		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+		}
+		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+		}
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 	}
 
-	var stateChanges []types.StateChange
+	var stateChange types.StateChange
 
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		// Create the trustline state change
-		trustlineChange := baseBuilder.WithReason(types.StateChangeReasonAdd).WithToken(assetStr).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
 				},
 			},
 		).Build()
-		stateChanges = append(stateChanges, trustlineChange)
-
-		// Generate balance authorization state change for new trustline. We will extract the default flags from the asset issuer's account.
-		authChanges, err := p.generateBalanceAuthorizationForNewTrustline(baseBuilder, effect, assetStr)
-		if err != nil {
-			return nil, fmt.Errorf("generating balance authorization for new trustline: %w", err)
-		}
-		stateChanges = append(stateChanges, authChanges)
 
 	case effects.EffectTrustlineRemoved:
-		stateChange := baseBuilder.WithReason(types.StateChangeReasonRemove).WithToken(assetStr).Build()
-		stateChanges = append(stateChanges, stateChange)
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
-		stateChange := baseBuilder.WithReason(types.StateChangeReasonUpdate).WithToken(assetStr).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"old": strconv.FormatInt(int64(prevTrustline.Limit), 10),
@@ -326,38 +331,62 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 				},
 			},
 		).Build()
-		stateChanges = append(stateChanges, stateChange)
 	}
 
-	return stateChanges, nil
+	return stateChange, nil
 }
 
 // generateBalanceAuthorizationForNewTrustline generates balance authorization state changes
 // for newly created trustlines based on the asset issuer's account flags
-func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, assetContractID string) (types.StateChange, error) {
+func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput) (types.StateChange, error) {
 	// Skip native assets as they don't have authorization
-	if effect.Details["asset_type"].(string) == "native" {
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
+	if err != nil {
+		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
+	}
+	if assetType == "native" {
 		return types.StateChange{}, nil
 	}
 
-	assetIssuer := effect.Details["asset_issuer"].(string)
+	var defaultFlags []string
+	if assetType == "liquidity_pool_shares" {
+		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
+		}
+		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
+			"liquidity_pool_id": poolID,
+		})
+	} else {
+		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+		}
+		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+		}
+		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("getting asset contract ID: %w", err)
+		}
+		baseBuilder = baseBuilder.WithToken(assetContractID)
 
-	// Get issuer account flags via RPC
-	issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
-	if err != nil {
-		log.Errorf("failed to get issuer account flags for %s: %v", assetIssuer, err)
-		return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
+		// Get issuer account flags via RPC
+		issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
+		}
+
+		// Determine default authorization flags for the new trustline
+		defaultFlags = p.determineDefaultTrustlineFlags(issuerFlags)
 	}
-
-	// Determine default authorization flags for the new trustline
-	defaultFlags := p.determineDefaultTrustlineFlags(issuerFlags)
 
 	// Generate state changes for each flag that should be set
 	return baseBuilder.Clone().
 		WithCategory(types.StateChangeCategoryBalanceAuthorization).
 		WithReason(types.StateChangeReasonSet).
 		WithFlags(defaultFlags).
-		WithToken(assetContractID).
 		Build(), nil
 }
 
@@ -495,7 +524,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 
 func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) ([]types.StateChange, error) {
 	signerPublicKey := effect.Details["public_key"].(string)
-	weight, err := ConvertToInt32(effect.Details["weight"])
+	weight, err := convertToInt32(effect.Details["weight"])
 	if err != nil {
 		return nil, fmt.Errorf("converting weight for signer effect: %w", err)
 	}
