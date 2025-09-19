@@ -25,6 +25,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
+		utils.NetworkOption(&cfg.Network),
 		utils.RPCURLOption(&cfg.RPCURL),
 		utils.StartLedgerOption(&cfg.StartLedger),
 		utils.EndLedgerOption(&cfg.EndLedger),
