@@ -36,26 +36,27 @@ enum OperationType {
 # StateChangeCategory enum - categorizes the type of state change
 # Used in GraphQL queries to filter state changes by category
 enum StateChangeCategory {
-  DEBIT
-  CREDIT
-  MINT
-  BURN
+  BALANCE
+  ACCOUNT
   SIGNER
   SIGNATURE_THRESHOLD
   METADATA
   FLAGS
-  LIABILITY
-  TRUSTLINE_FLAGS
-  ALLOWANCE
+  TRUSTLINE
   SPONSORSHIP
-  CONTRACT
+  BALANCE_AUTHORIZATION
   AUTHORIZATION
-  UNSUPPORTED
 }
 
 # StateChangeReason enum - provides specific reason for the state change
 # Used in GraphQL queries to understand why a state change occurred
 enum StateChangeReason {
+  CREATE
+  MERGE
+  DEBIT
+  CREDIT
+  MINT
+  BURN
   ADD
   REMOVE
   UPDATE
@@ -65,10 +66,5 @@ enum StateChangeReason {
   HOME_DOMAIN
   SET
   CLEAR
-  SELL
-  BUY
   DATA_ENTRY
-  CONSUME
-  DEPLOY
-  INVOKE
 }

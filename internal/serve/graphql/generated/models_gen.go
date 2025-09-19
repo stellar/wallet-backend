@@ -3,8 +3,22 @@
 package graphql
 
 import (
+	"time"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+type BaseStateChange interface {
+	IsBaseStateChange()
+	GetType() types.StateChangeCategory
+	GetReason() types.StateChangeReason
+	GetIngestedAt() time.Time
+	GetLedgerCreatedAt() time.Time
+	GetLedgerNumber() uint32
+	GetAccount() *types.Account
+	GetOperation() *types.Operation
+	GetTransaction() *types.Transaction
+}
 
 type BuildTransactionInput struct {
 	Transaction *TransactionInput `json:"transaction"`
@@ -71,8 +85,8 @@ type StateChangeConnection struct {
 }
 
 type StateChangeEdge struct {
-	Node   *types.StateChange `json:"node,omitempty"`
-	Cursor string             `json:"cursor"`
+	Node   BaseStateChange `json:"node,omitempty"`
+	Cursor string          `json:"cursor"`
 }
 
 type TransactionConnection struct {

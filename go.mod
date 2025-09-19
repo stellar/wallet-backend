@@ -1,6 +1,6 @@
 module github.com/stellar/wallet-backend
 
-go 1.24
+go 1.24.0
 
 toolchain go1.24.2
 
@@ -9,6 +9,7 @@ require (
 	github.com/alitto/pond v1.9.2
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/aws/aws-sdk-go v1.55.7
+	github.com/basemachina/gqlgen-complexity-reporter v0.1.2
 	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/dlmiddlecote/sqlstats v1.0.2
 	github.com/getsentry/sentry-go v0.34.1

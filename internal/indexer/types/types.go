@@ -1,3 +1,34 @@
+// Package types defines data structures for the Stellar wallet indexer and GraphQL API.
+// This package implements a sophisticated state change architecture that bridges database storage with GraphQL interface requirements.
+//
+// STATE CHANGE ARCHITECTURE OVERVIEW:
+//
+// The state change system uses three key components that work together:
+//
+//  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
+//     This allows efficient storage in a single database table with nullable fields.
+//
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 8 concrete implementations (defined in
+//     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
+//     specific state change category, providing strong typing and clean API contracts.
+//
+//  3. ADAPTER LAYER: Separate "Model" structs (PaymentStateChangeModel, etc.) that embed the unified
+//     StateChange struct. These act as adapters, allowing gqlgen to generate proper resolvers while
+//     maintaining the single-table database design.
+//
+// The conversion between layers happens in internal/serve/graphql/resolvers/utils.go:convertStateChangeTypes(),
+// which maps StateChangeCategory values to appropriate concrete GraphQL types.
+//
+// This design follows the adapter pattern, enabling:
+// - Efficient database storage (single table, unified queries)
+// - Strong GraphQL typing (interface with specific implementations)
+// - Clean separation of concerns (database vs API representations)
+// - Type safety in resolver generation (gqlgen requirements satisfied)
+//
+// See also:
+// - internal/serve/graphql/schema/statechange.graphqls (GraphQL interface & types)
+// - gqlgen.yml (Go type mappings for GraphQL generation)
+// - internal/serve/graphql/resolvers/utils.go (conversion logic)
 package types
 
 import (
@@ -149,22 +180,22 @@ type OperationWithStateChangeID struct {
 	StateChangeID string `db:"state_change_id"`
 }
 
+type AccountWithStateChangeID struct {
+	Account
+	StateChangeID string `db:"state_change_id"`
+}
+
 type StateChangeCategory string
 
 const (
 	StateChangeCategoryBalance              StateChangeCategory = "BALANCE"
 	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
-	StateChangeCategorySequence             StateChangeCategory = "SEQUENCE"
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
-	StateChangeCategoryLiability            StateChangeCategory = "LIABILITY"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
-	StateChangeCategorySponsorship          StateChangeCategory = "SPONSORSHIP"
-	StateChangeCategoryUnsupported          StateChangeCategory = "UNSUPPORTED"
-	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
-	StateChangeCategoryContract             StateChangeCategory = "CONTRACT"
+	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
@@ -172,29 +203,52 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate       StateChangeReason = "CREATE"
-	StateChangeReasonMerge        StateChangeReason = "MERGE"
-	StateChangeReasonSequenceBump StateChangeReason = "BUMP"
-	StateChangeReasonDebit        StateChangeReason = "DEBIT"
-	StateChangeReasonCredit       StateChangeReason = "CREDIT"
-	StateChangeReasonMint         StateChangeReason = "MINT"
-	StateChangeReasonBurn         StateChangeReason = "BURN"
-	StateChangeReasonAdd          StateChangeReason = "ADD"
-	StateChangeReasonRemove       StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate       StateChangeReason = "UPDATE"
-	StateChangeReasonLow          StateChangeReason = "LOW"
-	StateChangeReasonMedium       StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh         StateChangeReason = "HIGH"
-	StateChangeReasonHomeDomain   StateChangeReason = "HOME_DOMAIN"
-	StateChangeReasonSet          StateChangeReason = "SET"
-	StateChangeReasonClear        StateChangeReason = "CLEAR"
-	StateChangeReasonSell         StateChangeReason = "SELL"
-	StateChangeReasonBuy          StateChangeReason = "BUY"
-	StateChangeReasonDataEntry    StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonConsume      StateChangeReason = "CONSUME"
-	StateChangeReasonInvoke       StateChangeReason = "INVOKE"
+	StateChangeReasonCreate     StateChangeReason = "CREATE"
+	StateChangeReasonMerge      StateChangeReason = "MERGE"
+	StateChangeReasonDebit      StateChangeReason = "DEBIT"
+	StateChangeReasonCredit     StateChangeReason = "CREDIT"
+	StateChangeReasonMint       StateChangeReason = "MINT"
+	StateChangeReasonBurn       StateChangeReason = "BURN"
+	StateChangeReasonAdd        StateChangeReason = "ADD"
+	StateChangeReasonRemove     StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
+	StateChangeReasonLow        StateChangeReason = "LOW"
+	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
+	StateChangeReasonHigh       StateChangeReason = "HIGH"
+	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
+	StateChangeReasonSet        StateChangeReason = "SET"
+	StateChangeReasonClear      StateChangeReason = "CLEAR"
+	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
+	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// StateChange represents a unified database model for all types of blockchain state changes.
+//
+// DESIGN RATIONALE:
+// This single struct contains all possible fields for any state change type, allowing efficient
+// storage in one database table. Most fields are nullable since each state change category only
+// uses a subset of the available fields.
+//
+// FIELD USAGE BY CATEGORY:
+// - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
+// - Liability changes: TokenID, Amount, OfferID
+// - Sponsorship changes: SponsoredAccountID, SponsorAccountID
+// - Signer changes: SignerAccountID, SignerWeights
+// - Threshold changes: Thresholds
+// - Flag changes: Flags
+// - Metadata changes: KeyValue
+// - Allowance changes: SpenderAccountID
+//
+// The StateChangeCategory field determines which subset of fields are populated and relevant.
+// This approach enables:
+// - Single table queries across all state change types
+// - Efficient database storage with minimal schema complexity
+// - Unified handling in indexer code
+// - Easy conversion to strongly-typed GraphQL responses
+//
+// See convertStateChangeTypes() in internal/serve/graphql/resolvers/utils.go for the mapping
+// logic that converts this unified representation to specific GraphQL types.
 type StateChange struct {
 	ToID                int64               `json:"toId,omitempty" db:"to_id"`
 	StateChangeOrder    int64               `json:"stateChangeOrder,omitempty" db:"state_change_order"`
@@ -239,6 +293,10 @@ type StateChangeWithCursor struct {
 type StateChangeCursor struct {
 	ToID             int64 `db:"cursor_to_id"`
 	StateChangeOrder int64 `db:"cursor_state_change_order"`
+}
+
+type StateChangeCursorGetter interface {
+	GetCursor() StateChangeCursor
 }
 
 type NullableJSONB map[string]any
@@ -323,4 +381,162 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 	}
 
 	return bytes, nil
+}
+
+// BaseStateChange interface implementation methods
+//
+// These methods implement the GraphQL BaseStateChange interface defined in
+// internal/serve/graphql/schema/statechange.graphqls. They provide a common contract
+// that all state change types must satisfy, enabling GraphQL interface resolution.
+//
+// GQLGEN REQUIREMENT:
+// The IsBaseStateChange() method is required by gqlgen to identify types that implement
+// the BaseStateChange interface. This is used during GraphQL type resolution to determine
+// which concrete type to return (PaymentStateChange, LiabilityStateChange, etc.).
+//
+// INTERFACE METHODS:
+// The remaining Get* methods correspond to the shared fields defined in the GraphQL
+// BaseStateChange interface. They ensure consistent access patterns across all concrete
+// state change implementations.
+
+// IsBaseStateChange marks this type as implementing the GraphQL BaseStateChange interface.
+// Required by gqlgen for interface type resolution.
+func (sc StateChange) IsBaseStateChange() {}
+
+// GetType returns the category of this state change for GraphQL 'type' field.
+// This method satisfies the GraphQL BaseStateChange interface requirement.
+func (sc StateChange) GetType() StateChangeCategory {
+	return sc.StateChangeCategory
+}
+
+// GetReason returns the reason for this state change for GraphQL 'reason' field.
+// This method satisfies the GraphQL BaseStateChange interface requirement.
+func (sc StateChange) GetReason() StateChangeReason {
+	return *sc.StateChangeReason
+}
+
+// GetIngestedAt returns when this state change was processed by the indexer.
+func (sc StateChange) GetIngestedAt() time.Time {
+	return sc.IngestedAt
+}
+
+// GetLedgerCreatedAt returns when the ledger containing this state change was created.
+func (sc StateChange) GetLedgerCreatedAt() time.Time {
+	return sc.LedgerCreatedAt
+}
+
+// GetLedgerNumber returns the ledger sequence number where this state change occurred.
+func (sc StateChange) GetLedgerNumber() uint32 {
+	return sc.LedgerNumber
+}
+
+// GetAccount returns the account affected by this state change.
+// This relationship is resolved via GraphQL resolver, not direct database join.
+func (sc StateChange) GetAccount() *Account {
+	return sc.Account
+}
+
+// GetOperation returns the operation that caused this state change.
+// May be nil for fee-related state changes that don't have associated operations.
+func (sc StateChange) GetOperation() *Operation {
+	return sc.Operation
+}
+
+// GetTransaction returns the transaction containing the operation that caused this state change.
+func (sc StateChange) GetTransaction() *Transaction {
+	return sc.Transaction
+}
+
+// GetCursor returns the cursor for this state change.
+func (sc StateChange) GetCursor() StateChangeCursor {
+	return StateChangeCursor{
+		ToID:             sc.ToID,
+		StateChangeOrder: sc.StateChangeOrder,
+	}
+}
+
+// GraphQL Adapter Model Structs
+//
+// These structs act as type adapters between the unified database StateChange model
+// and the strongly-typed GraphQL interface system. Each represents a specific concrete
+// implementation of the BaseStateChange interface.
+//
+// WHY SEPARATE STRUCTS ARE NEEDED:
+//
+// 1. GQLGEN REQUIREMENT: gqlgen needs distinct Go types for each GraphQL type to generate
+//    proper resolvers. Without these, gqlgen cannot differentiate between PaymentStateChange
+//    and LiabilityStateChange in the generated code.
+//
+// 2. GRAPHQL INTERFACE PATTERN: GraphQL interfaces require concrete implementations with
+//    potentially different field sets. While our database uses one unified schema, GraphQL
+//    clients expect type-specific fields (e.g., only PaymentStateChange should expose
+//    claimableBalanceId, only SponsorshipStateChange should expose sponsorAccountId).
+//
+// 3. TYPE SAFETY: These distinct types enable compile-time type checking in resolvers
+//    and prevent field access errors at runtime.
+//
+// 4. RESOLVER GENERATION: gqlgen uses these types to generate type-specific resolver methods
+//    and marshaling logic for GraphQL responses.
+//
+// USAGE PATTERN:
+// - Database queries return StateChange structs
+// - convertStateChangeTypes() in resolvers/utils.go wraps them in appropriate model structs
+// - GraphQL resolvers use the model struct's embedded StateChange for field access
+// - gqlgen generates type-specific response marshaling based on the wrapper type
+//
+// This approach maintains the single-table database efficiency while satisfying GraphQL's
+// strong typing requirements. See gqlgen.yml lines 170-196 for the GraphQL-to-Go type mappings.
+
+// StandardBalanceStateChangeModel represents payment-related state changes from classic/SAC/SEP41 balances(CREDIT/DEBIT/MINT/BURN).
+// Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount.
+type StandardBalanceStateChangeModel struct {
+	StateChange
+}
+
+// AccountStateChangeModel represents account state changes.
+// Maps to AccountStateChange in GraphQL schema. Exposes tokenId, amount.
+type AccountStateChangeModel struct {
+	StateChange
+}
+
+// SignerStateChangeModel represents account signer changes.
+// Maps to SignerStateChange in GraphQL schema. Exposes signerAccountId, signerWeights.
+type SignerStateChangeModel struct {
+	StateChange
+}
+
+// SignerThresholdsStateChangeModel represents signature threshold changes.
+// Maps to SignerThresholdsStateChange in GraphQL schema. Exposes thresholds.
+type SignerThresholdsStateChangeModel struct {
+	StateChange
+}
+
+// MetadataStateChangeModel represents account data entry changes.
+// Maps to MetadataStateChange in GraphQL schema. Exposes keyValue.
+type MetadataStateChangeModel struct {
+	StateChange
+}
+
+// FlagsStateChangeModel represents account and trustline flag changes.
+// Maps to FlagsStateChange in GraphQL schema. Exposes flags array.
+type FlagsStateChangeModel struct {
+	StateChange
+}
+
+// TrustlineStateChangeModel represents trustline changes.
+// Maps to TrustlineStateChange in GraphQL schema. Exposes limit.
+type TrustlineStateChangeModel struct {
+	StateChange
+}
+
+// BalanceAuthorizationStateChangeModel represents balance authorization changes.
+// Maps to BalanceAuthorizationStateChange in GraphQL schema. Exposes flags array.
+type BalanceAuthorizationStateChangeModel struct {
+	StateChange
+}
+
+// ReservesStateChangeModel represents account reserves sponsorship changes.
+// Maps to ReservesStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
+type ReservesStateChangeModel struct {
+	StateChange
 }

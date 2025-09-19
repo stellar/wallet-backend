@@ -170,6 +170,33 @@ models:
   StateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.StateChange
+  StandardBalanceChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.StandardBalanceStateChangeModel
+  AccountChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountStateChangeModel
+  SignerChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerStateChangeModel
+  SignerThresholdsChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerThresholdsStateChangeModel
+  MetadataChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.MetadataStateChangeModel
+  FlagsChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.FlagsStateChangeModel
+  TrustlineChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineStateChangeModel
+  BalanceAuthorizationChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationStateChangeModel
+  ReservesChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.ReservesStateChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType

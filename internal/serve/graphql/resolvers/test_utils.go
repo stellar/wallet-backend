@@ -14,6 +14,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 func getTestCtx(table string, columns []string) context.Context {
@@ -75,12 +76,14 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 	// Create 2 state changes per operation (20 total: 2 per operation × 8 operations + 4 fee state changes)
 	stateChanges := make([]*types.StateChange, 0, 20)
+	creditReason := types.StateChangeReasonCredit
 	for _, op := range ops {
 		for scOrder := range 2 {
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
-				StateChangeCategory: types.StateChangeCategoryCredit,
+				StateChangeCategory: types.StateChangeCategoryBalance,
+				StateChangeReason:   &creditReason,
 				TxHash:              op.TxHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
@@ -90,11 +93,13 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		}
 	}
 	// Create fee state changes per transaction
+	debitReason := types.StateChangeReasonDebit
 	for _, txn := range txns {
 		stateChanges = append(stateChanges, &types.StateChange{
 			ToID:                txn.ToID,
 			StateChangeOrder:    int64(1),
-			StateChangeCategory: types.StateChangeCategoryCredit,
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   &debitReason,
 			TxHash:              txn.Hash,
 			AccountID:           parentAccount.StellarAddress,
 			LedgerCreatedAt:     time.Now(),
@@ -152,4 +157,13 @@ func cleanUpDB(ctx context.Context, t *testing.T, dbConnectionPool db.Connection
 	require.NoError(t, err)
 	_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM accounts`)
 	require.NoError(t, err)
+}
+
+func extractStateChangeIDs(sc generated.BaseStateChange) types.StateChangeCursor {
+	switch v := sc.(type) {
+	case types.StateChangeCursorGetter:
+		return v.GetCursor()
+	default:
+		return types.StateChangeCursor{}
+	}
 }
