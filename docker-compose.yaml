@@ -85,6 +85,8 @@ services:
       timeout: 10s
       retries: 3
     depends_on:
+      wallet-backend:
+        condition: service_started
       db:
         condition: service_healthy
     ports:
@@ -139,6 +141,8 @@ services:
       timeout: 10s
       retries: 3
     depends_on:
+      wallet-backend:
+        condition: service_started
       db:
         condition: service_healthy
     ports:
@@ -193,6 +197,8 @@ services:
       timeout: 10s
       retries: 3
     depends_on:
+      wallet-backend:
+        condition: service_started
       db:
         condition: service_healthy
     entrypoint: ""
@@ -232,6 +238,8 @@ services:
       timeout: 10s
       retries: 3
     depends_on:
+      wallet-backend:
+        condition: service_started
       db:
         condition: service_healthy
     entrypoint: ""
