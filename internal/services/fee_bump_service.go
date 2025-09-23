@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -18,14 +17,6 @@ var (
 	ErrFeeExceedsMaximumBaseFee            = errors.New("fee exceeds maximum base fee to sponsor")
 	ErrNoSignaturesProvided                = errors.New("should have at least one signature")
 )
-
-type OperationNotAllowedError struct {
-	OperationType xdr.OperationType
-}
-
-func (e OperationNotAllowedError) Error() string {
-	return fmt.Sprintf("operation %s not allowed", e.OperationType.String())
-}
 
 type FeeBumpService interface {
 	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error)
