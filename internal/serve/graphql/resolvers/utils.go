@@ -39,6 +39,11 @@ type PaginationParams struct {
 	SortOrder         data.SortOrder
 }
 
+type baseStateChangeWithCursor struct {
+	stateChange generated.BaseStateChange
+	cursor      types.StateChangeCursor
+}
+
 // NewConnectionWithRelayPagination builds a connection supporting both forward and backward pagination.
 func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params PaginationParams, getCursorID func(T) C) *GenericConnection[T] {
 	hasNextPage := false
@@ -87,6 +92,63 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	return &GenericConnection[T]{
 		Edges:    edges,
 		PageInfo: pageInfo,
+	}
+}
+
+func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCursor) []*baseStateChangeWithCursor {
+	convertedStateChanges := make([]*baseStateChangeWithCursor, len(stateChanges))
+	for i, stateChange := range stateChanges {
+		convertedStateChanges[i] = &baseStateChangeWithCursor{
+			stateChange: convertStateChangeTypes(stateChange.StateChange),
+			cursor:      stateChange.Cursor,
+		}
+	}
+
+	return convertedStateChanges
+}
+
+// convertStateChangeTypes is the resolver for BaseStateChange interface type resolution
+// This method determines which concrete GraphQL type to return based on StateChangeCategory
+func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
+	switch stateChange.StateChangeCategory {
+	case types.StateChangeCategoryBalance:
+		return &types.StandardBalanceStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryAccount:
+		return &types.AccountStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryReserves:
+		return &types.ReservesStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategorySigner:
+		return &types.SignerStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategorySignatureThreshold:
+		return &types.SignerThresholdsStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryFlags:
+		return &types.FlagsStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryMetadata:
+		return &types.MetadataStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryTrustline:
+		return &types.TrustlineStateChangeModel{
+			StateChange: stateChange,
+		}
+	case types.StateChangeCategoryBalanceAuthorization:
+		return &types.BalanceAuthorizationStateChangeModel{
+			StateChange: stateChange,
+		}
+	default:
+		return nil
 	}
 }
 

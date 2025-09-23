@@ -77,7 +77,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.
 // Returns operation ID, type, and source account which determine how events should be categorized.
 func (p *TokenTransferProcessor) parseOperationDetails(tx ingest.LedgerTransaction, ledgerIdx uint32, txIdx uint32, opIdx uint32) (int64, *xdr.OperationType, string) {
-	op, _ := tx.GetOperation(opIdx - 1)
+	op, _ := tx.GetOperation(opIdx)
 	operationType := &op.Body.Type
 	opSourceAccount := operationSourceAccount(tx, op)
 	opID := toid.New(int32(ledgerIdx), int32(txIdx), int32(opIdx+1)).ToInt64()

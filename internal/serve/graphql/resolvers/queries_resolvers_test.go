@@ -488,9 +488,9 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 20)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[2].Node.ToID, stateChanges.Edges[2].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
 	})
 
 	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
@@ -499,8 +499,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
 		assert.True(t, scs.PageInfo.HasNextPage)
 		assert.False(t, scs.PageInfo.HasPreviousPage)
 
@@ -510,8 +510,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
 		assert.True(t, scs.PageInfo.HasNextPage)
 		assert.True(t, scs.PageInfo.HasPreviousPage)
 
@@ -522,8 +522,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, scs.Edges, 16) // Should return next 10 items
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[0].Node.ToID, scs.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", scs.Edges[1].Node.ToID, scs.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
 		assert.False(t, scs.PageInfo.HasNextPage)
 		assert.True(t, scs.PageInfo.HasPreviousPage)
 	})
@@ -534,8 +534,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -545,8 +545,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 2)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 
@@ -557,8 +557,8 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 16)
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[0].Node.ToID, stateChanges.Edges[0].Node.StateChangeOrder))
-		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", stateChanges.Edges[1].Node.ToID, stateChanges.Edges[1].Node.StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage) // We're at the beginning
 	})

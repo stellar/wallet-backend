@@ -34,6 +34,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
+	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
@@ -231,11 +232,13 @@ func handler(deps handlerDeps) http.Handler {
 
 			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService)
 
+			config := generated.Config{
+				Resolvers: resolver,
+			}
+			addComplexityCalculation(&config)
 			srv := gqlhandler.New(
 				generated.NewExecutableSchema(
-					generated.Config{
-						Resolvers: resolver,
-					},
+					config,
 				),
 			)
 			srv.AddTransport(transport.Options{})
@@ -246,6 +249,12 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.AutomaticPersistedQuery{
 				Cache: lru.New[string](100),
 			})
+			srv.Use(extension.FixedComplexityLimit(1000))
+
+			// Add complexity logging - reports all queries with their complexity values
+			reporter := middleware.NewComplexityLogger()
+			srv.Use(complexityreporter.NewExtension(reporter))
+
 			r.Handle("/query", srv)
 		})
 
@@ -260,4 +269,61 @@ func handler(deps handlerDeps) http.Handler {
 	})
 
 	return mux
+}
+
+func addComplexityCalculation(config *generated.Config) {
+	/*
+		Complexity Calculation
+		--------------------------------
+		Complexity is a measure of the computational cost of a query.
+		It is used to determine the performance of a query and to prevent
+		queries that are too complex from being executed.
+
+		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
+		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
+		to calculate the final complexity.
+
+		For example, for the following query, the complexity is calculated as follows:
+		--------------------------------
+		transactions(first: 10) {
+				edges {
+					node {
+						hash
+						operations(first: 2) {
+							edges {
+								node {
+									id
+									stateChanges(first: 5) {
+										edges {
+											node {
+												stateChangeCategory
+												stateChangeReason
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		--------------------------------
+		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
+		--------------------------------
+	*/
+	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, after *string, last *int32, before *string) int {
+		limit := 10 // default limit when no pagination parameters provided
+		if first != nil {
+			limit = int(*first)
+		} else if last != nil {
+			limit = int(*last)
+		}
+		return childComplexity * limit
+	}
+	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
+	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
 }
