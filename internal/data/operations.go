@@ -19,35 +19,96 @@ type OperationModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, limit *int32, columns string) ([]*types.Operation, error) {
-	if columns == "" {
-		columns = "*"
-	}
-	query := fmt.Sprintf(`SELECT %s FROM operations ORDER BY ledger_created_at DESC`, columns)
-	var args []interface{}
-	if limit != nil && *limit > 0 {
-		query += ` LIMIT $1`
-		args = append(args, *limit)
-	}
-	var operations []*types.Operation
+func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	query := fmt.Sprintf(`SELECT %s FROM operations WHERE id = $1`, columns)
+	var operation types.Operation
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	err := m.DB.GetContext(ctx, &operation, query, id)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting all operations: %w", err)
+		return nil, fmt.Errorf("getting operation by id: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return &operation, nil
+}
+
+func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations`, columns))
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE id < %d", *cursor))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" WHERE id > %d", *cursor))
+		}
+	}
+
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY id ASC")
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+	}
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operations, query)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
 	return operations, nil
 }
 
 // BatchGetByTxHashes gets the operations that are associated with the given transaction hashes.
-func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.Operation, error) {
-	if columns == "" {
-		columns = "*"
+func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string, limit *int32, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	queryBuilder := strings.Builder{}
+	// This CTE query implements per-transaction pagination to ensure balanced results.
+	// Instead of applying a global LIMIT that could return all operations from just a few
+	// transactions, we use ROW_NUMBER() with PARTITION BY tx_hash to limit results per transaction.
+	// This guarantees that each transaction gets at most 'limit' operations, providing
+	// more balanced and predictable pagination across multiple transactions.
+	query := `
+		WITH
+			inputs (tx_hash) AS (
+				SELECT * FROM UNNEST($1::text[])
+			),
+			
+			ranked_operations_per_tx_hash AS (
+				SELECT
+					o.*,
+					ROW_NUMBER() OVER (PARTITION BY o.tx_hash ORDER BY o.id %s) AS rn
+				FROM 
+					operations o
+				JOIN 
+					inputs i ON o.tx_hash = i.tx_hash
+			)
+		SELECT %s, id as cursor FROM ranked_operations_per_tx_hash
+	`
+	queryBuilder.WriteString(fmt.Sprintf(query, sortOrder, columns))
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" WHERE rn <= %d", *limit))
 	}
-	query := fmt.Sprintf(`SELECT %s, tx_hash FROM operations WHERE tx_hash = ANY($1)`, columns)
-	var operations []*types.Operation
+	query = queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &operations, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
@@ -59,37 +120,85 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	return operations, nil
 }
 
-// BatchGetByAccountAddresses gets the operations that are associated with the given account addresses.
-func (m *OperationModel) BatchGetByAccountAddresses(ctx context.Context, accountAddresses []string, columns string) ([]*types.OperationWithAccountID, error) {
-	if columns == "" {
-		columns = "operations.*"
-	}
-	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.account_id
-		FROM operations
-		INNER JOIN operations_accounts ON operations.id = operations_accounts.operation_id
-		WHERE operations_accounts.account_id = ANY($1)
-		ORDER BY operations.id DESC
-	`, columns)
+// BatchGetByTxHash gets operations for a single transaction with pagination support.
+func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(fmt.Sprintf(`SELECT %s, id as cursor FROM operations WHERE tx_hash = $1`, columns))
 
-	var operationsWithAccounts []*types.OperationWithAccountID
+	args := []interface{}{txHash}
+	argIndex := 2
+
+	if cursor != nil {
+		if sortOrder == DESC {
+			queryBuilder.WriteString(fmt.Sprintf(" AND id < $%d", argIndex))
+		} else {
+			queryBuilder.WriteString(fmt.Sprintf(" AND id > $%d", argIndex))
+		}
+		args = append(args, *cursor)
+		argIndex++
+	}
+
+	if sortOrder == DESC {
+		queryBuilder.WriteString(" ORDER BY id DESC")
+	} else {
+		queryBuilder.WriteString(" ORDER BY id ASC")
+	}
+
+	if limit != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
+	}
+
+	query := queryBuilder.String()
+	if sortOrder == DESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY cursor ASC`, query)
+	}
+
+	var operations []*types.OperationWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &operationsWithAccounts, query, pq.Array(accountAddresses))
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		return nil, fmt.Errorf("getting operations by account addresses: %w", err)
+		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return operations, nil
+}
 
-	return operationsWithAccounts, nil
+// BatchGetByAccountAddress gets the operations that are associated with a single account address.
+func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *int64, orderBy SortOrder) ([]*types.OperationWithCursor, error) {
+	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
+
+	// Build paginated query using shared utility
+	query, args := buildGetByAccountAddressQuery(paginatedQueryConfig{
+		TableName:      "operations",
+		CursorColumn:   "id",
+		JoinTable:      "operations_accounts",
+		JoinCondition:  "operations_accounts.operation_id = operations.id",
+		Columns:        columns,
+		AccountAddress: accountAddress,
+		Limit:          limit,
+		Cursor:         cursor,
+		OrderBy:        orderBy,
+	})
+
+	var operations []*types.OperationWithCursor
+	start := time.Now()
+	err := m.DB.SelectContext(ctx, &operations, query, args...)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
+	if err != nil {
+		return nil, fmt.Errorf("getting operations by account address: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "operations")
+	return operations, nil
 }
 
 // BatchGetByStateChangeIDs gets the operations that are associated with the given state change IDs.
 func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOrders []int64, columns string) ([]*types.OperationWithStateChangeID, error) {
-	if columns == "" {
-		columns = "operations.*"
-	}
+	columns = prepareColumnsWithID(columns, types.Operation{}, "operations", "id")
 
 	// Build tuples for the IN clause. Since (to_id, state_change_order) is the primary key of state_changes,
 	// it will be faster to search on this tuple.

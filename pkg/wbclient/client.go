@@ -252,9 +252,11 @@ func (c *Client) request(ctx context.Context, method, path string, bodyObj any) 
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	err = c.RequestSigner.SignHTTPRequest(request, 5*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("signing request: %w", err)
+	if c.RequestSigner != nil {
+		err = c.RequestSigner.SignHTTPRequest(request, 5*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("signing request: %w", err)
+		}
 	}
 
 	request.Header.Set("Content-Type", "application/json")

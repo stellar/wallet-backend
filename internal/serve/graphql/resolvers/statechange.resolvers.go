@@ -6,182 +6,353 @@ package resolvers
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
-	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-// TokenID is the resolver for the tokenId field.
-// This resolver handles nullable string fields from the database
-// GraphQL nullable fields return null when the database value is not valid
-func (r *stateChangeResolver) TokenID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.TokenID.Valid {
-		return &obj.TokenID.String, nil
-	}
-	return nil, nil
+// Type is the resolver for the type field.
+func (r *accountChangeResolver) Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
 }
 
-// Amount is the resolver for the amount field.
-func (r *stateChangeResolver) Amount(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.Amount.Valid {
-		return &obj.Amount.String, nil
-	}
-	return nil, nil
+// Reason is the resolver for the reason field.
+func (r *accountChangeResolver) Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
 }
 
-// ClaimableBalanceID is the resolver for the claimableBalanceId field.
-func (r *stateChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.ClaimableBalanceID.Valid {
-		return &obj.ClaimableBalanceID.String, nil
-	}
-	return nil, nil
-}
-
-// LiquidityPoolID is the resolver for the liquidityPoolId field.
-func (r *stateChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.LiquidityPoolID.Valid {
-		return &obj.LiquidityPoolID.String, nil
-	}
-	return nil, nil
-}
-
-// OfferID is the resolver for the offerId field.
-func (r *stateChangeResolver) OfferID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.OfferID.Valid {
-		return &obj.OfferID.String, nil
-	}
-	return nil, nil
-}
-
-// SignerAccountID is the resolver for the signerAccountId field.
-func (r *stateChangeResolver) SignerAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SignerAccountID.Valid {
-		return &obj.SignerAccountID.String, nil
-	}
-	return nil, nil
-}
-
-// SpenderAccountID is the resolver for the spenderAccountId field.
-func (r *stateChangeResolver) SpenderAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SpenderAccountID.Valid {
-		return &obj.SpenderAccountID.String, nil
-	}
-	return nil, nil
-}
-
-// SponsoredAccountID is the resolver for the sponsoredAccountId field.
-func (r *stateChangeResolver) SponsoredAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SponsoredAccountID.Valid {
-		return &obj.SponsoredAccountID.String, nil
-	}
-	return nil, nil
-}
-
-// SponsorAccountID is the resolver for the sponsorAccountId field.
-func (r *stateChangeResolver) SponsorAccountID(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.SponsorAccountID.Valid {
-		return &obj.SponsorAccountID.String, nil
-	}
-	return nil, nil
-}
-
-// SignerWeights is the resolver for the signerWeights field.
-// This resolver handles JSONB fields from the database
-// Converts Go struct/map to JSON string for GraphQL
-func (r *stateChangeResolver) SignerWeights(ctx context.Context, obj *types.StateChange) (*string, error) {
-	// Check if JSONB field has data
-	if obj.SignerWeights == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON bytes
-	jsonBytes, err := json.Marshal(obj.SignerWeights)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal signerWeights: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
-// Thresholds is the resolver for the thresholds field.
-// Handles JSONB threshold data conversion to JSON string
-func (r *stateChangeResolver) Thresholds(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.Thresholds == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON for GraphQL
-	jsonBytes, err := json.Marshal(obj.Thresholds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal thresholds: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
-}
-
-// Flags is the resolver for the flags field.
-// Converts Go string slice to GraphQL string array
-// This field uses a non-nullable array return type
-func (r *stateChangeResolver) Flags(ctx context.Context, obj *types.StateChange) ([]string, error) {
-	if obj.Flags == nil {
-		return []string{}, nil
-	}
-	return []string(obj.Flags), nil
-}
-
-// KeyValue is the resolver for the keyValue field.
-// Handles JSONB key-value data conversion to JSON string
-func (r *stateChangeResolver) KeyValue(ctx context.Context, obj *types.StateChange) (*string, error) {
-	if obj.KeyValue == nil {
-		return nil, nil
-	}
-	// Marshal Go object to JSON for GraphQL
-	jsonBytes, err := json.Marshal(obj.KeyValue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal keyValue: %w", err)
-	}
-	jsonString := string(jsonBytes)
-	return &jsonString, nil
+// Account is the resolver for the account field.
+func (r *accountChangeResolver) Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Operation is the resolver for the operation field.
-func (r *stateChangeResolver) Operation(ctx context.Context, obj *types.StateChange) (*types.Operation, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{}, "operations")
-
-	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
-	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
-	}
-	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, err
-	}
-	return operations, nil
+func (r *accountChangeResolver) Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *stateChangeResolver) Transaction(ctx context.Context, obj *types.StateChange) (*types.Transaction, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
-
-	stateChangeID := fmt.Sprintf("%d-%d", obj.ToID, obj.StateChangeOrder)
-	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: stateChangeID,
-		Columns:       strings.Join(dbColumns, ", "),
-	}
-	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
-	if err != nil {
-		return nil, err
-	}
-	return transaction, nil
+func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
-// StateChange returns graphql1.StateChangeResolver implementation.
-func (r *Resolver) StateChange() graphql1.StateChangeResolver { return &stateChangeResolver{r} }
+// TokenID is the resolver for the tokenId field.
+func (r *accountChangeResolver) TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TokenID), nil
+}
 
-type stateChangeResolver struct{ *Resolver }
+// Amount is the resolver for the amount field.
+func (r *accountChangeResolver) Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount), nil
+}
+
+// Type is the resolver for the type field.
+func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *balanceAuthorizationChangeResolver) Account(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *balanceAuthorizationChangeResolver) Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Flags is the resolver for the flags field.
+func (r *balanceAuthorizationChangeResolver) Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error) {
+	return obj.Flags, nil
+}
+
+// KeyValue is the resolver for the keyValue field.
+func (r *balanceAuthorizationChangeResolver) KeyValue(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.KeyValue)
+}
+
+// Type is the resolver for the type field.
+func (r *flagsChangeResolver) Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *flagsChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *flagsChangeResolver) Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *flagsChangeResolver) Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *flagsChangeResolver) Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Flags is the resolver for the flags field.
+func (r *flagsChangeResolver) Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error) {
+	return obj.Flags, nil
+}
+
+// Type is the resolver for the type field.
+func (r *metadataChangeResolver) Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *metadataChangeResolver) Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *metadataChangeResolver) Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *metadataChangeResolver) Operation(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *metadataChangeResolver) Transaction(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// KeyValue is the resolver for the keyValue field.
+func (r *metadataChangeResolver) KeyValue(ctx context.Context, obj *types.MetadataStateChangeModel) (string, error) {
+	return r.resolveRequiredJSONBField(obj.KeyValue)
+}
+
+// Type is the resolver for the type field.
+func (r *reservesChangeResolver) Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *reservesChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *reservesChangeResolver) Account(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *reservesChangeResolver) Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *reservesChangeResolver) Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// SponsoredAddress is the resolver for the sponsoredAddress field.
+func (r *reservesChangeResolver) SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.SponsoredAccountID), nil
+}
+
+// SponsorAddress is the resolver for the sponsorAddress field.
+func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.SponsorAccountID), nil
+}
+
+// Type is the resolver for the type field.
+func (r *signerChangeResolver) Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *signerChangeResolver) Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *signerChangeResolver) Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *signerChangeResolver) Operation(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *signerChangeResolver) Transaction(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// SignerAddress is the resolver for the signerAddress field.
+func (r *signerChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.SignerAccountID), nil
+}
+
+// SignerWeights is the resolver for the signerWeights field.
+func (r *signerChangeResolver) SignerWeights(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.SignerWeights)
+}
+
+// Type is the resolver for the type field.
+func (r *signerThresholdsChangeResolver) Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *signerThresholdsChangeResolver) Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *signerThresholdsChangeResolver) Account(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *signerThresholdsChangeResolver) Operation(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *signerThresholdsChangeResolver) Transaction(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Thresholds is the resolver for the thresholds field.
+func (r *signerThresholdsChangeResolver) Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error) {
+	return r.resolveRequiredJSONBField(obj.Thresholds)
+}
+
+// Type is the resolver for the type field.
+func (r *standardBalanceChangeResolver) Type(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *standardBalanceChangeResolver) Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *standardBalanceChangeResolver) Account(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *standardBalanceChangeResolver) Operation(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *standardBalanceChangeResolver) Transaction(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *standardBalanceChangeResolver) TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TokenID), nil
+}
+
+// Amount is the resolver for the amount field.
+func (r *standardBalanceChangeResolver) Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount), nil
+}
+
+// Type is the resolver for the type field.
+func (r *trustlineChangeResolver) Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *trustlineChangeResolver) Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error) {
+	return *obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *trustlineChangeResolver) Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Operation is the resolver for the operation field.
+func (r *trustlineChangeResolver) Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// Limit is the resolver for the limit field.
+func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error) {
+	return r.resolveRequiredJSONBField(obj.TrustlineLimit)
+}
+
+// AccountChange returns graphql1.AccountChangeResolver implementation.
+func (r *Resolver) AccountChange() graphql1.AccountChangeResolver { return &accountChangeResolver{r} }
+
+// BalanceAuthorizationChange returns graphql1.BalanceAuthorizationChangeResolver implementation.
+func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationChangeResolver {
+	return &balanceAuthorizationChangeResolver{r}
+}
+
+// FlagsChange returns graphql1.FlagsChangeResolver implementation.
+func (r *Resolver) FlagsChange() graphql1.FlagsChangeResolver { return &flagsChangeResolver{r} }
+
+// MetadataChange returns graphql1.MetadataChangeResolver implementation.
+func (r *Resolver) MetadataChange() graphql1.MetadataChangeResolver {
+	return &metadataChangeResolver{r}
+}
+
+// ReservesChange returns graphql1.ReservesChangeResolver implementation.
+func (r *Resolver) ReservesChange() graphql1.ReservesChangeResolver {
+	return &reservesChangeResolver{r}
+}
+
+// SignerChange returns graphql1.SignerChangeResolver implementation.
+func (r *Resolver) SignerChange() graphql1.SignerChangeResolver { return &signerChangeResolver{r} }
+
+// SignerThresholdsChange returns graphql1.SignerThresholdsChangeResolver implementation.
+func (r *Resolver) SignerThresholdsChange() graphql1.SignerThresholdsChangeResolver {
+	return &signerThresholdsChangeResolver{r}
+}
+
+// StandardBalanceChange returns graphql1.StandardBalanceChangeResolver implementation.
+func (r *Resolver) StandardBalanceChange() graphql1.StandardBalanceChangeResolver {
+	return &standardBalanceChangeResolver{r}
+}
+
+// TrustlineChange returns graphql1.TrustlineChangeResolver implementation.
+func (r *Resolver) TrustlineChange() graphql1.TrustlineChangeResolver {
+	return &trustlineChangeResolver{r}
+}
+
+type (
+	accountChangeResolver              struct{ *Resolver }
+	balanceAuthorizationChangeResolver struct{ *Resolver }
+	flagsChangeResolver                struct{ *Resolver }
+	metadataChangeResolver             struct{ *Resolver }
+	reservesChangeResolver             struct{ *Resolver }
+	signerChangeResolver               struct{ *Resolver }
+	signerThresholdsChangeResolver     struct{ *Resolver }
+	standardBalanceChangeResolver      struct{ *Resolver }
+	trustlineChangeResolver            struct{ *Resolver }
+)

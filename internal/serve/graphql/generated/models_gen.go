@@ -3,8 +3,22 @@
 package graphql
 
 import (
+	"time"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+type BaseStateChange interface {
+	IsBaseStateChange()
+	GetType() types.StateChangeCategory
+	GetReason() types.StateChangeReason
+	GetIngestedAt() time.Time
+	GetLedgerCreatedAt() time.Time
+	GetLedgerNumber() uint32
+	GetAccount() *types.Account
+	GetOperation() *types.Operation
+	GetTransaction() *types.Transaction
+}
 
 type BuildTransactionInput struct {
 	Transaction *TransactionInput `json:"transaction"`
@@ -37,6 +51,23 @@ type DeregisterAccountPayload struct {
 type Mutation struct {
 }
 
+type OperationConnection struct {
+	Edges    []*OperationEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo        `json:"pageInfo"`
+}
+
+type OperationEdge struct {
+	Node   *types.Operation `json:"node,omitempty"`
+	Cursor string           `json:"cursor"`
+}
+
+type PageInfo struct {
+	StartCursor     *string `json:"startCursor,omitempty"`
+	EndCursor       *string `json:"endCursor,omitempty"`
+	HasNextPage     bool    `json:"hasNextPage"`
+	HasPreviousPage bool    `json:"hasPreviousPage"`
+}
+
 type Query struct {
 }
 
@@ -56,6 +87,26 @@ type SimulationResultInput struct {
 	Results         []string `json:"results,omitempty"`
 	LatestLedger    *int32   `json:"latestLedger,omitempty"`
 	Error           *string  `json:"error,omitempty"`
+}
+
+type StateChangeConnection struct {
+	Edges    []*StateChangeEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type StateChangeEdge struct {
+	Node   BaseStateChange `json:"node,omitempty"`
+	Cursor string          `json:"cursor"`
+}
+
+type TransactionConnection struct {
+	Edges    []*TransactionEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo          `json:"pageInfo"`
+}
+
+type TransactionEdge struct {
+	Node   *types.Transaction `json:"node,omitempty"`
+	Cursor string             `json:"cursor"`
 }
 
 type TransactionInput struct {

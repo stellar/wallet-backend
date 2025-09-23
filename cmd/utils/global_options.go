@@ -174,6 +174,16 @@ func EndLedgerOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func GetLedgersLimitOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "get-ledgers-limit",
+		Usage:       `The limit for the number of ledgers to fetch from the RPC in a single "getLedgers" call. In production, don't go above 10 if unless your RPC instance has the MAX_GET_LEDGERS_EXECUTION_DURATION >= 5s.`,
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 10,
+	}
+}
+
 func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) config.ConfigOptions {
 	awsOpts := config.ConfigOptions{
 		{
@@ -193,6 +203,17 @@ func AWSOptions(awsRegionConfigKey *string, kmsKeyARN *string, required bool) co
 		},
 	}
 	return awsOpts
+}
+
+func NetworkOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "network",
+		Usage:       "Stellar network to connect to",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "testnet",
+		Required:    true,
+	}
 }
 
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {

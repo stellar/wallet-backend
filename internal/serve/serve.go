@@ -36,6 +36,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
+	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -44,13 +45,15 @@ import (
 var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
-	Port                    int
-	DatabaseURL             string
-	ServerBaseURL           string
-	ClientAuthPublicKeys    []string
-	LogLevel                logrus.Level
-	EncryptionPassphrase    string
-	NumberOfChannelAccounts int
+	Port                        int
+	DatabaseURL                 string
+	ServerBaseURL               string
+	ClientAuthPublicKeys        []string
+	ClientAuthMaxTimeoutSeconds int
+	ClientAuthMaxBodySizeBytes  int
+	LogLevel                    logrus.Level
+	EncryptionPassphrase        string
+	NumberOfChannelAccounts     int
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -122,11 +125,11 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Second*5, cfg.ClientAuthPublicKeys...)
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, auth.DefaultMaxBodySize)
+	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, metricsService)
@@ -170,6 +173,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		RPCService:                         rpcService,
 		BaseFee:                            int64(cfg.BaseFee),
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
+		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
 		ChannelAccountStore:                store.NewChannelAccountModel(dbConnectionPool),
 		PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 		EncryptionPassphrase:               cfg.EncryptionPassphrase,
@@ -200,7 +204,7 @@ func ensureChannelAccounts(ctx context.Context, channelAccountService services.C
 		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
 		return
 	}
-	log.Ctx(ctx).Infof("Ensured that at least %d channel accounts exist in the database", numberOfChannelAccounts)
+	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
 // customErrorPresenter provides more detailed error messages for GraphQL validation errors
@@ -249,20 +253,25 @@ func handler(deps handlerDeps) http.Handler {
 	}.GetHealth)
 	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
-	// Authenticated routes
+	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		// Apply authentication middleware only if auth verifier is configured
+		if deps.RequestAuthVerifier != nil {
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		}
 
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
 			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
 
+			config := generated.Config{
+				Resolvers: resolver,
+			}
+			addComplexityCalculation(&config)
 			srv := gqlhandler.New(
 				generated.NewExecutableSchema(
-					generated.Config{
-						Resolvers: resolver,
-					},
+					config,
 				),
 			)
 			srv.AddTransport(transport.Options{})
@@ -274,9 +283,72 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			srv.SetErrorPresenter(customErrorPresenter)
+			srv.Use(extension.FixedComplexityLimit(1000))
+
+			// Add complexity logging - reports all queries with their complexity values
+			reporter := middleware.NewComplexityLogger()
+			srv.Use(complexityreporter.NewExtension(reporter))
+
 			r.Handle("/query", srv)
 		})
 	})
 
 	return mux
+}
+
+func addComplexityCalculation(config *generated.Config) {
+	/*
+		Complexity Calculation
+		--------------------------------
+		Complexity is a measure of the computational cost of a query.
+		It is used to determine the performance of a query and to prevent
+		queries that are too complex from being executed.
+
+		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
+		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
+		to calculate the final complexity.
+
+		For example, for the following query, the complexity is calculated as follows:
+		--------------------------------
+		transactions(first: 10) {
+				edges {
+					node {
+						hash
+						operations(first: 2) {
+							edges {
+								node {
+									id
+									stateChanges(first: 5) {
+										edges {
+											node {
+												stateChangeCategory
+												stateChangeReason
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		--------------------------------
+		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
+		--------------------------------
+	*/
+	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, after *string, last *int32, before *string) int {
+		limit := 10 // default limit when no pagination parameters provided
+		if first != nil {
+			limit = int(*first)
+		} else if last != nil {
+			limit = int(*last)
+		}
+		return childComplexity * limit
+	}
+	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
+	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
 }

@@ -91,8 +91,8 @@ func TestAccountModelDelete(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, err := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
-		require.NoError(t, err)
+		result, insertErr := m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		require.NoError(t, insertErr)
 		rowAffected, err := result.RowsAffected()
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowAffected)
@@ -292,4 +292,68 @@ func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
 	isFeeBumpEligible, err = m.IsAccountFeeBumpEligible(ctx, address)
 	require.NoError(t, err)
 	assert.True(t, isFeeBumpEligible)
+}
+
+func TestAccountModelBatchGetByStateChangeIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	m := &AccountModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+	address1 := keypair.MustRandom().Address()
+	address2 := keypair.MustRandom().Address()
+	toID1 := int64(100)
+	toID2 := int64(200)
+	stateChangeOrder1 := int64(1)
+	stateChangeOrder2 := int64(1)
+
+	// Insert test accounts
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", address1, address2)
+	require.NoError(t, err)
+
+	// Insert test transactions first
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at) VALUES ('tx1', 1, 'env1', 'res1', 'meta1', 1, NOW()), ('tx2', 2, 'env2', 'res2', 'meta2', 2, NOW())")
+	require.NoError(t, err)
+
+	// Insert test operations first
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at) VALUES (1, 'tx1', 'payment', 'xdr1', 1, NOW()), (2, 'tx2', 'payment', 'xdr2', 2, NOW())")
+	require.NoError(t, err)
+
+	// Insert test state changes that reference the accounts
+	_, err = m.DB.ExecContext(ctx, `
+		INSERT INTO state_changes (
+			to_id, state_change_order, state_change_category, ledger_created_at, 
+			ledger_number, account_id, operation_id, tx_hash
+		) VALUES 
+		($1, $2, 'CREDIT', NOW(), 1, $3, 1, 'tx1'),
+		($4, $5, 'DEBIT', NOW(), 2, $6, 2, 'tx2')
+	`, toID1, stateChangeOrder1, address1, toID2, stateChangeOrder2, address2)
+	require.NoError(t, err)
+
+	// Test BatchGetByStateChangeIDs function
+	scToIDs := []int64{toID1, toID2}
+	scOrders := []int64{stateChangeOrder1, stateChangeOrder2}
+	accounts, err := m.BatchGetByStateChangeIDs(ctx, scToIDs, scOrders, "")
+	require.NoError(t, err)
+	assert.Len(t, accounts, 2)
+
+	// Verify accounts are returned with correct state_change_id
+	addressSet := make(map[string]string)
+	for _, acc := range accounts {
+		addressSet[acc.StellarAddress] = acc.StateChangeID
+	}
+	assert.Equal(t, "100-1", addressSet[address1])
+	assert.Equal(t, "200-1", addressSet[address2])
 }

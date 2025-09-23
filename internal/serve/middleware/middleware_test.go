@@ -31,7 +31,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 	jwtParser, err := auth.NewJWTTokenParser(10*time.Second, kpValid.Address())
 	require.NoError(t, err)
-	reqJWTVerifier := auth.NewHTTPRequestVerifier(jwtParser, auth.DefaultMaxBodySize)
+	reqJWTVerifier := auth.NewHTTPRequestVerifier(jwtParser, auth.DefaultMaxBodySizeBytes)
 
 	validJWTGenerator, err := auth.NewJWTTokenGenerator(kpValid.Seed())
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 		{
 			name: "🔴body_too_big",
 			setupRequest: func() *http.Request {
-				req := httptest.NewRequest("GET", "https://test.com/authenticated", bytes.NewBuffer(make([]byte, auth.DefaultMaxBodySize+1)))
+				req := httptest.NewRequest("GET", "https://test.com/authenticated", bytes.NewBuffer(make([]byte, auth.DefaultMaxBodySizeBytes+1)))
 				err := validSigner.SignHTTPRequest(req, time.Second*5)
 				require.NoError(t, err)
 				return req

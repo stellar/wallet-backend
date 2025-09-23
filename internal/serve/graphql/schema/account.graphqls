@@ -7,14 +7,12 @@ type Account{
   # Each relationship resolver will be called when the field is requested
   
   # All transactions associated with this account
-  # Uses dataloader for efficient batching to prevent N+1 queries
-  transactions:   [Transaction!]!
+  transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
   
   # All operations associated with this account
-  # Uses dataloader for efficient batching to prevent N+1 queries
-  operations:     [Operation!]!
+  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges:   [StateChange!]!
+  stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
 }

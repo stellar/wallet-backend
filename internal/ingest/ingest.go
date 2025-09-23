@@ -36,7 +36,9 @@ type Configs struct {
 	LogLevel          logrus.Level
 	AppTracker        apptracker.AppTracker
 	RPCURL            string
+	Network           string
 	NetworkPassphrase string
+	GetLedgersLimit   int
 }
 
 func Ingest(cfg Configs) error {
@@ -80,7 +82,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

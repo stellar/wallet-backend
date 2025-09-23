@@ -6,6 +6,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -22,7 +23,7 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 	// Extract dataloaders from GraphQL context
 	// Dataloaders are injected by middleware to batch database queries
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{}, "transactions")
+	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
 	loaderKey := dataloaders.TransactionColumnsKey{
 		OperationID: obj.ID,
@@ -44,7 +45,7 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.Account{}, "accounts")
+	dbColumns := GetDBColumnsForFields(ctx, types.Account{})
 
 	loaderKey := dataloaders.AccountColumnsKey{
 		OperationID: obj.ID,
@@ -64,22 +65,45 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // This is a field resolver - it resolves the "stateChanges" field on an Operation object
 // gqlgen calls this when a GraphQL query requests the stateChanges field on an Operation
 // Field resolvers receive the parent object (Operation) and return the field value
-func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation) ([]*types.StateChange, error) {
-	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{}, "")
+func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
+	params, err := parsePaginationParams(first, after, last, before, true)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pagination params: %w", err)
+	}
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
 		OperationID: obj.ID,
 		Columns:     strings.Join(dbColumns, ", "),
+		Limit:       &queryLimit,
+		Cursor:      params.StateChangeCursor,
+		SortOrder:   params.SortOrder,
 	}
 
-	// Use dataloader to efficiently batch-load state changes for this operation
-	// This prevents N+1 queries when multiple operations request their state changes
 	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
 	}
-	return stateChanges, nil
+
+	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
+	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
+		return fmt.Sprintf("%d:%d", sc.cursor.ToID, sc.cursor.StateChangeOrder)
+	})
+
+	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.StateChangeEdge{
+			Node:   edge.Node.stateChange,
+			Cursor: edge.Cursor,
+		}
+	}
+
+	return &graphql1.StateChangeConnection{
+		Edges:    edges,
+		PageInfo: conn.PageInfo,
+	}, nil
 }
 
 // Operation returns graphql1.OperationResolver implementation.

@@ -1,8 +1,10 @@
 package resolvers
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/stellar/go/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,7 +36,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "tx1", tx.Hash)
-		assert.Equal(t, int64(1), tx.ToID)
+		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
 		assert.Equal(t, "envelope1", tx.EnvelopeXDR)
 		assert.Equal(t, "result1", tx.ResultXDR)
 		assert.Equal(t, "meta1", tx.MetaXDR)
@@ -75,44 +77,139 @@ func TestQueryResolver_Transactions(t *testing.T) {
 		},
 	}
 
-	t.Run("get all", func(t *testing.T) {
-		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
-		txs, err := resolver.Transactions(ctx, nil)
-		require.NoError(t, err)
-		assert.Len(t, txs, 4)
-	})
-
-	t.Run("get with limit", func(t *testing.T) {
-		ctx := getTestCtx("transactions", []string{"hash", "toId", "envelopeXdr", "resultXdr", "metaXdr", "ledgerNumber", "ledgerCreatedAt"})
-		limit := int32(1)
-		txs, err := resolver.Transactions(ctx, &limit)
-		require.NoError(t, err)
-		assert.Len(t, txs, 1)
-	})
-
-	t.Run("negative limit error", func(t *testing.T) {
+	t.Run("get all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		limit := int32(-1)
-		txs, err := resolver.Transactions(ctx, &limit)
+		transactions, err := resolver.Transactions(ctx, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		require.Len(t, transactions.Edges, 4)
+		assert.Equal(t, "tx1", transactions.Edges[0].Node.Hash)
+		assert.Equal(t, "tx2", transactions.Edges[1].Node.Hash)
+		assert.Equal(t, "tx3", transactions.Edges[2].Node.Hash)
+		assert.Equal(t, "tx4", transactions.Edges[3].Node.Hash)
+	})
+
+	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		first := int32(2)
+		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx2", txs.Edges[1].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.False(t, txs.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		first = int32(1)
+		nextCursor := txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
+
+		// Get the previous cursor
+		first = int32(10)
+		nextCursor = txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx4", txs.Edges[0].Node.Hash)
+		assert.False(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		last := int32(2)
+		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 2)
+		assert.Equal(t, "tx3", txs.Edges[0].Node.Hash)
+		assert.Equal(t, "tx4", txs.Edges[1].Node.Hash)
+		assert.False(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		last = int32(1)
+		nextCursor := txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx2", txs.Edges[0].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.True(t, txs.PageInfo.HasPreviousPage)
+
+		nextCursor = txs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		last = int32(10)
+		txs, err = resolver.Transactions(ctx, nil, nil, &last, nextCursor)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 1)
+		assert.Equal(t, "tx1", txs.Edges[0].Node.Hash)
+		assert.True(t, txs.PageInfo.HasNextPage)
+		assert.False(t, txs.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("returns error when first is negative", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		first := int32(-1)
+		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, txs)
-		assert.Contains(t, err.Error(), "limit must be non-negative")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
-	t.Run("zero limit", func(t *testing.T) {
+	t.Run("returns error when last is negative", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		limit := int32(0)
-		txs, err := resolver.Transactions(ctx, &limit)
-		require.NoError(t, err)
-		assert.Len(t, txs, 0)
+		last := int32(-1)
+		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, txs)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
 	})
 
-	t.Run("limit larger than available data", func(t *testing.T) {
+	t.Run("returns error when first is zero", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		limit := int32(100)
-		txs, err := resolver.Transactions(ctx, &limit)
+		first := int32(0)
+		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, txs)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
+	})
+
+	t.Run("returns error when last is zero", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		last := int32(0)
+		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, txs)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
+	})
+
+	t.Run("first parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		first := int32(100)
+		txs, err := resolver.Transactions(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, txs, 4)
+		assert.Len(t, txs.Edges, 4)
+		assert.False(t, txs.PageInfo.HasNextPage)
+		assert.False(t, txs.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("last parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		last := int32(100)
+		txs, err := resolver.Transactions(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, txs.Edges, 4)
+		assert.False(t, txs.PageInfo.HasNextPage)
+		assert.False(t, txs.PageInfo.HasPreviousPage)
 	})
 }
 
@@ -134,19 +231,19 @@ func TestQueryResolver_Account(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "test-account")
+		acc, err := resolver.AccountByAddress(testCtx, "test-account")
 		require.NoError(t, err)
 		assert.Equal(t, "test-account", acc.StellarAddress)
 	})
 
 	t.Run("non-existent account", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "non-existent-account")
+		acc, err := resolver.AccountByAddress(testCtx, "non-existent-account")
 		require.Error(t, err)
 		assert.Nil(t, acc)
 	})
 
 	t.Run("empty address", func(t *testing.T) {
-		acc, err := resolver.Account(testCtx, "")
+		acc, err := resolver.AccountByAddress(testCtx, "")
 		require.Error(t, err)
 		assert.Nil(t, acc)
 	})
@@ -169,36 +266,203 @@ func TestQueryResolver_Operations(t *testing.T) {
 		},
 	}
 
-	t.Run("get all", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
-		ops, err := resolver.Operations(ctx, nil)
+	t.Run("get all operations", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		operations, err := resolver.Operations(ctx, nil, nil, nil, nil)
+
 		require.NoError(t, err)
-		assert.Len(t, ops, 8)
+		require.Len(t, operations.Edges, 8)
+		// Operations are ordered by ID ascending
+		assert.Equal(t, "opxdr1", operations.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", operations.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", operations.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr4", operations.Edges[3].Node.OperationXDR)
 	})
 
-	t.Run("get with limit", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id", "operationType", "operationXdr", "txHash", "ledgerNumber", "ledgerCreatedAt"})
-		limit := int32(1)
-		ops, err := resolver.Operations(ctx, &limit)
+	t.Run("get operations with first/after limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		first := int32(2)
+		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, ops, 1)
+		assert.Len(t, ops.Edges, 2)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		first = int32(1)
+		nextCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr3", ops.Edges[0].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+
+		// Get the next page
+		first = int32(10)
+		nextCursor = ops.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		ops, err = resolver.Operations(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 5)
+		assert.Equal(t, "opxdr4", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr6", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr7", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, "opxdr8", ops.Edges[4].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
 	})
 
-	t.Run("negative limit error", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
-		limit := int32(-5)
-		ops, err := resolver.Operations(ctx, &limit)
+	t.Run("get operations with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		last := int32(2)
+		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 2)
+		// With backward pagination, we get the last 2 items
+		assert.Equal(t, "opxdr7", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr8", ops.Edges[1].Node.OperationXDR)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+
+		// Get the previous page
+		last = int32(1)
+		prevCursor := ops.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 1)
+		assert.Equal(t, "opxdr6", ops.Edges[0].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.True(t, ops.PageInfo.HasPreviousPage)
+
+		prevCursor = ops.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		last = int32(10)
+		ops, err = resolver.Operations(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		// There are 5 operations before (2,1): (2,2), (3,1), (3,2), (4,1), (4,2)
+		assert.Len(t, ops.Edges, 5)
+		assert.Equal(t, "opxdr1", ops.Edges[0].Node.OperationXDR)
+		assert.Equal(t, "opxdr2", ops.Edges[1].Node.OperationXDR)
+		assert.Equal(t, "opxdr3", ops.Edges[2].Node.OperationXDR)
+		assert.Equal(t, "opxdr4", ops.Edges[3].Node.OperationXDR)
+		assert.Equal(t, "opxdr5", ops.Edges[4].Node.OperationXDR)
+		assert.True(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("returns error when first is negative", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		first := int32(-1)
+		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, ops)
-		assert.Contains(t, err.Error(), "limit must be non-negative")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
-	t.Run("zero limit", func(t *testing.T) {
-		ctx := getTestCtx("operations", []string{"id"})
-		limit := int32(0)
-		ops, err := resolver.Operations(ctx, &limit)
+	t.Run("returns error when last is negative", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		last := int32(-1)
+		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, ops)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
+	})
+
+	t.Run("returns error when first is zero", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		first := int32(0)
+		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, ops)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
+	})
+
+	t.Run("returns error when last is zero", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		last := int32(0)
+		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, ops)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
+	})
+
+	t.Run("first parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		first := int32(100)
+		ops, err := resolver.Operations(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, ops, 0)
+		assert.Len(t, ops.Edges, 8)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("last parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"operation_xdr"})
+		last := int32(100)
+		ops, err := resolver.Operations(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, ops.Edges, 8)
+		assert.False(t, ops.PageInfo.HasNextPage)
+		assert.False(t, ops.PageInfo.HasPreviousPage)
+	})
+}
+
+func TestQueryResolver_OperationByID(t *testing.T) {
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &queryResolver{
+		&Resolver{
+			models: &data.Models{
+				Operations: &data.OperationModel{
+					DB:             testDBConnectionPool,
+					MetricsService: mockMetricsService,
+				},
+			},
+		},
+	}
+
+	t.Run("success", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{""})
+		op, err := resolver.OperationByID(ctx, toid.New(1000, 1, 1).ToInt64())
+
+		require.NoError(t, err)
+		assert.Equal(t, toid.New(1000, 1, 1).ToInt64(), op.ID)
+		assert.Equal(t, "opxdr1", op.OperationXDR)
+		assert.Equal(t, "tx1", op.TxHash)
+		assert.Equal(t, uint32(1), op.LedgerNumber)
+	})
+
+	t.Run("non-existent ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, 999)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
+	})
+
+	t.Run("zero ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, 0)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
+	})
+
+	t.Run("negative ID", func(t *testing.T) {
+		ctx := getTestCtx("operations", []string{"id"})
+		op, err := resolver.OperationByID(ctx, -1)
+
+		require.Error(t, err)
+		assert.Nil(t, op)
 	})
 }
 
@@ -220,50 +484,138 @@ func TestQueryResolver_StateChanges(t *testing.T) {
 	}
 
 	t.Run("get all", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, nil)
+		ctx := getTestCtx("state_changes", []string{})
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 20)
-		// Verify the state changes have the expected account ID
-		assert.Equal(t, "test-account", scs[0].AccountID)
+		assert.Len(t, stateChanges.Edges, 20)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
 	})
 
-	t.Run("get with limit", func(t *testing.T) {
-		limit := int32(3)
-		ctx := getTestCtx("state_changes", []string{"stateChangeCategory", "txHash", "operationId", "accountId", "ledgerCreatedAt", "ledgerNumber"})
-		scs, err := resolver.StateChanges(ctx, &limit)
+	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(2)
+		scs, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 3)
-		assert.Equal(t, int64(1008), scs[0].ToID)
-		assert.Equal(t, int64(2), scs[0].StateChangeOrder)
-		assert.Equal(t, int64(1008), scs[1].ToID)
-		assert.Equal(t, int64(1), scs[1].StateChangeOrder)
-		assert.Equal(t, int64(1007), scs[2].ToID)
-		assert.Equal(t, int64(2), scs[2].StateChangeOrder)
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
+		assert.True(t, scs.PageInfo.HasNextPage)
+		assert.False(t, scs.PageInfo.HasPreviousPage)
+
+		// Get the next cursor
+		nextCursor := scs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, scs.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
+		assert.True(t, scs.PageInfo.HasNextPage)
+		assert.True(t, scs.PageInfo.HasPreviousPage)
+
+		// Get the next page with larger limit
+		first = int32(20)
+		nextCursor = scs.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		scs, err = resolver.StateChanges(ctx, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.Len(t, scs.Edges, 16) // Should return next 10 items
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[0].Node).ToID, extractStateChangeIDs(scs.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(scs.Edges[1].Node).ToID, extractStateChangeIDs(scs.Edges[1].Node).StateChangeOrder))
+		assert.False(t, scs.PageInfo.HasNextPage)
+		assert.True(t, scs.PageInfo.HasPreviousPage)
 	})
 
-	t.Run("negative limit error", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(-10)
-		scs, err := resolver.StateChanges(ctx, &limit)
+	t.Run("get state changes with last/before limit and cursor", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get the previous page
+		prevCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get more previous items
+		prevCursor = stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, prevCursor)
+		last = int32(20)
+		stateChanges, err = resolver.StateChanges(ctx, nil, nil, &last, prevCursor)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 16)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage) // We're at the beginning
+	})
+
+	t.Run("returns error when first is negative", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(-1)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.Error(t, err)
-		assert.Nil(t, scs)
-		assert.Contains(t, err.Error(), "limit must be non-negative")
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 	})
 
-	t.Run("zero limit", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(0)
-		scs, err := resolver.StateChanges(ctx, &limit)
-		require.NoError(t, err)
-		assert.Len(t, scs, 0)
+	t.Run("returns error when last is negative", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(-1)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
 	})
 
-	t.Run("limit larger than available data", func(t *testing.T) {
-		ctx := getTestCtx("state_changes", []string{"accountId"})
-		limit := int32(50)
-		scs, err := resolver.StateChanges(ctx, &limit)
+	t.Run("returns error when first is zero", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(0)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "first must be greater than 0")
+	})
+
+	t.Run("returns error when last is zero", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(0)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Nil(t, stateChanges)
+		assert.Contains(t, err.Error(), "last must be greater than 0")
+	})
+
+	t.Run("first parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		first := int32(100)
+		stateChanges, err := resolver.StateChanges(ctx, &first, nil, nil, nil)
 		require.NoError(t, err)
-		assert.Len(t, scs, 20)
+		assert.Len(t, stateChanges.Edges, 20) // Total available state changes
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("last parameter's value larger than available data", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{})
+		last := int32(100)
+		stateChanges, err := resolver.StateChanges(ctx, nil, nil, &last, nil)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges.Edges, 20) // Total available state changes
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 }

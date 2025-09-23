@@ -2,6 +2,7 @@ package dataloaders
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -9,56 +10,56 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+const (
+	// TODO: this should be configurable via config
+	MaxStateChangesPerBatch = 10
+)
+
 type StateChangeColumnsKey struct {
+	TxHash      string
 	AccountID   string
 	OperationID int64
-	TxHash      string
 	Columns     string
-}
-
-// StateChangesByAccountLoader creates a dataloader for fetching state changes by account address
-func StateChangesByAccountLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
-	return newOneToManyLoader(
-		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
-			accountIDs := make([]string, len(keys))
-			columns := keys[0].Columns
-			for i, key := range keys {
-				accountIDs[i] = key.AccountID
-			}
-			return models.StateChanges.BatchGetByAccountAddresses(ctx, accountIDs, columns)
-		},
-		func(item *types.StateChange) string {
-			return item.AccountID
-		},
-		func(key StateChangeColumnsKey) string {
-			return key.AccountID
-		},
-		func(item *types.StateChange) types.StateChange {
-			return *item
-		},
-	)
+	Limit       *int32
+	Cursor      *types.StateChangeCursor
+	SortOrder   data.SortOrder
 }
 
 // stateChangesByTxHashLoader creates a dataloader for fetching state changes by transaction hash
 // This prevents N+1 queries when multiple transactions request their state changes
 // The loader batches multiple transaction hashes into a single database query
-func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
-			txHashes := make([]string, len(keys))
+		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
+			// Add the tx_hash column since that will be used as the primary key to group the state changes
+			// in the final result.
 			columns := keys[0].Columns
+			if columns != "" {
+				columns = fmt.Sprintf("%s, tx_hash", columns)
+			}
+			sortOrder := keys[0].SortOrder
+			limit := keys[0].Limit
+
+			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
+			// Also, when a single key is requested, we can allow using normal cursor based pagination.
+			if len(keys) == 1 {
+				return models.StateChanges.BatchGetByTxHash(ctx, keys[0].TxHash, columns, limit, keys[0].Cursor, sortOrder)
+			}
+
+			txHashes := make([]string, len(keys))
+			maxLimit := min(*limit, MaxStateChangesPerBatch)
 			for i, key := range keys {
 				txHashes[i] = key.TxHash
 			}
-			return models.StateChanges.BatchGetByTxHashes(ctx, txHashes, columns)
+			return models.StateChanges.BatchGetByTxHashes(ctx, txHashes, columns, &maxLimit, sortOrder)
 		},
-		func(item *types.StateChange) string {
+		func(item *types.StateChangeWithCursor) string {
 			return item.TxHash
 		},
 		func(key StateChangeColumnsKey) string {
 			return key.TxHash
 		},
-		func(item *types.StateChange) types.StateChange {
+		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
 	)
@@ -67,23 +68,37 @@ func stateChangesByTxHashLoader(models *data.Models) *dataloadgen.Loader[StateCh
 // stateChangesByOperationIDLoader creates a dataloader for fetching state changes by operation ID
 // This prevents N+1 queries when multiple operations request their state changes
 // The loader batches multiple operation IDs into a single database query
-func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
-		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChange, error) {
-			operationIDs := make([]int64, len(keys))
+		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
+			// Add the operation_id column since that will be used as the primary key to group the state changes
+			// in the final result.
 			columns := keys[0].Columns
+			if columns != "" {
+				columns = fmt.Sprintf("%s, operation_id", columns)
+			}
+			sortOrder := keys[0].SortOrder
+			limit := keys[0].Limit
+
+			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
+			// Also, when a single key is requested, we can allow using normal cursor based pagination.
+			if len(keys) == 1 {
+				return models.StateChanges.BatchGetByOperationID(ctx, keys[0].OperationID, columns, limit, keys[0].Cursor, sortOrder)
+			}
+
+			operationIDs := make([]int64, len(keys))
 			for i, key := range keys {
 				operationIDs[i] = key.OperationID
 			}
-			return models.StateChanges.BatchGetByOperationIDs(ctx, operationIDs, columns)
+			return models.StateChanges.BatchGetByOperationIDs(ctx, operationIDs, columns, limit, sortOrder)
 		},
-		func(item *types.StateChange) int64 {
+		func(item *types.StateChangeWithCursor) int64 {
 			return item.OperationID
 		},
 		func(key StateChangeColumnsKey) int64 {
 			return key.OperationID
 		},
-		func(item *types.StateChange) types.StateChange {
+		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
 	)
