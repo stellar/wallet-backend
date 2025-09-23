@@ -275,6 +275,13 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 					"code": "NO_SIGNATURES_PROVIDED",
 				},
 			}
+		case errors.Is(err, services.ErrAccountNotEligibleForBeingSponsored):
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]any{
+					"code": "ACCOUNT_NOT_ELIGIBLE_FOR_BEING_SPONSORED",
+				},
+			}
 		default:
 			return nil, &gqlerror.Error{
 				Message: fmt.Sprintf("Failed to create fee bump transaction: %s", err.Error()),

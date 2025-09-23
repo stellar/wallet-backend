@@ -886,6 +886,57 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 		mockFeeBumpService.AssertExpectations(t)
 	})
 
+	t.Run("account not eligible for sponsorship", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		mockFeeBumpService.
+			On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).
+			Return("", "", services.ErrAccountNotEligibleForBeingSponsored)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrAccountNotEligibleForBeingSponsored.Error())
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "ACCOUNT_NOT_ELIGIBLE_FOR_BEING_SPONSORED", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
 	t.Run("no signatures provided", func(t *testing.T) {
 		mockFeeBumpService := &mockFeeBumpService{}
 
