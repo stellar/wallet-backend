@@ -89,6 +89,8 @@ services:
         condition: service_started
       db:
         condition: service_healthy
+      ingest-testnet:
+        condition: service_healthy
     ports:
       - 8002:8002
     entrypoint: ""
@@ -144,6 +146,8 @@ services:
       wallet-backend:
         condition: service_started
       db:
+        condition: service_healthy
+      ingest-mainnet:
         condition: service_healthy
     ports:
       - 8003:8003
