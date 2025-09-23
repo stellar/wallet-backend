@@ -259,7 +259,6 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 
 	feeBumpTxe, networkPassphrase, err := r.feeBumpService.WrapTransaction(ctx, tx)
 	if err != nil {
-		var opNotAllowedErr *services.OperationNotAllowedError
 		switch {
 		case errors.Is(err, services.ErrFeeExceedsMaximumBaseFee):
 			return nil, &gqlerror.Error{
@@ -274,13 +273,6 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 				Message: err.Error(),
 				Extensions: map[string]any{
 					"code": "NO_SIGNATURES_PROVIDED",
-				},
-			}
-		case errors.As(err, &opNotAllowedErr):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "OPERATION_NOT_ALLOWED",
 				},
 			}
 		default:
