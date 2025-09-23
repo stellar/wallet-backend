@@ -33,13 +33,13 @@ jobs:
         run: docker compose -f docker-compose.yaml down -v
         shell: bash
 
-      - name: Run Docker Compose (Without RPC)
-        run: docker compose -f docker-compose.yaml up --build -V -d api ingest --wait --scale stellar-rpc=0
+      - name: Run Docker Compose (Using SDF RPC Testnet)
+        run: docker compose -f docker-compose.yaml up --build -V -d api-testnet --wait
         shell: bash
 
       - name: Run Integration Tests
         shell: bash
-        run: docker exec api bash -c "./wallet-backend integration-tests --log-level=DEBUG"
+        run: docker exec api-testnet bash -c "./wallet-backend integration-tests --log-level=DEBUG"
 
       - name: Docker logs
         if: always()

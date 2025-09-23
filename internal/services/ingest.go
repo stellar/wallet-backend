@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"os/signal"
@@ -36,7 +37,6 @@ import (
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
-	advisoryLockID                          = int(3747555612780983)
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
@@ -44,6 +44,14 @@ const (
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
 	totalIngestionPrometheusLabel           = "total"
 )
+
+// generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
+// This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
+func generateAdvisoryLockID(network string) int {
+	h := fnv.New64a()
+	h.Write([]byte("wallet-backend-ingest-" + network))
+	return int(h.Sum64())
+}
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
@@ -54,6 +62,7 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	models            *data.Models
 	ledgerCursorName  string
+	advisoryLockID    int
 	appTracker        apptracker.AppTracker
 	rpcService        RPCService
 	chAccStore        store.ChannelAccountStore
@@ -72,6 +81,7 @@ func NewIngestService(
 	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
+	network string,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -101,6 +111,7 @@ func NewIngestService(
 	return &ingestService{
 		models:            models,
 		ledgerCursorName:  ledgerCursorName,
+		advisoryLockID:    generateAdvisoryLockID(network),
 		appTracker:        appTracker,
 		rpcService:        rpcService,
 		chAccStore:        chAccStore,
@@ -192,13 +203,13 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
 		return fmt.Errorf("acquiring advisory lock: %w", err)
 	} else if !lockAcquired {
 		return errors.New("advisory lock not acquired")
 	}
 	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, advisoryLockID); err != nil {
+		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
@@ -318,6 +329,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService)
 
 	// Submit tasks to the pool
+	startTime := time.Now()
 	for _, ledger := range getLedgersResponse.Ledgers {
 		pool.Submit(func() {
 			if err := m.processLedger(ctx, ledger, ledgerIndexer); err != nil {
@@ -334,11 +346,14 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	if len(errs) > 0 {
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
+	log.Ctx(ctx).Infof("🚧 Done processing %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
 
+	startTime = time.Now()
 	err := m.ingestProcessedData(ctx, ledgerIndexer)
 	if err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
+	log.Ctx(ctx).Infof("🚧 Done ingesting processed data in %vs", time.Since(startTime).Seconds())
 
 	// Log a summary
 	memStats := new(runtime.MemStats)

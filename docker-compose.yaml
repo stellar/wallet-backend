@@ -1,25 +1,50 @@
 services:
+  wallet-backend:
+    image: wallet-backend:latest
+    build:
+      context: ./
+      dockerfile: Dockerfile
+
   db:
     container_name: db
     image: postgres:14-alpine
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "wallet-backend"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wallet-backend"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 30s
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
       POSTGRES_DB: wallet-backend
       PGDATA: /data/postgres
+      POSTGRES_INITDB_ARGS: "--auth-host=trust"
     volumes:
       - postgres-db:/data/postgres
     ports:
       - 5432:5432
+    command: |
+      bash -c "
+      # Run default postgres initialization
+      /usr/local/bin/docker-entrypoint.sh postgres &
 
-  stellar-rpc:
-    container_name: stellar-rpc
-    image: stellar/stellar-rpc:stable
+      # Wait for startup
+      sleep 10
+
+      # Create schemas (only on first run)
+      if [ ! -f /data/postgres/schemas_created ]; then
+        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;'
+        psql -U postgres -d wallet-backend -c 'CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;'
+        touch /data/postgres/schemas_created
+      fi
+
+      # Keep postgres running
+      wait
+      "
+
+  stellar-rpc-mainnet:
+    container_name: stellar-rpc-mainnet
+    image: stellar/stellar-rpc:23.0.1
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
@@ -31,84 +56,197 @@ services:
     volumes:
       - ./config:/config
     environment:
-      NETWORK: ${NETWORK}
-    entrypoint: ["/bin/bash", "/config/soroban_rpc_startup.sh"]
+      NETWORK: pubnet
+    entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
 
-  api:
-    container_name: api
-    image: stellar/wallet-backend:development
+  stellar-rpc-testnet:
+    container_name: stellar-rpc-testnet
+    image: stellar/stellar-rpc:23.0.1
     healthcheck:
-      test: "curl --fail --silent --show-error --location 'http://localhost:8001/health' | grep -q '\"status\": \"ok\"'"
+      test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
       timeout: 10s
-      retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-      stellar-rpc:
-        condition: service_started
-      ingest:
-        condition: service_healthy
+      retries: 40
+      start_period: 10s
     ports:
-      - 8001:8001
-    entrypoint: ""
-    command:
-      - sh
-      - -c
-      - |
-        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
-        ./wallet-backend serve
+      - 8001:8000
+    volumes:
+      - ./config:/config
     environment:
-      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
-      PORT: 8001
-      SERVER_BASE_URL: http://api:8001
-      LOG_LEVEL: TRACE
-      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
-      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
-      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ${DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER}
-      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
+      NETWORK: testnet
+    entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
 
-      # Env Signature Client
-      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
-
-      # (optional) KMS Signature Client
-      KMS_KEY_ARN: ${KMS_KEY_ARN}
-      AWS_REGIONG: ${AWS_REGION}
-      # (optional) Using KMS locally is necessary to inject the AWS credentials envs.
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
-
-      # Channel Account
-      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
-      TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
-
-      # (optional) Integration Tests
-      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
-      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY}
-      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY}
-
-  ingest:
-    container_name: ingest
-    image: stellar/wallet-backend:development
+  api-testnet:
+    container_name: api-testnet
+    image: wallet-backend:latest
     healthcheck:
       test: "curl --fail --silent --show-error --location 'http://localhost:8002/health' | grep -q '\"status\": \"ok\"'"
       interval: 10s
       timeout: 10s
       retries: 3
-    build:
-      context: ./
-      dockerfile: Dockerfile
     depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
-      stellar-rpc:
-        condition: service_started
+      ingest-testnet:
+        condition: service_healthy
+    ports:
+      - 8002:8002
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS}
+        ./wallet-backend serve
+    environment:
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      PORT: 8002
+      SERVER_BASE_URL: ${SERVER_BASE_URL:-http://api-testnet:8002}
+      LOG_LEVEL: TRACE
+      NETWORK: testnet
+      NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
+      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
+      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
+      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ENV
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
+      TRACKER_DSN: ${TRACKER_DSN}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY}
+
+      # Integration Tests & Wallet Source Accounts
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
+      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY}
+      PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY}
+      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY}
+      SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY}
+      WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: ${WALLET_SOURCE_ACCOUNT_PRIVATE_KEY}
+      WALLET_SOURCE_ACCOUNT_PUBLIC_KEY: ${WALLET_SOURCE_ACCOUNT_PUBLIC_KEY}
+
+      # (optional) KMS Signature Client
+      KMS_KEY_ARN: ${KMS_KEY_ARN}
+      AWS_REGIONG: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+
+  api-mainnet:
+    container_name: api-mainnet
+    image: wallet-backend:latest
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8003/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      ingest-mainnet:
+        condition: service_healthy
+    ports:
+      - 8003:8003
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS}
+        ./wallet-backend serve
+    environment:
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      PORT: 8003
+      SERVER_BASE_URL: ${SERVER_BASE_URL:-http://api-mainnet:8003}
+      LOG_LEVEL: TRACE
+      NETWORK: mainnet
+      NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+      CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS}
+      DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
+      DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
+      DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ENV
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
+      CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
+      TRACKER_DSN: ${TRACKER_DSN}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      WALLET_SIGNING_KEY: ${WALLET_SIGNING_KEY}
+
+      # Integration Tests & Wallet Source Accounts
+      CLIENT_AUTH_PRIVATE_KEY: ${CLIENT_AUTH_PRIVATE_KEY}
+      PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY}
+      PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${PRIMARY_SOURCE_ACCOUNT_PUBLIC_KEY}
+      SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY}
+      SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY: ${SECONDARY_SOURCE_ACCOUNT_PUBLIC_KEY}
+      WALLET_SOURCE_ACCOUNT_PRIVATE_KEY: ${WALLET_SOURCE_ACCOUNT_PRIVATE_KEY}
+      WALLET_SOURCE_ACCOUNT_PUBLIC_KEY: ${WALLET_SOURCE_ACCOUNT_PUBLIC_KEY}
+
+      # (optional) KMS Signature Client
+      KMS_KEY_ARN: ${KMS_KEY_ARN}
+      AWS_REGIONG: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+
+  ingest-testnet:
+    container_name: ingest-testnet
+    image: wallet-backend:latest
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8004/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+    entrypoint: ""
+    command:
+      - sh
+      - -c
+      - |
+        sleep 5
+        ./wallet-backend migrate up
+        if [ "$STELLAR_ENVIRONMENT" = "GITHUB_WORKFLOW" ]; then
+          HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "${RPC_URL}")
+          LATEST_LEDGER=$(echo "$$HEALTH_RESPONSE" | grep -oE '"latestLedger":[0-9]+' | grep -oE '[0-9]+' || true)
+          if [ -z "$$LATEST_LEDGER" ] || [ "$$LATEST_LEDGER" = "" ]; then
+            ./wallet-backend ingest
+          else
+            ./wallet-backend ingest --start-ledger "$$LATEST_LEDGER"
+          fi
+        else
+          ./wallet-backend ingest
+        fi
+    environment:
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      INGEST_SERVER_PORT: 8004
+      NETWORK: testnet
+      NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+      LOG_LEVEL: TRACE
+      GET_LEDGERS_LIMIT: 150
+      TRACKER_DSN: ${TRACKER_DSN}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+
+  ingest-mainnet:
+    container_name: ingest-mainnet
+    image: wallet-backend:latest
+    healthcheck:
+      test: "curl --fail --silent --show-error --location 'http://localhost:8005/health' | grep -q '\"status\": \"ok\"'"
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      wallet-backend:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     entrypoint: ""
     command:
       - sh
@@ -127,10 +265,15 @@ services:
           ./wallet-backend ingest
         fi
     environment:
-      RPC_URL: ${RPC_URL:-http://stellar-rpc:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable
+      RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      INGEST_SERVER_PORT: 8005
+      NETWORK: mainnet
+      NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+      LOG_LEVEL: TRACE
+      GET_LEDGERS_LIMIT: 20
       TRACKER_DSN: ${TRACKER_DSN}
-      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT}
+      STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
 volumes:
   postgres-db:
     driver: local
