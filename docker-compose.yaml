@@ -90,7 +90,7 @@ services:
       db:
         condition: service_healthy
       stellar-rpc-testnet:
-        condition: service_started
+        condition: service_healthy
       ingest-testnet:
         condition: service_healthy
     ports:
