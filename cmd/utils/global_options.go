@@ -21,6 +21,17 @@ func IngestServerPortOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func AdminEndpointOption(configKey *string) *config.ConfigOption {
+    return &config.ConfigOption{
+        Name:        "admin-endpoint",
+        Usage:       "Base path where admin endpoints (pprof) are exposed. Leave empty to disable.",
+        OptType:     types.String,
+        ConfigKey:   configKey,
+        FlagDefault: "",
+        Required:    false,
+    }
+}
+
 func DatabaseURLOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "database-url",
