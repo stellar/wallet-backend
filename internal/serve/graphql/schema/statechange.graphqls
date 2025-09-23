@@ -136,4 +136,5 @@ type BalanceAuthorizationChange implements BaseStateChange{
   transaction:                Transaction! @goField(forceResolver: true)
 
   flags:                      [String!]!
+  keyValue:                   String
 }
