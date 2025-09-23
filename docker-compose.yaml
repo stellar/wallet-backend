@@ -98,7 +98,7 @@ services:
       - sh
       - -c
       - |
-        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS}
         ./wallet-backend serve
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
@@ -112,7 +112,7 @@ services:
       DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
       DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ENV
-      NUMBER_CHANNEL_ACCOUNTS: 2
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
@@ -156,7 +156,7 @@ services:
       - sh
       - -c
       - |
-        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS:-2}
+        ./wallet-backend channel-account ensure ${NUMBER_CHANNEL_ACCOUNTS}
         ./wallet-backend serve
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
@@ -170,7 +170,7 @@ services:
       DISTRIBUTION_ACCOUNT_PUBLIC_KEY: ${DISTRIBUTION_ACCOUNT_PUBLIC_KEY}
       DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${DISTRIBUTION_ACCOUNT_PRIVATE_KEY}
       DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: ENV
-      NUMBER_CHANNEL_ACCOUNTS: 2
+      NUMBER_CHANNEL_ACCOUNTS: ${NUMBER_CHANNEL_ACCOUNTS:-2}
       CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE}
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
