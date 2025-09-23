@@ -97,7 +97,6 @@ type FeeBumpServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	BaseFee                            int64
 	Models                             *data.Models
-	BlockedOperationsTypes             []xdr.OperationType
 }
 
 func (o *FeeBumpServiceOptions) Validate() error {

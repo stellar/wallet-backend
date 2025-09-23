@@ -7,7 +7,6 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		DistributionAccountSignatureClient: &signatureClient,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,
-		BlockedOperationsTypes:             []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit},
 	})
 	require.NoError(t, err)
 
