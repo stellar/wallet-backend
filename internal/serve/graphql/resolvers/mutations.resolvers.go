@@ -240,9 +240,9 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	_, ok := genericTx.FeeBump()
 	if ok {
 		return nil, &gqlerror.Error{
-			Message: "Transaction is already a fee-bump transaction.",
+			Message: "Cannot wrap a fee-bump transaction into another fee-bump transaction",
 			Extensions: map[string]any{
-				"code": "FEE_BUMP_ALREADY_APPLIED",
+				"code": "FEE_BUMP_TX_NOT_ALLOWED",
 			},
 		}
 	}
@@ -250,7 +250,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	tx, ok := genericTx.Transaction()
 	if !ok {
 		return nil, &gqlerror.Error{
-			Message: "Transaction is not a valid transaction.",
+			Message: "Transaction is not a valid transaction",
 			Extensions: map[string]any{
 				"code": "INVALID_TRANSACTION",
 			},

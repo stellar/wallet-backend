@@ -825,11 +825,11 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Cannot accept a fee-bump transaction")
+		assert.ErrorContains(t, err, "Cannot wrap a fee-bump transaction into another fee-bump transaction")
 
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {
-			assert.Equal(t, "FEE_BUMP_NOT_ALLOWED", gqlErr.Extensions["code"])
+			assert.Equal(t, "FEE_BUMP_TX_NOT_ALLOWED", gqlErr.Extensions["code"])
 		}
 
 		mockFeeBumpService.AssertExpectations(t)
