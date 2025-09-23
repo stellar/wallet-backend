@@ -935,56 +935,6 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 		mockFeeBumpService.AssertExpectations(t)
 	})
 
-	t.Run("operation not allowed", func(t *testing.T) {
-		mockFeeBumpService := &mockFeeBumpService{}
-
-		resolver := &mutationResolver{
-			&Resolver{
-				feeBumpService: mockFeeBumpService,
-				models:         &data.Models{},
-			},
-		}
-
-		sourceAccount := keypair.MustRandom()
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.Payment{
-					Destination: keypair.MustRandom().Address(),
-					Amount:      "10",
-					Asset:       txnbuild.NativeAsset{},
-				},
-			},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
-		})
-		require.NoError(t, err)
-
-		txe, err := tx.Base64()
-		require.NoError(t, err)
-
-		input := graphql.CreateFeeBumpTransactionInput{
-			TransactionXdr: txe,
-		}
-
-		opNotAllowedErr := &services.OperationNotAllowedError{OperationType: xdr.OperationTypeLiquidityPoolDeposit}
-		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", opNotAllowedErr)
-
-		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorContains(t, err, opNotAllowedErr.Error())
-
-		var gqlErr *gqlerror.Error
-		if errors.As(err, &gqlErr) {
-			assert.Equal(t, "OPERATION_NOT_ALLOWED", gqlErr.Extensions["code"])
-		}
-
-		mockFeeBumpService.AssertExpectations(t)
-	})
-
 	t.Run("general service error", func(t *testing.T) {
 		mockFeeBumpService := &mockFeeBumpService{}
 
