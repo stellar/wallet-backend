@@ -33,8 +33,8 @@ jobs:
         run: docker compose -f docker-compose.yaml down -v
         shell: bash
 
-      - name: Run Docker Compose (Without RPC)
-        run: docker compose -f docker-compose.yaml up --build -V -d api-testnet --wait --scale stellar-rpc-testnet=0
+      - name: Run Docker Compose (Using SDF RPC Testnet)
+        run: docker compose -f docker-compose.yaml up --build -V -d api-testnet --wait
         shell: bash
 
       - name: Run Integration Tests
