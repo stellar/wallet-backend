@@ -86,7 +86,7 @@ services:
       retries: 3
     depends_on:
       wallet-backend:
-        condition: service_started
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       ingest-testnet:
@@ -144,7 +144,7 @@ services:
       retries: 3
     depends_on:
       wallet-backend:
-        condition: service_started
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       ingest-mainnet:
@@ -202,7 +202,7 @@ services:
       retries: 3
     depends_on:
       wallet-backend:
-        condition: service_started
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     entrypoint: ""
@@ -210,6 +210,7 @@ services:
       - sh
       - -c
       - |
+        sleep 5
         ./wallet-backend migrate up
         if [ "$STELLAR_ENVIRONMENT" = "GITHUB_WORKFLOW" ]; then
           HEALTH_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' "${RPC_URL}")
@@ -243,7 +244,7 @@ services:
       retries: 3
     depends_on:
       wallet-backend:
-        condition: service_started
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     entrypoint: ""
