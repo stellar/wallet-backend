@@ -12,7 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -40,9 +39,6 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
-
-// blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
-var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
 	Port                        int
@@ -149,7 +145,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
-		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)

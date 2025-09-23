@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 
@@ -38,7 +36,6 @@ type feeBumpService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	BaseFee                            int64
 	Models                             *data.Models
-	BlockedOperationsTypes             []xdr.OperationType
 }
 
 var _ FeeBumpService = (*feeBumpService)(nil)
@@ -51,18 +48,6 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 	}
 	if !isFeeBumpEligible {
 		return "", "", ErrAccountNotEligibleForBeingSponsored
-	}
-
-	for _, op := range tx.Operations() {
-		operationXDR, innerErr := op.BuildXDR()
-		if innerErr != nil {
-			return "", "", fmt.Errorf("retrieving xdr for operation: %w", innerErr)
-		}
-
-		if slices.Contains(s.BlockedOperationsTypes, operationXDR.Body.Type) {
-			log.Ctx(ctx).Warnf("blocked operation type: %s", operationXDR.Body.Type.String())
-			return "", "", &OperationNotAllowedError{OperationType: operationXDR.Body.Type}
-		}
 	}
 
 	if tx.BaseFee() > s.BaseFee {
@@ -140,6 +125,5 @@ func NewFeeBumpService(opts FeeBumpServiceOptions) (*feeBumpService, error) {
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,
-		BlockedOperationsTypes:             opts.BlockedOperationsTypes,
 	}, nil
 }
