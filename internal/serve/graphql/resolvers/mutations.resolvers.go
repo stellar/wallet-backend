@@ -231,20 +231,28 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	if err != nil {
 		return nil, &gqlerror.Error{
 			Message: "Could not parse transaction envelope.",
-			Extensions: map[string]interface{}{
+			Extensions: map[string]any{
 				"code": "INVALID_TRANSACTION_XDR",
 			},
 		}
 	}
 
-	// Transaction() returns (tx, false) when genericTx is a fee-bump transaction.
-	// If the second return value is false, it means the transaction is already a fee-bump transaction.
+	_, ok := genericTx.FeeBump()
+	if ok {
+		return nil, &gqlerror.Error{
+			Message: "Transaction is already a fee-bump transaction.",
+			Extensions: map[string]any{
+				"code": "FEE_BUMP_ALREADY_APPLIED",
+			},
+		}
+	}
+
 	tx, ok := genericTx.Transaction()
 	if !ok {
 		return nil, &gqlerror.Error{
-			Message: "Cannot accept a fee-bump transaction.",
-			Extensions: map[string]interface{}{
-				"code": "FEE_BUMP_NOT_ALLOWED",
+			Message: "Transaction is not a valid transaction.",
+			Extensions: map[string]any{
+				"code": "INVALID_TRANSACTION",
 			},
 		}
 	}
@@ -256,7 +264,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 		case errors.Is(err, services.ErrFeeExceedsMaximumBaseFee):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code":           "FEE_EXCEEDS_MAXIMUM",
 					"maximumBaseFee": r.feeBumpService.GetMaximumBaseFee(),
 				},
@@ -264,21 +272,21 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 		case errors.Is(err, services.ErrNoSignaturesProvided):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "NO_SIGNATURES_PROVIDED",
 				},
 			}
 		case errors.As(err, &opNotAllowedErr):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "OPERATION_NOT_ALLOWED",
 				},
 			}
 		default:
 			return nil, &gqlerror.Error{
 				Message: fmt.Sprintf("Failed to create fee bump transaction: %s", err.Error()),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "FEE_BUMP_CREATION_FAILED",
 				},
 			}
