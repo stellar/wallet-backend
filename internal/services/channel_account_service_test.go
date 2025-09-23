@@ -31,7 +31,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 		name             string
 		getCtx           func() context.Context
 		numberOfAccounts int64
-		setupMocks       func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock)
+		setupMocks       func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock)
 		expectedError    string
 	}
 
@@ -40,7 +40,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			name:             "🟢sufficient_number_of_channel_accounts",
 			numberOfAccounts: 5,
 			getCtx:           context.Background,
-			setupMocks: func(t *testing.T, _ *RPCServiceMock, _ *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, _ *RPCServiceMock, _ *signing.SignatureClientMock, _ *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
 				channelAccountStore.
 					On("Count", mock.Anything).
 					Return(5, nil).
@@ -51,16 +51,16 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			name:             "🟢successfully_ensures_the_channel_accounts_creation",
 			numberOfAccounts: 5,
 			getCtx:           context.Background,
-			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
 				channelAccountStore.
 					On("Count", mock.Anything).
-					Return(2, nil).
+					Return(2, nil). // will create 3 channel accounts
 					Once()
 
 				distributionAccount := keypair.MustRandom()
 				channelAccountsAddressesBeingInserted := []string{}
 				signedTx := txnbuild.Transaction{}
-				signatureClient.
+				distAccSigClient.
 					On("GetAccountPublicKey", mock.Anything).
 					Return(distributionAccount.Address(), nil).
 					Once().
@@ -99,7 +99,13 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Once().
 					On("NetworkPassphrase").
 					Return(network.TestNetworkPassphrase).
-					Twice()
+					Once()
+
+				// Mock channel account signature client for NetworkPassphrase call
+				chAccSigClient.
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Once()
 
 				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
@@ -135,10 +141,88 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			},
 		},
 		{
+			name:             "🟢successfully_ensures_the_channel_accounts_deletion",
+			numberOfAccounts: 5,
+			getCtx:           context.Background,
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+				chAcc1 := store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+				chAcc2 := store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+				chAcc3 := store.ChannelAccount{PublicKey: keypair.MustRandom().Address()}
+				channelAccountStore.
+					On("Count", mock.Anything).
+					Return(8, nil). // will delete 3 channel accounts
+					Once().
+					On("GetAll", mock.Anything, mock.Anything, 3).
+					Return([]*store.ChannelAccount{&chAcc1, &chAcc2, &chAcc3}, nil).
+					Once()
+
+				distributionAccount := keypair.MustRandom()
+				channelAccountsAddressesBeingDeleted := []string{}
+				signedTx := txnbuild.Transaction{}
+				distAccSigClient.
+					On("GetAccountPublicKey", mock.Anything).
+					Return(distributionAccount.Address(), nil).
+					Once().
+					On("SignStellarTransaction", mock.Anything, mock.AnythingOfType("*txnbuild.Transaction"), []string{distributionAccount.Address()}).
+					Run(func(args mock.Arguments) {
+						tx, ok := args.Get(1).(*txnbuild.Transaction)
+						require.True(t, ok)
+
+						assert.Equal(t, distributionAccount.Address(), tx.SourceAccount().AccountID)
+						assert.Len(t, tx.Operations(), 3)
+
+						for _, op := range tx.Operations() {
+							mergeOp, ok := op.(*txnbuild.AccountMerge)
+							require.True(t, ok)
+							assert.Equal(t, distributionAccount.Address(), mergeOp.Destination)
+							channelAccountsAddressesBeingDeleted = append(channelAccountsAddressesBeingDeleted, mergeOp.SourceAccount)
+						}
+
+						tx, err := tx.Sign(network.TestNetworkPassphrase, distributionAccount)
+						require.NoError(t, err)
+
+						signedTx = *tx
+					}).
+					Return(&signedTx, nil).
+					Once().
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Once()
+
+				// Mock channel account signature client for NetworkPassphrase call
+				chAccSigClient.
+					On("SignStellarTransaction", mock.Anything, mock.AnythingOfType("*txnbuild.Transaction"), []string{chAcc1.PublicKey, chAcc2.PublicKey, chAcc3.PublicKey}).
+					Return(&signedTx, nil).
+					Once()
+
+				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
+				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
+				mockRPCService.
+					On("GetHeartbeatChannel").Return(heartbeatChan).Once().
+					On("GetAccountLedgerSequence", distributionAccount.Address()).Return(int64(123), nil).Once().
+					On("GetAccountLedgerSequence", chAcc1.PublicKey).Return(int64(123), nil).Once().
+					On("GetAccountLedgerSequence", chAcc2.PublicKey).Return(int64(123), nil).Once().
+					On("GetAccountLedgerSequence", chAcc3.PublicKey).Return(int64(123), nil).Once().
+					On("SendTransaction", mock.AnythingOfType("string")).Return(entities.RPCSendTransactionResult{Status: entities.PendingStatus}, nil).Once().
+					On("GetTransaction", mock.AnythingOfType("string")).Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).Once()
+
+				channelAccountStore.
+					On("Delete", mock.Anything, mock.Anything, mock.AnythingOfType("[]string")).
+					Run(func(args mock.Arguments) {
+						channelAccountsAddresses, ok := args.Get(2).([]string)
+						require.True(t, ok)
+
+						assert.ElementsMatch(t, channelAccountsAddressesBeingDeleted, channelAccountsAddresses)
+					}).
+					Return(int64(3), nil).
+					Once()
+			},
+		},
+		{
 			name:             "🔴fails_when_transaction_submission_fails",
 			numberOfAccounts: 5,
 			getCtx:           context.Background,
-			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
 				channelAccountStore.
 					On("Count", mock.Anything).
 					Return(2, nil).
@@ -146,7 +230,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 
 				distributionAccount := keypair.MustRandom()
 				signedTx := txnbuild.Transaction{}
-				signatureClient.
+				distAccSigClient.
 					On("GetAccountPublicKey", mock.Anything).
 					Return(distributionAccount.Address(), nil).
 					Once().
@@ -164,7 +248,13 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Once().
 					On("NetworkPassphrase").
 					Return(network.TestNetworkPassphrase).
-					Twice()
+					Once()
+
+				// Mock channel account signature client for NetworkPassphrase call
+				chAccSigClient.
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Once()
 
 				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
@@ -188,7 +278,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			name:             "🔴fails_when_transaction_status_check_fails",
 			numberOfAccounts: 5,
 			getCtx:           context.Background,
-			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
 				channelAccountStore.
 					On("Count", mock.Anything).
 					Return(2, nil).
@@ -196,7 +286,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 
 				distributionAccount := keypair.MustRandom()
 				signedTx := txnbuild.Transaction{}
-				signatureClient.
+				distAccSigClient.
 					On("GetAccountPublicKey", mock.Anything).
 					Return(distributionAccount.Address(), nil).
 					Once().
@@ -214,7 +304,13 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Once().
 					On("NetworkPassphrase").
 					Return(network.TestNetworkPassphrase).
-					Twice()
+					Once()
+
+				// Mock channel account signature client for NetworkPassphrase call
+				chAccSigClient.
+					On("NetworkPassphrase").
+					Return(network.TestNetworkPassphrase).
+					Once()
 
 				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
 				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
@@ -238,29 +334,17 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			expectedError: "failed with status FAILED and errorResultXdr error_xdr",
 		},
 		{
-			name:             "🔴fails_if_numOfChannelAccountsToCreate>MaximumCreateAccountOperationsPerStellarTx",
-			numberOfAccounts: MaximumCreateAccountOperationsPerStellarTx + 1,
-			getCtx:           context.Background,
-			setupMocks: func(t *testing.T, _ *RPCServiceMock, _ *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
-				channelAccountStore.
-					On("Count", mock.Anything).
-					Return(0, nil).
-					Once()
-			},
-			expectedError: "number of channel accounts to create is greater than the maximum allowed per transaction (19)",
-		},
-		{
 			name:             "🔴fails_if_rpc_service_is_not_healthy",
 			numberOfAccounts: 5,
 			getCtx:           func() context.Context { ctx, cancel := context.WithCancel(context.Background()); cancel(); return ctx },
-			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, signatureClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
+			setupMocks: func(t *testing.T, mockRPCService *RPCServiceMock, distAccSigClient *signing.SignatureClientMock, chAccSigClient *signing.SignatureClientMock, channelAccountStore *store.ChannelAccountStoreMock) {
 				channelAccountStore.
 					On("Count", mock.Anything).
 					Return(2, nil).
 					Once()
 
 				distributionAccount := keypair.MustRandom()
-				signatureClient.
+				distAccSigClient.
 					On("GetAccountPublicKey", mock.Anything).
 					Return(distributionAccount.Address(), nil).
 					Once()
@@ -278,18 +362,20 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			ctx := tc.getCtx()
 			mockRPCService := NewRPCServiceMock(t)
 			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
-			signatureClient := signing.NewSignatureClientMock(t)
+			distAccSigClient := signing.NewSignatureClientMock(t)
+			chAccSigClient := signing.NewSignatureClientMock(t)
 			channelAccountStore := store.NewChannelAccountStoreMock(t)
 
 			// Setup mocks
-			tc.setupMocks(t, mockRPCService, signatureClient, channelAccountStore)
+			tc.setupMocks(t, mockRPCService, distAccSigClient, chAccSigClient, channelAccountStore)
 
 			// Create service with fresh mocks
 			s, err := NewChannelAccountService(ctx, ChannelAccountServiceOptions{
 				DB:                                 dbConnectionPool,
 				RPCService:                         mockRPCService,
 				BaseFee:                            txnbuild.MinBaseFee,
-				DistributionAccountSignatureClient: signatureClient,
+				DistributionAccountSignatureClient: distAccSigClient,
+				ChannelAccountSignatureClient:      chAccSigClient,
 				ChannelAccountStore:                channelAccountStore,
 				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 				EncryptionPassphrase:               "my-encryption-passphrase",
