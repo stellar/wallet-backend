@@ -686,3 +686,828 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 		}
 	})
 }
+
+func TestMutationResolver_BuildTransaction_Memo(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("memo text - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		memoText := "Test memo"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoText,
+					Text: &memoText,
+				},
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), txnbuild.MemoText("Test memo"), txnbuild.Preconditions{}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("memo text - too long", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := payment.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		longMemoText := "This memo text is way too long for Stellar which only allows 28 characters max"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoText,
+					Text: &longMemoText,
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "memo text cannot exceed 28 characters")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_MEMO", gqlErr.Extensions["code"])
+		}
+	})
+
+	t.Run("memo text - missing text field", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := payment.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoText,
+					// Text field missing
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "text field is required for MEMO_TEXT")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_MEMO", gqlErr.Extensions["code"])
+		}
+	})
+
+	t.Run("memo id - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		memoID := "12345678"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoID,
+					ID:   &memoID,
+				},
+			},
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), txnbuild.MemoID(12345678), txnbuild.Preconditions{}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("memo id - invalid format", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := payment.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		invalidMemoID := "not_a_number"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoID,
+					ID:   &invalidMemoID,
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid memo id")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_MEMO", gqlErr.Extensions["code"])
+		}
+	})
+
+	t.Run("memo none - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoNone,
+				},
+			},
+		}
+
+		// For MEMO_NONE, we should pass nil as the memo
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, txnbuild.Preconditions{}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+}
+
+func TestMutationResolver_BuildTransaction_Preconditions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("preconditions timebounds - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		minTime := "1642000000"
+		maxTime := "1642001000"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					TimeBounds: &graphql.TimeBoundsInput{
+						MinTime: &minTime,
+						MaxTime: &maxTime,
+					},
+				},
+			},
+		}
+
+		expectedPreconditions := txnbuild.NewTimebounds(1642000000, 1642001000)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, txnbuild.Preconditions{TimeBounds: expectedPreconditions}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("preconditions timebounds - invalid minTime", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := payment.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		invalidMinTime := "not_a_timestamp"
+		maxTime := "1642001000"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					TimeBounds: &graphql.TimeBoundsInput{
+						MinTime: &invalidMinTime,
+						MaxTime: &maxTime,
+					},
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid minTime")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_PRECONDITIONS", gqlErr.Extensions["code"])
+		}
+	})
+
+	t.Run("preconditions ledgerbounds - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		minLedger := int32(1000)
+		maxLedger := int32(2000)
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					LedgerBounds: &graphql.LedgerBoundsInput{
+						MinLedger: &minLedger,
+						MaxLedger: &maxLedger,
+					},
+				},
+			},
+		}
+
+		expectedPreconditions := txnbuild.Preconditions{
+			LedgerBounds: &txnbuild.LedgerBounds{
+				MinLedger: 1000,
+				MaxLedger: 2000,
+			},
+		}
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, expectedPreconditions, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("preconditions extra signers - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		extraSigner1 := keypair.MustRandom().Address()
+		extraSigner2 := keypair.MustRandom().Address()
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					ExtraSigners: []string{extraSigner1, extraSigner2},
+				},
+			},
+		}
+
+		expectedPreconditions := txnbuild.Preconditions{
+			ExtraSigners: []string{extraSigner1, extraSigner2},
+		}
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, expectedPreconditions, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("preconditions extra signers - invalid signer", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		payment := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := payment.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		invalidSigner := "not_a_valid_stellar_address"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					ExtraSigners: []string{invalidSigner},
+				},
+			},
+		}
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid extra signer")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_PRECONDITIONS", gqlErr.Extensions["code"])
+		}
+	})
+
+	t.Run("preconditions min sequence number - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		minSeqNum := "12345"
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Preconditions: &graphql.PreconditionsInput{
+					MinSeqNum: &minSeqNum,
+				},
+			},
+		}
+
+		expectedSeqNum := int64(12345)
+		expectedPreconditions := txnbuild.Preconditions{
+			MinSequenceNumber: &expectedSeqNum,
+		}
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, expectedPreconditions, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+}
+
+func TestMutationResolver_BuildTransaction_MemoAndPreconditions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("memo and preconditions combined - success", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Create operation XDR
+		srcAccount := keypair.MustRandom().Address()
+		p := txnbuild.Payment{
+			Destination:   keypair.MustRandom().Address(),
+			Amount:        "10",
+			Asset:         txnbuild.NativeAsset{},
+			SourceAccount: srcAccount,
+		}
+		op, err := p.BuildXDR()
+		require.NoError(t, err)
+		operationXDR, err := xdr.MarshalBase64(op)
+		require.NoError(t, err)
+
+		memoText := "Combined test"
+		minTime := "1642000000"
+		maxTime := "1642001000"
+		minLedger := int32(1000)
+		maxLedger := int32(2000)
+		input := graphql.BuildTransactionInput{
+			Transaction: &graphql.TransactionInput{
+				Operations: []string{operationXDR},
+				Timeout:    30,
+				Memo: &graphql.MemoInput{
+					Type: graphql.MemoTypeMemoText,
+					Text: &memoText,
+				},
+				Preconditions: &graphql.PreconditionsInput{
+					TimeBounds: &graphql.TimeBoundsInput{
+						MinTime: &minTime,
+						MaxTime: &maxTime,
+					},
+					LedgerBounds: &graphql.LedgerBoundsInput{
+						MinLedger: &minLedger,
+						MaxLedger: &maxLedger,
+					},
+				},
+			},
+		}
+
+		expectedPreconditions := txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimebounds(1642000000, 1642001000),
+			LedgerBounds: &txnbuild.LedgerBounds{
+				MinLedger: uint32(1000),
+				MaxLedger: uint32(2000),
+			},
+		}
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), txnbuild.MemoText("Combined test"), expectedPreconditions, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.NotEmpty(t, result.TransactionXdr)
+
+		mockTransactionService.AssertExpectations(t)
+	})
+}
