@@ -99,6 +99,12 @@ type ComplexityRoot struct {
 		TransactionXdr func(childComplexity int) int
 	}
 
+	CreateFeeBumpTransactionPayload struct {
+		NetworkPassphrase func(childComplexity int) int
+		Success           func(childComplexity int) int
+		Transaction       func(childComplexity int) int
+	}
+
 	DeregisterAccountPayload struct {
 		Message func(childComplexity int) int
 		Success func(childComplexity int) int
@@ -129,9 +135,10 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		BuildTransaction  func(childComplexity int, input BuildTransactionInput) int
-		DeregisterAccount func(childComplexity int, input DeregisterAccountInput) int
-		RegisterAccount   func(childComplexity int, input RegisterAccountInput) int
+		BuildTransaction         func(childComplexity int, input BuildTransactionInput) int
+		CreateFeeBumpTransaction func(childComplexity int, input CreateFeeBumpTransactionInput) int
+		DeregisterAccount        func(childComplexity int, input DeregisterAccountInput) int
+		RegisterAccount          func(childComplexity int, input RegisterAccountInput) int
 	}
 
 	Operation struct {
@@ -322,6 +329,7 @@ type MutationResolver interface {
 	RegisterAccount(ctx context.Context, input RegisterAccountInput) (*RegisterAccountPayload, error)
 	DeregisterAccount(ctx context.Context, input DeregisterAccountInput) (*DeregisterAccountPayload, error)
 	BuildTransaction(ctx context.Context, input BuildTransactionInput) (*BuildTransactionPayload, error)
+	CreateFeeBumpTransaction(ctx context.Context, input CreateFeeBumpTransactionInput) (*CreateFeeBumpTransactionPayload, error)
 }
 type OperationResolver interface {
 	Transaction(ctx context.Context, obj *types.Operation) (*types.Transaction, error)
@@ -606,6 +614,27 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.BuildTransactionPayload.TransactionXdr(childComplexity), true
 
+	case "CreateFeeBumpTransactionPayload.networkPassphrase":
+		if e.complexity.CreateFeeBumpTransactionPayload.NetworkPassphrase == nil {
+			break
+		}
+
+		return e.complexity.CreateFeeBumpTransactionPayload.NetworkPassphrase(childComplexity), true
+
+	case "CreateFeeBumpTransactionPayload.success":
+		if e.complexity.CreateFeeBumpTransactionPayload.Success == nil {
+			break
+		}
+
+		return e.complexity.CreateFeeBumpTransactionPayload.Success(childComplexity), true
+
+	case "CreateFeeBumpTransactionPayload.transaction":
+		if e.complexity.CreateFeeBumpTransactionPayload.Transaction == nil {
+			break
+		}
+
+		return e.complexity.CreateFeeBumpTransactionPayload.Transaction(childComplexity), true
+
 	case "DeregisterAccountPayload.message":
 		if e.complexity.DeregisterAccountPayload.Message == nil {
 			break
@@ -757,6 +786,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.BuildTransaction(childComplexity, args["input"].(BuildTransactionInput)), true
+
+	case "Mutation.createFeeBumpTransaction":
+		if e.complexity.Mutation.CreateFeeBumpTransaction == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createFeeBumpTransaction_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.CreateFeeBumpTransaction(childComplexity, args["input"].(CreateFeeBumpTransactionInput)), true
 
 	case "Mutation.deregisterAccount":
 		if e.complexity.Mutation.DeregisterAccount == nil {
@@ -1473,6 +1514,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputBuildTransactionInput,
+		ec.unmarshalInputCreateFeeBumpTransactionInput,
 		ec.unmarshalInputDeregisterAccountInput,
 		ec.unmarshalInputRegisterAccountInput,
 		ec.unmarshalInputSimulationResultInput,
@@ -1697,6 +1739,7 @@ type Mutation {
     
     # Transaction mutations
     buildTransaction(input: BuildTransactionInput!): BuildTransactionPayload!
+    createFeeBumpTransaction(input: CreateFeeBumpTransactionInput!): CreateFeeBumpTransactionPayload!
 }
 
 # Input types for account mutations
@@ -1724,6 +1767,10 @@ input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
+input CreateFeeBumpTransactionInput {
+    transactionXDR: String!
+}
+
 # TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
@@ -1745,6 +1792,12 @@ input SimulationResultInput {
 type BuildTransactionPayload {
     success: Boolean!
     transactionXdr: String!
+}
+
+type CreateFeeBumpTransactionPayload {
+    success: Boolean!
+    transaction: String!
+    networkPassphrase: String!
 }
 `, BuiltIn: false},
 	{Name: "../schema/operation.graphqls", Input: `# GraphQL Operation type - represents a blockchain operation
@@ -2257,6 +2310,29 @@ func (ec *executionContext) field_Mutation_buildTransaction_argsInput(
 	}
 
 	var zeroVal BuildTransactionInput
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_createFeeBumpTransaction_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_createFeeBumpTransaction_argsInput(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_createFeeBumpTransaction_argsInput(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (CreateFeeBumpTransactionInput, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+	if tmp, ok := rawArgs["input"]; ok {
+		return ec.unmarshalNCreateFeeBumpTransactionInput2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionInput(ctx, tmp)
+	}
+
+	var zeroVal CreateFeeBumpTransactionInput
 	return zeroVal, nil
 }
 
@@ -4241,6 +4317,138 @@ func (ec *executionContext) fieldContext_BuildTransactionPayload_transactionXdr(
 	return fc, nil
 }
 
+func (ec *executionContext) _CreateFeeBumpTransactionPayload_success(ctx context.Context, field graphql.CollectedField, obj *CreateFeeBumpTransactionPayload) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_CreateFeeBumpTransactionPayload_success(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Success, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_CreateFeeBumpTransactionPayload_success(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CreateFeeBumpTransactionPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CreateFeeBumpTransactionPayload_transaction(ctx context.Context, field graphql.CollectedField, obj *CreateFeeBumpTransactionPayload) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_CreateFeeBumpTransactionPayload_transaction(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Transaction, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_CreateFeeBumpTransactionPayload_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CreateFeeBumpTransactionPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CreateFeeBumpTransactionPayload_networkPassphrase(ctx context.Context, field graphql.CollectedField, obj *CreateFeeBumpTransactionPayload) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_CreateFeeBumpTransactionPayload_networkPassphrase(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.NetworkPassphrase, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_CreateFeeBumpTransactionPayload_networkPassphrase(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CreateFeeBumpTransactionPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DeregisterAccountPayload_success(ctx context.Context, field graphql.CollectedField, obj *DeregisterAccountPayload) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DeregisterAccountPayload_success(ctx, field)
 	if err != nil {
@@ -5393,6 +5601,69 @@ func (ec *executionContext) fieldContext_Mutation_buildTransaction(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_buildTransaction_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createFeeBumpTransaction(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_createFeeBumpTransaction(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().CreateFeeBumpTransaction(rctx, fc.Args["input"].(CreateFeeBumpTransactionInput))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*CreateFeeBumpTransactionPayload)
+	fc.Result = res
+	return ec.marshalNCreateFeeBumpTransactionPayload2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionPayload(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_createFeeBumpTransaction(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "success":
+				return ec.fieldContext_CreateFeeBumpTransactionPayload_success(ctx, field)
+			case "transaction":
+				return ec.fieldContext_CreateFeeBumpTransactionPayload_transaction(ctx, field)
+			case "networkPassphrase":
+				return ec.fieldContext_CreateFeeBumpTransactionPayload_networkPassphrase(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CreateFeeBumpTransactionPayload", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createFeeBumpTransaction_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -12020,6 +12291,33 @@ func (ec *executionContext) unmarshalInputBuildTransactionInput(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputCreateFeeBumpTransactionInput(ctx context.Context, obj any) (CreateFeeBumpTransactionInput, error) {
+	var it CreateFeeBumpTransactionInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"transactionXDR"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "transactionXDR":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("transactionXDR"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TransactionXdr = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputDeregisterAccountInput(ctx context.Context, obj any) (DeregisterAccountInput, error) {
 	var it DeregisterAccountInput
 	asMap := map[string]any{}
@@ -13063,6 +13361,55 @@ func (ec *executionContext) _BuildTransactionPayload(ctx context.Context, sel as
 	return out
 }
 
+var createFeeBumpTransactionPayloadImplementors = []string{"CreateFeeBumpTransactionPayload"}
+
+func (ec *executionContext) _CreateFeeBumpTransactionPayload(ctx context.Context, sel ast.SelectionSet, obj *CreateFeeBumpTransactionPayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, createFeeBumpTransactionPayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CreateFeeBumpTransactionPayload")
+		case "success":
+			out.Values[i] = ec._CreateFeeBumpTransactionPayload_success(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "transaction":
+			out.Values[i] = ec._CreateFeeBumpTransactionPayload_transaction(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "networkPassphrase":
+			out.Values[i] = ec._CreateFeeBumpTransactionPayload_networkPassphrase(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var deregisterAccountPayloadImplementors = []string{"DeregisterAccountPayload"}
 
 func (ec *executionContext) _DeregisterAccountPayload(ctx context.Context, sel ast.SelectionSet, obj *DeregisterAccountPayload) graphql.Marshaler {
@@ -13664,6 +14011,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "buildTransaction":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_buildTransaction(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createFeeBumpTransaction":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createFeeBumpTransaction(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -16362,6 +16716,25 @@ func (ec *executionContext) marshalNBuildTransactionPayload2ᚖgithubᚗcomᚋst
 		return graphql.Null
 	}
 	return ec._BuildTransactionPayload(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNCreateFeeBumpTransactionInput2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionInput(ctx context.Context, v any) (CreateFeeBumpTransactionInput, error) {
+	res, err := ec.unmarshalInputCreateFeeBumpTransactionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNCreateFeeBumpTransactionPayload2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionPayload(ctx context.Context, sel ast.SelectionSet, v CreateFeeBumpTransactionPayload) graphql.Marshaler {
+	return ec._CreateFeeBumpTransactionPayload(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNCreateFeeBumpTransactionPayload2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionPayload(ctx context.Context, sel ast.SelectionSet, v *CreateFeeBumpTransactionPayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._CreateFeeBumpTransactionPayload(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNDeregisterAccountInput2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐDeregisterAccountInput(ctx context.Context, v any) (DeregisterAccountInput, error) {

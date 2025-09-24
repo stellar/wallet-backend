@@ -19,13 +19,21 @@ import (
 )
 
 const (
-	graphqlPath                  = "/graphql/query"
-	createFeeBumpTransactionPath = "/tx/create-fee-bump"
-	buildTransactionQuery        = `
+	graphqlPath           = "/graphql/query"
+	buildTransactionQuery = `
 		mutation BuildTransaction($input: BuildTransactionInput!) {
 			buildTransaction(input: $input) {
 				success
 				transactionXdr
+			}
+		}
+	`
+	createFeeBumpTransactionQuery = `
+		mutation CreateFeeBumpTransaction($input: CreateFeeBumpTransactionInput!) {
+			createFeeBumpTransaction(input: $input) {
+				success
+				transaction
+				networkPassphrase
 			}
 		}
 	`
@@ -53,6 +61,16 @@ type BuildTransactionPayload struct {
 
 type BuildTransactionData struct {
 	BuildTransaction BuildTransactionPayload `json:"buildTransaction"`
+}
+
+type CreateFeeBumpTransactionPayload struct {
+	Success           bool   `json:"success"`
+	Transaction       string `json:"transaction"`
+	NetworkPassphrase string `json:"networkPassphrase"`
+}
+
+type CreateFeeBumpTransactionData struct {
+	CreateFeeBumpTransaction CreateFeeBumpTransactionPayload `json:"createFeeBumpTransaction"`
 }
 
 type Client struct {
@@ -178,9 +196,18 @@ func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, 
 }
 
 func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
-	buildTxRequest := types.CreateFeeBumpTransactionRequest{Transaction: transactionXDR}
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"transactionXDR": transactionXDR,
+		},
+	}
 
-	resp, err := c.request(ctx, http.MethodPost, createFeeBumpTransactionPath, buildTxRequest)
+	gqlRequest := GraphQLRequest{
+		Query:     createFeeBumpTransactionQuery,
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, http.MethodPost, graphqlPath, gqlRequest)
 	if err != nil {
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
@@ -189,12 +216,24 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 		return nil, c.logHTTPError(ctx, resp)
 	}
 
-	feeBumpTxResponse, err := parseResponseBody[types.TransactionEnvelopeResponse](ctx, resp.Body)
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("parsing response body: %w", err)
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
 	}
 
-	return feeBumpTxResponse, nil
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data CreateFeeBumpTransactionData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return &types.TransactionEnvelopeResponse{
+		Transaction:       data.CreateFeeBumpTransaction.Transaction,
+		NetworkPassphrase: data.CreateFeeBumpTransaction.NetworkPassphrase,
+	}, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {

@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/signing"
@@ -21,23 +18,15 @@ var (
 	ErrNoSignaturesProvided                = errors.New("should have at least one signature")
 )
 
-type OperationNotAllowedError struct {
-	OperationType xdr.OperationType
-}
-
-func (e OperationNotAllowedError) Error() string {
-	return fmt.Sprintf("operation %s not allowed", e.OperationType.String())
-}
-
 type FeeBumpService interface {
 	WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error)
+	GetMaximumBaseFee() int64
 }
 
 type feeBumpService struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	BaseFee                            int64
 	Models                             *data.Models
-	BlockedOperationsTypes             []xdr.OperationType
 }
 
 var _ FeeBumpService = (*feeBumpService)(nil)
@@ -50,18 +39,6 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 	}
 	if !isFeeBumpEligible {
 		return "", "", ErrAccountNotEligibleForBeingSponsored
-	}
-
-	for _, op := range tx.Operations() {
-		operationXDR, innerErr := op.BuildXDR()
-		if innerErr != nil {
-			return "", "", fmt.Errorf("retrieving xdr for operation: %w", innerErr)
-		}
-
-		if slices.Contains(s.BlockedOperationsTypes, operationXDR.Body.Type) {
-			log.Ctx(ctx).Warnf("blocked operation type: %s", operationXDR.Body.Type.String())
-			return "", "", &OperationNotAllowedError{OperationType: operationXDR.Body.Type}
-		}
 	}
 
 	if tx.BaseFee() > s.BaseFee {
@@ -102,11 +79,15 @@ func (s *feeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Trans
 	return feeBumpTxe, s.DistributionAccountSignatureClient.NetworkPassphrase(), nil
 }
 
+// GetMaximumBaseFee returns the maximum base fee allowed for fee bump transactions
+func (s *feeBumpService) GetMaximumBaseFee() int64 {
+	return s.BaseFee
+}
+
 type FeeBumpServiceOptions struct {
 	DistributionAccountSignatureClient signing.SignatureClient
 	BaseFee                            int64
 	Models                             *data.Models
-	BlockedOperationsTypes             []xdr.OperationType
 }
 
 func (o *FeeBumpServiceOptions) Validate() error {
@@ -134,6 +115,5 @@ func NewFeeBumpService(opts FeeBumpServiceOptions) (*feeBumpService, error) {
 		DistributionAccountSignatureClient: opts.DistributionAccountSignatureClient,
 		BaseFee:                            opts.BaseFee,
 		Models:                             opts.Models,
-		BlockedOperationsTypes:             opts.BlockedOperationsTypes,
 	}, nil
 }

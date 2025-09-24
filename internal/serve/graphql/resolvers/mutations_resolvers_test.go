@@ -50,6 +50,20 @@ func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx c
 	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
 }
 
+type mockFeeBumpService struct {
+	mock.Mock
+}
+
+func (m *mockFeeBumpService) WrapTransaction(ctx context.Context, tx *txnbuild.Transaction) (string, string, error) {
+	args := m.Called(ctx, tx)
+	return args.String(0), args.String(1), args.Error(2)
+}
+
+func (m *mockFeeBumpService) GetMaximumBaseFee() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
+}
+
 func TestMutationResolver_RegisterAccount(t *testing.T) {
 	ctx := context.Background()
 
@@ -125,7 +139,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Account is already registered")
+		assert.ErrorContains(t, err, ErrMsgAccountAlreadyExists)
 
 		mockService.AssertExpectations(t)
 	})
@@ -175,7 +189,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Invalid address: must be a valid Stellar public key or contract address")
+		assert.ErrorContains(t, err, ErrMsgInvalidAddress)
 
 		mockService.AssertExpectations(t)
 	})
@@ -204,7 +218,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.True(t, result.Success)
-		assert.Equal(t, "Account deregistered successfully", *result.Message)
+		assert.Equal(t, ErrMsgAccountDeregisteredSuccess, *result.Message)
 
 		mockService.AssertExpectations(t)
 	})
@@ -279,7 +293,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Account not found")
+		assert.ErrorContains(t, err, ErrMsgAccountNotFound)
 
 		mockService.AssertExpectations(t)
 	})
@@ -425,7 +439,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to build transaction")
+		assert.ErrorContains(t, err, ErrMsgTransactionBuildFailed)
 
 		mockTransactionService.AssertExpectations(t)
 	})
@@ -680,5 +694,344 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 		if errors.As(err, &gqlErr) {
 			assert.Equal(t, "INVALID_TRANSACTION_DATA", gqlErr.Extensions["code"])
 		}
+	})
+}
+
+func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		// Create a valid transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		expectedFeeBumpTxe := "fee-bump-envelope-xdr"
+		expectedNetworkPassphrase := "Test SDF Network ; September 2015"
+
+		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return(expectedFeeBumpTxe, expectedNetworkPassphrase, nil)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.Equal(t, expectedFeeBumpTxe, result.Transaction)
+		assert.Equal(t, expectedNetworkPassphrase, result.NetworkPassphrase)
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("invalid transaction XDR", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: "invalid-transaction-xdr",
+		}
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, ErrMsgCouldNotParseTransactionEnvelope)
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_TRANSACTION_XDR", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("fee bump transaction rejected", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		// Create a fee-bump transaction (which should be rejected)
+		sourceAccount := keypair.MustRandom()
+		distributionAccount := keypair.MustRandom()
+
+		innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+			Inner:      innerTx,
+			FeeAccount: distributionAccount.Address(),
+			BaseFee:    txnbuild.MinBaseFee,
+		})
+		require.NoError(t, err)
+
+		feeBumpTxe, err := feeBumpTx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: feeBumpTxe,
+		}
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, ErrMsgCannotWrapFeeBumpTransaction)
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "FEE_BUMP_TX_NOT_ALLOWED", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("fee exceeds maximum base fee", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", services.ErrFeeExceedsMaximumBaseFee)
+		mockFeeBumpService.On("GetMaximumBaseFee").Return(int64(10000))
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrFeeExceedsMaximumBaseFee.Error())
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "FEE_EXCEEDS_MAXIMUM", gqlErr.Extensions["code"])
+			assert.Equal(t, int64(10000), gqlErr.Extensions["maximumBaseFee"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("account not eligible for sponsorship", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		mockFeeBumpService.
+			On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).
+			Return("", "", services.ErrAccountNotEligibleForBeingSponsored)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrAccountNotEligibleForBeingSponsored.Error())
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "ACCOUNT_NOT_ELIGIBLE_FOR_BEING_SPONSORED", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("no signatures provided", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", services.ErrNoSignaturesProvided)
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, services.ErrNoSignaturesProvided.Error())
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "NO_SIGNATURES_PROVIDED", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
+	})
+
+	t.Run("general service error", func(t *testing.T) {
+		mockFeeBumpService := &mockFeeBumpService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				feeBumpService: mockFeeBumpService,
+				models:         &data.Models{},
+			},
+		}
+
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Amount:      "10",
+					Asset:       txnbuild.NativeAsset{},
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		txe, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.CreateFeeBumpTransactionInput{
+			TransactionXdr: txe,
+		}
+
+		mockFeeBumpService.On("WrapTransaction", ctx, mock.AnythingOfType("*txnbuild.Transaction")).Return("", "", errors.New("database connection failed"))
+
+		result, err := resolver.CreateFeeBumpTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "Failed to create fee bump transaction: database connection failed")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "FEE_BUMP_CREATION_FAILED", gqlErr.Extensions["code"])
+		}
+
+		mockFeeBumpService.AssertExpectations(t)
 	})
 }
