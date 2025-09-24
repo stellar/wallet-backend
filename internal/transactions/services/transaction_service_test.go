@@ -244,7 +244,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	require.NoError(t, outerErr)
 
 	t.Run("🔴timeout_must_be_smaller_than_max_timeout", func(t *testing.T) {
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, MaxTimeoutInSeconds+1, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 		assert.Empty(t, tx)
 		assert.ErrorContains(t, err, fmt.Sprintf("invalid timeout: timeout cannot be greater than maximum allowed seconds (maximum: %d seconds)", MaxTimeoutInSeconds))
 	})
@@ -255,7 +255,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -272,7 +272,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&txnbuild.AccountMerge{
 			Destination:   keypair.MustRandom().Address(),
 			SourceAccount: channelAccount.Address(),
-		}}, 30, entities.RPCSimulateTransactionResult{})
+		}}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -288,7 +288,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{&txnbuild.AccountMerge{
 			Destination: keypair.MustRandom().Address(),
-		}}, 30, entities.RPCSimulateTransactionResult{})
+		}}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -307,7 +307,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(0), errors.New("rpc service down")).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
@@ -328,7 +328,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(1), nil).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
@@ -356,7 +356,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(1), nil).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -388,7 +388,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(1), nil).
 			Once()
 
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30, entities.RPCSimulateTransactionResult{})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -449,7 +449,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 					Return(int64(1), nil).
 					Once()
 
-				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, int64(tc.inputTimeout), entities.RPCSimulateTransactionResult{})
+				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildPaymentOp(t)}, int64(tc.inputTimeout), nil, txnbuild.Preconditions{}, entities.RPCSimulateTransactionResult{})
 
 				mChannelAccountSignatureClient.AssertExpectations(t)
 				mChannelAccountStore.AssertExpectations(t)
@@ -491,7 +491,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
 		simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildInvokeContractOp(t)}, 30, simulationResponse)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), []txnbuild.Operation{buildInvokeContractOp(t)}, 30, nil, txnbuild.Preconditions{}, simulationResponse)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)

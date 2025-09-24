@@ -37,7 +37,7 @@ var (
 
 type TransactionService interface {
 	NetworkPassphrase() string
-	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
+	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, memo txnbuild.Memo, preconditions txnbuild.Preconditions, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
 }
 
 type transactionService struct {
@@ -105,7 +105,7 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, memo txnbuild.Memo, clientPreconditions txnbuild.Preconditions, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
 	if timeoutInSecs > MaxTimeoutInSeconds {
 		return nil, fmt.Errorf("%w (maximum: %d seconds)", ErrInvalidTimeout, MaxTimeoutInSeconds)
 	}
@@ -134,16 +134,53 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)
 	}
 
+	// Start with wallet backend's default timeout
+	walletBackendTimeBounds := txnbuild.NewTimeout(timeoutInSecs)
+
+	// Smart preconditions merging: use more restrictive TimeBounds if client provides them
+	finalPreconditions := txnbuild.Preconditions{
+		TimeBounds: walletBackendTimeBounds,
+	}
+
+	// If client provided preconditions, merge them intelligently
+	if clientPreconditions.TimeBounds.MaxTime != 0 {
+		// Use the more restrictive time bounds (earlier maxTime wins)
+		if clientPreconditions.TimeBounds.MaxTime < walletBackendTimeBounds.MaxTime {
+			finalPreconditions.TimeBounds.MaxTime = clientPreconditions.TimeBounds.MaxTime
+		}
+	}
+
+	// Use client minTime if provided
+	if clientPreconditions.TimeBounds.MinTime != 0 {
+		finalPreconditions.TimeBounds.MinTime = clientPreconditions.TimeBounds.MinTime
+	}
+
+	// Apply other client preconditions constraints
+	if clientPreconditions.LedgerBounds != nil {
+		finalPreconditions.LedgerBounds = clientPreconditions.LedgerBounds
+	}
+	if clientPreconditions.MinSequenceNumber != nil {
+		finalPreconditions.MinSequenceNumber = clientPreconditions.MinSequenceNumber
+	}
+	if clientPreconditions.MinSequenceNumberAge != 0 {
+		finalPreconditions.MinSequenceNumberAge = clientPreconditions.MinSequenceNumberAge
+	}
+	if clientPreconditions.MinSequenceNumberLedgerGap != 0 {
+		finalPreconditions.MinSequenceNumberLedgerGap = clientPreconditions.MinSequenceNumberLedgerGap
+	}
+	if len(clientPreconditions.ExtraSigners) > 0 {
+		finalPreconditions.ExtraSigners = clientPreconditions.ExtraSigners
+	}
+
 	buildTxParams := txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: channelAccountPublicKey,
 			Sequence:  channelAccountSeq,
 		},
-		Operations: operations,
-		BaseFee:    t.BaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
-		},
+		Operations:           operations,
+		BaseFee:              t.BaseFee,
+		Memo:                 memo,
+		Preconditions:        finalPreconditions,
 		IncrementSequenceNum: true,
 	}
 	// Adjust the transaction params with the soroban-related information (the `Ext` field):

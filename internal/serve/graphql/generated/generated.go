@@ -1474,8 +1474,12 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputBuildTransactionInput,
 		ec.unmarshalInputDeregisterAccountInput,
+		ec.unmarshalInputLedgerBoundsInput,
+		ec.unmarshalInputMemoInput,
+		ec.unmarshalInputPreconditionsInput,
 		ec.unmarshalInputRegisterAccountInput,
 		ec.unmarshalInputSimulationResultInput,
+		ec.unmarshalInputTimeBoundsInput,
 		ec.unmarshalInputTransactionInput,
 	)
 	first := true
@@ -1724,10 +1728,11 @@ input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
-# TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
     timeout: Int!
+    memo: MemoInput
+    preconditions: PreconditionsInput
     simulationResult: SimulationResultInput
 }
 
@@ -1739,6 +1744,43 @@ input SimulationResultInput {
     results: [String!]
     latestLedger: Int
     error: String
+}
+
+# Supporting input types for memo
+input MemoInput {
+    type: MemoType!
+    text: String        # For MEMO_TEXT (max 28 chars)
+    id: String          # For MEMO_ID
+    hash: String        # For MEMO_HASH
+    retHash: String     # For MEMO_RETURN
+}
+
+enum MemoType {
+    MEMO_NONE
+    MEMO_TEXT
+    MEMO_ID
+    MEMO_HASH
+    MEMO_RETURN
+}
+
+# Supporting input types for preconditions
+input PreconditionsInput {
+    timeBounds: TimeBoundsInput              # Client can set more restrictive bounds
+    ledgerBounds: LedgerBoundsInput          # Ledger range constraints
+    minSeqNum: String                        # Minimum sequence number requirement
+    minSeqAge: String                        # Minimum sequence age requirement
+    minSeqLedgerGap: Int                     # Minimum ledger gap requirement
+    extraSigners: [String!]                  # Additional required signers
+}
+
+input TimeBoundsInput {
+    minTime: String     # Unix timestamp - earliest valid time
+    maxTime: String     # Unix timestamp - latest valid time (can be more restrictive than wallet backend timeout)
+}
+
+input LedgerBoundsInput {
+    minLedger: Int      # Minimum ledger number
+    maxLedger: Int      # Maximum ledger number
 }
 
 # Payload types for transaction mutations
@@ -12047,6 +12089,157 @@ func (ec *executionContext) unmarshalInputDeregisterAccountInput(ctx context.Con
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputLedgerBoundsInput(ctx context.Context, obj any) (LedgerBoundsInput, error) {
+	var it LedgerBoundsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"minLedger", "maxLedger"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "minLedger":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minLedger"))
+			data, err := ec.unmarshalOInt2ᚖint32(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinLedger = data
+		case "maxLedger":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxLedger"))
+			data, err := ec.unmarshalOInt2ᚖint32(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxLedger = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputMemoInput(ctx context.Context, obj any) (MemoInput, error) {
+	var it MemoInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"type", "text", "id", "hash", "retHash"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "type":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("type"))
+			data, err := ec.unmarshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Type = data
+		case "text":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("text"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Text = data
+		case "id":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ID = data
+		case "hash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("hash"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Hash = data
+		case "retHash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("retHash"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RetHash = data
+		}
+	}
+
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputPreconditionsInput(ctx context.Context, obj any) (PreconditionsInput, error) {
+	var it PreconditionsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"timeBounds", "ledgerBounds", "minSeqNum", "minSeqAge", "minSeqLedgerGap", "extraSigners"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "timeBounds":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("timeBounds"))
+			data, err := ec.unmarshalOTimeBoundsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTimeBoundsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TimeBounds = data
+		case "ledgerBounds":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("ledgerBounds"))
+			data, err := ec.unmarshalOLedgerBoundsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLedgerBoundsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.LedgerBounds = data
+		case "minSeqNum":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minSeqNum"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinSeqNum = data
+		case "minSeqAge":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minSeqAge"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinSeqAge = data
+		case "minSeqLedgerGap":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minSeqLedgerGap"))
+			data, err := ec.unmarshalOInt2ᚖint32(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinSeqLedgerGap = data
+		case "extraSigners":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("extraSigners"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ExtraSigners = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputRegisterAccountInput(ctx context.Context, obj any) (RegisterAccountInput, error) {
 	var it RegisterAccountInput
 	asMap := map[string]any{}
@@ -12136,6 +12329,40 @@ func (ec *executionContext) unmarshalInputSimulationResultInput(ctx context.Cont
 	return it, nil
 }
 
+func (ec *executionContext) unmarshalInputTimeBoundsInput(ctx context.Context, obj any) (TimeBoundsInput, error) {
+	var it TimeBoundsInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"minTime", "maxTime"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "minTime":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("minTime"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MinTime = data
+		case "maxTime":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("maxTime"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.MaxTime = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputTransactionInput(ctx context.Context, obj any) (TransactionInput, error) {
 	var it TransactionInput
 	asMap := map[string]any{}
@@ -12143,7 +12370,7 @@ func (ec *executionContext) unmarshalInputTransactionInput(ctx context.Context, 
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"operations", "timeout", "simulationResult"}
+	fieldsInOrder := [...]string{"operations", "timeout", "memo", "preconditions", "simulationResult"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -12164,6 +12391,20 @@ func (ec *executionContext) unmarshalInputTransactionInput(ctx context.Context, 
 				return it, err
 			}
 			it.Timeout = data
+		case "memo":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("memo"))
+			data, err := ec.unmarshalOMemoInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Memo = data
+		case "preconditions":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("preconditions"))
+			data, err := ec.unmarshalOPreconditionsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPreconditionsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Preconditions = data
 		case "simulationResult":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("simulationResult"))
 			data, err := ec.unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx, v)
@@ -16415,6 +16656,16 @@ func (ec *executionContext) marshalNInt642int64(ctx context.Context, sel ast.Sel
 	return res
 }
 
+func (ec *executionContext) unmarshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, v any) (MemoType, error) {
+	var res MemoType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, sel ast.SelectionSet, v MemoType) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNOperationEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐOperationEdge(ctx context.Context, sel ast.SelectionSet, v *OperationEdge) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -16937,6 +17188,22 @@ func (ec *executionContext) marshalOInt2ᚖint32(ctx context.Context, sel ast.Se
 	return res
 }
 
+func (ec *executionContext) unmarshalOLedgerBoundsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLedgerBoundsInput(ctx context.Context, v any) (*LedgerBoundsInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputLedgerBoundsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOMemoInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoInput(ctx context.Context, v any) (*MemoInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputMemoInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx context.Context, sel ast.SelectionSet, v *types.Operation) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -16996,6 +17263,14 @@ func (ec *executionContext) marshalOOperationEdge2ᚕᚖgithubᚗcomᚋstellar�
 	}
 
 	return ret
+}
+
+func (ec *executionContext) unmarshalOPreconditionsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPreconditionsInput(ctx context.Context, v any) (*PreconditionsInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputPreconditionsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx context.Context, v any) (*SimulationResultInput, error) {
@@ -17112,6 +17387,14 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	_ = ctx
 	res := graphql.MarshalString(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOTimeBoundsInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTimeBoundsInput(ctx context.Context, v any) (*TimeBoundsInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputTimeBoundsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx context.Context, sel ast.SelectionSet, v *types.Transaction) graphql.Marshaler {

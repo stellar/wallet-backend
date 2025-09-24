@@ -45,8 +45,8 @@ func (m *mockTransactionService) NetworkPassphrase() string {
 	return args.String(0)
 }
 
-func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
-	args := m.Called(ctx, operations, timeoutInSecs, simulationResult)
+func (m *mockTransactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, memo txnbuild.Memo, preconditions txnbuild.Preconditions, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+	args := m.Called(ctx, operations, timeoutInSecs, memo, preconditions, simulationResult)
 	return args.Get(0).(*txnbuild.Transaction), args.Error(1)
 }
 
@@ -343,7 +343,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			},
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, txnbuild.Preconditions{}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return(tx, nil)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -419,7 +419,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			},
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("[]txnbuild.Operation"), int64(30), nil, txnbuild.Preconditions{}, mock.AnythingOfType("entities.RPCSimulateTransactionResult")).Return((*txnbuild.Transaction)(nil), errors.New("transaction build failed"))
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -504,6 +504,8 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			ctx,
 			mock.AnythingOfType("[]txnbuild.Operation"),
 			int64(45),
+			nil,
+			txnbuild.Preconditions{},
 			mock.MatchedBy(func(simResult entities.RPCSimulateTransactionResult) bool {
 				// Verify all simulation result fields are properly converted
 				return simResult.LatestLedger == int64(latestLedger) &&
@@ -606,6 +608,8 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			ctx,
 			mock.AnythingOfType("[]txnbuild.Operation"),
 			int64(30),
+			nil,
+			txnbuild.Preconditions{},
 			mock.MatchedBy(func(simResult entities.RPCSimulateTransactionResult) bool {
 				// Verify that TransactionData was successfully parsed and matches our original data
 				expectedTxDataBase64, marshalErr := xdr.MarshalBase64(simResult.TransactionData)
