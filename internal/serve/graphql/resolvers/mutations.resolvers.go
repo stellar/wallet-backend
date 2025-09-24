@@ -131,33 +131,11 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert simulation result if provided
 	var simulationResult entities.RPCSimulateTransactionResult
 	if transaction.SimulationResult != nil {
-		simulationResult = entities.RPCSimulateTransactionResult{
-			Events: transaction.SimulationResult.Events,
+		convertedSimulationResult, simulationResultErr := r.convertSimulationResult(transaction.SimulationResult)
+		if simulationResultErr != nil {
+			return nil, simulationResultErr
 		}
-
-		if transaction.SimulationResult.MinResourceFee != nil {
-			simulationResult.MinResourceFee = *transaction.SimulationResult.MinResourceFee
-		}
-		if transaction.SimulationResult.Error != nil {
-			simulationResult.Error = *transaction.SimulationResult.Error
-		}
-		if transaction.SimulationResult.LatestLedger != nil {
-			simulationResult.LatestLedger = int64(*transaction.SimulationResult.LatestLedger)
-		}
-
-		// Handle TransactionData if provided
-		if transaction.SimulationResult.TransactionData != nil {
-			var txData xdr.SorobanTransactionData
-			if txDataErr := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); txDataErr != nil {
-				return nil, &gqlerror.Error{
-					Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
-					Extensions: map[string]interface{}{
-						"code": "INVALID_TRANSACTION_DATA",
-					},
-				}
-			}
-			simulationResult.TransactionData = txData
-		}
+		simulationResult = convertedSimulationResult
 	}
 
 	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), memo, preconditions, simulationResult)
@@ -244,6 +222,39 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 		Success:        true,
 		TransactionXdr: txXdrStr,
 	}, nil
+}
+
+// convertSimulationResult converts GraphQL SimulationResultInput to entities.RPCSimulateTransactionResult
+func (r *mutationResolver) convertSimulationResult(simulationResultInput *graphql1.SimulationResultInput) (entities.RPCSimulateTransactionResult, *gqlerror.Error) {
+	simulationResult := entities.RPCSimulateTransactionResult{
+		Events: simulationResultInput.Events,
+	}
+
+	if simulationResultInput.MinResourceFee != nil {
+		simulationResult.MinResourceFee = *simulationResultInput.MinResourceFee
+	}
+	if simulationResultInput.Error != nil {
+		simulationResult.Error = *simulationResultInput.Error
+	}
+	if simulationResultInput.LatestLedger != nil {
+		simulationResult.LatestLedger = int64(*simulationResultInput.LatestLedger)
+	}
+
+	// Handle TransactionData if provided
+	if simulationResultInput.TransactionData != nil {
+		var txData xdr.SorobanTransactionData
+		if txDataErr := xdr.SafeUnmarshalBase64(*simulationResultInput.TransactionData, &txData); txDataErr != nil {
+			return entities.RPCSimulateTransactionResult{}, &gqlerror.Error{
+				Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
+				Extensions: map[string]interface{}{
+					"code": "INVALID_TRANSACTION_DATA",
+				},
+			}
+		}
+		simulationResult.TransactionData = txData
+	}
+
+	return simulationResult, nil
 }
 
 // convertMemo converts GraphQL MemoInput to txnbuild.Memo with validation
