@@ -2,7 +2,6 @@ package serve
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
@@ -30,14 +30,12 @@ import (
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
-	"github.com/99designs/gqlgen/graphql"
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 type Configs struct {
@@ -202,36 +200,6 @@ func ensureChannelAccounts(ctx context.Context, channelAccountService services.C
 	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
-// customErrorPresenter provides more detailed error messages for GraphQL validation errors
-func customErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
-	var gqlErr *gqlerror.Error
-	if errors.As(err, &gqlErr) {
-		// Check if this is a validation error for unknown field
-		if gqlErr.Extensions != nil {
-			if code, ok := gqlErr.Extensions["code"].(string); ok && code == "GRAPHQL_VALIDATION_FAILED" {
-				// If the error message is "unknown field", provide more specific information
-				if gqlErr.Message == "unknown field" && len(gqlErr.Path) > 0 {
-					// Extract the field name from the path
-					fieldPath := make([]string, len(gqlErr.Path))
-					for i, p := range gqlErr.Path {
-						fieldPath[i] = fmt.Sprintf("%v", p)
-					}
-
-					// Show which field is unknown
-					if len(fieldPath) >= 3 && fieldPath[0] == "variable" && fieldPath[1] == "input" {
-						unknownField := fieldPath[2]
-						gqlErr.Message = fmt.Sprintf("Unknown field '%s'", unknownField)
-					} else if len(fieldPath) > 0 {
-						unknownField := fieldPath[len(fieldPath)-1]
-						gqlErr.Message = fmt.Sprintf("Unknown field '%s'", unknownField)
-					}
-				}
-			}
-		}
-	}
-	return graphql.DefaultErrorPresenter(ctx, err)
-}
-
 func handler(deps handlerDeps) http.Handler {
 	mux := supporthttp.NewAPIMux(log.DefaultLogger)
 	mux.NotFound(httperror.ErrorHandler{Error: httperror.NotFound}.ServeHTTP)
@@ -277,7 +245,7 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.AutomaticPersistedQuery{
 				Cache: lru.New[string](100),
 			})
-			srv.SetErrorPresenter(customErrorPresenter)
+			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
 			srv.Use(extension.FixedComplexityLimit(1000))
 
 			// Add complexity logging - reports all queries with their complexity values
