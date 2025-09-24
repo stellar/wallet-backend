@@ -139,7 +139,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Account is already registered")
+		assert.ErrorContains(t, err, ErrMsgAccountAlreadyExists)
 
 		mockService.AssertExpectations(t)
 	})
@@ -189,7 +189,7 @@ func TestMutationResolver_RegisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Invalid address: must be a valid Stellar public key or contract address")
+		assert.ErrorContains(t, err, ErrMsgInvalidAddress)
 
 		mockService.AssertExpectations(t)
 	})
@@ -218,7 +218,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.True(t, result.Success)
-		assert.Equal(t, "Account deregistered successfully", *result.Message)
+		assert.Equal(t, ErrMsgAccountDeregisteredSuccess, *result.Message)
 
 		mockService.AssertExpectations(t)
 	})
@@ -293,7 +293,7 @@ func TestMutationResolver_DeregisterAccount(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Account not found")
+		assert.ErrorContains(t, err, ErrMsgAccountNotFound)
 
 		mockService.AssertExpectations(t)
 	})
@@ -439,7 +439,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Failed to build transaction")
+		assert.ErrorContains(t, err, ErrMsgTransactionBuildFailed)
 
 		mockTransactionService.AssertExpectations(t)
 	})
@@ -768,7 +768,7 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Could not parse transaction envelope")
+		assert.ErrorContains(t, err, ErrMsgCouldNotParseTransactionEnvelope)
 
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {
@@ -825,7 +825,7 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Cannot wrap a fee-bump transaction into another fee-bump transaction")
+		assert.ErrorContains(t, err, ErrMsgCannotWrapFeeBumpTransaction)
 
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {

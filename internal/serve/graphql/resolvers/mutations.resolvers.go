@@ -33,7 +33,7 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 	if err != nil {
 		if errors.Is(err, data.ErrAccountAlreadyExists) {
 			return nil, &gqlerror.Error{
-				Message: "Account is already registered",
+				Message: ErrMsgAccountAlreadyExists,
 				Extensions: map[string]interface{}{
 					"code": "ACCOUNT_ALREADY_EXISTS",
 				},
@@ -41,14 +41,14 @@ func (r *mutationResolver) RegisterAccount(ctx context.Context, input graphql1.R
 		}
 		if errors.Is(err, services.ErrInvalidAddress) {
 			return nil, &gqlerror.Error{
-				Message: "Invalid address: must be a valid Stellar public key or contract address",
+				Message: ErrMsgInvalidAddress,
 				Extensions: map[string]interface{}{
 					"code": "INVALID_ADDRESS",
 				},
 			}
 		}
 		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf("Failed to register account: %s", err.Error()),
+			Message: fmt.Sprintf(ErrMsgAccountRegistrationFailed, err.Error()),
 			Extensions: map[string]interface{}{
 				"code": "ACCOUNT_REGISTRATION_FAILED",
 			},
@@ -73,14 +73,14 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 	if err != nil {
 		if errors.Is(err, data.ErrAccountNotFound) {
 			return nil, &gqlerror.Error{
-				Message: "Account not found",
+				Message: ErrMsgAccountNotFound,
 				Extensions: map[string]interface{}{
 					"code": "ACCOUNT_NOT_FOUND",
 				},
 			}
 		}
 		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf("Failed to deregister account: %s", err.Error()),
+			Message: fmt.Sprintf(ErrMsgAccountDeregistrationFailed, err.Error()),
 			Extensions: map[string]interface{}{
 				"code": "ACCOUNT_DEREGISTRATION_FAILED",
 			},
@@ -89,7 +89,7 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 
 	return &graphql1.DeregisterAccountPayload{
 		Success: true,
-		Message: &[]string{"Account deregistered successfully"}[0],
+		Message: &[]string{ErrMsgAccountDeregisteredSuccess}[0],
 	}, nil
 }
 
@@ -100,7 +100,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	ops, err := transactionsUtils.BuildOperations(transaction.Operations)
 	if err != nil {
 		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf("Invalid operations: %s", err.Error()),
+			Message: fmt.Sprintf(ErrMsgInvalidOperations, err.Error()),
 			Extensions: map[string]interface{}{
 				"code": "INVALID_OPERATIONS",
 			},
@@ -129,7 +129,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 			var txData xdr.SorobanTransactionData
 			if txDataErr := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); txDataErr != nil {
 				return nil, &gqlerror.Error{
-					Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
+					Message: fmt.Sprintf(ErrMsgInvalidTransactionData, txDataErr.Error()),
 					Extensions: map[string]interface{}{
 						"code": "INVALID_TRANSACTION_DATA",
 					},
@@ -193,7 +193,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 			}
 		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
 			return nil, &gqlerror.Error{
-				Message: "unable to assign a channel account",
+				Message: ErrMsgChannelAccountUnavailable,
 				Extensions: map[string]interface{}{
 					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
 				},
@@ -208,7 +208,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 		default:
 			log.Errorf("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
-				Message: "Failed to build transaction",
+				Message: ErrMsgTransactionBuildFailed,
 				Extensions: map[string]interface{}{
 					"code": "TRANSACTION_BUILD_FAILED",
 				},
@@ -230,7 +230,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	genericTx, err := txnbuild.TransactionFromXDR(input.TransactionXdr)
 	if err != nil {
 		return nil, &gqlerror.Error{
-			Message: "Could not parse transaction envelope.",
+			Message: ErrMsgCouldNotParseTransactionEnvelope,
 			Extensions: map[string]any{
 				"code": "INVALID_TRANSACTION_XDR",
 			},
@@ -240,7 +240,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	_, ok := genericTx.FeeBump()
 	if ok {
 		return nil, &gqlerror.Error{
-			Message: "Cannot wrap a fee-bump transaction into another fee-bump transaction",
+			Message: ErrMsgCannotWrapFeeBumpTransaction,
 			Extensions: map[string]any{
 				"code": "FEE_BUMP_TX_NOT_ALLOWED",
 			},
@@ -250,7 +250,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 	tx, ok := genericTx.Transaction()
 	if !ok {
 		return nil, &gqlerror.Error{
-			Message: "Transaction is not a valid transaction",
+			Message: ErrMsgInvalidTransaction,
 			Extensions: map[string]any{
 				"code": "INVALID_TRANSACTION",
 			},
@@ -284,7 +284,7 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 			}
 		default:
 			return nil, &gqlerror.Error{
-				Message: fmt.Sprintf("Failed to create fee bump transaction: %s", err.Error()),
+				Message: fmt.Sprintf(ErrMsgFeeBumpCreationFailed, err.Error()),
 				Extensions: map[string]any{
 					"code": "FEE_BUMP_CREATION_FAILED",
 				},
