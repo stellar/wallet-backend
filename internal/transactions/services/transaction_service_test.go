@@ -22,7 +22,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
@@ -87,32 +86,22 @@ func buildPaymentOp(t *testing.T) *txnbuild.Payment {
 // buildSimulationResponse is a helper function that returns a simulation response with one auth entry with the specified credential type.
 // buildTransactionForTest creates a transaction with the given operations and parameters
 // This helper function converts from the old test signature to the new implementation signature
-func buildTransactionForTest(t *testing.T, operations []txnbuild.Operation, timeout int64, memo txnbuild.Memo, preconditions txnbuild.Preconditions) *txnbuild.GenericTransaction {
+func buildTransactionForTest(t *testing.T, operations []txnbuild.Operation, preconditions txnbuild.Preconditions) *txnbuild.Transaction {
 	t.Helper()
 
 	// For non-empty operations, create a proper transaction
 	sourceAccount := keypair.MustRandom()
-
-	// Set default timeout if not specified
-	if timeout <= 0 {
-		timeout = DefaultTimeoutInSeconds
-	}
-
-	// Always ensure we have valid TimeBounds for transaction creation
-	if preconditions.TimeBounds.MaxTime == 0 {
-		preconditions.TimeBounds = txnbuild.NewTimeout(timeout)
-	}
 
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address(), Sequence: 1},
 		IncrementSequenceNum: true,
 		Operations:           operations,
 		BaseFee:              txnbuild.MinBaseFee,
-		Memo:                 memo,
+		Memo:                 nil,
 		Preconditions:        preconditions,
 	})
 	require.NoError(t, err)
-	return tx.ToGenericTransaction()
+	return tx
 }
 
 func buildSimulationResponse(
@@ -279,8 +268,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
-		genericTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -298,8 +289,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Destination:   keypair.MustRandom().Address(),
 			SourceAccount: channelAccount.Address(),
 		}}
-		genericTx := buildTransactionForTest(t, operations, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -316,8 +309,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		operations := []txnbuild.Operation{&txnbuild.AccountMerge{
 			Destination: keypair.MustRandom().Address(),
 		}}
-		genericTx := buildTransactionForTest(t, operations, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		assert.Empty(t, tx)
@@ -336,35 +331,16 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(0), errors.New("rpc service down")).
 			Once()
 
-		genericTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
 		assert.Empty(t, tx)
 		expectedErr := fmt.Errorf("getting ledger sequence for channel account public key %q: rpc service down", channelAccount.Address())
 		assert.EqualError(t, err, expectedErr.Error())
-	})
-
-	t.Run("🔴handle_NewTransaction_err", func(t *testing.T) {
-		channelAccount := keypair.MustRandom()
-		mChannelAccountSignatureClient.
-			On("GetAccountPublicKey", context.Background(), 30).
-			Return(channelAccount.Address(), nil).
-			Once()
-
-		mRPCService.
-			On("GetAccountLedgerSequence", channelAccount.Address()).
-			Return(int64(1), nil).
-			Once()
-
-		genericTx := buildTransactionForTest(t, []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
-
-		mChannelAccountSignatureClient.AssertExpectations(t)
-		mRPCService.AssertExpectations(t)
-		assert.Empty(t, tx)
-		assert.EqualError(t, err, "building transaction: transaction has no operations")
 	})
 
 	t.Run("🔴handle_AssignTxToChannelAccount_err", func(t *testing.T) {
@@ -387,9 +363,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(1), nil).
 			Once()
 
-		operations := []txnbuild.Operation{buildPaymentOp(t)}
-		genericTx := buildTransactionForTest(t, operations, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -422,8 +399,10 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Once()
 
 		operations := []txnbuild.Operation{buildPaymentOp(t)}
-		genericTx := buildTransactionForTest(t, operations, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
+		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
@@ -432,73 +411,11 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		assert.EqualError(t, err, "signing transaction with channel account: unable to sign")
 	})
 
-	t.Run("🟢build_and_sign_classic_tx_with_channel_account", func(t *testing.T) {
-		signedTx := utils.BuildTestTransaction(t)
-		channelAccount := keypair.MustRandom()
-
-		successTestCases := []struct {
-			name              string
-			inputTimeout      int
-			consideredTimeout int
-		}{
-			{
-				name:              "timeout_is_negative",
-				inputTimeout:      -1,
-				consideredTimeout: DefaultTimeoutInSeconds,
-			},
-			{
-				name:              "timeout_is_zero",
-				inputTimeout:      0,
-				consideredTimeout: DefaultTimeoutInSeconds,
-			},
-			{
-				name:              "timeout_is_positive",
-				inputTimeout:      10,
-				consideredTimeout: 10,
-			},
-			{
-				name:              "timeout_is_max",
-				inputTimeout:      MaxTimeoutInSeconds,
-				consideredTimeout: MaxTimeoutInSeconds,
-			},
-		}
-		for _, tc := range successTestCases {
-			t.Run(tc.name, func(t *testing.T) {
-				mChannelAccountSignatureClient.
-					On("GetAccountPublicKey", context.Background(), tc.consideredTimeout).
-					Return(channelAccount.Address(), nil).
-					Once().
-					On("NetworkPassphrase").
-					Return("networkpassphrase").
-					On("SignStellarTransaction", context.Background(), mock.AnythingOfType("*txnbuild.Transaction"), []string{channelAccount.Address()}).
-					Return(signedTx, nil).
-					Once()
-
-				mChannelAccountStore.
-					On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
-					Return(nil).
-					Once()
-
-				mRPCService.
-					On("GetAccountLedgerSequence", channelAccount.Address()).
-					Return(int64(1), nil).
-					Once()
-
-				operations := []txnbuild.Operation{buildPaymentOp(t)}
-				genericTx := buildTransactionForTest(t, operations, int64(tc.inputTimeout), nil, txnbuild.Preconditions{})
-				tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
-
-				mChannelAccountSignatureClient.AssertExpectations(t)
-				mChannelAccountStore.AssertExpectations(t)
-				mRPCService.AssertExpectations(t)
-				assert.Equal(t, signedTx, tx)
-				assert.NoError(t, err)
-			})
-		}
-	})
-
 	t.Run("🟢build_and_sign_soroban_tx_with_channel_account", func(t *testing.T) {
-		signedTx := utils.BuildTestTransaction(t)
+		operations := []txnbuild.Operation{buildInvokeContractOp(t)}
+		signedTx := buildTransactionForTest(t, operations, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(30),
+		})
 		channelAccount := keypair.MustRandom()
 
 		mChannelAccountSignatureClient.
@@ -528,14 +445,61 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 		require.Equal(t, xdr.Int64(133301), sorobanTxData.ResourceFee)
 
 		simulationResponse := buildSimulationResponse(t, sorobanTxData, xdr.SorobanCredentialsTypeSorobanCredentialsAddress, xdr.ScAddressTypeScAddressTypeAccount, keypair.MustRandom().Address())
-		operations := []txnbuild.Operation{buildInvokeContractOp(t)}
-		genericTx := buildTransactionForTest(t, operations, 30, nil, txnbuild.Preconditions{})
-		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, &simulationResponse)
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), &simulationResponse)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
 		mChannelAccountStore.AssertExpectations(t)
 		mRPCService.AssertExpectations(t)
 		assert.Equal(t, signedTx, tx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("🟢handle_max_timebound_greater_than_wallet_backend_max_timebound", func(t *testing.T) {
+		channelAccount := keypair.MustRandom()
+		signedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(500),
+		})
+		expectedSignedTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		})
+
+		mChannelAccountSignatureClient.
+			On("GetAccountPublicKey", context.Background(), 30).
+			Return(channelAccount.Address(), nil).
+			Once().
+			On("NetworkPassphrase").
+			Return("networkpassphrase").
+			On("SignStellarTransaction", context.Background(), mock.MatchedBy(func(tx *txnbuild.Transaction) bool {
+				// Verify that the transaction has been adjusted to have a maximum timeout of 300 seconds
+				timeBounds := tx.ToXDR().Preconditions().TimeBounds
+				if timeBounds == nil {
+					return false
+				}
+				// Check that MaxTime is set and represents a timeout of approximately 300 seconds from now
+				maxTimeoutBounds := txnbuild.NewTimeout(300)
+				timeDiff := int64(timeBounds.MaxTime) - maxTimeoutBounds.MaxTime
+				// Allow for a small time difference (up to 5 seconds) due to test execution timing
+				return timeDiff >= -5 && timeDiff <= 5
+			}), []string{channelAccount.Address()}).
+			Return(expectedSignedTx, nil).
+			Once()
+
+		mChannelAccountStore.
+			On("AssignTxToChannelAccount", context.Background(), channelAccount.Address(), mock.AnythingOfType("string")).
+			Return(nil).
+			Once()
+
+		mRPCService.
+			On("GetAccountLedgerSequence", channelAccount.Address()).
+			Return(int64(1), nil).
+			Once()
+
+		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), signedTx.ToGenericTransaction(), nil)
+
+		mChannelAccountSignatureClient.AssertExpectations(t)
+		mChannelAccountStore.AssertExpectations(t)
+		mRPCService.AssertExpectations(t)
+		assert.NotEqual(t, signedTx, tx)
 		assert.NoError(t, err)
 	})
 }
