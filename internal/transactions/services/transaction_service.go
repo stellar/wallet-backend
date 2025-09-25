@@ -107,7 +107,7 @@ func (t *transactionService) NetworkPassphrase() string {
 
 func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResponse *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
 	timeoutInSecs := DefaultTimeoutInSeconds
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
+	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, timeoutInSecs)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
@@ -142,7 +142,10 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 
 	walletBackendTimeBounds := txnbuild.NewTimeout(int64(MaxTimeoutInSeconds))
 	preconditions := txnbuild.Preconditions{}
-	preconditions.FromXDR(clientTx.ToXDR().Preconditions())
+	err = preconditions.FromXDR(clientTx.ToXDR().Preconditions())
+	if err != nil {
+		return nil, fmt.Errorf("parsing preconditions: %w", err)
+	}
 
 	// We need to restrict the max time to allow freeing channel accounts sooner and not
 	// blocking them until user specified max time.

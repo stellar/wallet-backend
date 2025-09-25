@@ -12,6 +12,8 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
+	"github.com/vektah/gqlparser/v2/gqlerror"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -21,7 +23,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // RegisterAccount is the resolver for the registerAccount field.
