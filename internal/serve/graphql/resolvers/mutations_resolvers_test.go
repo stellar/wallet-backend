@@ -966,11 +966,11 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, "Invalid TransactionData")
+		assert.ErrorContains(t, err, "unmarshalling transaction data")
 
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {
-			assert.Equal(t, "INVALID_TRANSACTION_DATA", gqlErr.Extensions["code"])
+			assert.Equal(t, "INVALID_SIMULATION_RESULT", gqlErr.Extensions["code"])
 		}
 	})
 }
