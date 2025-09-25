@@ -617,7 +617,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
-		txXDR, txErr := f.buildTransactionXDRWithSimulation(invokeContractOp, timeoutSeconds)
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
 		if txErr != nil {
 			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
 		}
@@ -634,7 +634,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
-		txXDR, txErr := f.buildTransactionXDRWithSimulation(invokeContractOp, timeoutSeconds)
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
 		if txErr != nil {
 			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
 		}
@@ -673,45 +673,6 @@ func (f *Fixtures) buildTransactionXDR(operationXDRs []string, timeoutSeconds in
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &sourceAcc,
 		Operations:    operations,
-		BaseFee:       txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(timeoutSeconds),
-		},
-		IncrementSequenceNum: true,
-	})
-	if err != nil {
-		return "", fmt.Errorf("building transaction: %w", err)
-	}
-
-	// Convert to XDR string
-	txXDR, err := tx.Base64()
-	if err != nil {
-		return "", fmt.Errorf("encoding transaction to base64: %w", err)
-	}
-
-	return txXDR, nil
-}
-
-// buildTransactionXDRWithSimulation builds a complete transaction XDR from operation XDR strings with simulation result
-func (f *Fixtures) buildTransactionXDRWithSimulation(operationXDR string, timeoutSeconds int64) (string, error) {
-	// Convert operation XDR string to txnbuild operation
-	opXDR, err := utils.OperationXDRFromBase64(operationXDR)
-	if err != nil {
-		return "", fmt.Errorf("converting operation XDR from base64: %w", err)
-	}
-	op, err := utils.OperationXDRToTxnBuildOp(opXDR)
-	if err != nil {
-		return "", fmt.Errorf("converting operation XDR to txnbuild operation: %w", err)
-	}
-
-	// Create a disposable source account for the transaction
-	sourceAccKP := keypair.MustRandom()
-	sourceAcc := txnbuild.SimpleAccount{AccountID: sourceAccKP.Address(), Sequence: 0}
-
-	// Build the transaction
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount: &sourceAcc,
-		Operations:    []txnbuild.Operation{op},
 		BaseFee:       txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{
 			TimeBounds: txnbuild.NewTimeout(timeoutSeconds),
