@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
+	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
 
 type mockAccountService struct {
@@ -753,7 +754,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, ErrMsgTransactionBuildFailed)
+		assert.ErrorContains(t, err, "transaction build failed")
 
 		mockTransactionService.AssertExpectations(t)
 	})
@@ -972,5 +973,111 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 		if errors.As(err, &gqlErr) {
 			assert.Equal(t, "INVALID_SIMULATION_RESULT", gqlErr.Extensions["code"])
 		}
+	})
+
+	t.Run("invalid operation structure error", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a complete test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Get the transaction XDR
+		txXDR, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionInput{
+			TransactionXdr: txXDR,
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), transactionservices.ErrInvalidTimeout)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid timeout: timeout cannot be greater than maximum allowed seconds")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_OPERATION_STRUCTURE", gqlErr.Extensions["code"])
+		}
+
+		mockTransactionService.AssertExpectations(t)
+	})
+
+	t.Run("invalid soroban transaction error", func(t *testing.T) {
+		mockAccountService := &mockAccountService{}
+		mockTransactionService := &mockTransactionService{}
+
+		resolver := &mutationResolver{
+			&Resolver{
+				accountService:     mockAccountService,
+				transactionService: mockTransactionService,
+				models:             &data.Models{},
+			},
+		}
+
+		// Create a complete test transaction
+		sourceAccount := keypair.MustRandom()
+		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address()},
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.Payment{
+					Destination: keypair.MustRandom().Address(),
+					Asset:       txnbuild.NativeAsset{},
+					Amount:      "10",
+				},
+			},
+			BaseFee:       txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
+		})
+		require.NoError(t, err)
+
+		// Get the transaction XDR
+		txXDR, err := tx.Base64()
+		require.NoError(t, err)
+
+		input := graphql.BuildTransactionInput{
+			TransactionXdr: txXDR,
+		}
+
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), transactionservices.ErrInvalidSorobanOperationCount)
+
+		result, err := resolver.BuildTransaction(ctx, input)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "invalid Soroban transaction: must have exactly one operation")
+
+		var gqlErr *gqlerror.Error
+		if errors.As(err, &gqlErr) {
+			assert.Equal(t, "INVALID_SOROBAN_TRANSACTION", gqlErr.Extensions["code"])
+		}
+
+		mockTransactionService.AssertExpectations(t)
 	})
 }

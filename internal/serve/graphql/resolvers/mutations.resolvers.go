@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -122,58 +121,28 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx, simulationResult)
 	if err != nil {
 		switch {
-		case errors.Is(err, transactionservices.ErrInvalidTimeout):
+		case errors.Is(err, transactionservices.ErrInvalidTimeout),
+			errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount),
+			errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]any{
-					"code": "INVALID_TIMEOUT",
+					"code": "INVALID_OPERATION_STRUCTURE",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount),
+			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty),
+			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed),
+			errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]any{
-					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_OPERATION_MISSING_SOURCE",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_SOROBAN_OPERATION_COUNT",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]any{
-					"code": "INVALID_SOROBAN_OPERATION_TYPE",
+					"code": "INVALID_SOROBAN_TRANSACTION",
 				},
 			}
 		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
 			return nil, &gqlerror.Error{
-				Message: ErrMsgChannelAccountUnavailable,
+				Message: err.Error(),
 				Extensions: map[string]any{
 					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
 				},
@@ -186,9 +155,8 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 				},
 			}
 		default:
-			log.Errorf("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
-				Message: ErrMsgTransactionBuildFailed,
+				Message: err.Error(),
 				Extensions: map[string]any{
 					"code": "TRANSACTION_BUILD_FAILED",
 				},
