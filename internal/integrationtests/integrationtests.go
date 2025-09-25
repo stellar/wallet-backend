@@ -18,7 +18,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/pkg/utils"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 )
 
@@ -253,19 +252,17 @@ func (it *IntegrationTests) assertBuildTransactionResult(ctx context.Context, us
 		assertOrFail(len(builtTx.Signatures()) > 0, "transaction should be signed")
 		assertOrFail(builtTx.Signatures()[0].Hint == keypair.MustParse(channelAccount.PublicKey).Hint(), "signature at index 0 should be made by the channel account public key")
 
-		// Assert the operations are the same
-		rawOps := useCase.requestedTransaction.Operations
-		assertOpsMatch(rawOps, builtTx.Operations())
+		// Assert the operations are the same by parsing the original transaction XDR
+		requestedTx, err := parseTxXDR(useCase.requestedTransaction.TransactionXdr)
+		assertOrFail(err == nil, "[%s] parsing requested transaction from XDR %s: %v", useCase.Name(), useCase.requestedTransaction.TransactionXdr, err)
+		assertOpsMatch(requestedTx.Operations(), builtTx.Operations())
 	}
 }
 
-func assertOpsMatch(requestOpsXDRs []string, responseOps []txnbuild.Operation) {
-	for j, requestOpXDRStr := range requestOpsXDRs {
-		requestOpXDR, err := utils.OperationXDRFromBase64(requestOpXDRStr)
-		assertOrFail(err == nil, "error converting operation string to XDR: %v", err)
-		requestOp, err := utils.OperationXDRToTxnBuildOp(requestOpXDR)
-		assertOrFail(err == nil, "error converting operation XDR to txnbuild operation: %v", err)
+func assertOpsMatch(requestOps []txnbuild.Operation, responseOps []txnbuild.Operation) {
+	assertOrFail(len(requestOps) == len(responseOps), "number of operations in request (%d) and response (%d) must be the same", len(requestOps), len(responseOps))
 
+	for j, requestOp := range requestOps {
 		responseOp := responseOps[j]
 		// In case of invokeContractOp, we set the Ext of the request to the same as in the response.
 		// This is because the response includes the transaction data, which is not present in the request.

@@ -138,11 +138,8 @@ func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transac
 
 	variables := map[string]interface{}{
 		"input": map[string]interface{}{
-			"transaction": map[string]interface{}{
-				"operations":       transaction.Operations,
-				"timeout":          transaction.Timeout,
-				"simulationResult": simulationResult,
-			},
+			"transactionXdr":   transaction.TransactionXdr,
+			"simulationResult": simulationResult,
 		},
 	}
 
