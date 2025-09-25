@@ -8,12 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -111,7 +109,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert memo if provided
 	var memo txnbuild.Memo
 	if transaction.Memo != nil {
-		convertedMemo, memoErr := r.convertMemo(transaction.Memo)
+		convertedMemo, memoErr := convertMemo(transaction.Memo)
 		if memoErr != nil {
 			return nil, memoErr
 		}
@@ -121,7 +119,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert preconditions if provided
 	var preconditions txnbuild.Preconditions
 	if transaction.Preconditions != nil {
-		convertedPreconditions, preconditionsErr := r.convertPreconditions(transaction.Preconditions)
+		convertedPreconditions, preconditionsErr := convertPreconditions(transaction.Preconditions)
 		if preconditionsErr != nil {
 			return nil, preconditionsErr
 		}
@@ -131,7 +129,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert simulation result if provided
 	var simulationResult entities.RPCSimulateTransactionResult
 	if transaction.SimulationResult != nil {
-		convertedSimulationResult, simulationResultErr := r.convertSimulationResult(transaction.SimulationResult)
+		convertedSimulationResult, simulationResultErr := convertSimulationResult(transaction.SimulationResult)
 		if simulationResultErr != nil {
 			return nil, simulationResultErr
 		}
@@ -296,240 +294,6 @@ func (r *mutationResolver) CreateFeeBumpTransaction(ctx context.Context, input g
 		Transaction:       feeBumpTxe,
 		NetworkPassphrase: networkPassphrase,
 	}, nil
-}
-
-// convertSimulationResult converts GraphQL SimulationResultInput to entities.RPCSimulateTransactionResult
-func (r *mutationResolver) convertSimulationResult(simulationResultInput *graphql1.SimulationResultInput) (entities.RPCSimulateTransactionResult, *gqlerror.Error) {
-	simulationResult := entities.RPCSimulateTransactionResult{
-		Events: simulationResultInput.Events,
-	}
-
-	if simulationResultInput.MinResourceFee != nil {
-		simulationResult.MinResourceFee = *simulationResultInput.MinResourceFee
-	}
-	if simulationResultInput.Error != nil {
-		simulationResult.Error = *simulationResultInput.Error
-	}
-	if simulationResultInput.LatestLedger != nil {
-		simulationResult.LatestLedger = int64(*simulationResultInput.LatestLedger)
-	}
-
-	// Handle TransactionData if provided
-	if simulationResultInput.TransactionData != nil {
-		var txData xdr.SorobanTransactionData
-		if txDataErr := xdr.SafeUnmarshalBase64(*simulationResultInput.TransactionData, &txData); txDataErr != nil {
-			return entities.RPCSimulateTransactionResult{}, &gqlerror.Error{
-				Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_TRANSACTION_DATA",
-				},
-			}
-		}
-		simulationResult.TransactionData = txData
-	}
-
-	return simulationResult, nil
-}
-
-// convertMemo converts GraphQL MemoInput to txnbuild.Memo with validation
-func (r *mutationResolver) convertMemo(memoInput *graphql1.MemoInput) (txnbuild.Memo, *gqlerror.Error) {
-	switch memoInput.Type {
-	case graphql1.MemoTypeMemoNone:
-		return nil, nil
-	case graphql1.MemoTypeMemoText:
-		if memoInput.Text == nil {
-			return nil, &gqlerror.Error{
-				Message: "text field is required for MEMO_TEXT",
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		if len(*memoInput.Text) > 28 {
-			return nil, &gqlerror.Error{
-				Message: "memo text cannot exceed 28 characters",
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		return txnbuild.MemoText(*memoInput.Text), nil
-	case graphql1.MemoTypeMemoID:
-		if memoInput.ID == nil {
-			return nil, &gqlerror.Error{
-				Message: "id field is required for MEMO_ID",
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		id, err := strconv.ParseUint(*memoInput.ID, 10, 64)
-		if err != nil {
-			return nil, &gqlerror.Error{
-				Message: fmt.Sprintf("invalid memo id: %s", err.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		return txnbuild.MemoID(id), nil
-	case graphql1.MemoTypeMemoHash:
-		if memoInput.Hash == nil {
-			return nil, &gqlerror.Error{
-				Message: "hash field is required for MEMO_HASH",
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		// Convert hex string to [32]byte
-		var hashBytes xdr.Hash
-		if err := xdr.SafeUnmarshalBase64(*memoInput.Hash, &hashBytes); err != nil {
-			return nil, &gqlerror.Error{
-				Message: fmt.Sprintf("invalid memo hash: %s", err.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		return txnbuild.MemoHash(hashBytes), nil
-	case graphql1.MemoTypeMemoReturn:
-		if memoInput.RetHash == nil {
-			return nil, &gqlerror.Error{
-				Message: "retHash field is required for MEMO_RETURN",
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		// Convert hex string to [32]byte
-		var retHashBytes xdr.Hash
-		if err := xdr.SafeUnmarshalBase64(*memoInput.RetHash, &retHashBytes); err != nil {
-			return nil, &gqlerror.Error{
-				Message: fmt.Sprintf("invalid memo retHash: %s", err.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_MEMO",
-				},
-			}
-		}
-		return txnbuild.MemoReturn(retHashBytes), nil
-	default:
-		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf("unsupported memo type: %s", memoInput.Type),
-			Extensions: map[string]interface{}{
-				"code": "INVALID_MEMO",
-			},
-		}
-	}
-}
-
-// convertPreconditions converts GraphQL PreconditionsInput to txnbuild.Preconditions with validation
-func (r *mutationResolver) convertPreconditions(preconditionsInput *graphql1.PreconditionsInput) (txnbuild.Preconditions, *gqlerror.Error) {
-	var preconditions txnbuild.Preconditions
-
-	// Convert TimeBounds
-	if preconditionsInput.TimeBounds != nil {
-		var minTime, maxTime int64
-
-		if preconditionsInput.TimeBounds.MinTime != nil {
-			var err error
-			minTime, err = strconv.ParseInt(*preconditionsInput.TimeBounds.MinTime, 10, 64)
-			if err != nil {
-				return preconditions, &gqlerror.Error{
-					Message: fmt.Sprintf("invalid minTime: %s", err.Error()),
-					Extensions: map[string]interface{}{
-						"code": "INVALID_PRECONDITIONS",
-					},
-				}
-			}
-		}
-
-		if preconditionsInput.TimeBounds.MaxTime != nil {
-			var err error
-			maxTime, err = strconv.ParseInt(*preconditionsInput.TimeBounds.MaxTime, 10, 64)
-			if err != nil {
-				return preconditions, &gqlerror.Error{
-					Message: fmt.Sprintf("invalid maxTime: %s", err.Error()),
-					Extensions: map[string]interface{}{
-						"code": "INVALID_PRECONDITIONS",
-					},
-				}
-			}
-		}
-
-		preconditions.TimeBounds = txnbuild.NewTimebounds(minTime, maxTime)
-	}
-
-	// Convert LedgerBounds
-	if preconditionsInput.LedgerBounds != nil {
-		preconditions.LedgerBounds = &txnbuild.LedgerBounds{
-			MinLedger: uint32(*preconditionsInput.LedgerBounds.MinLedger),
-			MaxLedger: uint32(*preconditionsInput.LedgerBounds.MaxLedger),
-		}
-	}
-
-	// Convert MinSequenceNumber
-	if preconditionsInput.MinSeqNum != nil {
-		minSeqNum, err := strconv.ParseInt(*preconditionsInput.MinSeqNum, 10, 64)
-		if err != nil {
-			return preconditions, &gqlerror.Error{
-				Message: fmt.Sprintf("invalid minSeqNum: %s", err.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_PRECONDITIONS",
-				},
-			}
-		}
-		preconditions.MinSequenceNumber = &minSeqNum
-	}
-
-	// Convert MinSequenceNumberAge
-	if preconditionsInput.MinSeqAge != nil {
-		minSeqAge, err := strconv.ParseUint(*preconditionsInput.MinSeqAge, 10, 64)
-		if err != nil {
-			return preconditions, &gqlerror.Error{
-				Message: fmt.Sprintf("invalid minSeqAge: %s", err.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_PRECONDITIONS",
-				},
-			}
-		}
-		preconditions.MinSequenceNumberAge = minSeqAge
-	}
-
-	// Convert MinSequenceNumberLedgerGap
-	if preconditionsInput.MinSeqLedgerGap != nil {
-		preconditions.MinSequenceNumberLedgerGap = uint32(*preconditionsInput.MinSeqLedgerGap)
-	}
-
-	// Convert ExtraSigners
-	if len(preconditionsInput.ExtraSigners) > 0 {
-		for _, signerStr := range preconditionsInput.ExtraSigners {
-			// Validate signer address format
-			if err := validateStellarSignerKey(signerStr); err != nil {
-				return preconditions, &gqlerror.Error{
-					Message: fmt.Sprintf("invalid extra signer: %s", err.Error()),
-					Extensions: map[string]interface{}{
-						"code": "INVALID_PRECONDITIONS",
-					},
-				}
-			}
-			preconditions.ExtraSigners = append(preconditions.ExtraSigners, signerStr)
-		}
-	}
-
-	return preconditions, nil
-}
-
-// validateStellarSignerKey validates a stellar signer key format
-func validateStellarSignerKey(signerKey string) error {
-	if signerKey == "" {
-		return fmt.Errorf("signer key is undefined")
-	}
-	var xdrKey xdr.SignerKey
-	if err := xdrKey.SetAddress(signerKey); err != nil {
-		return fmt.Errorf("%s is not a valid stellar signer key", signerKey)
-	}
-	return nil
 }
 
 // Mutation returns graphql1.MutationResolver implementation.

@@ -1766,19 +1766,16 @@ type DeregisterAccountPayload {
     message: String
 }
 
+input CreateFeeBumpTransactionInput {
+    transactionXDR: String!
+}
+
 # Input types for transaction mutations
 input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
-input CreateFeeBumpTransactionInput {
-    transactionXDR: String!
-}
-
-input CreateFeeBumpTransactionInput {
-    transactionXDR: String!
-}
-
+# TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
     timeout: Int!
