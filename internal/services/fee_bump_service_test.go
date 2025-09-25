@@ -7,7 +7,6 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -39,7 +38,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		DistributionAccountSignatureClient: &signatureClient,
 		BaseFee:                            txnbuild.MinBaseFee,
 		Models:                             models,
-		BlockedOperationsTypes:             []xdr.OperationType{xdr.OperationTypeLiquidityPoolDeposit},
 	})
 	require.NoError(t, err)
 
@@ -70,50 +68,6 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 
 		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
 		assert.ErrorIs(t, ErrAccountNotEligibleForBeingSponsored, err)
-		assert.Empty(t, feeBumpTxe)
-		assert.Empty(t, networkPassphrase)
-	})
-
-	t.Run("blocked_operations", func(t *testing.T) {
-		accountToSponsor := keypair.MustRandom()
-
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err := models.Account.Insert(ctx, accountToSponsor.Address())
-		require.NoError(t, err)
-
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: accountToSponsor.Address(),
-				Sequence:  123,
-			},
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{
-				&txnbuild.Payment{
-					Destination: keypair.MustRandom().Address(),
-					Amount:      "10",
-					Asset:       txnbuild.NativeAsset{},
-				},
-				&txnbuild.LiquidityPoolDeposit{
-					LiquidityPoolID: txnbuild.LiquidityPoolId{123},
-					MaxAmountA:      "100",
-					MaxAmountB:      "200",
-					MinPrice:        xdr.Price{N: 1, D: 1},
-					MaxPrice:        xdr.Price{N: 1, D: 1},
-				},
-			},
-			BaseFee:       txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(30)},
-		})
-		require.NoError(t, err)
-
-		feeBumpTxe, networkPassphrase, err := s.WrapTransaction(ctx, tx)
-		var opNotAllowedErr *OperationNotAllowedError
-		assert.ErrorAs(t, err, &opNotAllowedErr)
 		assert.Empty(t, feeBumpTxe)
 		assert.Empty(t, networkPassphrase)
 	})

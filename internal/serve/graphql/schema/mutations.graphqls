@@ -7,6 +7,7 @@ type Mutation {
     
     # Transaction mutations
     buildTransaction(input: BuildTransactionInput!): BuildTransactionPayload!
+    createFeeBumpTransaction(input: CreateFeeBumpTransactionInput!): CreateFeeBumpTransactionPayload!
 }
 
 # Input types for account mutations
@@ -29,11 +30,16 @@ type DeregisterAccountPayload {
     message: String
 }
 
+input CreateFeeBumpTransactionInput {
+    transactionXDR: String!
+}
+
 # Input types for transaction mutations
 input BuildTransactionInput {
     transaction: TransactionInput!
 }
 
+# TODO: Update transaction input to include all attributes of the transaction.
 input TransactionInput {
     operations: [String!]!
     timeout: Int!
@@ -93,4 +99,10 @@ input LedgerBoundsInput {
 type BuildTransactionPayload {
     success: Boolean!
     transactionXdr: String!
+}
+
+type CreateFeeBumpTransactionPayload {
+    success: Boolean!
+    transaction: String!
+    networkPassphrase: String!
 }

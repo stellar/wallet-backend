@@ -38,16 +38,19 @@ type Resolver struct {
 	accountService services.AccountService
 	// transactionService provides transaction building and signing operations
 	transactionService txservices.TransactionService
+	// feeBumpService provides fee-bump transaction wrapping operations
+	feeBumpService services.FeeBumpService
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService txservices.TransactionService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService txservices.TransactionService, feeBumpService services.FeeBumpService) *Resolver {
 	return &Resolver{
 		models:             models,
 		accountService:     accountService,
 		transactionService: transactionService,
+		feeBumpService:     feeBumpService,
 	}
 }
 

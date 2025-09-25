@@ -11,13 +11,13 @@ import (
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
@@ -37,9 +37,6 @@ import (
 	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
 )
-
-// blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
-var blockedOperationTypes = []xdr.OperationType{}
 
 type Configs struct {
 	Port                        int
@@ -146,7 +143,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
-		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
@@ -230,7 +226,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
 
 			config := generated.Config{
 				Resolvers: resolver,
@@ -249,6 +245,7 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.AutomaticPersistedQuery{
 				Cache: lru.New[string](100),
 			})
+			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
 			srv.Use(extension.FixedComplexityLimit(1000))
 
 			// Add complexity logging - reports all queries with their complexity values
@@ -256,15 +253,6 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(complexityreporter.NewExtension(reporter))
 
 			r.Handle("/query", srv)
-		})
-
-		r.Route("/tx", func(r chi.Router) {
-			accountHandler := &httphandler.AccountHandler{
-				FeeBumpService: deps.FeeBumpService,
-				AppTracker:     deps.AppTracker,
-			}
-
-			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
 		})
 	})
 
