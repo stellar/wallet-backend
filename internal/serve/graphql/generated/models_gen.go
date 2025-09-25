@@ -3,10 +3,6 @@
 package graphql
 
 import (
-	"bytes"
-	"fmt"
-	"io"
-	"strconv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -25,7 +21,8 @@ type BaseStateChange interface {
 }
 
 type BuildTransactionInput struct {
-	Transaction *TransactionInput `json:"transaction"`
+	TransactionXdr   string                 `json:"transactionXdr"`
+	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
 }
 
 type BuildTransactionPayload struct {
@@ -52,19 +49,6 @@ type DeregisterAccountPayload struct {
 	Message *string `json:"message,omitempty"`
 }
 
-type LedgerBoundsInput struct {
-	MinLedger *int32 `json:"minLedger,omitempty"`
-	MaxLedger *int32 `json:"maxLedger,omitempty"`
-}
-
-type MemoInput struct {
-	Type    MemoType `json:"type"`
-	Text    *string  `json:"text,omitempty"`
-	ID      *string  `json:"id,omitempty"`
-	Hash    *string  `json:"hash,omitempty"`
-	RetHash *string  `json:"retHash,omitempty"`
-}
-
 type Mutation struct {
 }
 
@@ -83,15 +67,6 @@ type PageInfo struct {
 	EndCursor       *string `json:"endCursor,omitempty"`
 	HasNextPage     bool    `json:"hasNextPage"`
 	HasPreviousPage bool    `json:"hasPreviousPage"`
-}
-
-type PreconditionsInput struct {
-	TimeBounds      *TimeBoundsInput   `json:"timeBounds,omitempty"`
-	LedgerBounds    *LedgerBoundsInput `json:"ledgerBounds,omitempty"`
-	MinSeqNum       *string            `json:"minSeqNum,omitempty"`
-	MinSeqAge       *string            `json:"minSeqAge,omitempty"`
-	MinSeqLedgerGap *int32             `json:"minSeqLedgerGap,omitempty"`
-	ExtraSigners    []string           `json:"extraSigners,omitempty"`
 }
 
 type Query struct {
@@ -125,11 +100,6 @@ type StateChangeEdge struct {
 	Cursor string          `json:"cursor"`
 }
 
-type TimeBoundsInput struct {
-	MinTime *string `json:"minTime,omitempty"`
-	MaxTime *string `json:"maxTime,omitempty"`
-}
-
 type TransactionConnection struct {
 	Edges    []*TransactionEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo          `json:"pageInfo"`
@@ -138,73 +108,4 @@ type TransactionConnection struct {
 type TransactionEdge struct {
 	Node   *types.Transaction `json:"node,omitempty"`
 	Cursor string             `json:"cursor"`
-}
-
-type TransactionInput struct {
-	Operations       []string               `json:"operations"`
-	Timeout          int32                  `json:"timeout"`
-	Memo             *MemoInput             `json:"memo,omitempty"`
-	Preconditions    *PreconditionsInput    `json:"preconditions,omitempty"`
-	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
-}
-
-type MemoType string
-
-const (
-	MemoTypeMemoNone   MemoType = "MEMO_NONE"
-	MemoTypeMemoText   MemoType = "MEMO_TEXT"
-	MemoTypeMemoID     MemoType = "MEMO_ID"
-	MemoTypeMemoHash   MemoType = "MEMO_HASH"
-	MemoTypeMemoReturn MemoType = "MEMO_RETURN"
-)
-
-var AllMemoType = []MemoType{
-	MemoTypeMemoNone,
-	MemoTypeMemoText,
-	MemoTypeMemoID,
-	MemoTypeMemoHash,
-	MemoTypeMemoReturn,
-}
-
-func (e MemoType) IsValid() bool {
-	switch e {
-	case MemoTypeMemoNone, MemoTypeMemoText, MemoTypeMemoID, MemoTypeMemoHash, MemoTypeMemoReturn:
-		return true
-	}
-	return false
-}
-
-func (e MemoType) String() string {
-	return string(e)
-}
-
-func (e *MemoType) UnmarshalGQL(v any) error {
-	str, ok := v.(string)
-	if !ok {
-		return fmt.Errorf("enums must be strings")
-	}
-
-	*e = MemoType(str)
-	if !e.IsValid() {
-		return fmt.Errorf("%s is not a valid MemoType", str)
-	}
-	return nil
-}
-
-func (e MemoType) MarshalGQL(w io.Writer) {
-	fmt.Fprint(w, strconv.Quote(e.String()))
-}
-
-func (e *MemoType) UnmarshalJSON(b []byte) error {
-	s, err := strconv.Unquote(string(b))
-	if err != nil {
-		return err
-	}
-	return e.UnmarshalGQL(s)
-}
-
-func (e MemoType) MarshalJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	e.MarshalGQL(&buf)
-	return buf.Bytes(), nil
 }

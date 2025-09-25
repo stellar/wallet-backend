@@ -12,8 +12,6 @@ import (
 
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/vektah/gqlparser/v2/gqlerror"
-
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -22,8 +20,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
-	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // RegisterAccount is the resolver for the registerAccount field.
@@ -94,49 +92,28 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 
 // BuildTransaction is the resolver for the buildTransaction field.
 func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.BuildTransactionInput) (*graphql1.BuildTransactionPayload, error) {
-	transaction := input.Transaction
-
-	ops, err := transactionsUtils.BuildOperations(transaction.Operations)
+	genericTx, err := txnbuild.TransactionFromXDR(input.TransactionXdr)
 	if err != nil {
 		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf(ErrMsgInvalidOperations, err.Error()),
-			Extensions: map[string]interface{}{
-				"code": "INVALID_OPERATIONS",
+			Message: ErrMsgCouldNotParseTransactionEnvelope,
+			Extensions: map[string]any{
+				"code": "INVALID_TRANSACTION_XDR",
 			},
 		}
 	}
 
-	// Convert memo if provided
-	var memo txnbuild.Memo
-	if transaction.Memo != nil {
-		convertedMemo, memoErr := convertMemo(transaction.Memo)
-		if memoErr != nil {
-			return nil, memoErr
-		}
-		memo = convertedMemo
-	}
-
-	// Convert preconditions if provided
-	var preconditions txnbuild.Preconditions
-	if transaction.Preconditions != nil {
-		convertedPreconditions, preconditionsErr := convertPreconditions(transaction.Preconditions)
-		if preconditionsErr != nil {
-			return nil, preconditionsErr
-		}
-		preconditions = convertedPreconditions
-	}
-
 	// Convert simulation result if provided
-	var simulationResult entities.RPCSimulateTransactionResult
-	if transaction.SimulationResult != nil {
-		convertedSimulationResult, simulationResultErr := convertSimulationResult(transaction.SimulationResult)
+	var simulationResult *entities.RPCSimulateTransactionResult
+	if input.SimulationResult != nil {
+		convertedSimulationResult, simulationResultErr := convertSimulationResult(input.SimulationResult)
 		if simulationResultErr != nil {
 			return nil, simulationResultErr
 		}
-		simulationResult = convertedSimulationResult
+		simulationResult = &convertedSimulationResult
 	}
 
-	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), memo, preconditions, simulationResult)
+	// Build transaction from XDR with optional simulation result
+	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx, simulationResult)
 	if err != nil {
 		switch {
 		case errors.Is(err, transactionservices.ErrInvalidTimeout):

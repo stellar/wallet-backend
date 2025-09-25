@@ -36,15 +36,7 @@ input CreateFeeBumpTransactionInput {
 
 # Input types for transaction mutations
 input BuildTransactionInput {
-    transaction: TransactionInput!
-}
-
-# TODO: Update transaction input to include all attributes of the transaction.
-input TransactionInput {
-    operations: [String!]!
-    timeout: Int!
-    memo: MemoInput
-    preconditions: PreconditionsInput
+    transactionXdr: String!
     simulationResult: SimulationResultInput
 }
 
@@ -58,42 +50,6 @@ input SimulationResultInput {
     error: String
 }
 
-# Supporting input types for memo
-input MemoInput {
-    type: MemoType!
-    text: String        # For MEMO_TEXT (max 28 chars)
-    id: String          # For MEMO_ID
-    hash: String        # For MEMO_HASH
-    retHash: String     # For MEMO_RETURN
-}
-
-enum MemoType {
-    MEMO_NONE
-    MEMO_TEXT
-    MEMO_ID
-    MEMO_HASH
-    MEMO_RETURN
-}
-
-# Supporting input types for preconditions
-input PreconditionsInput {
-    timeBounds: TimeBoundsInput              # Client can set more restrictive bounds
-    ledgerBounds: LedgerBoundsInput          # Ledger range constraints
-    minSeqNum: String                        # Minimum sequence number requirement
-    minSeqAge: String                        # Minimum sequence age requirement
-    minSeqLedgerGap: Int                     # Minimum ledger gap requirement
-    extraSigners: [String!]                  # Additional required signers
-}
-
-input TimeBoundsInput {
-    minTime: String     # Unix timestamp - earliest valid time
-    maxTime: String     # Unix timestamp - latest valid time (can be more restrictive than wallet backend timeout)
-}
-
-input LedgerBoundsInput {
-    minLedger: Int      # Minimum ledger number
-    maxLedger: Int      # Maximum ledger number
-}
 
 # Payload types for transaction mutations
 type BuildTransactionPayload {
