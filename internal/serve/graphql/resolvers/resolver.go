@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/stellar/go/xdr"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -173,7 +172,7 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 }
 
 // convertSimulationResult converts GraphQL SimulationResultInput to entities.RPCSimulateTransactionResult
-func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInput) (entities.RPCSimulateTransactionResult, *gqlerror.Error) {
+func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInput) (entities.RPCSimulateTransactionResult, error) {
 	simulationResult := entities.RPCSimulateTransactionResult{
 		Events: simulationResultInput.Events,
 	}
@@ -192,12 +191,7 @@ func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInp
 	if simulationResultInput.TransactionData != nil {
 		var txData xdr.SorobanTransactionData
 		if txDataErr := xdr.SafeUnmarshalBase64(*simulationResultInput.TransactionData, &txData); txDataErr != nil {
-			return entities.RPCSimulateTransactionResult{}, &gqlerror.Error{
-				Message: fmt.Sprintf("Invalid TransactionData: %s", txDataErr.Error()),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_TRANSACTION_DATA",
-				},
-			}
+			return entities.RPCSimulateTransactionResult{}, fmt.Errorf("unmarshalling transaction data: %w", txDataErr)
 		}
 		simulationResult.TransactionData = txData
 	}

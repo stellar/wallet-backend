@@ -106,9 +106,14 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	// Convert simulation result if provided
 	var simulationResult *entities.RPCSimulateTransactionResult
 	if input.SimulationResult != nil {
-		convertedSimulationResult, simulationResultErr := convertSimulationResult(input.SimulationResult)
-		if simulationResultErr != nil {
-			return nil, simulationResultErr
+		convertedSimulationResult, err := convertSimulationResult(input.SimulationResult)
+		if err != nil {
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]any{
+					"code": "INVALID_SIMULATION_RESULT",
+				},
+			}
 		}
 		simulationResult = &convertedSimulationResult
 	}
@@ -120,63 +125,63 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 		case errors.Is(err, transactionservices.ErrInvalidTimeout):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_TIMEOUT",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_OPERATION_MISSING_SOURCE",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_SOROBAN_OPERATION_COUNT",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
 				},
 			}
 		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "INVALID_SOROBAN_OPERATION_TYPE",
 				},
 			}
 		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
 			return nil, &gqlerror.Error{
 				Message: ErrMsgChannelAccountUnavailable,
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
 				},
 			}
 		case errors.Is(err, sorobanauth.ErrForbiddenSigner):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "FORBIDDEN_SIGNER",
 				},
 			}
@@ -184,7 +189,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 			log.Errorf("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
 				Message: ErrMsgTransactionBuildFailed,
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "TRANSACTION_BUILD_FAILED",
 				},
 			}
