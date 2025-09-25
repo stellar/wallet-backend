@@ -90,41 +90,6 @@ func buildPaymentOp(t *testing.T) *txnbuild.Payment {
 func buildTransactionForTest(t *testing.T, operations []txnbuild.Operation, timeout int64, memo txnbuild.Memo, preconditions txnbuild.Preconditions) *txnbuild.GenericTransaction {
 	t.Helper()
 
-	// Handle special test cases for empty operations
-	if len(operations) == 0 {
-		// For the "NewTransaction_err" test, we need a transaction that will fail during NewTransaction in the service
-		// Since we can't create a transaction with empty operations, we'll create a minimal valid one
-		// The test error expectation might need to be updated since the error will come from a different place now
-		sourceAccount := keypair.MustRandom()
-
-		// Create a simple payment to make a valid transaction, since empty operations break NewTransaction
-		dummyOp := &txnbuild.Payment{
-			Destination: keypair.MustRandom().Address(),
-			Amount:      "1",
-			Asset:       txnbuild.NativeAsset{},
-		}
-
-		// Ensure preconditions have valid TimeBounds
-		if preconditions.TimeBounds.MaxTime == 0 {
-			if timeout > 0 {
-				preconditions.TimeBounds = txnbuild.NewTimeout(timeout)
-			} else {
-				preconditions.TimeBounds = txnbuild.NewTimeout(DefaultTimeoutInSeconds)
-			}
-		}
-
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &txnbuild.SimpleAccount{AccountID: sourceAccount.Address(), Sequence: 1},
-			IncrementSequenceNum: true,
-			Operations:           []txnbuild.Operation{dummyOp},
-			BaseFee:              txnbuild.MinBaseFee,
-			Memo:                 memo,
-			Preconditions:        preconditions,
-		})
-		require.NoError(t, err)
-		return tx.ToGenericTransaction()
-	}
-
 	// For non-empty operations, create a proper transaction
 	sourceAccount := keypair.MustRandom()
 
@@ -314,7 +279,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return("", errors.New("channel accounts unavailable")).
 			Once()
 
-		genericTx := buildTransactionForTest(t, []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{})
+		genericTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{})
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
@@ -371,7 +336,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 			Return(int64(0), errors.New("rpc service down")).
 			Once()
 
-		genericTx := buildTransactionForTest(t, []txnbuild.Operation{}, 30, nil, txnbuild.Preconditions{})
+		genericTx := buildTransactionForTest(t, []txnbuild.Operation{buildPaymentOp(t)}, 30, nil, txnbuild.Preconditions{})
 		tx, err := txService.BuildAndSignTransactionWithChannelAccount(context.Background(), genericTx, nil)
 
 		mChannelAccountSignatureClient.AssertExpectations(t)
