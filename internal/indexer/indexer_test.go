@@ -281,14 +281,14 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			mockAccountsStore := &store.MockAccountsStore{}
 
 			// Set up accountsStore mock expectations based on test participants
-			if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {
+			if len(tt.txParticipants.ToSlice()) > 0 {
 				for participant := range tt.txParticipants.Iter() {
 					mockAccountsStore.On("Exists", participant).Return(true)
 				}
 			}
 
 			// Set up accountsStore mock expectations for operation participants
-			if tt.opsParticipants != nil && len(tt.opsParticipants) > 0 {
+			if len(tt.opsParticipants) > 0 {
 				for _, opParticipants := range tt.opsParticipants {
 					for participant := range opParticipants.Participants.Iter() {
 						mockAccountsStore.On("Exists", participant).Return(true)
