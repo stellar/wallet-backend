@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/store"
 )
 
 type IndexerBufferInterface interface {
@@ -46,9 +47,10 @@ type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
+	accountsStore          store.AccountsStore
 }
 
-func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider) *Indexer {
+func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider, accountsStore store.AccountsStore) *Indexer {
 	return &Indexer{
 		Buffer:                 NewIndexerBuffer(),
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
@@ -58,6 +60,7 @@ func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerE
 			processors.NewContractDeployProcessor(networkPassphrase),
 			contract_processors.NewSACEventsProcessor(networkPassphrase),
 		},
+		accountsStore: accountsStore,
 	}
 }
 

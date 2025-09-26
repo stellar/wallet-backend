@@ -67,6 +67,7 @@ type ingestService struct {
 	rpcService        RPCService
 	chAccStore        store.ChannelAccountStore
 	contractStore     cache.TokenContractStore
+	accountsStore     cache.AccountsStore
 	metricsService    metrics.MetricsService
 	networkPassphrase string
 	getLedgersLimit   int
@@ -79,6 +80,7 @@ func NewIngestService(
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
+	accountsStore cache.AccountsStore,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
 	network string,
@@ -101,6 +103,9 @@ func NewIngestService(
 	if contractStore == nil {
 		return nil, errors.New("contractStore cannot be nil")
 	}
+	if accountsStore == nil {
+		return nil, errors.New("accountsStore cannot be nil")
+	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
@@ -116,6 +121,7 @@ func NewIngestService(
 		rpcService:        rpcService,
 		chAccStore:        chAccStore,
 		contractStore:     contractStore,
+		accountsStore:     accountsStore,
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
@@ -326,7 +332,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 
 	var errs []error
 	errMu := sync.Mutex{}
-	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService)
+	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService, m.accountsStore)
 
 	// Submit tasks to the pool
 	startTime := time.Now()

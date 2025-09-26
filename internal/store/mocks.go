@@ -29,3 +29,20 @@ func (m *MockTokenContractStore) Exists(ctx context.Context, contractID string) 
 	args := m.Called(ctx, contractID)
 	return args.Get(0).(bool)
 }
+
+type MockAccountsStore struct {
+	mock.Mock
+}
+
+func (m *MockAccountsStore) Add(accountID string) {
+	m.Called(accountID)
+}
+
+func (m *MockAccountsStore) Remove(accountID string) {
+	m.Called(accountID)
+}
+
+func (m *MockAccountsStore) Exists(ctx context.Context, accountID string) bool {
+	args := m.Called(ctx, accountID)
+	return args.Get(0).(bool)
+}

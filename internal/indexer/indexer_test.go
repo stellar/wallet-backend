@@ -17,6 +17,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/store"
 )
 
 var (
@@ -271,11 +272,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEventsProcessor, mockBuffer)
 
 			// Create testable indexer with mocked dependencies
+			mockAccountsStore := &store.MockAccountsStore{}
 			indexer := &Indexer{
 				Buffer:                 mockBuffer,
 				participantsProcessor:  mockParticipants,
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEventsProcessor},
+				accountsStore:          mockAccountsStore,
 			}
 
 			err := indexer.ProcessTransaction(context.Background(), testTx)

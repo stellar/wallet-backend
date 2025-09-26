@@ -83,9 +83,13 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating contract store: %w", err)
 	}
+	accountsStore, err := cache.NewAccountsStore(models.Account)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating accounts store: %w", err)
+	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, accountsStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
