@@ -15,5 +15,5 @@ type TokenContractStore interface {
 type AccountsStore interface {
 	Add(accountID string)
 	Remove(accountID string)
-	Exists(ctx context.Context, accountID string) bool
+	Exists(accountID string) bool
 }

@@ -273,6 +273,14 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 			// Create testable indexer with mocked dependencies
 			mockAccountsStore := &store.MockAccountsStore{}
+
+			// Set up accountsStore mock expectations based on test participants
+			if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {
+				for participant := range tt.txParticipants.Iter() {
+					mockAccountsStore.On("Exists", participant).Return(true)
+				}
+			}
+
 			indexer := &Indexer{
 				Buffer:                 mockBuffer,
 				participantsProcessor:  mockParticipants,
@@ -291,7 +299,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				require.NoError(t, err)
 
 				// Additional assertions for successful cases
-				if len(tt.txParticipants.ToSlice()) > 0 {
+				if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {
 					// Verify PushParticipantTransaction was called when there are participants
 					mockBuffer.AssertCalled(t, "PushParticipantTransaction", mock.Anything, mock.Anything)
 				} else {
@@ -309,6 +317,13 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				// PushStateChanges should always be called
 				mockBuffer.AssertCalled(t, "PushStateChanges", mock.Anything)
+
+				// Verify accountsStore.Exists was called for each transaction participant
+				if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {
+					for participant := range tt.txParticipants.Iter() {
+						mockAccountsStore.AssertCalled(t, "Exists", participant)
+					}
+				}
 				mockBuffer.AssertCalled(t, "CalculateStateChangeOrder")
 			}
 

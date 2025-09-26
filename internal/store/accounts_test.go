@@ -48,7 +48,7 @@ func TestAccountsStore_Add(t *testing.T) {
 		store.Add(accountID)
 
 		// Verify account exists in cache
-		exists := store.Exists(ctx, accountID)
+		exists := store.Exists(accountID)
 		assert.True(t, exists)
 
 		cleanUpDB()
@@ -74,7 +74,7 @@ func TestAccountsStore_Add(t *testing.T) {
 		store.Add(accountID)
 
 		// Should still exist only once
-		exists := store.Exists(ctx, accountID)
+		exists := store.Exists(accountID)
 		assert.True(t, exists)
 
 		cleanUpDB()
@@ -111,14 +111,14 @@ func TestAccountsStore_Remove(t *testing.T) {
 
 		// Add account first
 		store.Add(accountID)
-		exists := store.Exists(ctx, accountID)
+		exists := store.Exists(accountID)
 		assert.True(t, exists)
 
 		// Remove account
 		store.Remove(accountID)
 
 		// Verify account no longer exists in cache
-		exists = store.Exists(ctx, accountID)
+		exists = store.Exists(accountID)
 		assert.False(t, exists)
 
 		cleanUpDB()
@@ -142,7 +142,7 @@ func TestAccountsStore_Remove(t *testing.T) {
 		store.Remove(accountID)
 
 		// Verify account still doesn't exist
-		exists := store.Exists(ctx, accountID)
+		exists := store.Exists(accountID)
 		assert.False(t, exists)
 
 		cleanUpDB()
@@ -192,7 +192,7 @@ func TestAccountsStore_CachePopulationOnInit(t *testing.T) {
 
 		// Verify all accounts are in cache
 		for _, account := range accounts {
-			exists := store.Exists(ctx, account)
+			exists := store.Exists(account)
 			assert.True(t, exists, "Account %s should exist in cache after initialization", account)
 		}
 
@@ -214,7 +214,7 @@ func TestAccountsStore_CachePopulationOnInit(t *testing.T) {
 
 		// Verify cache is empty
 		testAccount := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-		exists := store.Exists(ctx, testAccount)
+		exists := store.Exists(testAccount)
 		assert.False(t, exists)
 
 		cleanUpDB()
@@ -260,7 +260,7 @@ func TestAccountsStore_MultipleAccounts(t *testing.T) {
 
 	// Verify all accounts exist
 	for _, account := range accounts {
-		exists := store.Exists(ctx, account)
+		exists := store.Exists(account)
 		assert.True(t, exists, "Account %s should exist", account)
 	}
 
@@ -268,13 +268,13 @@ func TestAccountsStore_MultipleAccounts(t *testing.T) {
 	store.Remove(accounts[1])
 
 	// Verify the removed account no longer exists
-	exists := store.Exists(ctx, accounts[1])
+	exists := store.Exists(accounts[1])
 	assert.False(t, exists, "Removed account should not exist")
 
 	// Verify other accounts still exist
-	exists = store.Exists(ctx, accounts[0])
+	exists = store.Exists(accounts[0])
 	assert.True(t, exists, "First account should still exist")
-	exists = store.Exists(ctx, accounts[2])
+	exists = store.Exists(accounts[2])
 	assert.True(t, exists, "Third account should still exist")
 
 	cleanUpDB()
@@ -330,11 +330,11 @@ func TestAccountsStore_ConcurrentAccess(t *testing.T) {
 				for j := 0; j < numOperations; j++ {
 					// Read random accounts
 					account := baseAccounts[j%len(baseAccounts)]
-					_ = store.Exists(ctx, account)
+					_ = store.Exists(account)
 
 					// Also try reading non-existent accounts
 					nonExistentAccount := fmt.Sprintf("NONEXISTENT_%d_%d", readerID, j)
-					_ = store.Exists(ctx, nonExistentAccount)
+					_ = store.Exists(nonExistentAccount)
 				}
 			}(i)
 		}
@@ -349,14 +349,14 @@ func TestAccountsStore_ConcurrentAccess(t *testing.T) {
 					store.Add(account)
 
 					// Verify it was added
-					exists := store.Exists(ctx, account)
+					exists := store.Exists(account)
 					assert.True(t, exists)
 
 					// Remove it
 					store.Remove(account)
 
 					// Verify it was removed
-					exists = store.Exists(ctx, account)
+					exists = store.Exists(account)
 					assert.False(t, exists)
 				}
 			}(i)
@@ -367,7 +367,7 @@ func TestAccountsStore_ConcurrentAccess(t *testing.T) {
 
 		// Verify base accounts still exist
 		for _, account := range baseAccounts {
-			exists := store.Exists(ctx, account)
+			exists := store.Exists(account)
 			assert.True(t, exists, "Base account %s should still exist after concurrent operations", account)
 		}
 

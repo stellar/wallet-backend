@@ -42,8 +42,8 @@ func (m *MockAccountsStore) Remove(accountID string) {
 	m.Called(accountID)
 }
 
-func (m *MockAccountsStore) Exists(ctx context.Context, accountID string) bool {
-	args := m.Called(ctx, accountID)
+func (m *MockAccountsStore) Exists(accountID string) bool {
+	args := m.Called(accountID)
 	return args.Bool(0)
 }
 

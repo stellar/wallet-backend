@@ -37,7 +37,7 @@ func NewAccountsStore(dbModel *data.AccountModel) (AccountsStore, error) {
 	return store, nil
 }
 
-func (s *accountsStore) Exists(ctx context.Context, accountID string) bool {
+func (s *accountsStore) Exists(accountID string) bool {
 	return s.cache.Contains(accountID)
 }
 
