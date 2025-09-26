@@ -57,6 +57,7 @@ func (m *OperationModel) BatchInsert(
 
 	// Insert operations and operations_accounts links.
 	const insertQuery = `
+	WITH
 	-- Insert operations
 	inserted_operations AS (
 		INSERT INTO operations
