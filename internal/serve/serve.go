@@ -26,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
+	cachestore "github.com/stellar/wallet-backend/internal/store"
 	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -131,7 +132,12 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
-	accountService, err := services.NewAccountService(models, metricsService)
+	accountsStore, err := cachestore.NewAccountsStore(models.Account)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating accounts store: %w", err)
+	}
+
+	accountService, err := services.NewAccountService(models, accountsStore, metricsService)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}

@@ -16,6 +16,24 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
+// MockAccountsStore is a mock implementation of AccountsStore
+type MockAccountsStore struct {
+	mock.Mock
+}
+
+func (m *MockAccountsStore) Add(accountID string) {
+	m.Called(accountID)
+}
+
+func (m *MockAccountsStore) Remove(accountID string) {
+	m.Called(accountID)
+}
+
+func (m *MockAccountsStore) Exists(ctx context.Context, accountID string) bool {
+	args := m.Called(ctx, accountID)
+	return args.Bool(0)
+}
+
 func TestAccountRegister(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -31,7 +49,12 @@ func TestAccountRegister(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := NewAccountService(models, mockMetricsService)
+
+	// Create mock accounts store
+	mockAccountsStore := &MockAccountsStore{}
+	mockAccountsStore.On("Add", mock.AnythingOfType("string")).Return()
+
+	accountService, err := NewAccountService(models, mockAccountsStore, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -62,7 +85,12 @@ func TestAccountDeregister(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
-	accountService, err := NewAccountService(models, mockMetricsService)
+
+	// Create mock accounts store
+	mockAccountsStore := &MockAccountsStore{}
+	mockAccountsStore.On("Remove", mock.AnythingOfType("string")).Return()
+
+	accountService, err := NewAccountService(models, mockAccountsStore, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()

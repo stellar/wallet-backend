@@ -14,6 +14,20 @@ type AccountModel struct {
 	MetricsService metrics.MetricsService
 }
 
+func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
+	const query = `SELECT stellar_address FROM accounts`
+	start := time.Now()
+	accounts := []string{}
+	err := m.DB.SelectContext(ctx, &accounts, query)
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	if err != nil {
+		return nil, fmt.Errorf("getting all accounts: %w", err)
+	}
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	return accounts, nil
+}
+
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1) ON CONFLICT DO NOTHING`
 	start := time.Now()
