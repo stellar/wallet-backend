@@ -161,7 +161,7 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 			Sequence:  channelAccountSeq,
 		},
 		Operations:           operations,
-		BaseFee:              min(t.BaseFee, clientTx.BaseFee()),
+		BaseFee:              t.BaseFee,
 		Memo:                 clientTx.Memo(),
 		Preconditions:        preconditions,
 		IncrementSequenceNum: true,
