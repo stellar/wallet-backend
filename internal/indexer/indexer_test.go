@@ -203,6 +203,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(set.NewSet[string](), errors.New("participant error"))
 			},
 			wantError: "getting transaction participants: participant error",
+			txParticipants: set.NewSet[string](),
+			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 		{
 			name: "🔴 error getting operations participants",
@@ -212,6 +214,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
 			},
 			wantError: "getting operations participants: operations error",
+			txParticipants: set.NewSet[string](),
+			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 		{
 			name: "🔴 error processing effects state changes",
@@ -236,6 +240,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("effects error"))
 				mockEffects.On("Name").Return("effects")
 			},
+			txParticipants: set.NewSet[string](),
 			wantError: "processing effects state changes: effects error",
 			opsParticipants: map[int64]processors.OperationParticipants{
 				1: {
@@ -261,6 +266,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("token transfer error"))
 			},
 			wantError: "processing token transfer state changes: token transfer error",
+			txParticipants: set.NewSet[string](),
+			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 	}
 
