@@ -62,8 +62,8 @@ func (m *MockIndexerBuffer) PushParticipantOperation(participant string, op type
 	m.Called(participant, op, tx)
 }
 
-func (m *MockIndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
-	m.Called(stateChanges)
+func (m *MockIndexerBuffer) PushStateChange(stateChange types.StateChange) {
+	m.Called(stateChange)
 }
 
 func (m *MockIndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {

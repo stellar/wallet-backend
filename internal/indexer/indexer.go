@@ -105,11 +105,11 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		for _, processor := range i.processors {
-			stateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
 			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
 				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
 			}
-			stateChanges = append(stateChanges, stateChanges...)
+			stateChanges = append(stateChanges, processorStateChanges...)
 		}
 	}
 

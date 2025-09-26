@@ -113,16 +113,16 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				}
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(opParticipants, nil)
 
-				tokenStateChanges := []types.StateChange{{ToID: 1, StateChangeOrder: 1}}
+				tokenStateChanges := []types.StateChange{{ToID: 1, StateChangeOrder: 1, AccountID: "alice"}}
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return(tokenStateChanges, nil)
 
-				effectsStateChanges := []types.StateChange{{ToID: 2, StateChangeOrder: 1}}
+				effectsStateChanges := []types.StateChange{{ToID: 2, StateChangeOrder: 1, AccountID: "alice"}}
 				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return(effectsStateChanges, nil)
 
-				contractDeployStateChanges := []types.StateChange{{ToID: 3, StateChangeOrder: 1}}
+				contractDeployStateChanges := []types.StateChange{{ToID: 3, StateChangeOrder: 1, AccountID: "alice"}}
 				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return(contractDeployStateChanges, nil)
 
-				contractSACEventsStateChanges := []types.StateChange{{ToID: 4, StateChangeOrder: 1}}
+				contractSACEventsStateChanges := []types.StateChange{{ToID: 4, StateChangeOrder: 1, AccountID: "alice"}}
 				mockSACEventsProcessor.On("ProcessOperation", mock.Anything, mock.Anything).Return(contractSACEventsStateChanges, nil)
 
 				// Verify transaction was pushed to buffer with correct participants
@@ -148,22 +148,22 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					})).Return()
 
 				// Verify state changes were pushed to buffer
-				// PushStateChanges is called separately for effects and token transfer state changes
-				mockBuffer.On("PushStateChanges",
-					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ToID == 1 && stateChanges[0].StateChangeOrder == 1
+				// PushStateChange is called separately for effects and token transfer state changes
+				mockBuffer.On("PushStateChange",
+					mock.MatchedBy(func(stateChange types.StateChange) bool {
+						return stateChange.ToID == 1 && stateChange.StateChangeOrder == 1 && stateChange.AccountID == "alice"
 					})).Return()
-				mockBuffer.On("PushStateChanges",
-					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ToID == 2 && stateChanges[0].StateChangeOrder == 1
+				mockBuffer.On("PushStateChange",
+					mock.MatchedBy(func(stateChange types.StateChange) bool {
+						return stateChange.ToID == 2 && stateChange.StateChangeOrder == 1 && stateChange.AccountID == "alice"
 					})).Return()
-				mockBuffer.On("PushStateChanges",
-					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ToID == 3 && stateChanges[0].StateChangeOrder == 1
+				mockBuffer.On("PushStateChange",
+					mock.MatchedBy(func(stateChange types.StateChange) bool {
+						return stateChange.ToID == 3 && stateChange.StateChangeOrder == 1 && stateChange.AccountID == "alice"
 					})).Return()
-				mockBuffer.On("PushStateChanges",
-					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 1 && stateChanges[0].ToID == 4 && stateChanges[0].StateChangeOrder == 1
+				mockBuffer.On("PushStateChange",
+					mock.MatchedBy(func(stateChange types.StateChange) bool {
+						return stateChange.ToID == 4 && stateChange.StateChangeOrder == 1 && stateChange.AccountID == "alice"
 					})).Return()
 			},
 			txParticipants: set.NewSet("alice", "bob"),
@@ -191,12 +191,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				tokenStateChanges := []types.StateChange{}
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return(tokenStateChanges, nil)
 
-				// Verify only empty state changes are pushed (no participant operations/transactions)
-				// PushStateChanges is still called for token transfer state changes (even if empty)
-				mockBuffer.On("PushStateChanges",
-					mock.MatchedBy(func(stateChanges []types.StateChange) bool {
-						return len(stateChanges) == 0
-					})).Return()
+				// Verify no state changes are pushed since there are no participants or token transfers
 				mockBuffer.On("CalculateStateChangeOrder").Return()
 			},
 			txParticipants:  set.NewSet[string](),
@@ -242,6 +237,17 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockEffects.On("Name").Return("effects")
 			},
 			wantError: "processing effects state changes: effects error",
+			opsParticipants: map[int64]processors.OperationParticipants{
+				1: {
+					OpWrapper: &operation_processor.TransactionOperationWrapper{
+						Index:          0,
+						Operation:      createAccountOp,
+						Network:        network.TestNetworkPassphrase,
+						LedgerSequence: 12345,
+					},
+					Participants: set.NewSet("alice"),
+				},
+			},
 		},
 		{
 			name: "🔴 error processing token transfer state changes",
@@ -281,6 +287,15 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				}
 			}
 
+			// Set up accountsStore mock expectations for operation participants
+			if tt.opsParticipants != nil && len(tt.opsParticipants) > 0 {
+				for _, opParticipants := range tt.opsParticipants {
+					for participant := range opParticipants.Participants.Iter() {
+						mockAccountsStore.On("Exists", participant).Return(true)
+					}
+				}
+			}
+
 			indexer := &Indexer{
 				Buffer:                 mockBuffer,
 				participantsProcessor:  mockParticipants,
@@ -315,8 +330,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 					mockBuffer.AssertNotCalled(t, "PushParticipantOperation", mock.Anything, mock.Anything, mock.Anything)
 				}
 
-				// PushStateChanges should always be called
-				mockBuffer.AssertCalled(t, "PushStateChanges", mock.Anything)
+				// PushStateChange should be called for each state change
+				// (only if there are actual state changes from operations or token transfers)
 
 				// Verify accountsStore.Exists was called for each transaction participant
 				if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {

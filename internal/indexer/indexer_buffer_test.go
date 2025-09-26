@@ -232,8 +232,9 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
 		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
 
-		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
-		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+		indexerBuffer.PushStateChange(sc1)
+		indexerBuffer.PushStateChange(sc2)
+		indexerBuffer.PushStateChange(sc3)
 
 		allStateChanges := indexerBuffer.GetAllStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
@@ -251,12 +252,13 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			indexerBuffer.PushStateChanges([]types.StateChange{sc1})
+			indexerBuffer.PushStateChange(sc1)
 		}()
 
 		go func() {
 			defer wg.Done()
-			indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3})
+			indexerBuffer.PushStateChange(sc2)
+			indexerBuffer.PushStateChange(sc3)
 		}()
 
 		wg.Wait()
@@ -283,9 +285,11 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
 		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
 
-		indexerBuffer.PushStateChanges([]types.StateChange{sc1})
-		indexerBuffer.PushStateChanges([]types.StateChange{sc2, sc3, sc4})
-		indexerBuffer.PushStateChanges([]types.StateChange{sc5})
+		indexerBuffer.PushStateChange(sc1)
+		indexerBuffer.PushStateChange(sc2)
+		indexerBuffer.PushStateChange(sc3)
+		indexerBuffer.PushStateChange(sc4)
+		indexerBuffer.PushStateChange(sc5)
 
 		allStateChanges := indexerBuffer.GetAllStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
