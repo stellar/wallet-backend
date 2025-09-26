@@ -100,6 +100,17 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 	b.pushParticipantTransactionUnsafe(participant, transaction)
 }
 
+func (b *IndexerBuffer) GetAllOperations() []types.Operation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	ops := make([]types.Operation, 0, len(b.opByID))
+	for _, op := range b.opByID {
+		ops = append(ops, op)
+	}
+	return ops
+}
+
 func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation types.Operation) {
 	b.opByID[operation.ID] = operation
 	b.Participants.Add(participant)

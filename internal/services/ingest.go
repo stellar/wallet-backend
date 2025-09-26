@@ -26,7 +26,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -417,10 +416,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		indexerBuffer := ledgerIndexer.Buffer
 
-		txByHash := make(map[string]types.Transaction)
 		stellarAddressesByTxHash := make(map[string]set.Set[string])
-
-		opByID := make(map[int64]types.Operation)
 		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
 		// 1. Build the data structures needed for the DB insertions
@@ -429,7 +425,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 			// 1.1. transactions data for the DB insertions
 			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
 			for _, tx := range participantTransactions {
-				txByHash[tx.Hash] = tx
 				if _, ok := stellarAddressesByTxHash[tx.Hash]; !ok {
 					stellarAddressesByTxHash[tx.Hash] = set.NewSet[string]()
 				}
@@ -438,8 +433,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 
 			// 1.2. operations data for the DB insertions
 			participantOperations := indexerBuffer.GetParticipantOperations(participant)
-			for opID, op := range participantOperations {
-				opByID[opID] = op
+			for opID := range participantOperations {
 				if _, ok := stellarAddressesByOpID[opID]; !ok {
 					stellarAddressesByOpID[opID] = set.NewSet[string]()
 				}
@@ -449,37 +443,37 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 
 		// 2. Insert queries
 		// 2.1. Insert transactions
-		txs := make([]types.Transaction, 0, len(txByHash))
-		for _, tx := range txByHash {
-			txs = append(txs, tx)
+		txs := indexerBuffer.GetAllTransactions()
+		if len(txs) > 0 {
+			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
+			if err != nil {
+				return fmt.Errorf("batch inserting transactions: %w", err)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 		}
-		insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
-		if err != nil {
-			return fmt.Errorf("batch inserting transactions: %w", err)
-		}
-		log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 
 		// 2.2. Insert operations
-		ops := make([]types.Operation, 0, len(opByID))
-		for _, op := range opByID {
-			ops = append(ops, op)
+		ops := indexerBuffer.GetAllOperations()
+		if len(ops) > 0 {
+			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
+			if err != nil {
+				return fmt.Errorf("batch inserting operations: %w", err)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 		}
-		insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
-		if err != nil {
-			return fmt.Errorf("batch inserting operations: %w", err)
-		}
-		log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 
 		// 2.3. Insert state changes
 		stateChanges := indexerBuffer.GetAllStateChanges()
-		insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
-		if err != nil {
-			return fmt.Errorf("batch inserting state changes: %w", err)
+		if len(stateChanges) > 0 {
+			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
+			if err != nil {
+				return fmt.Errorf("batch inserting state changes: %w", err)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
-		log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 
 		// 3. Unlock channel accounts.
-		err = m.unlockChannelAccounts(ctx, ledgerIndexer)
+		err := m.unlockChannelAccounts(ctx, ledgerIndexer)
 		if err != nil {
 			return fmt.Errorf("unlocking channel accounts: %w", err)
 		}

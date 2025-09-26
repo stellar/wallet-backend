@@ -24,6 +24,7 @@ type IndexerBufferInterface interface {
 	GetParticipants() set.Set[string]
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
+	GetAllOperations() []types.Operation
 	GetAllStateChanges() []types.StateChange
 	CalculateStateChangeOrder()
 }
