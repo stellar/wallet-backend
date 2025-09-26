@@ -205,236 +205,6 @@ func TestGetLedgerTransactions(t *testing.T) {
 	})
 }
 
-func TestIngestPayments(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	mockMetricsService := metrics.NewMockMetricsService()
-	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
-	require.NoError(t, err)
-	mockAppTracker := apptracker.MockAppTracker{}
-	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
-	mockChAccStore := &store.ChannelAccountStoreMock{}
-	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
-	require.NoError(t, err)
-	srcAccount := keypair.MustRandom().Address()
-	destAccount := keypair.MustRandom().Address()
-	usdIssuer := keypair.MustRandom().Address()
-	eurIssuer := keypair.MustRandom().Address()
-
-	t.Run("test_op_payment", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 1).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err = models.Account.Insert(context.Background(), srcAccount)
-		require.NoError(t, err)
-		paymentOp := txnbuild.Payment{
-			SourceAccount: srcAccount,
-			Destination:   destAccount,
-			Amount:        "10",
-			Asset:         txnbuild.NativeAsset{},
-		}
-		var transaction *txnbuild.Transaction
-		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: keypair.MustRandom().Address(),
-			},
-			Operations:    []txnbuild.Operation{&paymentOp},
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-		})
-		require.NoError(t, err)
-		var txEnvXDR string
-		txEnvXDR, err = transaction.Base64()
-		require.NoError(t, err)
-
-		ledgerTransaction := entities.Transaction{
-			Status:           entities.SuccessStatus,
-			Hash:             "abcd",
-			ApplicationOrder: 1,
-			FeeBump:          false,
-			EnvelopeXDR:      txEnvXDR,
-			ResultXDR:        "AAAAAAAAAMj////9AAAAAA==",
-			Ledger:           1,
-		}
-
-		ledgerTransactions := []entities.Transaction{ledgerTransaction}
-
-		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
-		require.NoError(t, err)
-
-		var payments []data.Payment
-		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
-		assert.NoError(t, err)
-		assert.Equal(t, payments[0].TransactionHash, "abcd")
-	})
-
-	t.Run("test_op_path_payment_send", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Times(2)
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 1).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err = models.Account.Insert(context.Background(), srcAccount)
-		require.NoError(t, err)
-
-		path := []txnbuild.Asset{
-			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
-			txnbuild.CreditAsset{Code: "EUR", Issuer: eurIssuer},
-		}
-
-		pathPaymentOp := txnbuild.PathPaymentStrictSend{
-			SourceAccount: srcAccount,
-			Destination:   destAccount,
-			DestMin:       "9",
-			SendAmount:    "10",
-			SendAsset:     txnbuild.NativeAsset{},
-			DestAsset:     txnbuild.NativeAsset{},
-			Path:          path,
-		}
-		var transaction *txnbuild.Transaction
-		transaction, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: keypair.MustRandom().Address(),
-			},
-			Operations:    []txnbuild.Operation{&pathPaymentOp},
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-		})
-		require.NoError(t, err)
-
-		signer := keypair.MustRandom()
-		err = models.Account.Insert(context.Background(), signer.Address())
-		require.NoError(t, err)
-		var signedTx *txnbuild.Transaction
-		signedTx, err = transaction.Sign(network.TestNetworkPassphrase, signer)
-		require.NoError(t, err)
-
-		var txEnvXDR string
-		txEnvXDR, err = signedTx.Base64()
-		require.NoError(t, err)
-
-		ledgerTransaction := entities.Transaction{
-			Status:           entities.SuccessStatus,
-			Hash:             "efgh",
-			ApplicationOrder: 1,
-			FeeBump:          false,
-			EnvelopeXDR:      txEnvXDR,
-			ResultXDR:        "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAANAAAAAAAAAAAAAAAAXF0V022EgeGIo6QNVbMVvHdxvvl2MfZcVZUJpfph+0QAAAAAAAAAAAX14QAAAAAA",
-			Ledger:           1,
-		}
-
-		ledgerTransactions := []entities.Transaction{ledgerTransaction}
-
-		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
-		require.NoError(t, err)
-
-		var payments []data.Payment
-		payments, _, _, err = models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
-		require.NoError(t, err)
-		require.NotEmpty(t, payments, "Expected at least one payment")
-		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
-		assert.Equal(t, payments[0].SrcAmount, int64(100000000))
-		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
-		assert.Equal(t, payments[0].ToAddress, destAccount)
-		assert.Equal(t, payments[0].FromAddress, srcAccount)
-		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
-		assert.Equal(t, payments[0].DestAssetCode, "XLM")
-	})
-
-	t.Run("test_op_path_payment_receive", func(t *testing.T) {
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Times(2)
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_payments", mock.AnythingOfType("float64")).Times(2)
-		mockMetricsService.On("IncDBQuery", "SELECT", "ingest_payments").Times(2)
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
-		mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 1).Once()
-		defer mockMetricsService.AssertExpectations(t)
-
-		err = models.Account.Insert(context.Background(), srcAccount)
-		require.NoError(t, err)
-
-		path := []txnbuild.Asset{
-			txnbuild.CreditAsset{Code: "USD", Issuer: usdIssuer},
-			txnbuild.CreditAsset{Code: "EUR", Issuer: eurIssuer},
-		}
-
-		pathPaymentOp := txnbuild.PathPaymentStrictReceive{
-			SourceAccount: srcAccount,
-			Destination:   destAccount,
-			SendMax:       "11",
-			DestAmount:    "10",
-			SendAsset:     txnbuild.NativeAsset{},
-			DestAsset:     txnbuild.NativeAsset{},
-			Path:          path,
-		}
-		transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount: &txnbuild.SimpleAccount{
-				AccountID: keypair.MustRandom().Address(),
-			},
-			Operations:    []txnbuild.Operation{&pathPaymentOp},
-			Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(10)},
-		})
-		require.NoError(t, err)
-
-		signer := keypair.MustRandom()
-		err = models.Account.Insert(context.Background(), signer.Address())
-		require.NoError(t, err)
-
-		signedTx, err := transaction.Sign(network.TestNetworkPassphrase, signer)
-		require.NoError(t, err)
-
-		txEnvXDR, err := signedTx.Base64()
-		require.NoError(t, err)
-
-		ledgerTransaction := entities.Transaction{
-			Status:           entities.SuccessStatus,
-			Hash:             "efgh",
-			ApplicationOrder: 1,
-			FeeBump:          false,
-			EnvelopeXDR:      txEnvXDR,
-			ResultXDR:        "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAACAAAAAAAAAAAAAAAAjOiEfRh4kaFVQDu/CSTZLMtnyg0DbNowZ/G2nLES3KwAAAAAAAAAAAVdSoAAAAAA",
-			Ledger:           1,
-		}
-
-		ledgerTransactions := []entities.Transaction{ledgerTransaction}
-
-		err = ingestService.ingestPayments(context.Background(), ledgerTransactions)
-		require.NoError(t, err)
-
-		payments, _, _, err := models.Payments.GetPaymentsPaginated(context.Background(), srcAccount, "", "", data.ASC, 1)
-		require.NoError(t, err)
-		require.NotEmpty(t, payments, "Expected at least one payment")
-		assert.Equal(t, payments[0].TransactionHash, ledgerTransaction.Hash)
-		assert.Equal(t, payments[0].SrcAssetType, xdr.AssetTypeAssetTypeNative.String())
-		assert.Equal(t, payments[0].ToAddress, destAccount)
-		assert.Equal(t, payments[0].FromAddress, srcAccount)
-		assert.Equal(t, payments[0].SrcAssetCode, "XLM")
-		assert.Equal(t, payments[0].DestAssetCode, "XLM")
-	})
-}
-
 func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	dbt := dbtest.Open(t)
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -448,18 +218,12 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_payments", mock.AnythingOfType("float64")).Once()
-	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_payments").Once()
 	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "INSERT", "ingest_store").Once()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Once()
 	mockMetricsService.On("SetLatestLedgerIngested", float64(50)).Once()
-	mockMetricsService.On("ObserveIngestionDuration", "payment", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 1).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
 	defer mockMetricsService.AssertExpectations(t)
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -571,11 +335,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "SELECT", "ingest_store").Once()
 	mockMetricsService.On("SetLatestLedgerIngested", float64(100)).Once()
-	mockMetricsService.On("ObserveIngestionDuration", "payment", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "payment", 0).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_send", 0).Once()
-	mockMetricsService.On("SetNumPaymentOpsIngestedPerLedger", "path_payment_strict_receive", 0).Once()
 	defer mockMetricsService.AssertExpectations(t)
 
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)

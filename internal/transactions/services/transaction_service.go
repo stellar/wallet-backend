@@ -25,11 +25,19 @@ const (
 	DefaultTimeoutInSeconds = 30
 )
 
-var ErrInvalidArguments = errors.New("invalid arguments")
+var (
+	ErrInvalidTimeout                 = errors.New("invalid timeout: timeout cannot be greater than maximum allowed seconds")
+	ErrInvalidOperationChannelAccount = errors.New("invalid operation: operation source account cannot be the channel account")
+	ErrInvalidOperationMissingSource  = errors.New("invalid operation: operation source account cannot be empty for non-Soroban operations")
+	ErrInvalidSorobanOperationCount   = errors.New("invalid Soroban transaction: must have exactly one operation")
+	ErrInvalidSorobanSimulationEmpty  = errors.New("invalid Soroban transaction: simulation response cannot be empty")
+	ErrInvalidSorobanSimulationFailed = errors.New("invalid Soroban transaction: simulation failed")
+	ErrInvalidSorobanOperationType    = errors.New("invalid Soroban transaction: operation type not supported")
+)
 
 type TransactionService interface {
 	NetworkPassphrase() string
-	BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResult entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
+	BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResult *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error)
 }
 
 type transactionService struct {
@@ -97,27 +105,33 @@ func (t *transactionService) NetworkPassphrase() string {
 	return t.DistributionAccountSignatureClient.NetworkPassphrase()
 }
 
-func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, operations []txnbuild.Operation, timeoutInSecs int64, simulationResponse entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
-	if timeoutInSecs > MaxTimeoutInSeconds {
-		return nil, fmt.Errorf("%w: timeout cannot be greater than %d seconds", ErrInvalidArguments, MaxTimeoutInSeconds)
-	}
-	if timeoutInSecs <= 0 {
-		timeoutInSecs = DefaultTimeoutInSeconds
-	}
-
-	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, int(timeoutInSecs))
+func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx context.Context, transaction *txnbuild.GenericTransaction, simulationResponse *entities.RPCSimulateTransactionResult) (*txnbuild.Transaction, error) {
+	timeoutInSecs := DefaultTimeoutInSeconds
+	channelAccountPublicKey, err := t.ChannelAccountSignatureClient.GetAccountPublicKey(ctx, timeoutInSecs)
 	if err != nil {
 		return nil, fmt.Errorf("getting channel account public key: %w", err)
 	}
 
+	// Extract the inner transaction (handle both regular and fee-bump transactions)
+	var clientTx *txnbuild.Transaction
+	if feeBumpTx, ok := transaction.FeeBump(); ok {
+		clientTx = feeBumpTx.InnerTransaction()
+	} else if tx, ok := transaction.Transaction(); ok {
+		clientTx = tx
+	} else {
+		return nil, fmt.Errorf("invalid transaction type in XDR")
+	}
+
+	// Validate operations
+	operations := clientTx.Operations()
 	for _, op := range operations {
 		// Prevent bad actors from using the channel account as a source account directly.
 		if op.GetSourceAccount() == channelAccountPublicKey {
-			return nil, fmt.Errorf("%w: operation source account cannot be the channel account public key", ErrInvalidArguments)
+			return nil, fmt.Errorf("%w: %s", ErrInvalidOperationChannelAccount, channelAccountPublicKey)
 		}
 		// Prevent bad actors from using the channel account as a source account (inherited from the parent transaction).
 		if !pkgUtils.IsSorobanTxnbuildOp(op) && op.GetSourceAccount() == "" {
-			return nil, fmt.Errorf("%w: operation source account cannot be empty", ErrInvalidArguments)
+			return nil, ErrInvalidOperationMissingSource
 		}
 	}
 
@@ -126,22 +140,39 @@ func (t *transactionService) BuildAndSignTransactionWithChannelAccount(ctx conte
 		return nil, fmt.Errorf("getting ledger sequence for channel account public key %q: %w", channelAccountPublicKey, err)
 	}
 
+	walletBackendTimeBounds := txnbuild.NewTimeout(int64(MaxTimeoutInSeconds))
+	preconditions := txnbuild.Preconditions{}
+	err = preconditions.FromXDR(clientTx.ToXDR().Preconditions())
+	if err != nil {
+		return nil, fmt.Errorf("parsing preconditions: %w", err)
+	}
+
+	// We need to restrict the max time to allow freeing channel accounts sooner and not
+	// blocking them until user specified max time.
+	if preconditions.TimeBounds.MaxTime != 0 {
+		if preconditions.TimeBounds.MaxTime > walletBackendTimeBounds.MaxTime {
+			preconditions.TimeBounds.MaxTime = walletBackendTimeBounds.MaxTime
+		}
+	}
+
 	buildTxParams := txnbuild.TransactionParams{
 		SourceAccount: &txnbuild.SimpleAccount{
 			AccountID: channelAccountPublicKey,
 			Sequence:  channelAccountSeq,
 		},
-		Operations: operations,
-		BaseFee:    t.BaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(timeoutInSecs),
-		},
+		Operations:           operations,
+		BaseFee:              t.BaseFee,
+		Memo:                 clientTx.Memo(),
+		Preconditions:        preconditions,
 		IncrementSequenceNum: true,
 	}
+
 	// Adjust the transaction params with the soroban-related information (the `Ext` field):
-	buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams, simulationResponse)
-	if err != nil {
-		return nil, fmt.Errorf("handling soroban flows: %w", err)
+	if simulationResponse != nil {
+		buildTxParams, err = t.adjustParamsForSoroban(ctx, channelAccountPublicKey, buildTxParams, *simulationResponse)
+		if err != nil {
+			return nil, fmt.Errorf("handling soroban flows: %w", err)
+		}
 	}
 
 	tx, err := txnbuild.NewTransaction(buildTxParams)
@@ -182,13 +213,13 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 
 	// When soroban is used, only one operation is allowed.
 	if len(operations) != 1 {
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: Soroban transactions require exactly one operation but %d were provided", ErrInvalidArguments, len(operations))
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w (%d provided)", ErrInvalidSorobanOperationCount, len(operations))
 	}
 
 	if utils.IsEmpty(simulationResponse) {
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: simulation response cannot be empty", ErrInvalidArguments)
+		return txnbuild.TransactionParams{}, ErrInvalidSorobanSimulationEmpty
 	} else if simulationResponse.Error != "" {
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: transaction simulation failed with error=%s", ErrInvalidArguments, simulationResponse.Error)
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %s", ErrInvalidSorobanSimulationFailed, simulationResponse.Error)
 	}
 
 	// Check if the channel account public key is used as a source account for any SourceAccount auth entry.
@@ -211,7 +242,7 @@ func (t *transactionService) adjustParamsForSoroban(_ context.Context, channelAc
 	case *txnbuild.RestoreFootprint:
 		sorobanOp.Ext = transactionExt
 	default:
-		return txnbuild.TransactionParams{}, fmt.Errorf("%w: operation type %T is not a supported soroban operation", ErrInvalidArguments, operations[0])
+		return txnbuild.TransactionParams{}, fmt.Errorf("%w: %T", ErrInvalidSorobanOperationType, operations[0])
 	}
 
 	// Adjust the base fee to ensure the total fee computed by `txnbuild.NewTransaction` (baseFee+sorobanFee) will stay

@@ -124,6 +124,7 @@ func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, 
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
 		OperationXDR:    xdrOpStr,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
+		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 		TxHash:          transaction.Hash.HexString(),
 	}, nil
 }

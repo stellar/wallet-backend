@@ -13,7 +13,6 @@ type Models struct {
 	Contract     *ContractModel
 	IngestStore  *IngestStoreModel
 	Operations   *OperationModel
-	Payments     *PaymentModel
 	Transactions *TransactionModel
 	StateChanges *StateChangeModel
 }
@@ -29,7 +28,6 @@ func NewModels(db db.ConnectionPool, metricsService metrics.MetricsService) (*Mo
 		Contract:     &ContractModel{DB: db, MetricsService: metricsService},
 		IngestStore:  &IngestStoreModel{DB: db, MetricsService: metricsService},
 		Operations:   &OperationModel{DB: db, MetricsService: metricsService},
-		Payments:     &PaymentModel{DB: db, MetricsService: metricsService},
 		Transactions: &TransactionModel{DB: db, MetricsService: metricsService},
 		StateChanges: &StateChangeModel{DB: db, MetricsService: metricsService},
 	}, nil

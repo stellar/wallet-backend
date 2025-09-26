@@ -530,11 +530,15 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if paymentOpXDR, txSigners, err := f.preparePaymentOp(); err != nil {
 		return nil, fmt.Errorf("preparing payment operation: %w", err)
 	} else {
+		txXDR, err := f.buildTransactionXDR([]string{paymentOpXDR}, timeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("building transaction XDR for paymentOp: %w", err)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "paymentOp",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: []string{paymentOpXDR}, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -544,11 +548,15 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR(sponsoredAccountCreationOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for sponsoredAccountCreationOps: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "sponsoredAccountCreationOps",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: sponsoredAccountCreationOps, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -557,11 +565,15 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "customAssetsOps",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: customAssetsOps, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -570,11 +582,15 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing auth required operations: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "authRequiredOps",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: authRequiredOps, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -583,12 +599,16 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing account merge operation: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "accountMergeOp",
 			category:             categoryStellarClassic,
 			txSigners:            txSigners,
 			delayTime:            6 * time.Second,
-			requestedTransaction: types.Transaction{Operations: []string{accountMergeOp}, Timeout: timeoutSeconds},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -597,11 +617,15 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, Timeout: timeoutSeconds, SimulationResult: simulationResponse},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 
@@ -610,13 +634,60 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
 	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
+		}
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categorySoroban,
 			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{Operations: []string{invokeContractOp}, Timeout: timeoutSeconds, SimulationResult: simulationResponse},
+			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 
 	return useCases, nil
+}
+
+// buildTransactionXDR builds a complete transaction XDR from operation XDR strings
+func (f *Fixtures) buildTransactionXDR(operationXDRs []string, timeoutSeconds int64) (string, error) {
+	// Convert operation XDR strings to txnbuild operations
+	operations := make([]txnbuild.Operation, len(operationXDRs))
+	for i, opXDRStr := range operationXDRs {
+		opXDR, err := utils.OperationXDRFromBase64(opXDRStr)
+		if err != nil {
+			return "", fmt.Errorf("converting operation XDR from base64: %w", err)
+		}
+		op, err := utils.OperationXDRToTxnBuildOp(opXDR)
+		if err != nil {
+			return "", fmt.Errorf("converting operation XDR to txnbuild operation: %w", err)
+		}
+		operations[i] = op
+	}
+
+	// Create a disposable source account for the transaction
+	sourceAccKP := keypair.MustRandom()
+	sourceAcc := txnbuild.SimpleAccount{AccountID: sourceAccKP.Address(), Sequence: 0}
+
+	// Build the transaction
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &sourceAcc,
+		Operations:    operations,
+		BaseFee:       txnbuild.MinBaseFee,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(timeoutSeconds),
+		},
+		IncrementSequenceNum: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("building transaction: %w", err)
+	}
+
+	// Convert to XDR string
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return "", fmt.Errorf("encoding transaction to base64: %w", err)
+	}
+
+	return txXDR, nil
 }
