@@ -20,7 +20,7 @@ type IndexerBufferInterface interface {
 	PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction)
 	GetParticipantTransactions(participant string) []types.Transaction
 	GetParticipantOperations(participant string) map[int64]types.Operation
-	PushStateChanges(stateChanges []types.StateChange)
+	PushStateChange(stateChange types.StateChange)
 	GetParticipants() set.Set[string]
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
@@ -77,6 +77,9 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	}
 	if txParticipants.Cardinality() != 0 {
 		for participant := range txParticipants.Iter() {
+			if !i.accountsStore.Exists(participant) {
+				continue
+			}
 			i.Buffer.PushParticipantTransaction(participant, *dataTx)
 		}
 	}
@@ -87,6 +90,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		return fmt.Errorf("getting operations participants: %w", err)
 	}
 	var dataOp *types.Operation
+	stateChanges := []types.StateChange{}
 	for opID, opParticipants := range opsParticipants {
 		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
@@ -94,6 +98,9 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		for participant := range opParticipants.Participants.Iter() {
+			if !i.accountsStore.Exists(participant) {
+				continue
+			}
 			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 
@@ -102,7 +109,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
 				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
 			}
-			i.Buffer.PushStateChanges(stateChanges)
+			stateChanges = append(stateChanges, stateChanges...)
 		}
 	}
 
@@ -111,7 +118,14 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	if err != nil {
 		return fmt.Errorf("processing token transfer state changes: %w", err)
 	}
-	i.Buffer.PushStateChanges(tokenTransferStateChanges)
+	stateChanges = append(stateChanges, tokenTransferStateChanges...)
+
+	for _, stateChange := range stateChanges {
+		if !i.accountsStore.Exists(stateChange.AccountID) {
+			continue
+		}
+		i.Buffer.PushStateChange(stateChange)
+	}
 
 	// Generate IDs for state changes
 	i.Buffer.CalculateStateChangeOrder()

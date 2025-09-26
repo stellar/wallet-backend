@@ -445,8 +445,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 				}
 				stellarAddressesByOpID[opID].Add(participant)
 			}
-
-			// 1.3. TODO: state changes data for the DB insertions
 		}
 
 		// 2. Insert queries
