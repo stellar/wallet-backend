@@ -202,8 +202,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEventsProcessor *MockOperationProcessor, mockBuffer *MockIndexerBuffer) {
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(set.NewSet[string](), errors.New("participant error"))
 			},
-			wantError: "getting transaction participants: participant error",
-			txParticipants: set.NewSet[string](),
+			wantError:       "getting transaction participants: participant error",
+			txParticipants:  set.NewSet[string](),
 			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 		{
@@ -213,8 +213,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockParticipants.On("GetTransactionParticipants", mock.Anything).Return(participants, nil)
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
 			},
-			wantError: "getting operations participants: operations error",
-			txParticipants: set.NewSet[string](),
+			wantError:       "getting operations participants: operations error",
+			txParticipants:  set.NewSet[string](),
 			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 		{
@@ -241,7 +241,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				mockEffects.On("Name").Return("effects")
 			},
 			txParticipants: set.NewSet[string](),
-			wantError: "processing effects state changes: effects error",
+			wantError:      "processing effects state changes: effects error",
 			opsParticipants: map[int64]processors.OperationParticipants{
 				1: {
 					OpWrapper: &operation_processor.TransactionOperationWrapper{
@@ -265,8 +265,8 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 
 				mockTokenTransfer.On("ProcessTransaction", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("token transfer error"))
 			},
-			wantError: "processing token transfer state changes: token transfer error",
-			txParticipants: set.NewSet[string](),
+			wantError:       "processing token transfer state changes: token transfer error",
+			txParticipants:  set.NewSet[string](),
 			opsParticipants: map[int64]processors.OperationParticipants{},
 		},
 	}
