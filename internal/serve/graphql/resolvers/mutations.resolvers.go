@@ -10,9 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/go/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -23,7 +21,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
-	transactionsUtils "github.com/stellar/wallet-backend/internal/transactions/utils"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
@@ -95,121 +92,72 @@ func (r *mutationResolver) DeregisterAccount(ctx context.Context, input graphql1
 
 // BuildTransaction is the resolver for the buildTransaction field.
 func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.BuildTransactionInput) (*graphql1.BuildTransactionPayload, error) {
-	transaction := input.Transaction
-
-	ops, err := transactionsUtils.BuildOperations(transaction.Operations)
+	genericTx, err := txnbuild.TransactionFromXDR(input.TransactionXdr)
 	if err != nil {
 		return nil, &gqlerror.Error{
-			Message: fmt.Sprintf(ErrMsgInvalidOperations, err.Error()),
-			Extensions: map[string]interface{}{
-				"code": "INVALID_OPERATIONS",
+			Message: ErrMsgCouldNotParseTransactionEnvelope,
+			Extensions: map[string]any{
+				"code": "INVALID_TRANSACTION_XDR",
 			},
 		}
 	}
 
 	// Convert simulation result if provided
-	var simulationResult entities.RPCSimulateTransactionResult
-	if transaction.SimulationResult != nil {
-		simulationResult = entities.RPCSimulateTransactionResult{
-			Events: transaction.SimulationResult.Events,
-		}
-
-		if transaction.SimulationResult.MinResourceFee != nil {
-			simulationResult.MinResourceFee = *transaction.SimulationResult.MinResourceFee
-		}
-		if transaction.SimulationResult.Error != nil {
-			simulationResult.Error = *transaction.SimulationResult.Error
-		}
-		if transaction.SimulationResult.LatestLedger != nil {
-			simulationResult.LatestLedger = int64(*transaction.SimulationResult.LatestLedger)
-		}
-
-		// Handle TransactionData if provided
-		if transaction.SimulationResult.TransactionData != nil {
-			var txData xdr.SorobanTransactionData
-			if txDataErr := xdr.SafeUnmarshalBase64(*transaction.SimulationResult.TransactionData, &txData); txDataErr != nil {
-				return nil, &gqlerror.Error{
-					Message: fmt.Sprintf(ErrMsgInvalidTransactionData, txDataErr.Error()),
-					Extensions: map[string]interface{}{
-						"code": "INVALID_TRANSACTION_DATA",
-					},
-				}
+	var simulationResult *entities.RPCSimulateTransactionResult
+	if input.SimulationResult != nil {
+		convertedSimulationResult, err := convertSimulationResult(input.SimulationResult)
+		if err != nil {
+			return nil, &gqlerror.Error{
+				Message: err.Error(),
+				Extensions: map[string]any{
+					"code": "INVALID_SIMULATION_RESULT",
+				},
 			}
-			simulationResult.TransactionData = txData
 		}
+		simulationResult = &convertedSimulationResult
 	}
 
-	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, ops, int64(transaction.Timeout), simulationResult)
+	// Build transaction from XDR with optional simulation result
+	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx, simulationResult)
 	if err != nil {
 		switch {
-		case errors.Is(err, transactionservices.ErrInvalidTimeout):
+		case errors.Is(err, transactionservices.ErrInvalidTimeout),
+			errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount),
+			errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_TIMEOUT",
+				Extensions: map[string]any{
+					"code": "INVALID_OPERATION_STRUCTURE",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount):
+		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount),
+			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty),
+			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed),
+			errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_OPERATION_CHANNEL_ACCOUNT",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_OPERATION_MISSING_SOURCE",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_SOROBAN_OPERATION_COUNT",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_SOROBAN_SIMULATION_EMPTY",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_SOROBAN_SIMULATION_FAILED",
-				},
-			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
-			return nil, &gqlerror.Error{
-				Message: err.Error(),
-				Extensions: map[string]interface{}{
-					"code": "INVALID_SOROBAN_OPERATION_TYPE",
+				Extensions: map[string]any{
+					"code": "INVALID_SOROBAN_TRANSACTION",
 				},
 			}
 		case errors.Is(err, signing.ErrUnavailableChannelAccounts), errors.Is(err, store.ErrNoIdleChannelAccountAvailable):
 			return nil, &gqlerror.Error{
-				Message: ErrMsgChannelAccountUnavailable,
-				Extensions: map[string]interface{}{
+				Message: err.Error(),
+				Extensions: map[string]any{
 					"code": "CHANNEL_ACCOUNT_UNAVAILABLE",
 				},
 			}
 		case errors.Is(err, sorobanauth.ErrForbiddenSigner):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
-				Extensions: map[string]interface{}{
+				Extensions: map[string]any{
 					"code": "FORBIDDEN_SIGNER",
 				},
 			}
 		default:
-			log.Errorf("Failed to build transaction: %v", err)
 			return nil, &gqlerror.Error{
-				Message: ErrMsgTransactionBuildFailed,
-				Extensions: map[string]interface{}{
+				Message: err.Error(),
+				Extensions: map[string]any{
 					"code": "TRANSACTION_BUILD_FAILED",
 				},
 			}

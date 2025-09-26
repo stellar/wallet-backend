@@ -15,9 +15,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 
@@ -165,4 +169,32 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeID, err)
 	}
 	return transaction, nil
+}
+
+// convertSimulationResult converts GraphQL SimulationResultInput to entities.RPCSimulateTransactionResult
+func convertSimulationResult(simulationResultInput *graphql1.SimulationResultInput) (entities.RPCSimulateTransactionResult, error) {
+	simulationResult := entities.RPCSimulateTransactionResult{
+		Events: simulationResultInput.Events,
+	}
+
+	if simulationResultInput.MinResourceFee != nil {
+		simulationResult.MinResourceFee = *simulationResultInput.MinResourceFee
+	}
+	if simulationResultInput.Error != nil {
+		simulationResult.Error = *simulationResultInput.Error
+	}
+	if simulationResultInput.LatestLedger != nil {
+		simulationResult.LatestLedger = int64(*simulationResultInput.LatestLedger)
+	}
+
+	// Handle TransactionData if provided
+	if simulationResultInput.TransactionData != nil {
+		var txData xdr.SorobanTransactionData
+		if txDataErr := xdr.SafeUnmarshalBase64(*simulationResultInput.TransactionData, &txData); txDataErr != nil {
+			return entities.RPCSimulateTransactionResult{}, fmt.Errorf("unmarshalling transaction data: %w", txDataErr)
+		}
+		simulationResult.TransactionData = txData
+	}
+
+	return simulationResult, nil
 }

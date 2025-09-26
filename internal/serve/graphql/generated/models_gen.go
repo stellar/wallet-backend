@@ -21,7 +21,8 @@ type BaseStateChange interface {
 }
 
 type BuildTransactionInput struct {
-	Transaction *TransactionInput `json:"transaction"`
+	TransactionXdr   string                 `json:"transactionXdr"`
+	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
 }
 
 type BuildTransactionPayload struct {
@@ -107,10 +108,4 @@ type TransactionConnection struct {
 type TransactionEdge struct {
 	Node   *types.Transaction `json:"node,omitempty"`
 	Cursor string             `json:"cursor"`
-}
-
-type TransactionInput struct {
-	Operations       []string               `json:"operations"`
-	Timeout          int32                  `json:"timeout"`
-	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`
 }

@@ -1518,7 +1518,6 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		ec.unmarshalInputDeregisterAccountInput,
 		ec.unmarshalInputRegisterAccountInput,
 		ec.unmarshalInputSimulationResultInput,
-		ec.unmarshalInputTransactionInput,
 	)
 	first := true
 
@@ -1762,19 +1761,13 @@ type DeregisterAccountPayload {
     message: String
 }
 
-# Input types for transaction mutations
-input BuildTransactionInput {
-    transaction: TransactionInput!
-}
-
 input CreateFeeBumpTransactionInput {
     transactionXDR: String!
 }
 
-# TODO: Update transaction input to include all attributes of the transaction.
-input TransactionInput {
-    operations: [String!]!
-    timeout: Int!
+# Input types for transaction mutations
+input BuildTransactionInput {
+    transactionXdr: String!
     simulationResult: SimulationResultInput
 }
 
@@ -1787,6 +1780,7 @@ input SimulationResultInput {
     latestLedger: Int
     error: String
 }
+
 
 # Payload types for transaction mutations
 type BuildTransactionPayload {
@@ -12271,20 +12265,27 @@ func (ec *executionContext) unmarshalInputBuildTransactionInput(ctx context.Cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"transaction"}
+	fieldsInOrder := [...]string{"transactionXdr", "simulationResult"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
 			continue
 		}
 		switch k {
-		case "transaction":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("transaction"))
-			data, err := ec.unmarshalNTransactionInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTransactionInput(ctx, v)
+		case "transactionXdr":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("transactionXdr"))
+			data, err := ec.unmarshalNString2string(ctx, v)
 			if err != nil {
 				return it, err
 			}
-			it.Transaction = data
+			it.TransactionXdr = data
+		case "simulationResult":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("simulationResult"))
+			data, err := ec.unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SimulationResult = data
 		}
 	}
 
@@ -12428,47 +12429,6 @@ func (ec *executionContext) unmarshalInputSimulationResultInput(ctx context.Cont
 				return it, err
 			}
 			it.Error = data
-		}
-	}
-
-	return it, nil
-}
-
-func (ec *executionContext) unmarshalInputTransactionInput(ctx context.Context, obj any) (TransactionInput, error) {
-	var it TransactionInput
-	asMap := map[string]any{}
-	for k, v := range obj.(map[string]any) {
-		asMap[k] = v
-	}
-
-	fieldsInOrder := [...]string{"operations", "timeout", "simulationResult"}
-	for _, k := range fieldsInOrder {
-		v, ok := asMap[k]
-		if !ok {
-			continue
-		}
-		switch k {
-		case "operations":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("operations"))
-			data, err := ec.unmarshalNString2ᚕstringᚄ(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Operations = data
-		case "timeout":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("timeout"))
-			data, err := ec.unmarshalNInt2int32(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.Timeout = data
-		case "simulationResult":
-			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("simulationResult"))
-			data, err := ec.unmarshalOSimulationResultInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulationResultInput(ctx, v)
-			if err != nil {
-				return it, err
-			}
-			it.SimulationResult = data
 		}
 	}
 
@@ -16756,22 +16716,6 @@ func (ec *executionContext) marshalNDeregisterAccountPayload2ᚖgithubᚗcomᚋs
 	return ec._DeregisterAccountPayload(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNInt2int32(ctx context.Context, v any) (int32, error) {
-	res, err := graphql.UnmarshalInt32(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNInt2int32(ctx context.Context, sel ast.SelectionSet, v int32) graphql.Marshaler {
-	_ = sel
-	res := graphql.MarshalInt32(v)
-	if res == graphql.Null {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
-		}
-	}
-	return res
-}
-
 func (ec *executionContext) unmarshalNInt642int64(ctx context.Context, v any) (int64, error) {
 	res, err := graphql.UnmarshalInt64(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -16972,11 +16916,6 @@ func (ec *executionContext) marshalNTransactionEdge2ᚖgithubᚗcomᚋstellarᚋ
 		return graphql.Null
 	}
 	return ec._TransactionEdge(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalNTransactionInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTransactionInput(ctx context.Context, v any) (*TransactionInput, error) {
-	res, err := ec.unmarshalInputTransactionInput(ctx, v)
-	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalNUInt322uint32(ctx context.Context, v any) (uint32, error) {

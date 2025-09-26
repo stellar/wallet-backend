@@ -13,12 +13,6 @@ const (
 	ErrMsgAccountDeregistrationFailed = "Failed to deregister account: %s"
 	ErrMsgAccountDeregisteredSuccess  = "Account deregistered successfully"
 
-	// BuildTransaction errors
-	ErrMsgInvalidOperations         = "Invalid operations: %s"
-	ErrMsgInvalidTransactionData    = "Invalid TransactionData: %s"
-	ErrMsgTransactionBuildFailed    = "Failed to build transaction"
-	ErrMsgChannelAccountUnavailable = "unable to assign a channel account"
-
 	// CreateFeeBumpTransaction errors
 	ErrMsgCouldNotParseTransactionEnvelope = "Could not parse transaction envelope."
 	ErrMsgCannotWrapFeeBumpTransaction     = "Cannot wrap a fee-bump transaction into another fee-bump transaction"
