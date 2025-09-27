@@ -55,50 +55,28 @@ func (m *OperationModel) BatchInsert(
 		}
 	}
 
-	// 3. Single query that inserts only operations that are connected to at least one existing account.
-	// It also inserts the operations_accounts links.
+	// Insert operations and operations_accounts links.
 	const insertQuery = `
 	WITH
-	-- STEP 1: Get existing accounts
-	existing_accounts AS (
-		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($7)
+	-- Insert operations
+	inserted_operations AS (
+		INSERT INTO operations
+			(id, tx_hash, operation_type, operation_xdr, ledger_created_at)
+		SELECT
+			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.ledger_created_at
+		FROM (
+			SELECT
+				UNNEST($1::bigint[]) AS id,
+				UNNEST($2::text[]) AS tx_hash,
+				UNNEST($3::text[]) AS operation_type,
+				UNNEST($4::text[]) AS operation_xdr,
+				UNNEST($5::timestamptz[]) AS ledger_created_at
+		) o
+		ON CONFLICT (id) DO NOTHING
+		RETURNING id
 	),
 
-	-- STEP 2: Get operation IDs to insert (connected to at least one existing account)
-    valid_operations AS (
-        SELECT DISTINCT op_id
-        FROM (
-			SELECT
-				UNNEST($6::bigint[]) AS op_id,
-				UNNEST($7::text[]) AS account_id
-		) oa
-		WHERE oa.account_id IN (SELECT stellar_address FROM existing_accounts)
-    ),
-
-	-- STEP 3: Insert those operations
-    inserted_operations AS (
-        INSERT INTO operations
-          	(id, tx_hash, operation_type, operation_xdr, ledger_created_at)
-        SELECT
-            vo.op_id,
-            o.tx_hash,
-            o.operation_type,
-            o.operation_xdr,
-            o.ledger_created_at
-        FROM valid_operations vo
-        JOIN (
-            SELECT
-                UNNEST($1::bigint[]) AS id,
-                UNNEST($2::text[]) AS tx_hash,
-                UNNEST($3::text[]) AS operation_type,
-                UNNEST($4::text[]) AS operation_xdr,
-                UNNEST($5::timestamptz[]) AS ledger_created_at
-        ) o ON o.id = vo.op_id
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-    ),
-
-	-- STEP 4: Insert operations_accounts links
+	-- Insert operations_accounts links
 	inserted_operations_accounts AS (
 		INSERT INTO operations_accounts
 			(operation_id, account_id)
@@ -109,12 +87,10 @@ func (m *OperationModel) BatchInsert(
 				UNNEST($6::bigint[]) AS op_id,
 				UNNEST($7::text[]) AS account_id
 		) oa
-		INNER JOIN existing_accounts ea ON ea.stellar_address = oa.account_id
-		INNER JOIN inserted_operations io ON io.id = oa.op_id
 		ON CONFLICT DO NOTHING
 	)
 
-	-- STEP 5: Return the IDs of successfully inserted operations
+	-- Return the IDs of successfully inserted operations
 	SELECT id FROM inserted_operations;
     `
 

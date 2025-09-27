@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,6 +41,7 @@ type Configs struct {
 	Network           string
 	NetworkPassphrase string
 	GetLedgersLimit   int
+	AdminEndpoint     string
 }
 
 func Ingest(cfg Configs) error {
@@ -125,6 +128,10 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	mux.Handle("/ingest-metrics", promhttp.HandlerFor(metricsSvc.GetRegistry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))
 
+	if cfg.AdminEndpoint != "" {
+		registerAdminHandlers(mux, cfg.AdminEndpoint)
+	}
+
 	go func() {
 		if err := server.ListenAndServe(); err != http.ErrServerClosed {
 			log.Ctx(context.Background()).Fatalf("starting server on %s: %v", server.Addr, err)
@@ -132,4 +139,18 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	}()
 
 	return server
+}
+
+// registerAdminHandlers exposes pprof under the configured admin endpoint for profiling.
+func registerAdminHandlers(mux *http.ServeMux, endpoint string) {
+	base := strings.TrimSuffix(endpoint, "/")
+	if base == "" {
+		base = "/debug/pprof"
+	}
+
+	mux.HandleFunc(base+"/", pprof.Index)
+	mux.HandleFunc(base+"/cmdline", pprof.Cmdline)
+	mux.HandleFunc(base+"/profile", pprof.Profile)
+	mux.HandleFunc(base+"/symbol", pprof.Symbol)
+	mux.HandleFunc(base+"/trace", pprof.Trace)
 }

@@ -31,6 +31,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.EndLedgerOption(&cfg.EndLedger),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.IngestServerPortOption(&cfg.ServerPort),
+		utils.AdminEndpointOption(&cfg.AdminEndpoint),
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
 		{
 			Name:        "ledger-cursor-name",

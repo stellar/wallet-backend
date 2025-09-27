@@ -33,7 +33,6 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
-	nonExistingAccount := keypair.MustRandom()
 
 	// Create referenced transactions first
 	tx1 := types.Transaction{
@@ -122,24 +121,6 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			operations:             []types.Operation{op1, op1},
 			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address())},
 			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address()}},
-			wantErrContains:        "",
-			wantIDs:                []int64{op1.ID},
-		},
-		{
-			name:                   "🟡op_with_all_non_existing_accounts_is_ignored",
-			useDBTx:                false,
-			operations:             []types.Operation{op1},
-			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(nonExistingAccount.Address())},
-			wantAccountLinks:       map[int64][]string{},
-			wantErrContains:        "",
-			wantIDs:                nil,
-		},
-		{
-			name:                   "🟡non_existing_account_is_ignored_but_op_and_other_accounts_links_are_inserted",
-			useDBTx:                false,
-			operations:             []types.Operation{op1},
-			stellarAddressesByOpID: map[int64]set.Set[string]{op1.ID: set.NewSet(kp1.Address(), kp2.Address(), nonExistingAccount.Address())},
-			wantAccountLinks:       map[int64][]string{op1.ID: {kp1.Address(), kp2.Address()}},
 			wantErrContains:        "",
 			wantIDs:                []int64{op1.ID},
 		},

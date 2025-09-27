@@ -35,7 +35,6 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
-	nonExistingAccount := keypair.MustRandom()
 
 	// Create referenced transactions first
 	tx1 := types.Transaction{
@@ -121,41 +120,6 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			useDBTx:      false,
 			stateChanges: []types.StateChange{sc1, sc1},
 			wantIDs:      []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
-		},
-		{
-			name: "🟡state_change_with_non_existing_account_is_ignored",
-			stateChanges: []types.StateChange{
-				{
-					ToID:                3,
-					StateChangeOrder:    1,
-					StateChangeCategory: types.StateChangeCategoryBalance,
-					StateChangeReason:   &reason,
-					LedgerCreatedAt:     now,
-					LedgerNumber:        3,
-					AccountID:           nonExistingAccount.Address(),
-					OperationID:         789,
-					TxHash:              tx1.Hash,
-				},
-			},
-			wantIDs: nil,
-		},
-		{
-			name: "🟡mixture_of_existing_and_non_existing_accounts",
-			stateChanges: []types.StateChange{
-				sc1,
-				{
-					ToID:                4,
-					StateChangeOrder:    1,
-					StateChangeCategory: types.StateChangeCategoryBalance,
-					StateChangeReason:   &reason,
-					LedgerCreatedAt:     now,
-					LedgerNumber:        4,
-					AccountID:           nonExistingAccount.Address(),
-					OperationID:         101,
-					TxHash:              tx2.Hash,
-				},
-			},
-			wantIDs: []string{fmt.Sprintf("%d-%d", sc1.ToID, sc1.StateChangeOrder)},
 		},
 	}
 

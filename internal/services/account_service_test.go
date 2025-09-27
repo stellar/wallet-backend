@@ -31,6 +31,7 @@ func TestAccountRegister(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
+
 	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 
@@ -62,6 +63,8 @@ func TestAccountDeregister(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
+
+	// Create mock accounts store
 	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 

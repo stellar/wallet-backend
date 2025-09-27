@@ -40,6 +40,7 @@ func TestAccountHandlerRegisterAccount(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
+
 	accountService, err := services.NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{
@@ -155,6 +156,7 @@ func TestAccountHandlerDeregisterAccount(t *testing.T) {
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
+
 	accountService, err := services.NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 	handler := &AccountHandler{

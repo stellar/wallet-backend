@@ -100,6 +100,17 @@ func (b *IndexerBuffer) PushParticipantOperation(participant string, operation t
 	b.pushParticipantTransactionUnsafe(participant, transaction)
 }
 
+func (b *IndexerBuffer) GetAllOperations() []types.Operation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	ops := make([]types.Operation, 0, len(b.opByID))
+	for _, op := range b.opByID {
+		ops = append(ops, op)
+	}
+	return ops
+}
+
 func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation types.Operation) {
 	b.opByID[operation.ID] = operation
 	b.Participants.Add(participant)
@@ -128,22 +139,21 @@ func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]t
 	return ops
 }
 
-func (b *IndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
+func (b *IndexerBuffer) PushStateChange(stateChange types.StateChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.stateChanges = append(b.stateChanges, stateChanges...)
+	b.stateChanges = append(b.stateChanges, stateChange)
 
-	for _, stateChange := range stateChanges {
-		if stateChange.OperationID != 0 {
-			if op, ok := b.opByID[stateChange.OperationID]; ok {
-				b.pushParticipantOperationUnsafe(stateChange.AccountID, op)
-			}
+	// Fee state changes dont have an operation ID since they are transaction level state changes.
+	if stateChange.OperationID != 0 {
+		if op, ok := b.opByID[stateChange.OperationID]; ok {
+			b.pushParticipantOperationUnsafe(stateChange.AccountID, op)
 		}
+	}
 
-		if tx, ok := b.txByHash[stateChange.TxHash]; ok {
-			b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
-		}
+	if tx, ok := b.txByHash[stateChange.TxHash]; ok {
+		b.pushParticipantTransactionUnsafe(stateChange.AccountID, tx)
 	}
 }
 
