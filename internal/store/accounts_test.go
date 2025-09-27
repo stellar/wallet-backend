@@ -2,10 +2,14 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
+	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -279,6 +283,118 @@ func TestAccountsStore_MultipleAccounts(t *testing.T) {
 
 	cleanUpDB()
 }
+
+// generateAccountIDs creates realistic Stellar account IDs for benchmarking
+func generateAccountIDs(count int) []string {
+	// Stellar account IDs are 56-character base32 strings starting with 'G'
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+	accounts := make([]string, count)
+
+	for i := 0; i < count; i++ {
+		// Start with 'G' prefix like real Stellar accounts
+		account := "G"
+
+		// Generate 55 random base32 characters
+		bytes := make([]byte, 55)
+		for j := range bytes {
+			randomByte := make([]byte, 1)
+			rand.Read(randomByte)
+			bytes[j] = charset[randomByte[0]%32]
+		}
+		account += string(bytes)
+		accounts[i] = account
+	}
+
+	return accounts
+}
+
+// BenchmarkAccountsStore_CacheInitialization benchmarks pure cache initialization without DB
+func BenchmarkAccountsStore_CacheInitialization(b *testing.B) {
+	sizes := []int{1000, 10000, 100000, 1000000, 10000000, 100000000}
+
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("accounts_%d", size), func(b *testing.B) {
+			accounts := generateAccountIDs(size)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				// Create empty store (no DB operations)
+				store := &accountsStore{
+					cache: set.NewSet[string](),
+				}
+
+				// Add all accounts to measure pure cache performance
+				for _, account := range accounts {
+					store.Add(account)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkAccountsStore_MemoryUsage measures actual memory consumption
+func BenchmarkAccountsStore_MemoryUsage(b *testing.B) {
+	sizes := []int{100000, 1000000, 10000000}
+
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("memory_accounts_%d", size), func(b *testing.B) {
+			accounts := generateAccountIDs(size)
+
+			// Force GC and measure baseline
+			runtime.GC()
+			runtime.GC()
+			var memBefore runtime.MemStats
+			runtime.ReadMemStats(&memBefore)
+
+			// Create empty store (no DB operations)
+			store := &accountsStore{
+				cache: set.NewSet[string](),
+			}
+
+			// Add all accounts
+			start := time.Now()
+			for _, account := range accounts {
+				store.Add(account)
+			}
+			duration := time.Since(start)
+
+			// Force GC and measure after
+			runtime.GC()
+			runtime.GC()
+			var memAfter runtime.MemStats
+			runtime.ReadMemStats(&memAfter)
+
+			// Use HeapInuse which is more reliable than Alloc
+			memUsed := int64(memAfter.HeapInuse) - int64(memBefore.HeapInuse)
+
+			// Handle potential negative values (should not happen with HeapInuse but safety check)
+			if memUsed < 0 {
+				// Use TotalAlloc difference as fallback
+				memUsed = int64(memAfter.TotalAlloc) - int64(memBefore.TotalAlloc)
+			}
+
+			memUsedMB := float64(memUsed) / (1024 * 1024)
+			bytesPerAccount := float64(memUsed) / float64(size)
+
+			b.Logf("Accounts: %d, Memory Used: %.2f MB, Bytes/Account: %.2f, Init Time: %v",
+				size, memUsedMB, bytesPerAccount, duration)
+
+			// Theoretical calculation for comparison
+			theoretical := float64(size * 82) / (1024 * 1024) // 82 bytes per account estimate
+			if memUsedMB > 0 {
+				b.Logf("Theoretical: %.2f MB, Actual: %.2f MB, Ratio: %.2fx",
+					theoretical, memUsedMB, memUsedMB/theoretical)
+			}
+
+			// Additional memory stats for debugging
+			b.Logf("HeapInuse: Before=%d MB, After=%d MB",
+				memBefore.HeapInuse/(1024*1024), memAfter.HeapInuse/(1024*1024))
+		})
+	}
+}
+
 
 func TestAccountsStore_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
