@@ -14,7 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/store"
 )
 
 func TestAccountRegister(t *testing.T) {
@@ -33,11 +32,7 @@ func TestAccountRegister(t *testing.T) {
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 
-	// Create mock accounts store
-	mockAccountsStore := &store.MockAccountsStore{}
-	mockAccountsStore.On("Add", mock.AnythingOfType("string")).Return()
-
-	accountService, err := NewAccountService(models, mockAccountsStore, mockMetricsService)
+	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -70,10 +65,7 @@ func TestAccountDeregister(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create mock accounts store
-	mockAccountsStore := &store.MockAccountsStore{}
-	mockAccountsStore.On("Remove", mock.AnythingOfType("string")).Return()
-
-	accountService, err := NewAccountService(models, mockAccountsStore, mockMetricsService)
+	accountService, err := NewAccountService(models, mockMetricsService)
 	require.NoError(t, err)
 
 	ctx := context.Background()

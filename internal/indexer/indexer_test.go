@@ -4,6 +4,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -15,9 +16,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/store"
 )
 
 var (
@@ -236,7 +237,6 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				}
 				mockParticipants.On("GetOperationsParticipants", mock.Anything).Return(opParticipants, nil)
 
-				mockBuffer.On("PushParticipantOperation", mock.Anything, mock.Anything, mock.Anything).Return()
 				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("effects error"))
 				mockEffects.On("Name").Return("effects")
 			},
@@ -285,22 +285,27 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEventsProcessor, mockBuffer)
 
 			// Create testable indexer with mocked dependencies
-			mockAccountsStore := &store.MockAccountsStore{}
+			mockAccountModel := &data.MockAccountModel{}
 
-			// Set up accountsStore mock expectations based on test participants
-			if len(tt.txParticipants.ToSlice()) > 0 {
-				for participant := range tt.txParticipants.Iter() {
-					mockAccountsStore.On("Exists", participant).Return(true)
+			// Collect all expected participants for batch lookup
+			allParticipants := set.NewSet[string]()
+			if tt.txParticipants != nil {
+				allParticipants = allParticipants.Union(tt.txParticipants)
+			}
+			if len(tt.opsParticipants) > 0 {
+				for _, opParticipants := range tt.opsParticipants {
+					allParticipants = allParticipants.Union(opParticipants.Participants)
 				}
 			}
 
-			// Set up accountsStore mock expectations for operation participants
-			if len(tt.opsParticipants) > 0 {
-				for _, opParticipants := range tt.opsParticipants {
-					for participant := range opParticipants.Participants.Iter() {
-						mockAccountsStore.On("Exists", participant).Return(true)
-					}
-				}
+			// Mock BatchGetByIDs to return all participants as existing (only if we expect it to be called)
+			if allParticipants.Cardinality() > 0 && tt.wantError == "" {
+				mockAccountModel.On("BatchGetByIDs", mock.Anything, mock.Anything).Return(allParticipants.ToSlice(), nil)
+			} else if tt.wantError == "" {
+				mockAccountModel.On("BatchGetByIDs", mock.Anything, mock.Anything).Return([]string{}, nil)
+			} else if allParticipants.Cardinality() > 0 && !strings.Contains(tt.wantError, "processing effects state changes") {
+				// For error cases that still have participants (but not effects processing errors which happen before account lookup)
+				mockAccountModel.On("BatchGetByIDs", mock.Anything, mock.Anything).Return(allParticipants.ToSlice(), nil)
 			}
 
 			indexer := &Indexer{
@@ -308,7 +313,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				participantsProcessor:  mockParticipants,
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEventsProcessor},
-				accountsStore:          mockAccountsStore,
+				accountModel:           mockAccountModel,
 			}
 
 			err := indexer.ProcessTransaction(context.Background(), testTx)
@@ -340,11 +345,9 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 				// PushStateChange should be called for each state change
 				// (only if there are actual state changes from operations or token transfers)
 
-				// Verify accountsStore.Exists was called for each transaction participant
-				if tt.txParticipants != nil && len(tt.txParticipants.ToSlice()) > 0 {
-					for participant := range tt.txParticipants.Iter() {
-						mockAccountsStore.AssertCalled(t, "Exists", participant)
-					}
+				// Verify BatchGetByIDs was called (only for successful cases and certain error cases)
+				if !strings.Contains(tt.wantError, "processing effects state changes") {
+					mockAccountModel.AssertCalled(t, "BatchGetByIDs", mock.Anything, mock.Anything)
 				}
 				mockBuffer.AssertCalled(t, "CalculateStateChangeOrder")
 			}
@@ -356,6 +359,7 @@ func TestIndexer_ProcessTransaction(t *testing.T) {
 			mockContractDeploy.AssertExpectations(t)
 			mockSACEventsProcessor.AssertExpectations(t)
 			mockBuffer.AssertExpectations(t)
+			mockAccountModel.AssertExpectations(t)
 		})
 	}
 }
