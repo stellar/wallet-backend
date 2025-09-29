@@ -38,7 +38,6 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	ledgerProcessorsCount                   = 16
-	transactionProcessorsCount              = 8
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"

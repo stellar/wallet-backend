@@ -145,7 +145,6 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			precomputedDataMu.Unlock()
 		})
 	}
-
 	dataPool.StopAndWait()
 	if len(errs) > 0 {
 		return nil, nil, fmt.Errorf("collecting transaction data: %w", errors.Join(errs...))
@@ -160,7 +159,8 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 	return precomputedData, allParticipants, nil
 }
 
-func (m *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string]) error {
+// ProcessTransactions processes transactions, operations and state changes using precomputed data. It then inserts them into the indexer buffer.
+func (i *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string]) error {
 	// Process transactions in parallel using precomputed data
 	pool := pond.New(numPoolWorkers, len(precomputedData), pond.Context(ctx))
 
@@ -170,7 +170,7 @@ func (m *Indexer) ProcessTransactions(ctx context.Context, precomputedData []Pre
 	// Submit transaction processing tasks to the pool
 	for _, txData := range precomputedData {
 		pool.Submit(func() {
-			if err := m.processPrecomputedTransaction(ctx, txData, existingAccounts); err != nil {
+			if err := i.processPrecomputedTransaction(ctx, txData, existingAccounts); err != nil {
 				errMu.Lock()
 				defer errMu.Unlock()
 				errs = append(errs, fmt.Errorf("processing precomputed transaction data at ledger=%d tx=%d: %w", txData.Transaction.Ledger.LedgerSequence(), txData.Transaction.Index, err))
@@ -247,16 +247,18 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		}
 
 		// Get the correct operation for this state change
-		var correctOp *types.Operation
+		var operation types.Operation
 		if stateChange.OperationID != 0 {
-			correctOp = operationsMap[stateChange.OperationID]
+			correctOp := operationsMap[stateChange.OperationID]
 			if correctOp == nil {
 				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", stateChange.OperationID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeOrder))
 				continue
 			}
+			operation = *correctOp
 		}
+		// For fee state changes (OperationID == 0), operation remains zero value
 
-		i.Buffer.PushStateChange(*dataTx, *correctOp, stateChange)
+		i.Buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 
 	return nil
