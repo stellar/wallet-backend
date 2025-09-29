@@ -45,7 +45,6 @@ const (
 	totalIngestionPrometheusLabel           = "total"
 )
 
-
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {

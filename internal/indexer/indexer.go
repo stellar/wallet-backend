@@ -7,18 +7,19 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/alitto/pond"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/alitto/pond"
 )
 
 const (
-	transactionProcessorsCount = 8
+	numPoolWorkers = 8
 )
 
 type IndexerBufferInterface interface {
@@ -55,11 +56,11 @@ type AccountModelInterface interface {
 // PrecomputedTransactionData holds all the data needed to process a transaction
 // without re-computing participants, operations participants, and state changes.
 type PrecomputedTransactionData struct {
-	Transaction      ingest.LedgerTransaction
-	TxParticipants   set.Set[string]
-	OpsParticipants  map[int64]processors.OperationParticipants
-	StateChanges     []types.StateChange
-	AllParticipants  set.Set[string] // Union of all participants for this transaction
+	Transaction     ingest.LedgerTransaction
+	TxParticipants  set.Set[string]
+	OpsParticipants map[int64]processors.OperationParticipants
+	StateChanges    []types.StateChange
+	AllParticipants set.Set[string] // Union of all participants for this transaction
 }
 
 type Indexer struct {
@@ -87,7 +88,7 @@ func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerE
 // CollectAllTransactionData collects all transaction data (participants, operations, state changes) from all transactions in a ledger in parallel
 func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []ingest.LedgerTransaction) ([]PrecomputedTransactionData, set.Set[string], error) {
 	// Process transaction data collection in parallel
-	dataPool := pond.New(transactionProcessorsCount, len(transactions), pond.Context(ctx))
+	dataPool := pond.New(numPoolWorkers, len(transactions), pond.Context(ctx))
 
 	var precomputedData []PrecomputedTransactionData
 	precomputedDataMu := sync.Mutex{}
@@ -125,7 +126,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 				txData.AllParticipants = txData.AllParticipants.Union(opParticipants.Participants)
 			}
 
-			// Get state changes (need to process operations to get state changes)
+			// Get state changes
 			stateChanges, err := i.getTransactionStateChanges(ctx, tx, opsParticipants)
 			if err != nil {
 				errMu.Lock()
@@ -161,7 +162,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 
 func (m *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string]) error {
 	// Process transactions in parallel using precomputed data
-	pool := pond.New(transactionProcessorsCount, len(precomputedData), pond.Context(ctx))
+	pool := pond.New(numPoolWorkers, len(precomputedData), pond.Context(ctx))
 
 	var errs []error
 	errMu := sync.Mutex{}
@@ -193,7 +194,7 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		return fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Process transaction participants
+	// Insert transaction participants
 	if precomputedData.TxParticipants.Cardinality() != 0 {
 		for participant := range precomputedData.TxParticipants.Iter() {
 			if !existingAccounts.Contains(participant) {
@@ -203,14 +204,15 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		}
 	}
 
-	// Process operations participants
+	// Insert operations participants
 	var dataOp *types.Operation
+	operationsMap := make(map[int64]*types.Operation)
 	for opID, opParticipants := range precomputedData.OpsParticipants {
 		dataOp, err = processors.ConvertOperation(&precomputedData.Transaction, &opParticipants.OpWrapper.Operation, opID)
 		if err != nil {
 			return fmt.Errorf("creating data operation: %w", err)
 		}
-
+		operationsMap[opID] = dataOp
 		for participant := range opParticipants.Participants.Iter() {
 			if !existingAccounts.Contains(participant) {
 				continue
@@ -243,24 +245,51 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 		if !existingAccounts.Contains(stateChange.AccountID) {
 			continue
 		}
-		i.Buffer.PushStateChange(*dataTx, *dataOp, stateChange)
+
+		// Get the correct operation for this state change
+		var correctOp *types.Operation
+		if stateChange.OperationID != 0 {
+			correctOp = operationsMap[stateChange.OperationID]
+			if correctOp == nil {
+				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change %+v", stateChange.OperationID, fmt.Sprintf("%d-%d", stateChange.ToID, stateChange.StateChangeOrder))
+				continue
+			}
+		}
+
+		i.Buffer.PushStateChange(*dataTx, *correctOp, stateChange)
 	}
 
 	return nil
 }
 
-// getTransactionStateChanges gets state changes for a transaction without storing them in the buffer
+// getTransactionStateChanges processes operations of a transaction and calculates all state changes
 func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
-	// Process operations to get state changes
+	pool := pond.New(numPoolWorkers, len(opsParticipants), pond.Context(ctx))
+
+	var errs []error
+	errMu := sync.Mutex{}
+
 	stateChanges := []types.StateChange{}
+	stateChangesMu := sync.Mutex{}
 	for _, opParticipants := range opsParticipants {
-		for _, processor := range i.processors {
-			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
-			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
-				return nil, fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
+		pool.Submit(func() {
+			for _, processor := range i.processors {
+				processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+				if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
+					errMu.Lock()
+					errs = append(errs, fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr))
+					errMu.Unlock()
+					return
+				}
+				stateChangesMu.Lock()
+				stateChanges = append(stateChanges, processorStateChanges...)
+				stateChangesMu.Unlock()
 			}
-			stateChanges = append(stateChanges, processorStateChanges...)
-		}
+		})
+	}
+	pool.StopAndWait()
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("processing state changes: %w", errors.Join(errs...))
 	}
 
 	// Get token transfer state changes
