@@ -11,9 +11,3 @@ type TokenContractStore interface {
 	Symbol(ctx context.Context, contractID string) (string, error)
 	Exists(ctx context.Context, contractID string) bool
 }
-
-type AccountsStore interface {
-	Add(accountID string)
-	Remove(accountID string)
-	Exists(accountID string) bool
-}
