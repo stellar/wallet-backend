@@ -404,7 +404,7 @@ func (m *ingestService) processTransactions(ctx context.Context, precomputedData
 	// Submit transaction processing tasks to the pool
 	for _, txData := range precomputedData {
 		pool.Submit(func() {
-			if err := ledgerIndexer.ProcessPrecomputedTransaction(ctx, txData, existingAccounts); err != nil {
+			if err := ledgerIndexer.ProcessTransaction(ctx, txData, existingAccounts); err != nil {
 				errMu.Lock()
 				defer errMu.Unlock()
 				errs = append(errs, fmt.Errorf("processing precomputed transaction data at ledger=%d tx=%d: %w", txData.Transaction.Ledger.LedgerSequence(), txData.Transaction.Index, err))
