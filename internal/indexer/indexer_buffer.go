@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"maps"
 	"sync"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -157,4 +158,50 @@ func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 	stateChangesCopy := make([]types.StateChange, len(b.stateChanges))
 	copy(stateChangesCopy, b.stateChanges)
 	return stateChangesCopy
+}
+
+// MergeBuffer merges another IndexerBuffer into this buffer. This is used to combine
+// per-ledger buffers into a single buffer for batch DB insertion.
+func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Type assert to get concrete buffer for efficient merging
+	otherBuffer, ok := other.(*IndexerBuffer)
+	if !ok {
+		return
+	}
+
+	otherBuffer.mu.RLock()
+	defer otherBuffer.mu.RUnlock()
+
+	// Merge participants
+	b.Participants = b.Participants.Union(otherBuffer.Participants)
+
+	// Merge transactions
+	maps.Copy(b.txByHash, otherBuffer.txByHash)
+
+	// Merge transaction hashes by participant
+	for participant, txHashes := range otherBuffer.txHashesByParticipant {
+		if _, ok := b.txHashesByParticipant[participant]; !ok {
+			b.txHashesByParticipant[participant] = txHashes.Clone()
+		} else {
+			b.txHashesByParticipant[participant] = b.txHashesByParticipant[participant].Union(txHashes)
+		}
+	}
+
+	// Merge operations
+	maps.Copy(b.opByID, otherBuffer.opByID)
+
+	// Merge operation IDs by participant
+	for participant, opIDs := range otherBuffer.opIDsByParticipant {
+		if _, ok := b.opIDsByParticipant[participant]; !ok {
+			b.opIDsByParticipant[participant] = opIDs.Clone()
+		} else {
+			b.opIDsByParticipant[participant] = b.opIDsByParticipant[participant].Union(opIDs)
+		}
+	}
+
+	// Merge state changes
+	b.stateChanges = append(b.stateChanges, otherBuffer.stateChanges...)
 }

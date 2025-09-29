@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -143,16 +142,13 @@ func (m *MockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCG
 func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	mockLedgerEntryProvider := &MockLedgerEntryProvider{}
-	mockAccountModel := &data.MockAccountModel{}
 
-	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider, mockAccountModel)
+	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider)
 
 	require.NotNil(t, indexer)
-	assert.NotNil(t, indexer.Buffer)
 	assert.NotNil(t, indexer.participantsProcessor)
 	assert.NotNil(t, indexer.tokenTransferProcessor)
 	assert.NotNil(t, indexer.processors)
-	assert.NotNil(t, indexer.accountModel)
 	assert.Len(t, indexer.processors, 3) // effects, contract deploy, SAC events
 }
 
@@ -331,18 +327,15 @@ func TestIndexer_CollectAllTransactionData(t *testing.T) {
 			mockEffects := &MockOperationProcessor{}
 			mockContractDeploy := &MockOperationProcessor{}
 			mockSACEvents := &MockOperationProcessor{}
-			mockAccountModel := &data.MockAccountModel{}
 
 			// Setup mock expectations
 			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEvents)
 
 			// Create indexer with mocked dependencies
 			indexer := &Indexer{
-				Buffer:                 NewIndexerBuffer(),
 				participantsProcessor:  mockParticipants,
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
-				accountModel:           mockAccountModel,
 			}
 
 			// Test CollectAllTransactionData
@@ -643,22 +636,19 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create mocks
 			mockBuffer := &MockIndexerBuffer{}
-			mockAccountModel := &data.MockAccountModel{}
 
 			// Setup mock expectations
 			tt.setupMocks(mockBuffer)
 
 			// Create indexer
 			indexer := &Indexer{
-				Buffer:                 mockBuffer,
 				participantsProcessor:  &MockParticipantsProcessor{},
 				tokenTransferProcessor: &MockTokenTransferProcessor{},
 				processors:             []OperationProcessorInterface{},
-				accountModel:           mockAccountModel,
 			}
 
 			// Test ProcessTransactions
-			err := indexer.ProcessTransactions(context.Background(), tt.precomputedData, tt.existingAccounts)
+			err := indexer.ProcessTransactions(context.Background(), tt.precomputedData, tt.existingAccounts, mockBuffer)
 
 			// Assert results
 			if tt.expectedError != "" {
@@ -794,11 +784,9 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 
 			// Create indexer
 			indexer := &Indexer{
-				Buffer:                 NewIndexerBuffer(),
 				participantsProcessor:  &MockParticipantsProcessor{},
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
-				accountModel:           &data.MockAccountModel{},
 			}
 
 			// Test getTransactionStateChanges

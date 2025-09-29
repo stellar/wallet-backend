@@ -101,6 +101,10 @@ func (m *MockIndexerBuffer) GetAllStateChanges() []types.StateChange {
 	return args.Get(0).([]types.StateChange)
 }
 
+func (m *MockIndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
+	m.Called(other)
+}
+
 var (
 	_ IndexerBufferInterface          = &MockIndexerBuffer{}
 	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}

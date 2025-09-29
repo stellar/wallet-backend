@@ -69,6 +69,7 @@ type ingestService struct {
 	metricsService    metrics.MetricsService
 	networkPassphrase string
 	getLedgersLimit   int
+	ledgerIndexer     *indexer.Indexer
 }
 
 func NewIngestService(
@@ -118,6 +119,7 @@ func NewIngestService(
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
+		ledgerIndexer:     indexer.NewIndexer(network, rpcService),
 	}, nil
 }
 
@@ -322,22 +324,96 @@ func (m *ingestService) getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, late
 }
 
 func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
-	// Create a worker pool
+	// Phase 1: Collect all transaction data and participants from all ledgers in parallel
+	startTime := time.Now()
+	type ledgerData struct {
+		ledgerInfo      protocol.LedgerInfo
+		precomputedData []indexer.PrecomputedTransactionData
+		allParticipants set.Set[string]
+	}
+
+	ledgerDataList := make([]ledgerData, len(getLedgersResponse.Ledgers))
 	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
 
 	var errs []error
 	errMu := sync.Mutex{}
-	ledgerIndexer := indexer.NewIndexer(m.networkPassphrase, m.rpcService, m.models.Account)
 
-	// Submit tasks to the pool
-	startTime := time.Now()
-	for _, ledger := range getLedgersResponse.Ledgers {
+	for idx, ledger := range getLedgersResponse.Ledgers {
+		index := idx
+		ledgerInfo := ledger
 		pool.Submit(func() {
-			if err := m.processLedger(ctx, ledger, ledgerIndexer); err != nil {
+			// Unmarshal and get transactions
+			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
+			if err := xdr.SafeUnmarshalBase64(ledger.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
 				errMu.Lock()
-				defer errMu.Unlock()
-				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledger.Sequence, err))
+				errs = append(errs, fmt.Errorf("unmarshalling ledger close meta for ledger %d: %w", ledgerInfo.Sequence, err))
+				errMu.Unlock()
+				return
 			}
+
+			transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting transactions for ledger %d: %w", ledgerInfo.Sequence, err))
+				errMu.Unlock()
+				return
+			}
+
+			// Create temporary indexer for data collection
+			precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("collecting data for ledger %d: %w", ledgerInfo.Sequence, err))
+				errMu.Unlock()
+				return
+			}
+
+			ledgerDataList[index] = ledgerData{
+				ledgerInfo:      ledgerInfo,
+				precomputedData: precomputedData,
+				allParticipants: allParticipants,
+			}
+		})
+	}
+	pool.StopAndWait()
+	if len(errs) > 0 {
+		return fmt.Errorf("collecting ledger data: %w", errors.Join(errs...))
+	}
+	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
+
+	// Phase 2: Single DB call to get all existing accounts across all ledgers
+	startTime = time.Now()
+	allParticipants := set.NewSet[string]()
+	for _, ld := range ledgerDataList {
+		allParticipants = allParticipants.Union(ld.allParticipants)
+	}
+
+	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
+	if err != nil {
+		return fmt.Errorf("batch checking participants: %w", err)
+	}
+	existingAccountsSet := set.NewSet(existingAccounts...)
+	log.Ctx(ctx).Infof("🚧 Done fetching %d existing accounts from %d unique participants in %vs", len(existingAccounts), allParticipants.Cardinality(), time.Since(startTime).Seconds())
+
+	// Phase 3: Process transactions and populate per-ledger buffers in parallel
+	startTime = time.Now()
+	ledgerBuffers := make([]*indexer.IndexerBuffer, len(ledgerDataList))
+	pool = pond.New(ledgerProcessorsCount, len(ledgerDataList), pond.Context(ctx))
+
+	errs = []error{}
+	for idx, ld := range ledgerDataList {
+		index := idx
+		ledgerData := ld
+		pool.Submit(func() {
+			// Create per-ledger indexer to avoid lock contention
+			buffer := indexer.NewIndexerBuffer()
+			if processErr := m.ledgerIndexer.ProcessTransactions(ctx, ledgerData.precomputedData, existingAccountsSet, buffer); processErr != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledgerData.ledgerInfo.Sequence, processErr))
+				errMu.Unlock()
+				return
+			}
+			ledgerBuffers[index] = buffer
 		})
 	}
 	pool.StopAndWait()
@@ -346,8 +422,17 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	}
 	log.Ctx(ctx).Infof("🚧 Done processing %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
 
+	// Phase 4: Merge all per-ledger buffers into a single buffer
 	startTime = time.Now()
-	err := m.ingestProcessedData(ctx, ledgerIndexer)
+	mergedBuffer := indexer.NewIndexerBuffer()
+	for _, buffer := range ledgerBuffers {
+		mergedBuffer.MergeBuffer(buffer)
+	}
+	log.Ctx(ctx).Infof("🚧 Done merging %d ledger buffers in %vs", len(ledgerBuffers), time.Since(startTime).Seconds())
+
+	// Phase 5: Insert all data into DB
+	startTime = time.Now()
+	err = m.ingestProcessedData(ctx, mergedBuffer)
 	if err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
@@ -356,41 +441,8 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	// Log a summary
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
-	numberOfTransactions := ledgerIndexer.Buffer.GetNumberOfTransactions()
+	numberOfTransactions := mergedBuffer.GetNumberOfTransactions()
 	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
-
-	return nil
-}
-
-func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.LedgerInfo, ledgerIndexer *indexer.Indexer) error {
-	var xdrLedgerCloseMeta xdr.LedgerCloseMeta
-	if err := xdr.SafeUnmarshalBase64(ledgerInfo.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
-		return fmt.Errorf("unmarshalling ledger close meta: %w", err)
-	}
-
-	transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
-	if err != nil {
-		return fmt.Errorf("getting ledger transactions: %w", err)
-	}
-
-	// Collect all transaction data (participants, operations, state changes) to optimize processing
-	precomputedData, allParticipants, err := ledgerIndexer.CollectAllTransactionData(ctx, transactions)
-	if err != nil {
-		return fmt.Errorf("collecting all transaction data: %w", err)
-	}
-
-	// Single batch lookup for all participants in the ledger
-	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
-	if err != nil {
-		return fmt.Errorf("batch checking participants: %w", err)
-	}
-	existingAccountsSet := set.NewSet(existingAccounts...)
-
-	// Process transactions in parallel using precomputed data
-	err = ledgerIndexer.ProcessTransactions(ctx, precomputedData, existingAccountsSet)
-	if err != nil {
-		return fmt.Errorf("processing transactions: %w", err)
-	}
 
 	return nil
 }
@@ -418,10 +470,8 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	return transactions, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
+func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		indexerBuffer := ledgerIndexer.Buffer
-
 		stellarAddressesByTxHash := make(map[string]set.Set[string])
 		stellarAddressesByOpID := make(map[int64]set.Set[string])
 
@@ -479,7 +529,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 		}
 
 		// 3. Unlock channel accounts.
-		err := m.unlockChannelAccounts(ctx, ledgerIndexer)
+		err := m.unlockChannelAccounts(ctx, indexerBuffer)
 		if err != nil {
 			return fmt.Errorf("unlocking channel accounts: %w", err)
 		}
@@ -494,8 +544,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, ledgerIndexer *
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, ledgerIndexer *indexer.Indexer) error {
-	txs := ledgerIndexer.Buffer.GetAllTransactions()
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
+	txs := indexerBuffer.GetAllTransactions()
 	if len(txs) == 0 {
 		return nil
 	}
