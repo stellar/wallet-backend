@@ -479,34 +479,9 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			},
 			existingAccounts: set.NewSet("alice", "bob"),
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// Expect PushParticipantTransaction for each participant with verified fields
-				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000" &&
-						tx.LedgerNumber == uint32(12345)
-				})).Once()
-				mockBuffer.On("PushParticipantTransaction", "bob", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000" &&
-						tx.LedgerNumber == uint32(12345)
-				})).Once()
-
-				// Expect PushParticipantOperation for operation participants with verified fields
-				mockBuffer.On("PushParticipantOperation", "alice", mock.MatchedBy(func(op types.Operation) bool {
-					return op.ID == int64(1) && op.TxHash == "0102030000000000000000000000000000000000000000000000000000000000"
-				}), mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				})).Once()
-
-				// Expect PushStateChange for state changes with StateChangeOrder verified
-				mockBuffer.On("PushStateChange", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				}), mock.MatchedBy(func(op types.Operation) bool {
-					return op.ID == int64(1)
-				}), mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice" &&
-						sc.ToID == int64(1) &&
-						sc.OperationID == int64(1) &&
-						sc.StateChangeOrder == int64(1) // First state change for this operation
-				})).Once()
+				// ProcessTransactions now creates per-transaction buffers and merges them
+				// Expect one MergeBuffer call for the single transaction
+				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
 			},
 		},
 		{
@@ -525,27 +500,9 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			},
 			existingAccounts: set.NewSet("alice", "bob"), // charlie doesn't exist
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// Only existing accounts should be processed
-				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				})).Once()
-				mockBuffer.On("PushParticipantTransaction", "bob", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				})).Once()
-				// charlie should NOT be called - explicitly verify by not setting up expectation
-
-				// Only alice should have state change pushed (charlie doesn't exist)
-				mockBuffer.On("PushStateChange", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				}), mock.MatchedBy(func(op types.Operation) bool {
-					return op.ID == int64(0) // Fee state change
-				}), mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice" &&
-						sc.ToID == int64(1) &&
-						sc.OperationID == int64(0) &&
-						sc.StateChangeOrder == int64(1) // Fee state changes always get order 1
-				})).Once()
-				// charlie state change should NOT be called
+				// ProcessTransactions now creates per-transaction buffers and merges them
+				// Expect one MergeBuffer call for the single transaction (only existing accounts are processed)
+				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
 			},
 		},
 		{
@@ -561,7 +518,9 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			},
 			existingAccounts: set.NewSet[string](), // No existing accounts
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// No buffer operations should be called
+				// ProcessTransactions still creates buffers and merges them even with no existing accounts
+				// Expect one MergeBuffer call for the single transaction (but buffer will be empty)
+				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
 			},
 		},
 		{
@@ -599,35 +558,9 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			},
 			existingAccounts: set.NewSet("alice"),
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				})).Once()
-
-				mockBuffer.On("PushParticipantOperation", "alice", mock.MatchedBy(func(op types.Operation) bool {
-					return op.ID == int64(1)
-				}), mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
-				})).Once()
-
-				// Expect three state changes with StateChangeOrder 1, 2, 3
-				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice" &&
-						sc.ToID == int64(1) &&
-						sc.OperationID == int64(1) &&
-						sc.StateChangeOrder == int64(1)
-				})).Once()
-				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice" &&
-						sc.ToID == int64(2) &&
-						sc.OperationID == int64(1) &&
-						sc.StateChangeOrder == int64(2)
-				})).Once()
-				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice" &&
-						sc.ToID == int64(3) &&
-						sc.OperationID == int64(1) &&
-						sc.StateChangeOrder == int64(3)
-				})).Once()
+				// ProcessTransactions now creates per-transaction buffers and merges them
+				// Expect one MergeBuffer call for the single transaction (state change ordering is verified in the buffer)
+				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
 			},
 		},
 	}
