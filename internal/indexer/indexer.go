@@ -45,6 +45,16 @@ type AccountModelInterface interface {
 	BatchGetByIDs(ctx context.Context, accountIDs []string) ([]string, error)
 }
 
+// PrecomputedTransactionData holds all the data needed to process a transaction
+// without re-computing participants, operations participants, and state changes.
+type PrecomputedTransactionData struct {
+	Transaction      ingest.LedgerTransaction
+	TxParticipants   set.Set[string]
+	OpsParticipants  map[int64]processors.OperationParticipants
+	StateChanges     []types.StateChange
+	AllParticipants  set.Set[string] // Union of all participants for this transaction
+}
+
 type Indexer struct {
 	Buffer                 IndexerBufferInterface
 	participantsProcessor  ParticipantsProcessorInterface
@@ -150,6 +160,70 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 	}
 
+	sort.Slice(stateChanges, func(i, j int) bool {
+		return stateChanges[i].SortKey < stateChanges[j].SortKey
+	})
+
+	perOpIdx := make(map[int64]int)
+	for i := range stateChanges {
+		sc := &stateChanges[i]
+
+		// State changes are 1-indexed within an operation/transaction.
+		if sc.OperationID != 0 {
+			perOpIdx[sc.OperationID]++
+			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
+		} else {
+			sc.StateChangeOrder = 1
+		}
+	}
+
+	// Process state changes
+	for _, stateChange := range stateChanges {
+		if !existingAccounts.Contains(stateChange.AccountID) {
+			continue
+		}
+		i.Buffer.PushStateChange(stateChange)
+	}
+
+	return nil
+}
+
+// ProcessPrecomputedTransaction processes a transaction using precomputed data without re-computing participants or state changes
+func (i *Indexer) ProcessPrecomputedTransaction(ctx context.Context, precomputedData PrecomputedTransactionData, existingAccounts set.Set[string]) error {
+	// Convert transaction data
+	dataTx, err := processors.ConvertTransaction(&precomputedData.Transaction)
+	if err != nil {
+		return fmt.Errorf("creating data transaction: %w", err)
+	}
+
+	// Process transaction participants
+	if precomputedData.TxParticipants.Cardinality() != 0 {
+		for participant := range precomputedData.TxParticipants.Iter() {
+			if !existingAccounts.Contains(participant) {
+				continue
+			}
+			i.Buffer.PushParticipantTransaction(participant, *dataTx)
+		}
+	}
+
+	// Process operations participants
+	var dataOp *types.Operation
+	for opID, opParticipants := range precomputedData.OpsParticipants {
+		dataOp, err = processors.ConvertOperation(&precomputedData.Transaction, &opParticipants.OpWrapper.Operation, opID)
+		if err != nil {
+			return fmt.Errorf("creating data operation: %w", err)
+		}
+
+		for participant := range opParticipants.Participants.Iter() {
+			if !existingAccounts.Contains(participant) {
+				continue
+			}
+			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
+		}
+	}
+
+	// Sort state changes and set order for this transaction
+	stateChanges := precomputedData.StateChanges
 	sort.Slice(stateChanges, func(i, j int) bool {
 		return stateChanges[i].SortKey < stateChanges[j].SortKey
 	})
