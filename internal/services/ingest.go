@@ -389,10 +389,13 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	}
 
 	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
+	existingAccountsSet := set.NewSet[string]()
 	if err != nil {
 		return fmt.Errorf("batch checking participants: %w", err)
 	}
-	existingAccountsSet := set.NewSet(existingAccounts...)
+	if len(existingAccounts) >= 0 {
+		existingAccountsSet = set.NewSet(existingAccounts...)
+	}
 	log.Ctx(ctx).Infof("🚧 Done fetching %d existing accounts from %d unique participants in %vs", len(existingAccounts), allParticipants.Cardinality(), time.Since(startTime).Seconds())
 
 	// Phase 3: Process transactions and populate per-ledger buffers in parallel
