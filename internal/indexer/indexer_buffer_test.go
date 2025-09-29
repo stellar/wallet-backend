@@ -296,7 +296,7 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 
 		indexerBuffer.PushStateChange(tx1, op1, sc1)
 		indexerBuffer.PushStateChange(tx2, op2, sc2)
-		indexerBuffer.PushStateChange(tx2, op3, sc3) // This operation should be added
+		indexerBuffer.PushStateChange(tx2, op3, sc3)               // This operation should be added
 		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc4) // Fee state changes don't have an operation
 		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc5) // Fee state changes don't have an operation
 
