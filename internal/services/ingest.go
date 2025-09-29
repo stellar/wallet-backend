@@ -38,6 +38,7 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
 	ledgerProcessorsCount                   = 16
+	transactionProcessorsCount              = 8
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
@@ -371,13 +372,120 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 		return fmt.Errorf("getting ledger transactions: %w", err)
 	}
 
-	for _, tx := range transactions {
-		if err := ledgerIndexer.ProcessTransaction(ctx, tx); err != nil {
-			return fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", xdrLedgerCloseMeta.LedgerSequence(), tx.Index, err)
-		}
+	// Pre-fetch all participants for the entire ledger to optimize database calls
+	allParticipants, err := m.collectAllParticipants(ctx, transactions, ledgerIndexer)
+	if err != nil {
+		return fmt.Errorf("collecting all participants: %w", err)
+	}
+
+	// Single batch lookup for all participants in the ledger
+	existingAccountsSlice, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
+	if err != nil {
+		return fmt.Errorf("batch checking participants: %w", err)
+	}
+	existingAccounts := set.NewSet(existingAccountsSlice...)
+
+	err = m.processTransactions(ctx, transactions, ledgerIndexer, existingAccounts)
+	if err != nil {
+		return fmt.Errorf("processing transactions: %w", err)
 	}
 
 	return nil
+}
+
+func (m *ingestService) processTransactions(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerIndexer *indexer.Indexer, existingAccounts set.Set[string]) error {
+	// Process transactions in parallel with pre-fetched account data
+	pool := pond.New(transactionProcessorsCount, len(transactions), pond.Context(ctx))
+
+	var errs []error
+	errMu := sync.Mutex{}
+
+	// Submit transaction processing tasks to the pool
+	for _, tx := range transactions {
+		pool.Submit(func() {
+			if err := ledgerIndexer.ProcessTransactionWithPrefetchedAccounts(ctx, tx, existingAccounts); err != nil {
+				errMu.Lock()
+				defer errMu.Unlock()
+				errs = append(errs, fmt.Errorf("processing transaction data at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err))
+			}
+		})
+	}
+
+	pool.StopAndWait()
+	if len(errs) > 0 {
+		return fmt.Errorf("processing transactions: %w", errors.Join(errs...))
+	}
+
+	return nil
+}
+
+// collectAllParticipants collects all participants from all transactions in a ledger in parallel
+func (m *ingestService) collectAllParticipants(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerIndexer *indexer.Indexer) (set.Set[string], error) {
+	// Process participant collection in parallel
+	participantPool := pond.New(transactionProcessorsCount, len(transactions), pond.Context(ctx))
+
+	var participantSets []set.Set[string]
+	participantSetsMu := sync.Mutex{}
+	var errs []error
+	errMu := sync.Mutex{}
+
+	for _, tx := range transactions {
+		participantPool.Submit(func() {
+			txParticipants := set.NewSet[string]()
+
+			// Get transaction participants
+			txTxParticipants, err := ledgerIndexer.GetTransactionParticipants(tx)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting transaction participants: %w", err))
+				errMu.Unlock()
+				return
+			}
+			txParticipants = txParticipants.Union(txTxParticipants)
+
+			// Get operations participants
+			opsParticipants, err := ledgerIndexer.GetOperationsParticipants(tx)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting operations participants: %w", err))
+				errMu.Unlock()
+				return
+			}
+			for _, opParticipants := range opsParticipants {
+				txParticipants = txParticipants.Union(opParticipants.Participants)
+			}
+
+			// Get state change participants (need to process operations to get state changes)
+			stateChanges, err := ledgerIndexer.GetTransactionStateChanges(ctx, tx, opsParticipants)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting transaction state changes: %w", err))
+				errMu.Unlock()
+				return
+			}
+			for _, stateChange := range stateChanges {
+				txParticipants.Add(stateChange.AccountID)
+			}
+
+			// Add to collection
+			participantSetsMu.Lock()
+			participantSets = append(participantSets, txParticipants)
+			participantSetsMu.Unlock()
+		})
+	}
+
+	participantPool.StopAndWait()
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("collecting participants: %w", errors.Join(errs...))
+	}
+
+	// Merge all participant sets
+	allParticipants := set.NewSet[string]()
+	for _, participantSet := range participantSets {
+		allParticipants = allParticipants.Union(participantSet)
+	}
+
+	return allParticipants, nil
 }
 
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {

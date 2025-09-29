@@ -177,3 +177,147 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 
 	return nil
 }
+
+// GetTransactionParticipants returns all participants for a transaction
+func (i *Indexer) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
+	return i.participantsProcessor.GetTransactionParticipants(transaction)
+}
+
+// GetOperationsParticipants returns all participants for operations in a transaction
+func (i *Indexer) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error) {
+	return i.participantsProcessor.GetOperationsParticipants(transaction)
+}
+
+// GetTransactionStateChanges gets state changes for a transaction without storing them in the buffer
+func (i *Indexer) GetTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
+	// Process operations to get state changes
+	stateChanges := []types.StateChange{}
+	for _, opParticipants := range opsParticipants {
+		for _, processor := range i.processors {
+			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
+				return nil, fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
+			}
+			stateChanges = append(stateChanges, processorStateChanges...)
+		}
+	}
+
+	// Get token transfer state changes
+	tokenTransferStateChanges, err := i.tokenTransferProcessor.ProcessTransaction(ctx, transaction)
+	if err != nil {
+		return nil, fmt.Errorf("processing token transfer state changes: %w", err)
+	}
+	stateChanges = append(stateChanges, tokenTransferStateChanges...)
+
+	return stateChanges, nil
+}
+
+// GetAccountModel returns the account model for external access
+func (i *Indexer) GetAccountModel() AccountModelInterface {
+	return i.accountModel
+}
+
+// ProcessTransactionWithPrefetchedAccounts processes a transaction with pre-fetched existing accounts
+func (i *Indexer) ProcessTransactionWithPrefetchedAccounts(ctx context.Context, transaction ingest.LedgerTransaction, existingAccounts set.Set[string]) error {
+	// Collect all participants from transaction, operations, and state changes
+	allParticipants := set.NewSet[string]()
+
+	// 1. Get transaction participants
+	txParticipants, err := i.participantsProcessor.GetTransactionParticipants(transaction)
+	if err != nil {
+		return fmt.Errorf("getting transaction participants: %w", err)
+	}
+	allParticipants = allParticipants.Union(txParticipants)
+
+	// 2. Get operations participants
+	opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(transaction)
+	if err != nil {
+		return fmt.Errorf("getting operations participants: %w", err)
+	}
+	for _, opParticipants := range opsParticipants {
+		allParticipants = allParticipants.Union(opParticipants.Participants)
+	}
+
+	// 3. Process operations to get state changes and collect their participants
+	stateChanges := []types.StateChange{}
+	for _, opParticipants := range opsParticipants {
+		for _, processor := range i.processors {
+			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
+				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
+			}
+			stateChanges = append(stateChanges, processorStateChanges...)
+		}
+	}
+
+	// 4. Get token transfer state changes
+	tokenTransferStateChanges, err := i.tokenTransferProcessor.ProcessTransaction(ctx, transaction)
+	if err != nil {
+		return fmt.Errorf("processing token transfer state changes: %w", err)
+	}
+	stateChanges = append(stateChanges, tokenTransferStateChanges...)
+
+	// Add state change participants to the set
+	for _, stateChange := range stateChanges {
+		allParticipants.Add(stateChange.AccountID)
+	}
+
+	// Convert transaction data
+	dataTx, err := processors.ConvertTransaction(&transaction)
+	if err != nil {
+		return fmt.Errorf("creating data transaction: %w", err)
+	}
+
+	// Process transaction participants
+	if txParticipants.Cardinality() != 0 {
+		for participant := range txParticipants.Iter() {
+			if !existingAccounts.Contains(participant) {
+				continue
+			}
+			i.Buffer.PushParticipantTransaction(participant, *dataTx)
+		}
+	}
+
+	// Process operations participants
+	var dataOp *types.Operation
+	for opID, opParticipants := range opsParticipants {
+		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
+		if err != nil {
+			return fmt.Errorf("creating data operation: %w", err)
+		}
+
+		for participant := range opParticipants.Participants.Iter() {
+			if !existingAccounts.Contains(participant) {
+				continue
+			}
+			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
+		}
+	}
+
+	sort.Slice(stateChanges, func(i, j int) bool {
+		return stateChanges[i].SortKey < stateChanges[j].SortKey
+	})
+
+	perOpIdx := make(map[int64]int)
+	for i := range stateChanges {
+		sc := &stateChanges[i]
+
+		// State changes are 1-indexed within an operation/transaction.
+		if sc.OperationID != 0 {
+			perOpIdx[sc.OperationID]++
+			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
+		} else {
+			sc.StateChangeOrder = 1
+		}
+	}
+
+	// Process state changes
+	for _, stateChange := range stateChanges {
+		if !existingAccounts.Contains(stateChange.AccountID) {
+			continue
+		}
+		i.Buffer.PushStateChange(stateChange)
+	}
+
+	return nil
+}
