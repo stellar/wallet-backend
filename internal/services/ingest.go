@@ -338,10 +338,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 			}
 		})
 	}
-
-	// Wait for all tasks to complete
 	pool.StopAndWait()
-
 	if len(errs) > 0 {
 		return fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}

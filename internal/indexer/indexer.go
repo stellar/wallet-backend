@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
+	"sort"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
@@ -25,7 +25,6 @@ type IndexerBufferInterface interface {
 	GetAllTransactions() []types.Transaction
 	GetAllOperations() []types.Operation
 	GetAllStateChanges() []types.StateChange
-	CalculateStateChangeOrder()
 }
 
 type TokenTransferProcessorInterface interface {
@@ -117,12 +116,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	if err != nil {
 		return fmt.Errorf("batch checking participants: %w", err)
 	}
-
-	// Convert to map for fast lookups
-	existingAccounts := make(map[string]bool)
-	for _, account := range existingAccountsSlice {
-		existingAccounts[account] = true
-	}
+	existingAccounts := set.NewSet(existingAccountsSlice...)
 
 	// Convert transaction data
 	dataTx, err := processors.ConvertTransaction(&transaction)
@@ -133,7 +127,7 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 	// Process transaction participants
 	if txParticipants.Cardinality() != 0 {
 		for participant := range txParticipants.Iter() {
-			if !existingAccounts[participant] {
+			if !existingAccounts.Contains(participant) {
 				continue
 			}
 			i.Buffer.PushParticipantTransaction(participant, *dataTx)
@@ -149,23 +143,37 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, transaction ingest.Led
 		}
 
 		for participant := range opParticipants.Participants.Iter() {
-			if !existingAccounts[participant] {
+			if !existingAccounts.Contains(participant) {
 				continue
 			}
 			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
 		}
 	}
 
+	sort.Slice(stateChanges, func(i, j int) bool {
+		return stateChanges[i].SortKey < stateChanges[j].SortKey
+	})
+
+	perOpIdx := make(map[int64]int)
+	for i := range stateChanges {
+		sc := &stateChanges[i]
+
+		// State changes are 1-indexed within an operation/transaction.
+		if sc.OperationID != 0 {
+			perOpIdx[sc.OperationID]++
+			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
+		} else {
+			sc.StateChangeOrder = 1
+		}
+	}
+
 	// Process state changes
 	for _, stateChange := range stateChanges {
-		if !existingAccounts[stateChange.AccountID] {
+		if !existingAccounts.Contains(stateChange.AccountID) {
 			continue
 		}
 		i.Buffer.PushStateChange(stateChange)
 	}
-
-	// Generate IDs for state changes
-	i.Buffer.CalculateStateChangeOrder()
 
 	return nil
 }
