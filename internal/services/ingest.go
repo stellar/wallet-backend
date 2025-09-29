@@ -250,6 +250,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 
 		// fetch ledgers
+		startTime := time.Now()
 		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
 		if err != nil {
 			if errors.Is(err, ErrAlreadyInSync) {
@@ -258,6 +259,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
 		}
+		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
 
 		// process ledgers
 		totalIngestionStart := time.Now()
@@ -374,7 +376,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 
 	// Collect all transaction data (participants, operations, state changes) to optimize processing
-	precomputedData, allParticipants, err := m.collectAllTransactionData(ctx, transactions, ledgerIndexer)
+	precomputedData, allParticipants, err := ledgerIndexer.CollectAllTransactionData(ctx, transactions)
 	if err != nil {
 		return fmt.Errorf("collecting all transaction data: %w", err)
 	}
@@ -386,113 +388,13 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerInfo protocol.L
 	}
 	existingAccountsSet := set.NewSet(existingAccounts...)
 
-	err = m.processTransactions(ctx, precomputedData, ledgerIndexer, existingAccountsSet)
+	// Process transactions in parallel using precomputed data
+	err = ledgerIndexer.ProcessTransactions(ctx, precomputedData, existingAccountsSet)
 	if err != nil {
 		return fmt.Errorf("processing transactions: %w", err)
 	}
 
 	return nil
-}
-
-func (m *ingestService) processTransactions(ctx context.Context, precomputedData []indexer.PrecomputedTransactionData, ledgerIndexer *indexer.Indexer, existingAccounts set.Set[string]) error {
-	// Process transactions in parallel using precomputed data
-	pool := pond.New(transactionProcessorsCount, len(precomputedData), pond.Context(ctx))
-
-	var errs []error
-	errMu := sync.Mutex{}
-
-	// Submit transaction processing tasks to the pool
-	for _, txData := range precomputedData {
-		pool.Submit(func() {
-			if err := ledgerIndexer.ProcessTransaction(ctx, txData, existingAccounts); err != nil {
-				errMu.Lock()
-				defer errMu.Unlock()
-				errs = append(errs, fmt.Errorf("processing precomputed transaction data at ledger=%d tx=%d: %w", txData.Transaction.Ledger.LedgerSequence(), txData.Transaction.Index, err))
-			}
-		})
-	}
-
-	pool.StopAndWait()
-	if len(errs) > 0 {
-		return fmt.Errorf("processing transactions: %w", errors.Join(errs...))
-	}
-
-	return nil
-}
-
-// collectAllTransactionData collects all transaction data (participants, operations, state changes) from all transactions in a ledger in parallel
-func (m *ingestService) collectAllTransactionData(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerIndexer *indexer.Indexer) ([]indexer.PrecomputedTransactionData, set.Set[string], error) {
-	// Process transaction data collection in parallel
-	dataPool := pond.New(transactionProcessorsCount, len(transactions), pond.Context(ctx))
-
-	var precomputedData []indexer.PrecomputedTransactionData
-	precomputedDataMu := sync.Mutex{}
-	var errs []error
-	errMu := sync.Mutex{}
-
-	for _, tx := range transactions {
-		dataPool.Submit(func() {
-			txData := indexer.PrecomputedTransactionData{
-				Transaction:     tx,
-				AllParticipants: set.NewSet[string](),
-			}
-
-			// Get transaction participants
-			txParticipants, err := ledgerIndexer.GetTransactionParticipants(tx)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transaction participants: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.TxParticipants = txParticipants
-			txData.AllParticipants = txData.AllParticipants.Union(txParticipants)
-
-			// Get operations participants
-			opsParticipants, err := ledgerIndexer.GetOperationsParticipants(tx)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting operations participants: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.OpsParticipants = opsParticipants
-			for _, opParticipants := range opsParticipants {
-				txData.AllParticipants = txData.AllParticipants.Union(opParticipants.Participants)
-			}
-
-			// Get state changes (need to process operations to get state changes)
-			stateChanges, err := ledgerIndexer.GetTransactionStateChanges(ctx, tx, opsParticipants)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transaction state changes: %w", err))
-				errMu.Unlock()
-				return
-			}
-			txData.StateChanges = stateChanges
-			for _, stateChange := range stateChanges {
-				txData.AllParticipants.Add(stateChange.AccountID)
-			}
-
-			// Add to collection
-			precomputedDataMu.Lock()
-			precomputedData = append(precomputedData, txData)
-			precomputedDataMu.Unlock()
-		})
-	}
-
-	dataPool.StopAndWait()
-	if len(errs) > 0 {
-		return nil, nil, fmt.Errorf("collecting transaction data: %w", errors.Join(errs...))
-	}
-
-	// Merge all participant sets for the single DB call
-	allParticipants := set.NewSet[string]()
-	for _, txData := range precomputedData {
-		allParticipants = allParticipants.Union(txData.AllParticipants)
-	}
-
-	return precomputedData, allParticipants, nil
 }
 
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {

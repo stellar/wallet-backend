@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
+
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
@@ -12,6 +14,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/alitto/pond"
+)
+
+const (
+	transactionProcessorsCount = 8
 )
 
 type IndexerBufferInterface interface {
@@ -19,7 +26,7 @@ type IndexerBufferInterface interface {
 	PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction)
 	GetParticipantTransactions(participant string) []types.Transaction
 	GetParticipantOperations(participant string) map[int64]types.Operation
-	PushStateChange(stateChange types.StateChange)
+	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
 	GetParticipants() set.Set[string]
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
@@ -77,8 +84,109 @@ func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerE
 	}
 }
 
-// ProcessPrecomputedTransaction processes a transaction using precomputed data without re-computing participants or state changes
-func (i *Indexer) ProcessTransaction(ctx context.Context, precomputedData PrecomputedTransactionData, existingAccounts set.Set[string]) error {
+// CollectAllTransactionData collects all transaction data (participants, operations, state changes) from all transactions in a ledger in parallel
+func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []ingest.LedgerTransaction) ([]PrecomputedTransactionData, set.Set[string], error) {
+	// Process transaction data collection in parallel
+	dataPool := pond.New(transactionProcessorsCount, len(transactions), pond.Context(ctx))
+
+	var precomputedData []PrecomputedTransactionData
+	precomputedDataMu := sync.Mutex{}
+	var errs []error
+	errMu := sync.Mutex{}
+
+	for _, tx := range transactions {
+		dataPool.Submit(func() {
+			txData := PrecomputedTransactionData{
+				Transaction:     tx,
+				AllParticipants: set.NewSet[string](),
+			}
+
+			// Get transaction participants
+			txParticipants, err := i.participantsProcessor.GetTransactionParticipants(tx)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting transaction participants: %w", err))
+				errMu.Unlock()
+				return
+			}
+			txData.TxParticipants = txParticipants
+			txData.AllParticipants = txData.AllParticipants.Union(txParticipants)
+
+			// Get operations participants
+			opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(tx)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting operations participants: %w", err))
+				errMu.Unlock()
+				return
+			}
+			txData.OpsParticipants = opsParticipants
+			for _, opParticipants := range opsParticipants {
+				txData.AllParticipants = txData.AllParticipants.Union(opParticipants.Participants)
+			}
+
+			// Get state changes (need to process operations to get state changes)
+			stateChanges, err := i.getTransactionStateChanges(ctx, tx, opsParticipants)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("getting transaction state changes: %w", err))
+				errMu.Unlock()
+				return
+			}
+			txData.StateChanges = stateChanges
+			for _, stateChange := range stateChanges {
+				txData.AllParticipants.Add(stateChange.AccountID)
+			}
+
+			// Add to collection
+			precomputedDataMu.Lock()
+			precomputedData = append(precomputedData, txData)
+			precomputedDataMu.Unlock()
+		})
+	}
+
+	dataPool.StopAndWait()
+	if len(errs) > 0 {
+		return nil, nil, fmt.Errorf("collecting transaction data: %w", errors.Join(errs...))
+	}
+
+	// Merge all participant sets for the single DB call
+	allParticipants := set.NewSet[string]()
+	for _, txData := range precomputedData {
+		allParticipants = allParticipants.Union(txData.AllParticipants)
+	}
+
+	return precomputedData, allParticipants, nil
+}
+
+func (m *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string]) error {
+	// Process transactions in parallel using precomputed data
+	pool := pond.New(transactionProcessorsCount, len(precomputedData), pond.Context(ctx))
+
+	var errs []error
+	errMu := sync.Mutex{}
+
+	// Submit transaction processing tasks to the pool
+	for _, txData := range precomputedData {
+		pool.Submit(func() {
+			if err := m.processPrecomputedTransaction(ctx, txData, existingAccounts); err != nil {
+				errMu.Lock()
+				defer errMu.Unlock()
+				errs = append(errs, fmt.Errorf("processing precomputed transaction data at ledger=%d tx=%d: %w", txData.Transaction.Ledger.LedgerSequence(), txData.Transaction.Index, err))
+			}
+		})
+	}
+
+	pool.StopAndWait()
+	if len(errs) > 0 {
+		return fmt.Errorf("processing transactions: %w", errors.Join(errs...))
+	}
+
+	return nil
+}
+
+// processPrecomputedTransaction processes a transaction using precomputed data without re-computing participants or state changes
+func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputedData PrecomputedTransactionData, existingAccounts set.Set[string]) error {
 	// Convert transaction data
 	dataTx, err := processors.ConvertTransaction(&precomputedData.Transaction)
 	if err != nil {
@@ -135,24 +243,14 @@ func (i *Indexer) ProcessTransaction(ctx context.Context, precomputedData Precom
 		if !existingAccounts.Contains(stateChange.AccountID) {
 			continue
 		}
-		i.Buffer.PushStateChange(stateChange)
+		i.Buffer.PushStateChange(*dataTx, *dataOp, stateChange)
 	}
 
 	return nil
 }
 
-// GetTransactionParticipants returns all participants for a transaction
-func (i *Indexer) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
-	return i.participantsProcessor.GetTransactionParticipants(transaction)
-}
-
-// GetOperationsParticipants returns all participants for operations in a transaction
-func (i *Indexer) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]processors.OperationParticipants, error) {
-	return i.participantsProcessor.GetOperationsParticipants(transaction)
-}
-
-// GetTransactionStateChanges gets state changes for a transaction without storing them in the buffer
-func (i *Indexer) GetTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
+// getTransactionStateChanges gets state changes for a transaction without storing them in the buffer
+func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
 	// Process operations to get state changes
 	stateChanges := []types.StateChange{}
 	for _, opParticipants := range opsParticipants {
@@ -173,114 +271,4 @@ func (i *Indexer) GetTransactionStateChanges(ctx context.Context, transaction in
 	stateChanges = append(stateChanges, tokenTransferStateChanges...)
 
 	return stateChanges, nil
-}
-
-// GetAccountModel returns the account model for external access
-func (i *Indexer) GetAccountModel() AccountModelInterface {
-	return i.accountModel
-}
-
-// ProcessTransactionWithPrefetchedAccounts processes a transaction with pre-fetched existing accounts
-func (i *Indexer) ProcessTransactionWithPrefetchedAccounts(ctx context.Context, transaction ingest.LedgerTransaction, existingAccounts set.Set[string]) error {
-	// Collect all participants from transaction, operations, and state changes
-	allParticipants := set.NewSet[string]()
-
-	// 1. Get transaction participants
-	txParticipants, err := i.participantsProcessor.GetTransactionParticipants(transaction)
-	if err != nil {
-		return fmt.Errorf("getting transaction participants: %w", err)
-	}
-	allParticipants = allParticipants.Union(txParticipants)
-
-	// 2. Get operations participants
-	opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(transaction)
-	if err != nil {
-		return fmt.Errorf("getting operations participants: %w", err)
-	}
-	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
-	}
-
-	// 3. Process operations to get state changes and collect their participants
-	stateChanges := []types.StateChange{}
-	for _, opParticipants := range opsParticipants {
-		for _, processor := range i.processors {
-			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
-			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
-				return fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
-			}
-			stateChanges = append(stateChanges, processorStateChanges...)
-		}
-	}
-
-	// 4. Get token transfer state changes
-	tokenTransferStateChanges, err := i.tokenTransferProcessor.ProcessTransaction(ctx, transaction)
-	if err != nil {
-		return fmt.Errorf("processing token transfer state changes: %w", err)
-	}
-	stateChanges = append(stateChanges, tokenTransferStateChanges...)
-
-	// Add state change participants to the set
-	for _, stateChange := range stateChanges {
-		allParticipants.Add(stateChange.AccountID)
-	}
-
-	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&transaction)
-	if err != nil {
-		return fmt.Errorf("creating data transaction: %w", err)
-	}
-
-	// Process transaction participants
-	if txParticipants.Cardinality() != 0 {
-		for participant := range txParticipants.Iter() {
-			if !existingAccounts.Contains(participant) {
-				continue
-			}
-			i.Buffer.PushParticipantTransaction(participant, *dataTx)
-		}
-	}
-
-	// Process operations participants
-	var dataOp *types.Operation
-	for opID, opParticipants := range opsParticipants {
-		dataOp, err = processors.ConvertOperation(&transaction, &opParticipants.OpWrapper.Operation, opID)
-		if err != nil {
-			return fmt.Errorf("creating data operation: %w", err)
-		}
-
-		for participant := range opParticipants.Participants.Iter() {
-			if !existingAccounts.Contains(participant) {
-				continue
-			}
-			i.Buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
-		}
-	}
-
-	sort.Slice(stateChanges, func(i, j int) bool {
-		return stateChanges[i].SortKey < stateChanges[j].SortKey
-	})
-
-	perOpIdx := make(map[int64]int)
-	for i := range stateChanges {
-		sc := &stateChanges[i]
-
-		// State changes are 1-indexed within an operation/transaction.
-		if sc.OperationID != 0 {
-			perOpIdx[sc.OperationID]++
-			sc.StateChangeOrder = int64(perOpIdx[sc.OperationID])
-		} else {
-			sc.StateChangeOrder = 1
-		}
-	}
-
-	// Process state changes
-	for _, stateChange := range stateChanges {
-		if !existingAccounts.Contains(stateChange.AccountID) {
-			continue
-		}
-		i.Buffer.PushStateChange(stateChange)
-	}
-
-	return nil
 }

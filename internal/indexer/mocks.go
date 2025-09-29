@@ -62,8 +62,8 @@ func (m *MockIndexerBuffer) PushParticipantOperation(participant string, op type
 	m.Called(participant, op, tx)
 }
 
-func (m *MockIndexerBuffer) PushStateChange(stateChange types.StateChange) {
-	m.Called(stateChange)
+func (m *MockIndexerBuffer) PushStateChange(tx types.Transaction, op types.Operation, stateChange types.StateChange) {
+	m.Called(tx, op, stateChange)
 }
 
 func (m *MockIndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
@@ -99,10 +99,6 @@ func (m *MockIndexerBuffer) GetAllOperations() []types.Operation {
 func (m *MockIndexerBuffer) GetAllStateChanges() []types.StateChange {
 	args := m.Called()
 	return args.Get(0).([]types.StateChange)
-}
-
-func (m *MockIndexerBuffer) CalculateStateChangeOrder() {
-	m.Called()
 }
 
 var (
