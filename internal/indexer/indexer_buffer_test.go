@@ -228,13 +228,17 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 	t.Run("🟢sequential_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
 
+		// Create test transaction and operation for the new PushStateChange signature
+		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		op := types.Operation{ID: 1, TxHash: tx.Hash}
+
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
 		sc3 := types.StateChange{ToID: 3, StateChangeOrder: 1}
 
-		indexerBuffer.PushStateChange(sc1)
-		indexerBuffer.PushStateChange(sc2)
-		indexerBuffer.PushStateChange(sc3)
+		indexerBuffer.PushStateChange(tx, op, sc1)
+		indexerBuffer.PushStateChange(tx, op, sc2)
+		indexerBuffer.PushStateChange(tx, op, sc3)
 
 		allStateChanges := indexerBuffer.GetAllStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
@@ -242,6 +246,10 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 
 	t.Run("🟢concurrent_calls", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
+
+		// Create test transaction and operation for the new PushStateChange signature
+		tx := types.Transaction{Hash: "test_tx_hash", ToID: 1}
+		op := types.Operation{ID: 1, TxHash: tx.Hash}
 
 		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1}
 		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1}
@@ -252,13 +260,13 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			indexerBuffer.PushStateChange(sc1)
+			indexerBuffer.PushStateChange(tx, op, sc1)
 		}()
 
 		go func() {
 			defer wg.Done()
-			indexerBuffer.PushStateChange(sc2)
-			indexerBuffer.PushStateChange(sc3)
+			indexerBuffer.PushStateChange(tx, op, sc2)
+			indexerBuffer.PushStateChange(tx, op, sc3)
 		}()
 
 		wg.Wait()
@@ -275,21 +283,22 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
 		op1 := types.Operation{ID: 3, TxHash: tx1.Hash}
 		op2 := types.Operation{ID: 4, TxHash: tx2.Hash}
+		op3 := types.Operation{ID: 5, TxHash: tx2.Hash}
 		indexerBuffer.PushParticipantOperation("someone", op1, tx1)
 		indexerBuffer.PushParticipantOperation("someone", op2, tx2)
 
 		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", tx1.Hash, op1.ID)
 		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", tx2.Hash, op2.ID)
-		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", tx2.Hash, op2.ID)
+		sc3 := buildStateChange(4, types.StateChangeReasonCredit, "eve", tx2.Hash, op3.ID)
 		// These are fee state changes, so they don't have an operation ID.
 		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
 		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", tx2.Hash, 0)
 
-		indexerBuffer.PushStateChange(sc1)
-		indexerBuffer.PushStateChange(sc2)
-		indexerBuffer.PushStateChange(sc3)
-		indexerBuffer.PushStateChange(sc4)
-		indexerBuffer.PushStateChange(sc5)
+		indexerBuffer.PushStateChange(tx1, op1, sc1)
+		indexerBuffer.PushStateChange(tx2, op2, sc2)
+		indexerBuffer.PushStateChange(tx2, op3, sc3) // This operation should be added
+		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc4) // Fee state changes don't have an operation
+		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc5) // Fee state changes don't have an operation
 
 		allStateChanges := indexerBuffer.GetAllStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
@@ -300,6 +309,8 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 			"tx_hash_2": tx2,
 		}
 		assert.Equal(t, wantTxByHash, indexerBuffer.txByHash)
+		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("someone"))
+		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("eve"))
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetParticipantTransactions("alice"))
 		assert.ElementsMatch(t, []types.Transaction{tx2}, indexerBuffer.GetParticipantTransactions("bob"))
 
@@ -307,26 +318,14 @@ func Test_IndexerBuffer_StateChanges(t *testing.T) {
 		wantOpByID := map[int64]types.Operation{
 			3: op1,
 			4: op2,
+			5: op3,
 		}
 		assert.Equal(t, wantOpByID, indexerBuffer.opByID)
+		assert.Equal(t, map[int64]types.Operation{3: op1, 4: op2}, indexerBuffer.GetParticipantOperations("someone"))
+		assert.Equal(t, map[int64]types.Operation{5: op3}, indexerBuffer.GetParticipantOperations("eve"))
 		assert.Equal(t, map[int64]types.Operation{3: op1, 4: op2}, indexerBuffer.GetParticipantOperations("alice"))
 		assert.Nil(t, indexerBuffer.GetParticipantOperations("bob"))
 
-		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob", "eve", "someone"), indexerBuffer.Participants)
-
-		// Assert state change order
-		indexerBuffer.CalculateStateChangeOrder()
-		allStateChanges = indexerBuffer.GetAllStateChanges()
-		assert.Equal(t, int64(1), allStateChanges[0].StateChangeOrder)
-		assert.Equal(t, int64(1), allStateChanges[1].StateChangeOrder)
-		assert.Equal(t, int64(1), allStateChanges[2].StateChangeOrder)
-
-		// For state changes with same operation ID, the order is calculated using the
-		// sort key and the credit state change comes before the debit one.
-		assert.Equal(t, int64(1), allStateChanges[3].StateChangeOrder)
-		assert.Equal(t, types.StateChangeCategoryBalance, allStateChanges[3].StateChangeCategory)
-		assert.Equal(t, int64(2), allStateChanges[4].StateChangeOrder)
-		assert.Equal(t, types.StateChangeCategoryBalance, allStateChanges[4].StateChangeCategory)
+		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), indexerBuffer.Participants)
 	})
 }

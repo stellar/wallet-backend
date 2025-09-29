@@ -48,7 +48,7 @@ func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, tra
 	b.Participants.Add(participant)
 
 	if _, ok := b.txHashesByParticipant[participant]; !ok {
-		b.txHashesByParticipant[participant] = set.NewSet[string](transaction.Hash)
+		b.txHashesByParticipant[participant] = set.NewSet(transaction.Hash)
 	} else {
 		b.txHashesByParticipant[participant].Add(transaction.Hash)
 	}
@@ -143,16 +143,9 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChange)
-
-	// Fee state changes dont have an operation ID since they are transaction level state changes.
+	b.pushParticipantTransactionUnsafe(stateChange.AccountID, transaction)
 	if stateChange.OperationID != 0 {
-		if _, ok := b.opByID[stateChange.OperationID]; !ok {
-			b.pushParticipantOperationUnsafe(stateChange.AccountID, operation)
-		}
-	}
-
-	if _, ok := b.txByHash[stateChange.TxHash]; !ok {
-		b.pushParticipantTransactionUnsafe(stateChange.AccountID, transaction)
+		b.pushParticipantOperationUnsafe(stateChange.AccountID, operation)
 	}
 }
 
