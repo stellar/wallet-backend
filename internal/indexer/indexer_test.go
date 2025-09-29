@@ -451,7 +451,7 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		name             string
 		precomputedData  []PrecomputedTransactionData
 		existingAccounts set.Set[string]
-		setupMocks       func(*MockIndexerBuffer)
+		verifyBuffer     func(*testing.T, *IndexerBuffer)
 		expectedError    string
 	}{
 		{
@@ -478,10 +478,40 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				},
 			},
 			existingAccounts: set.NewSet("alice", "bob"),
-			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// ProcessTransactions now creates per-transaction buffers and merges them
-				// Expect one MergeBuffer call for the single transaction
-				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
+			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
+				// Verify participants were added correctly
+				assert.Equal(t, 2, buffer.GetParticipants().Cardinality(), "should have 2 participants")
+				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
+				assert.True(t, buffer.GetParticipants().Contains("bob"), "bob should be a participant")
+
+				// Verify transactions for alice
+				aliceTxs := buffer.GetParticipantTransactions("alice")
+				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
+				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceTxs[0].Hash)
+				assert.Equal(t, uint32(12345), aliceTxs[0].LedgerNumber)
+
+				// Verify transactions for bob
+				bobTxs := buffer.GetParticipantTransactions("bob")
+				require.Len(t, bobTxs, 1, "bob should have 1 transaction")
+				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", bobTxs[0].Hash)
+
+				// Verify operations for alice (only alice is in operation participants)
+				aliceOps := buffer.GetParticipantOperations("alice")
+				require.Len(t, aliceOps, 1, "alice should have 1 operation")
+				assert.Equal(t, int64(1), aliceOps[1].ID)
+				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceOps[1].TxHash)
+
+				// Verify bob has no operations (not in operation participants)
+				bobOps := buffer.GetParticipantOperations("bob")
+				assert.Nil(t, bobOps, "bob should have no operations")
+
+				// Verify state changes
+				stateChanges := buffer.GetAllStateChanges()
+				require.Len(t, stateChanges, 1, "should have 1 state change")
+				assert.Equal(t, "alice", stateChanges[0].AccountID)
+				assert.Equal(t, int64(1), stateChanges[0].ToID)
+				assert.Equal(t, int64(1), stateChanges[0].OperationID)
+				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
 			},
 		},
 		{
@@ -499,10 +529,33 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				},
 			},
 			existingAccounts: set.NewSet("alice", "bob"), // charlie doesn't exist
-			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// ProcessTransactions now creates per-transaction buffers and merges them
-				// Expect one MergeBuffer call for the single transaction (only existing accounts are processed)
-				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
+			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
+				// Verify only existing accounts are processed (alice and bob, NOT charlie)
+				assert.Equal(t, 2, buffer.GetParticipants().Cardinality(), "should have 2 participants (not 3)")
+				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
+				assert.True(t, buffer.GetParticipants().Contains("bob"), "bob should be a participant")
+				assert.False(t, buffer.GetParticipants().Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
+
+				// Verify transactions for alice
+				aliceTxs := buffer.GetParticipantTransactions("alice")
+				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
+				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceTxs[0].Hash)
+
+				// Verify transactions for bob
+				bobTxs := buffer.GetParticipantTransactions("bob")
+				require.Len(t, bobTxs, 1, "bob should have 1 transaction")
+
+				// Verify charlie has no transactions (doesn't exist)
+				charlieTxs := buffer.GetParticipantTransactions("charlie")
+				assert.Nil(t, charlieTxs, "charlie should have no transactions (doesn't exist)")
+
+				// Verify state changes - only alice should have one (charlie's should be skipped)
+				stateChanges := buffer.GetAllStateChanges()
+				require.Len(t, stateChanges, 1, "should have 1 state change (alice only, charlie skipped)")
+				assert.Equal(t, "alice", stateChanges[0].AccountID, "only alice's state change should be present")
+				assert.Equal(t, int64(1), stateChanges[0].ToID)
+				assert.Equal(t, int64(0), stateChanges[0].OperationID, "fee state change (OperationID=0)")
+				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "fee state changes get order 1")
 			},
 		},
 		{
@@ -517,18 +570,28 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				},
 			},
 			existingAccounts: set.NewSet[string](), // No existing accounts
-			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// ProcessTransactions still creates buffers and merges them even with no existing accounts
-				// Expect one MergeBuffer call for the single transaction (but buffer will be empty)
-				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
+			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
+				// Verify no accounts are processed since none exist
+				assert.Equal(t, 0, buffer.GetParticipants().Cardinality(), "should have 0 participants (no existing accounts)")
+
+				// Verify no transactions
+				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
+
+				// Verify no state changes
+				stateChanges := buffer.GetAllStateChanges()
+				assert.Len(t, stateChanges, 0, "should have 0 state changes")
 			},
 		},
 		{
 			name:             "🟢 empty precomputed data",
 			precomputedData:  []PrecomputedTransactionData{},
 			existingAccounts: set.NewSet("alice"),
-			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// No buffer operations should be called
+			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
+				// Verify buffer is empty with no precomputed data
+				assert.Equal(t, 0, buffer.GetParticipants().Cardinality(), "should have 0 participants (no data)")
+				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
+				stateChanges := buffer.GetAllStateChanges()
+				assert.Len(t, stateChanges, 0, "should have 0 state changes")
 			},
 		},
 		{
@@ -557,21 +620,49 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				},
 			},
 			existingAccounts: set.NewSet("alice"),
-			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// ProcessTransactions now creates per-transaction buffers and merges them
-				// Expect one MergeBuffer call for the single transaction (state change ordering is verified in the buffer)
-				mockBuffer.On("MergeBuffer", mock.AnythingOfType("*indexer.IndexerBuffer")).Once()
+			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
+				// Verify participant
+				assert.Equal(t, 1, buffer.GetParticipants().Cardinality(), "should have 1 participant")
+				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
+
+				// Verify transaction
+				aliceTxs := buffer.GetParticipantTransactions("alice")
+				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
+
+				// Verify operation
+				aliceOps := buffer.GetParticipantOperations("alice")
+				require.Len(t, aliceOps, 1, "alice should have 1 operation")
+				assert.Equal(t, int64(1), aliceOps[1].ID)
+
+				// Verify state changes with correct ordering
+				stateChanges := buffer.GetAllStateChanges()
+				require.Len(t, stateChanges, 3, "should have 3 state changes")
+
+				// Verify first state change
+				assert.Equal(t, "alice", stateChanges[0].AccountID)
+				assert.Equal(t, int64(1), stateChanges[0].ToID)
+				assert.Equal(t, int64(1), stateChanges[0].OperationID)
+				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
+
+				// Verify second state change
+				assert.Equal(t, "alice", stateChanges[1].AccountID)
+				assert.Equal(t, int64(2), stateChanges[1].ToID)
+				assert.Equal(t, int64(1), stateChanges[1].OperationID)
+				assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
+
+				// Verify third state change
+				assert.Equal(t, "alice", stateChanges[2].AccountID)
+				assert.Equal(t, int64(3), stateChanges[2].ToID)
+				assert.Equal(t, int64(1), stateChanges[2].OperationID)
+				assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mocks
-			mockBuffer := &MockIndexerBuffer{}
-
-			// Setup mock expectations
-			tt.setupMocks(mockBuffer)
+			// Create real buffer for actual testing
+			realBuffer := NewIndexerBuffer()
 
 			// Create indexer
 			indexer := &Indexer{
@@ -581,7 +672,7 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			}
 
 			// Test ProcessTransactions
-			err := indexer.ProcessTransactions(context.Background(), tt.precomputedData, tt.existingAccounts, mockBuffer)
+			err := indexer.ProcessTransactions(context.Background(), tt.precomputedData, tt.existingAccounts, realBuffer)
 
 			// Assert results
 			if tt.expectedError != "" {
@@ -589,10 +680,11 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.expectedError)
 			} else {
 				require.NoError(t, err)
+				// Verify buffer contents after successful processing
+				if tt.verifyBuffer != nil {
+					tt.verifyBuffer(t, realBuffer)
+				}
 			}
-
-			// Verify mock expectations
-			mockBuffer.AssertExpectations(t)
 		})
 	}
 }
