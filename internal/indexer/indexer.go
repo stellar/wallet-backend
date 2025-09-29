@@ -257,7 +257,6 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 			operation = *correctOp
 		}
 		// For fee state changes (OperationID == 0), operation remains zero value
-
 		i.Buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 

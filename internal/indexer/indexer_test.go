@@ -376,6 +376,70 @@ func TestIndexer_CollectAllTransactionData(t *testing.T) {
 					assert.NotNil(t, txData.OpsParticipants)
 					assert.NotNil(t, txData.StateChanges)
 					assert.NotNil(t, txData.AllParticipants)
+
+					// Additional detailed assertions based on transaction
+					if txData.Transaction.Index == 1 && tt.name == "🟢 single transaction with participants" {
+						// Verify exact transaction participants
+						assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+						assert.True(t, txData.TxParticipants.Contains("alice"))
+						assert.True(t, txData.TxParticipants.Contains("bob"))
+
+						// Verify operations participants
+						assert.Contains(t, txData.OpsParticipants, int64(1))
+						opParticipants := txData.OpsParticipants[int64(1)]
+						assert.Equal(t, 1, opParticipants.Participants.Cardinality())
+						assert.True(t, opParticipants.Participants.Contains("alice"))
+
+						// Verify state changes
+						assert.Len(t, txData.StateChanges, 3)
+						// Find each state change and verify fields
+						for _, sc := range txData.StateChanges {
+							switch sc.AccountID {
+							case "alice":
+								assert.Equal(t, int64(1), sc.ToID)
+								assert.Equal(t, int64(1), sc.OperationID)
+								assert.Equal(t, "1-1", sc.SortKey)
+							case "charlie":
+								assert.Equal(t, int64(2), sc.ToID)
+								assert.Equal(t, int64(1), sc.OperationID)
+								assert.Equal(t, "1-2", sc.SortKey)
+							case "dave":
+								assert.Equal(t, int64(3), sc.ToID)
+								assert.Equal(t, int64(0), sc.OperationID)
+								assert.Equal(t, "0-1", sc.SortKey)
+							}
+						}
+
+						// Verify AllParticipants is union of all
+						assert.Equal(t, 4, txData.AllParticipants.Cardinality())
+						assert.True(t, txData.AllParticipants.Contains("alice"))
+						assert.True(t, txData.AllParticipants.Contains("bob"))
+						assert.True(t, txData.AllParticipants.Contains("charlie"))
+						assert.True(t, txData.AllParticipants.Contains("dave"))
+					}
+
+					if tt.name == "🟢 multiple transactions with overlapping participants" {
+						// Verify first transaction
+						if txData.Transaction.Index == 1 {
+							assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+							assert.True(t, txData.TxParticipants.Contains("alice"))
+							assert.True(t, txData.TxParticipants.Contains("bob"))
+							assert.Contains(t, txData.OpsParticipants, int64(1))
+						}
+						// Verify second transaction
+						if txData.Transaction.Index == 2 {
+							assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+							assert.True(t, txData.TxParticipants.Contains("bob"))
+							assert.True(t, txData.TxParticipants.Contains("charlie"))
+							assert.Contains(t, txData.OpsParticipants, int64(2))
+						}
+					}
+
+					if tt.name == "🟢 transaction with no participants" {
+						assert.Equal(t, 0, txData.TxParticipants.Cardinality())
+						assert.Equal(t, 0, len(txData.OpsParticipants))
+						assert.Equal(t, 0, txData.AllParticipants.Cardinality())
+					}
 				}
 			}
 
@@ -422,20 +486,33 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			},
 			existingAccounts: set.NewSet("alice", "bob"),
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
-				// Expect PushParticipantTransaction for each participant
+				// Expect PushParticipantTransaction for each participant with verified fields
 				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
-					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000" &&
+						tx.LedgerNumber == uint32(12345)
 				})).Once()
 				mockBuffer.On("PushParticipantTransaction", "bob", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000" &&
+						tx.LedgerNumber == uint32(12345)
+				})).Once()
+
+				// Expect PushParticipantOperation for operation participants with verified fields
+				mockBuffer.On("PushParticipantOperation", "alice", mock.MatchedBy(func(op types.Operation) bool {
+					return op.ID == int64(1) && op.TxHash == "0102030000000000000000000000000000000000000000000000000000000000"
+				}), mock.MatchedBy(func(tx types.Transaction) bool {
 					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
 				})).Once()
 
-				// Expect PushParticipantOperation for operation participants
-				mockBuffer.On("PushParticipantOperation", "alice", mock.AnythingOfType("types.Operation"), mock.AnythingOfType("types.Transaction")).Once()
-
-				// Expect PushStateChange for state changes
-				mockBuffer.On("PushStateChange", mock.AnythingOfType("types.Transaction"), mock.AnythingOfType("types.Operation"), mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice"
+				// Expect PushStateChange for state changes with StateChangeOrder verified
+				mockBuffer.On("PushStateChange", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				}), mock.MatchedBy(func(op types.Operation) bool {
+					return op.ID == int64(1)
+				}), mock.MatchedBy(func(sc types.StateChange) bool {
+					return sc.AccountID == "alice" &&
+						sc.ToID == int64(1) &&
+						sc.OperationID == int64(1) &&
+						sc.StateChangeOrder == int64(1) // First state change for this operation
 				})).Once()
 			},
 		},
@@ -456,14 +533,26 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice", "bob"), // charlie doesn't exist
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
 				// Only existing accounts should be processed
-				mockBuffer.On("PushParticipantTransaction", "alice", mock.AnythingOfType("types.Transaction")).Once()
-				mockBuffer.On("PushParticipantTransaction", "bob", mock.AnythingOfType("types.Transaction")).Once()
-				// charlie should NOT be called
+				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				})).Once()
+				mockBuffer.On("PushParticipantTransaction", "bob", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				})).Once()
+				// charlie should NOT be called - explicitly verify by not setting up expectation
 
 				// Only alice should have state change pushed (charlie doesn't exist)
-				mockBuffer.On("PushStateChange", mock.AnythingOfType("types.Transaction"), mock.AnythingOfType("types.Operation"), mock.MatchedBy(func(sc types.StateChange) bool {
-					return sc.AccountID == "alice"
+				mockBuffer.On("PushStateChange", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				}), mock.MatchedBy(func(op types.Operation) bool {
+					return op.ID == int64(0) // Fee state change
+				}), mock.MatchedBy(func(sc types.StateChange) bool {
+					return sc.AccountID == "alice" &&
+						sc.ToID == int64(1) &&
+						sc.OperationID == int64(0) &&
+						sc.StateChangeOrder == int64(1) // Fee state changes always get order 1
 				})).Once()
+				// charlie state change should NOT be called
 			},
 		},
 		{
@@ -488,6 +577,64 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice"),
 			setupMocks: func(mockBuffer *MockIndexerBuffer) {
 				// No buffer operations should be called
+			},
+		},
+		{
+			name: "🟢 multiple state changes per operation verify ordering",
+			precomputedData: []PrecomputedTransactionData{
+				{
+					Transaction:    testTx,
+					TxParticipants: set.NewSet("alice"),
+					OpsParticipants: map[int64]processors.OperationParticipants{
+						1: {
+							OpWrapper: &operation_processor.TransactionOperationWrapper{
+								Index:          0,
+								Operation:      createAccountOp,
+								Network:        network.TestNetworkPassphrase,
+								LedgerSequence: 12345,
+							},
+							Participants: set.NewSet("alice"),
+						},
+					},
+					StateChanges: []types.StateChange{
+						{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
+						{ToID: 2, AccountID: "alice", OperationID: 1, SortKey: "1-2"},
+						{ToID: 3, AccountID: "alice", OperationID: 1, SortKey: "1-3"},
+					},
+					AllParticipants: set.NewSet("alice"),
+				},
+			},
+			existingAccounts: set.NewSet("alice"),
+			setupMocks: func(mockBuffer *MockIndexerBuffer) {
+				mockBuffer.On("PushParticipantTransaction", "alice", mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				})).Once()
+
+				mockBuffer.On("PushParticipantOperation", "alice", mock.MatchedBy(func(op types.Operation) bool {
+					return op.ID == int64(1)
+				}), mock.MatchedBy(func(tx types.Transaction) bool {
+					return tx.Hash == "0102030000000000000000000000000000000000000000000000000000000000"
+				})).Once()
+
+				// Expect three state changes with StateChangeOrder 1, 2, 3
+				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
+					return sc.AccountID == "alice" &&
+						sc.ToID == int64(1) &&
+						sc.OperationID == int64(1) &&
+						sc.StateChangeOrder == int64(1)
+				})).Once()
+				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
+					return sc.AccountID == "alice" &&
+						sc.ToID == int64(2) &&
+						sc.OperationID == int64(1) &&
+						sc.StateChangeOrder == int64(2)
+				})).Once()
+				mockBuffer.On("PushStateChange", mock.Anything, mock.Anything, mock.MatchedBy(func(sc types.StateChange) bool {
+					return sc.AccountID == "alice" &&
+						sc.ToID == int64(3) &&
+						sc.OperationID == int64(1) &&
+						sc.StateChangeOrder == int64(3)
+				})).Once()
 			},
 		},
 	}
@@ -664,6 +811,47 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Len(t, stateChanges, tt.expectedStateChanges)
+
+				// Add detailed assertions for specific test cases
+				if tt.name == "🟢 state changes from all processors" {
+					// Verify we got exactly 3 state changes
+					assert.Len(t, stateChanges, 3)
+
+					// Verify specific state changes by AccountID
+					foundAlice := false
+					foundBob := false
+					foundCharlie := false
+					for _, sc := range stateChanges {
+						switch sc.AccountID {
+						case "alice":
+							assert.Equal(t, int64(1), sc.ToID)
+							assert.Equal(t, int64(1), sc.OperationID)
+							foundAlice = true
+						case "bob":
+							assert.Equal(t, int64(2), sc.ToID)
+							assert.Equal(t, int64(1), sc.OperationID)
+							foundBob = true
+						case "charlie":
+							assert.Equal(t, int64(3), sc.ToID)
+							assert.Equal(t, int64(0), sc.OperationID)
+							foundCharlie = true
+						}
+					}
+					assert.True(t, foundAlice, "Should have state change for alice")
+					assert.True(t, foundBob, "Should have state change for bob")
+					assert.True(t, foundCharlie, "Should have state change for charlie")
+				}
+
+				if tt.name == "🟢 ErrInvalidOpType is ignored" {
+					// Verify we got exactly 1 state change (from contract deploy only)
+					assert.Len(t, stateChanges, 1)
+
+					// Verify it's the correct state change
+					sc := stateChanges[0]
+					assert.Equal(t, "alice", sc.AccountID)
+					assert.Equal(t, int64(1), sc.ToID)
+					assert.Equal(t, int64(1), sc.OperationID)
+				}
 			}
 
 			// Verify mock expectations
