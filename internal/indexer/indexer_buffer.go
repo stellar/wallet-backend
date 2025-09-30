@@ -21,10 +21,10 @@ import (
 //   - opByID: Single pointer per unique operation (keyed by ID)
 //   - This layer owns the actual data and ensures only ONE copy exists in memory
 //
-// 2. Participant Reference Layer:
-//   - participantTxs: Maps each participant to a SET of transaction pointers
-//   - participantOps: Maps each participant to a SET of operation pointers
-//   - All pointers reference the canonical storage layer
+// 2. Transaction/Operation to Participants Mapping Layer:
+//   - participantsByTxHash: Maps each transaction hash to a SET of participant IDs
+//   - participantsByOpID: Maps each operation ID to a SET of participant IDs
+//   - Efficiently tracks which participants interacted with each tx/op
 //
 // MEMORY OPTIMIZATION:
 // Transaction structs contain large XDR fields (10-50+ KB each). When multiple participants
@@ -47,31 +47,31 @@ import (
 // 4. Batch insert merged data into database
 
 type IndexerBuffer struct {
-	mu             sync.RWMutex
-	participants   set.Set[string]
-	txByHash       map[string]*types.Transaction
+	mu                   sync.RWMutex
+	participants         set.Set[string]
+	txByHash             map[string]*types.Transaction
 	participantsByTxHash map[string]set.Set[string]
-	opByID         map[int64]*types.Operation
-	participantsByOpID map[int64]set.Set[string]
-	stateChanges   []types.StateChange
+	opByID               map[int64]*types.Operation
+	participantsByOpID   map[int64]set.Set[string]
+	stateChanges         []types.StateChange
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		participants:   set.NewSet[string](),
-		txByHash:       make(map[string]*types.Transaction),
+		participants:         set.NewSet[string](),
+		txByHash:             make(map[string]*types.Transaction),
 		participantsByTxHash: make(map[string]set.Set[string]),
-		opByID:         make(map[int64]*types.Operation),
-		participantsByOpID: make(map[int64]set.Set[string]),
-		stateChanges:   make([]types.StateChange, 0),
+		opByID:               make(map[int64]*types.Operation),
+		participantsByOpID:   make(map[int64]set.Set[string]),
+		stateChanges:         make([]types.StateChange, 0),
 	}
 }
 
-// PushTransaction adds a transaction for a specific participant.
-// Uses canonical pointer pattern: if the transaction already exists (by hash), all participants
-// reference the same pointer, avoiding memory duplication.
+// PushTransaction adds a transaction and associates it with a participant.
+// Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
+// which participants interacted with it. Multiple participants can reference the same transaction.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Transaction) {
 	b.mu.Lock()
@@ -85,9 +85,10 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 //
 // 1. Check if transaction already exists in txByHash (canonical storage)
 // 2. If not, store the transaction pointer as canonical
-// 3. Always use the canonical pointer when adding to participant's set
+// 3. Add participant to the global participants set
+// 4. Add participant to this transaction's participant set in participantsByTxHash
 //
-// This ensures all participants reference the SAME memory location for the same transaction.
+// This ensures only ONE copy of each transaction exists, with all participants tracked in a set.
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
 	txHash := transaction.Hash
@@ -136,8 +137,8 @@ func (b *IndexerBuffer) GetAllTransactionsParticipants() map[string]set.Set[stri
 	return b.participantsByTxHash
 }
 
-// PushOperation adds an operation for a specific participant along with
-// its parent transaction. Uses canonical pointer pattern for both operations and transactions.
+// PushOperation adds an operation and its parent transaction, associating both with a participant.
+// Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushOperation(participant string, operation types.Operation, transaction types.Transaction) {
 	b.mu.Lock()
@@ -169,7 +170,7 @@ func (b *IndexerBuffer) GetAllOperationsParticipants() map[int64]set.Set[string]
 }
 
 // pushOperationUnsafe is the internal implementation for operation storage.
-// Follows the same canonical pointer pattern as transactions to minimize memory usage.
+// Stores one copy of each operation (by ID) and tracks which participants interacted with it.
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types.Operation) {
 	opID := operation.ID
@@ -218,20 +219,20 @@ func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 // per-ledger or per-transaction buffers into a single buffer for batch DB insertion.
 //
 // MERGE STRATEGY:
-// 1. Union participant sets (O(m) set operation)
-// 2. Copy canonical storage maps (txByHash, opByID) - overwrites on collision
-// 3. For each participant in other buffer:
-//   - Iterate their transaction/operation sets
-//   - Retrieve OUR canonical pointer using hash/ID
-//   - Add canonical pointer to our participant's set (O(1), auto-deduplicates)
+// 1. Union global participant sets (O(m) set operation)
+// 2. Copy canonical storage maps (txByHash, opByID) using maps.Copy
+// 3. For each transaction hash in other.participantsByTxHash:
+//   - Merge other's participant set into our participant set for that tx hash
+//   - Creates new set if tx doesn't exist in our mapping yet
 //
-// CANONICAL POINTER RECONCILIATION:
-// After maps.Copy, our txByHash contains all transactions from both buffers.
-// When iterating other's participant sets, we ALWAYS use OUR canonical pointer
-// from txByHash[hash], ensuring all participants reference the same memory location.
+// 4. For each operation ID in other.participantsByOpID:
+//   - Merge other's participant set into our participant set for that op ID
+//   - Creates new set if op doesn't exist in our mapping yet
+//
+// 5. Append other's state changes to ours
 //
 // MEMORY EFFICIENCY:
-// Zero temporary map allocations - all operations use direct map/set manipulation.
+// Zero temporary allocations - uses direct map/set manipulation and set.Union operations.
 //
 // Thread-safe: acquires write lock on this buffer, read lock on other buffer.
 func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {

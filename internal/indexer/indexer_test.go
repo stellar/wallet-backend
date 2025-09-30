@@ -485,30 +485,32 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice", "bob"),
 			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
 				// Verify participants were added correctly
-				assert.Equal(t, 2, buffer.GetParticipants().Cardinality(), "should have 2 participants")
-				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
-				assert.True(t, buffer.GetParticipants().Contains("bob"), "bob should be a participant")
+				assert.Equal(t, 2, buffer.participants.Cardinality(), "should have 2 participants")
+				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
+				assert.True(t, buffer.participants.Contains("bob"), "bob should be a participant")
 
-				// Verify transactions for alice
-				aliceTxs := buffer.GetParticipantTransactions("alice")
-				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
-				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceTxs[0].Hash)
-				assert.Equal(t, uint32(12345), aliceTxs[0].LedgerNumber)
+				// Verify transactions for alice and bob
+				txParticipants := buffer.GetAllTransactionsParticipants()
+				txHash := "0102030000000000000000000000000000000000000000000000000000000000"
+				assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
+				assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
 
-				// Verify transactions for bob
-				bobTxs := buffer.GetParticipantTransactions("bob")
-				require.Len(t, bobTxs, 1, "bob should have 1 transaction")
-				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", bobTxs[0].Hash)
+				// Verify transaction exists and has correct data
+				allTxs := buffer.GetAllTransactions()
+				require.Len(t, allTxs, 1, "should have 1 transaction")
+				assert.Equal(t, txHash, allTxs[0].Hash)
+				assert.Equal(t, uint32(12345), allTxs[0].LedgerNumber)
 
 				// Verify operations for alice (only alice is in operation participants)
-				aliceOps := buffer.GetParticipantOperations("alice")
-				require.Len(t, aliceOps, 1, "alice should have 1 operation")
-				assert.Equal(t, int64(1), aliceOps[1].ID)
-				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceOps[1].TxHash)
+				opParticipants := buffer.GetAllOperationsParticipants()
+				assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
+				assert.False(t, opParticipants[int64(1)].Contains("bob"), "bob should NOT be in operation 1 participants")
 
-				// Verify bob has no operations (not in operation participants)
-				bobOps := buffer.GetParticipantOperations("bob")
-				assert.Nil(t, bobOps, "bob should have no operations")
+				// Verify operation exists and has correct data
+				allOps := buffer.GetAllOperations()
+				require.Len(t, allOps, 1, "should have 1 operation")
+				assert.Equal(t, int64(1), allOps[0].ID)
+				assert.Equal(t, txHash, allOps[0].TxHash)
 
 				// Verify state changes
 				stateChanges := buffer.GetAllStateChanges()
@@ -536,23 +538,22 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice", "bob"), // charlie doesn't exist
 			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
 				// Verify only existing accounts are processed (alice and bob, NOT charlie)
-				assert.Equal(t, 2, buffer.GetParticipants().Cardinality(), "should have 2 participants (not 3)")
-				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
-				assert.True(t, buffer.GetParticipants().Contains("bob"), "bob should be a participant")
-				assert.False(t, buffer.GetParticipants().Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
+				assert.Equal(t, 2, buffer.participants.Cardinality(), "should have 2 participants (not 3)")
+				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
+				assert.True(t, buffer.participants.Contains("bob"), "bob should be a participant")
+				assert.False(t, buffer.participants.Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
 
-				// Verify transactions for alice
-				aliceTxs := buffer.GetParticipantTransactions("alice")
-				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
-				assert.Equal(t, "0102030000000000000000000000000000000000000000000000000000000000", aliceTxs[0].Hash)
+				// Verify transactions for alice and bob
+				txParticipants := buffer.GetAllTransactionsParticipants()
+				txHash := "0102030000000000000000000000000000000000000000000000000000000000"
+				assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
+				assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
+				assert.False(t, txParticipants[txHash].Contains("charlie"), "charlie should NOT be in tx participants (doesn't exist)")
 
-				// Verify transactions for bob
-				bobTxs := buffer.GetParticipantTransactions("bob")
-				require.Len(t, bobTxs, 1, "bob should have 1 transaction")
-
-				// Verify charlie has no transactions (doesn't exist)
-				charlieTxs := buffer.GetParticipantTransactions("charlie")
-				assert.Nil(t, charlieTxs, "charlie should have no transactions (doesn't exist)")
+				// Verify transaction exists
+				allTxs := buffer.GetAllTransactions()
+				require.Len(t, allTxs, 1, "should have 1 transaction")
+				assert.Equal(t, txHash, allTxs[0].Hash)
 
 				// Verify state changes - only alice should have one (charlie's should be skipped)
 				stateChanges := buffer.GetAllStateChanges()
@@ -577,7 +578,7 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet[string](), // No existing accounts
 			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
 				// Verify no accounts are processed since none exist
-				assert.Equal(t, 0, buffer.GetParticipants().Cardinality(), "should have 0 participants (no existing accounts)")
+				assert.Equal(t, 0, buffer.participants.Cardinality(), "should have 0 participants (no existing accounts)")
 
 				// Verify no transactions
 				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
@@ -593,7 +594,7 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice"),
 			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
 				// Verify buffer is empty with no precomputed data
-				assert.Equal(t, 0, buffer.GetParticipants().Cardinality(), "should have 0 participants (no data)")
+				assert.Equal(t, 0, buffer.participants.Cardinality(), "should have 0 participants (no data)")
 				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
 				stateChanges := buffer.GetAllStateChanges()
 				assert.Len(t, stateChanges, 0, "should have 0 state changes")
@@ -627,17 +628,22 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 			existingAccounts: set.NewSet("alice"),
 			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
 				// Verify participant
-				assert.Equal(t, 1, buffer.GetParticipants().Cardinality(), "should have 1 participant")
-				assert.True(t, buffer.GetParticipants().Contains("alice"), "alice should be a participant")
+				assert.Equal(t, 1, buffer.participants.Cardinality(), "should have 1 participant")
+				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
 
-				// Verify transaction
-				aliceTxs := buffer.GetParticipantTransactions("alice")
-				require.Len(t, aliceTxs, 1, "alice should have 1 transaction")
+				// Verify transaction participants
+				txParticipants := buffer.GetAllTransactionsParticipants()
+				require.Len(t, txParticipants, 1, "should have 1 transaction with participants")
 
-				// Verify operation
-				aliceOps := buffer.GetParticipantOperations("alice")
-				require.Len(t, aliceOps, 1, "alice should have 1 operation")
-				assert.Equal(t, int64(1), aliceOps[1].ID)
+				// Verify operation participants
+				opParticipants := buffer.GetAllOperationsParticipants()
+				require.Len(t, opParticipants, 1, "should have 1 operation with participants")
+				assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
+
+				// Verify operation exists
+				allOps := buffer.GetAllOperations()
+				require.Len(t, allOps, 1, "should have 1 operation")
+				assert.Equal(t, int64(1), allOps[0].ID)
 
 				// Verify state changes with correct ordering
 				stateChanges := buffer.GetAllStateChanges()
