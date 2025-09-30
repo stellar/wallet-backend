@@ -19,12 +19,11 @@ import (
 )
 
 type IndexerBufferInterface interface {
-	PushParticipantTransaction(participant string, transaction types.Transaction)
-	PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction)
-	GetParticipantTransactions(participant string) []types.Transaction
-	GetParticipantOperations(participant string) map[int64]types.Operation
+	PushTransaction(participant string, transaction types.Transaction)
+	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
 	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
-	GetParticipants() set.Set[string]
+	GetAllTransactionsParticipants() map[string]set.Set[string]
+	GetAllOperationsParticipants() map[int64]set.Set[string]
 	GetNumberOfTransactions() int
 	GetAllTransactions() []types.Transaction
 	GetAllOperations() []types.Operation
@@ -203,7 +202,7 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 			if !existingAccounts.Contains(participant) {
 				continue
 			}
-			buffer.PushParticipantTransaction(participant, *dataTx)
+			buffer.PushTransaction(participant, *dataTx)
 		}
 	}
 
@@ -220,7 +219,7 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 			if !existingAccounts.Contains(participant) {
 				continue
 			}
-			buffer.PushParticipantOperation(participant, *dataOp, *dataTx)
+			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
 	}
 

@@ -50,9 +50,9 @@ type IndexerBuffer struct {
 	mu             sync.RWMutex
 	participants   set.Set[string]
 	txByHash       map[string]*types.Transaction
-	participantTxs map[string]set.Set[*types.Transaction]
+	participantsByTxHash map[string]set.Set[string]
 	opByID         map[int64]*types.Operation
-	participantOps map[string]set.Set[*types.Operation]
+	participantsByOpID map[int64]set.Set[string]
 	stateChanges   []types.StateChange
 }
 
@@ -62,34 +62,25 @@ func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
 		participants:   set.NewSet[string](),
 		txByHash:       make(map[string]*types.Transaction),
-		participantTxs: make(map[string]set.Set[*types.Transaction]),
+		participantsByTxHash: make(map[string]set.Set[string]),
 		opByID:         make(map[int64]*types.Operation),
-		participantOps: make(map[string]set.Set[*types.Operation]),
+		participantsByOpID: make(map[int64]set.Set[string]),
 		stateChanges:   make([]types.StateChange, 0),
 	}
 }
 
-// GetParticipants returns a clone of all unique participant account IDs in this buffer.
-// Thread-safe: uses read lock and returns a copy to prevent external mutation.
-func (b *IndexerBuffer) GetParticipants() set.Set[string] {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return b.participants.Clone()
-}
-
-// PushParticipantTransaction adds a transaction for a specific participant.
+// PushTransaction adds a transaction for a specific participant.
 // Uses canonical pointer pattern: if the transaction already exists (by hash), all participants
 // reference the same pointer, avoiding memory duplication.
 // Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushParticipantTransaction(participant string, transaction types.Transaction) {
+func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Transaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.pushParticipantTransactionUnsafe(participant, &transaction)
+	b.pushTransactionUnsafe(participant, &transaction)
 }
 
-// pushParticipantTransactionUnsafe is the internal implementation that assumes the caller
+// pushTransactionUnsafe is the internal implementation that assumes the caller
 // already holds the write lock. This method implements the canonical pointer pattern:
 //
 // 1. Check if transaction already exists in txByHash (canonical storage)
@@ -98,25 +89,20 @@ func (b *IndexerBuffer) PushParticipantTransaction(participant string, transacti
 //
 // This ensures all participants reference the SAME memory location for the same transaction.
 // Caller must hold write lock.
-func (b *IndexerBuffer) pushParticipantTransactionUnsafe(participant string, transaction *types.Transaction) {
-	// Get or store canonical pointer - this is the key to memory efficiency
-	canonicalPtr, exists := b.txByHash[transaction.Hash]
-	if !exists {
-		// First time seeing this transaction - store it as canonical
-		b.txByHash[transaction.Hash] = transaction
-		canonicalPtr = transaction
+func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
+	txHash := transaction.Hash
+	if _, exists := b.txByHash[txHash]; !exists {
+		b.txByHash[txHash] = transaction
 	}
 
 	// Track this participant globally
 	b.participants.Add(participant) // O(1)
-
-	// Lazy initialize participant's transaction set
-	if b.participantTxs[participant] == nil {
-		b.participantTxs[participant] = set.NewSet[*types.Transaction]()
+	if _, exists := b.participantsByTxHash[txHash]; !exists {
+		b.participantsByTxHash[txHash] = set.NewSet[string]()
 	}
 
-	// Add canonical pointer - O(1) with automatic deduplication
-	b.participantTxs[participant].Add(canonicalPtr)
+	// Add participant - O(1) with automatic deduplication
+	b.participantsByTxHash[txHash].Add(participant)
 }
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
@@ -126,27 +112,6 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	defer b.mu.RUnlock()
 
 	return len(b.txByHash)
-}
-
-// GetParticipantTransactions returns all transactions for a specific participant.
-// Returns values (not pointers) for API compatibility with external callers.
-// Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	txSet, ok := b.participantTxs[participant]
-	if !ok || txSet == nil {
-		return nil
-	}
-
-	// Dereference pointers to return values (maintains API compatibility)
-	txs := make([]types.Transaction, 0, txSet.Cardinality())
-	for txPtr := range txSet.Iter() {
-		txs = append(txs, *txPtr)
-	}
-
-	return txs
 }
 
 // GetAllTransactions returns all unique transactions from the canonical storage.
@@ -164,16 +129,22 @@ func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
 	return txs
 }
 
-// PushParticipantOperation adds an operation for a specific participant along with
+func (b *IndexerBuffer) GetAllTransactionsParticipants() map[string]set.Set[string] {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.participantsByTxHash
+}
+
+// PushOperation adds an operation for a specific participant along with
 // its parent transaction. Uses canonical pointer pattern for both operations and transactions.
 // Thread-safe: acquires write lock.
-func (b *IndexerBuffer) PushParticipantOperation(participant string, operation types.Operation, transaction types.Transaction) {
+func (b *IndexerBuffer) PushOperation(participant string, operation types.Operation, transaction types.Transaction) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.pushParticipantOperationUnsafe(participant, &operation)
-
-	b.pushParticipantTransactionUnsafe(participant, &transaction)
+	b.pushOperationUnsafe(participant, &operation)
+	b.pushTransactionUnsafe(participant, &transaction)
 }
 
 // GetAllOperations returns all unique operations from the canonical storage.
@@ -190,49 +161,30 @@ func (b *IndexerBuffer) GetAllOperations() []types.Operation {
 	return ops
 }
 
-// pushParticipantOperationUnsafe is the internal implementation for operation storage.
+func (b *IndexerBuffer) GetAllOperationsParticipants() map[int64]set.Set[string] {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.participantsByOpID
+}
+
+// pushOperationUnsafe is the internal implementation for operation storage.
 // Follows the same canonical pointer pattern as transactions to minimize memory usage.
 // Caller must hold write lock.
-func (b *IndexerBuffer) pushParticipantOperationUnsafe(participant string, operation *types.Operation) {
-	// Get or store canonical pointer
-	canonicalPtr, exists := b.opByID[operation.ID]
-	if !exists {
-		// First time seeing this operation - store it as canonical
-		b.opByID[operation.ID] = operation
-		canonicalPtr = operation
+func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types.Operation) {
+	opID := operation.ID
+	if _, exists := b.opByID[opID]; !exists {
+		b.opByID[opID] = operation
 	}
 
 	// Track this participant globally
 	b.participants.Add(participant) // O(1)
-
-	// Lazy initialize participant's operation set
-	if b.participantOps[participant] == nil {
-		b.participantOps[participant] = set.NewSet[*types.Operation]()
+	if _, exists := b.participantsByOpID[opID]; !exists {
+		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
 
-	// Add canonical pointer - O(1) with automatic deduplication
-	b.participantOps[participant].Add(canonicalPtr)
-}
-
-// GetParticipantOperations returns all operations for a specific participant as a map keyed by operation ID.
-// Returns values (not pointers) for API compatibility.
-// Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	opSet, ok := b.participantOps[participant]
-	if !ok || opSet == nil {
-		return nil
-	}
-
-	// Dereference pointers to return values (maintains API compatibility)
-	ops := make(map[int64]types.Operation, opSet.Cardinality())
-	for opPtr := range opSet.Iter() {
-		ops[opPtr.ID] = *opPtr
-	}
-
-	return ops
+	// Add participant - O(1) with automatic deduplication
+	b.participantsByOpID[opID].Add(participant)
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
@@ -243,9 +195,9 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	defer b.mu.Unlock()
 
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushParticipantTransactionUnsafe(stateChange.AccountID, &transaction)
+	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
 	if stateChange.OperationID != 0 {
-		b.pushParticipantOperationUnsafe(stateChange.AccountID, &operation)
+		b.pushOperationUnsafe(stateChange.AccountID, &operation)
 	}
 }
 
@@ -300,41 +252,25 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
-
-	// Merge participant transactions - NO temporary maps needed!
-	for participant, otherTxSet := range otherBuffer.participantTxs {
-		if b.participantTxs[participant] == nil {
-			b.participantTxs[participant] = set.NewSet[*types.Transaction]()
+	for txHash, otherParticipants := range otherBuffer.participantsByTxHash {
+		if _, exists := b.participantsByTxHash[txHash]; !exists {
+			b.participantsByTxHash[txHash] = set.NewSet[string]()
 		}
-		// Iterate other's set, add canonical pointers from OUR txByHash
-		for txPtr := range otherTxSet.Iter() {
-			canonicalPtr := b.txByHash[txPtr.Hash] // Get our canonical pointer
-			if canonicalPtr == nil {
-				// This should never happen since we just copied txByHash from other buffer
-				// Log and skip to fail gracefully if invariant is violated
-				continue
-			}
-			b.participantTxs[participant].Add(canonicalPtr) // O(1) Add
+		// Iterate other's set, add participants from OUR txByHash
+		for participant := range otherParticipants.Iter() {
+			b.participantsByTxHash[txHash].Add(participant) // O(1) Add
 		}
 	}
 
 	// Merge operations (canonical storage)
 	maps.Copy(b.opByID, otherBuffer.opByID)
-
-	// Merge participant operations - NO temporary maps needed!
-	for participant, otherOpSet := range otherBuffer.participantOps {
-		if b.participantOps[participant] == nil {
-			b.participantOps[participant] = set.NewSet[*types.Operation]()
+	for opID, otherParticipants := range otherBuffer.participantsByOpID {
+		if _, exists := b.participantsByOpID[opID]; !exists {
+			b.participantsByOpID[opID] = set.NewSet[string]()
 		}
 		// Iterate other's set, add canonical pointers from OUR opByID
-		for opPtr := range otherOpSet.Iter() {
-			canonicalPtr := b.opByID[opPtr.ID] // Get our canonical pointer
-			if canonicalPtr == nil {
-				// This should never happen since we just copied opByID from other buffer
-				// Log and skip to fail gracefully if invariant is violated
-				continue
-			}
-			b.participantOps[participant].Add(canonicalPtr) // O(1) Add
+		for participant := range otherParticipants.Iter() {
+			b.participantsByOpID[opID].Add(participant) // O(1) Add
 		}
 	}
 

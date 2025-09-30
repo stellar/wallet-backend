@@ -531,34 +531,10 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 
 func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		stellarAddressesByTxHash := make(map[string]set.Set[string])
-		stellarAddressesByOpID := make(map[int64]set.Set[string])
-
-		// 1. Build the data structures needed for the DB insertions
-		participants := indexerBuffer.GetParticipants()
-		for participant := range participants.Iter() {
-			// 1.1. transactions data for the DB insertions
-			participantTransactions := indexerBuffer.GetParticipantTransactions(participant)
-			for _, tx := range participantTransactions {
-				if _, ok := stellarAddressesByTxHash[tx.Hash]; !ok {
-					stellarAddressesByTxHash[tx.Hash] = set.NewSet[string]()
-				}
-				stellarAddressesByTxHash[tx.Hash].Add(participant)
-			}
-
-			// 1.2. operations data for the DB insertions
-			participantOperations := indexerBuffer.GetParticipantOperations(participant)
-			for opID := range participantOperations {
-				if _, ok := stellarAddressesByOpID[opID]; !ok {
-					stellarAddressesByOpID[opID] = set.NewSet[string]()
-				}
-				stellarAddressesByOpID[opID].Add(participant)
-			}
-		}
-
 		// 2. Insert queries
 		// 2.1. Insert transactions
 		txs := indexerBuffer.GetAllTransactions()
+		stellarAddressesByTxHash := indexerBuffer.GetAllTransactionsParticipants()
 		if len(txs) > 0 {
 			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
 			if err != nil {
@@ -569,6 +545,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 
 		// 2.2. Insert operations
 		ops := indexerBuffer.GetAllOperations()
+		stellarAddressesByOpID := indexerBuffer.GetAllOperationsParticipants()
 		if len(ops) > 0 {
 			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
 			if err != nil {
