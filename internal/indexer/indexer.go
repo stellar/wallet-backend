@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/alitto/pond"
+	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	operation_processor "github.com/stellar/go/processors/operation"
@@ -16,10 +16,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-)
-
-const (
-	numPoolWorkers = 8
 )
 
 type IndexerBufferInterface interface {
@@ -68,9 +64,10 @@ type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
+	pool                   pond.Pool
 }
 
-func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider) *Indexer {
+func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider, pool pond.Pool) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
@@ -79,13 +76,14 @@ func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerE
 			processors.NewContractDeployProcessor(networkPassphrase),
 			contract_processors.NewSACEventsProcessor(networkPassphrase),
 		},
+		pool: pool,
 	}
 }
 
 // CollectAllTransactionData collects all transaction data (participants, operations, state changes) from all transactions in a ledger in parallel
 func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []ingest.LedgerTransaction) ([]PrecomputedTransactionData, set.Set[string], error) {
 	// Process transaction data collection in parallel
-	dataPool := pond.New(numPoolWorkers, len(transactions), pond.Context(ctx))
+	group := i.pool.NewGroupContext(ctx)
 
 	var precomputedData []PrecomputedTransactionData
 	precomputedDataMu := sync.Mutex{}
@@ -93,7 +91,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 	errMu := sync.Mutex{}
 
 	for _, tx := range transactions {
-		dataPool.Submit(func() {
+		group.Submit(func() {
 			txData := PrecomputedTransactionData{
 				Transaction:     tx,
 				AllParticipants: set.NewSet[string](),
@@ -142,7 +140,9 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			precomputedDataMu.Unlock()
 		})
 	}
-	dataPool.StopAndWait()
+	if err := group.Wait(); err != nil {
+		return nil, nil, fmt.Errorf("waiting for transaction data collection: %w", err)
+	}
 	if len(errs) > 0 {
 		return nil, nil, fmt.Errorf("collecting transaction data: %w", errors.Join(errs...))
 	}
@@ -159,14 +159,14 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 // ProcessTransactions processes transactions, operations and state changes using precomputed data. It then inserts them into the indexer buffer.
 func (i *Indexer) ProcessTransactions(ctx context.Context, precomputedData []PrecomputedTransactionData, existingAccounts set.Set[string], ledgerBuffer IndexerBufferInterface) error {
 	// Process transactions in parallel using precomputed data
-	pool := pond.New(numPoolWorkers, len(precomputedData), pond.Context(ctx))
+	group := i.pool.NewGroupContext(ctx)
 	var errs []error
 	errMu := sync.Mutex{}
 	txnBuffers := make([]*IndexerBuffer, len(precomputedData))
 	for idx, txData := range precomputedData {
 		index := idx
 		txData := txData
-		pool.Submit(func() {
+		group.Submit(func() {
 			buffer := NewIndexerBuffer()
 			if err := i.processPrecomputedTransaction(ctx, txData, existingAccounts, buffer); err != nil {
 				errMu.Lock()
@@ -176,7 +176,9 @@ func (i *Indexer) ProcessTransactions(ctx context.Context, precomputedData []Pre
 			txnBuffers[index] = buffer
 		})
 	}
-	pool.StopAndWait()
+	if err := group.Wait(); err != nil {
+		return fmt.Errorf("waiting for transaction processing: %w", err)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("processing transactions: %w", errors.Join(errs...))
 	}

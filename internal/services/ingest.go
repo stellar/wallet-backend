@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alitto/pond"
+	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/support/log"
@@ -37,7 +37,6 @@ var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
 	ingestHealthCheckMaxWaitTime            = 90 * time.Second
-	ledgerProcessorsCount                   = 16
 	paymentPrometheusLabel                  = "payment"
 	pathPaymentStrictSendPrometheusLabel    = "path_payment_strict_send"
 	pathPaymentStrictReceivePrometheusLabel = "path_payment_strict_receive"
@@ -70,6 +69,7 @@ type ingestService struct {
 	networkPassphrase string
 	getLedgersLimit   int
 	ledgerIndexer     *indexer.Indexer
+	pool              pond.Pool
 }
 
 func NewIngestService(
@@ -119,7 +119,8 @@ func NewIngestService(
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(network, rpcService),
+		ledgerIndexer:     indexer.NewIndexer(network, rpcService, pond.NewPool(0)),
+		pool:              pond.NewPool(0),
 	}, nil
 }
 
@@ -336,15 +337,13 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 	startTime := time.Now()
 
 	ledgerDataList := make([]ledgerData, len(getLedgersResponse.Ledgers))
-	pool := pond.New(ledgerProcessorsCount, len(getLedgersResponse.Ledgers), pond.Context(ctx))
-
+	group := m.pool.NewGroupContext(ctx)
 	var errs []error
 	errMu := sync.Mutex{}
-
 	for idx, ledger := range getLedgersResponse.Ledgers {
 		index := idx
 		ledgerInfo := ledger
-		pool.Submit(func() {
+		group.Submit(func() {
 			// Unmarshal and get transactions
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 			if err := xdr.SafeUnmarshalBase64(ledger.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
@@ -378,7 +377,9 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 			}
 		})
 	}
-	pool.StopAndWait()
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for ledger data collection: %w", err)
+	}
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("collecting ledger data: %w", errors.Join(errs...))
 	}
@@ -420,7 +421,7 @@ func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledger
 	startTime := time.Now()
 
 	ledgerBuffers := make([]*indexer.IndexerBuffer, len(ledgerDataList))
-	pool := pond.New(ledgerProcessorsCount, len(ledgerDataList), pond.Context(ctx))
+	group := m.pool.NewGroupContext(ctx)
 
 	var errs []error
 	errMu := sync.Mutex{}
@@ -428,7 +429,7 @@ func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledger
 	for idx, ld := range ledgerDataList {
 		index := idx
 		ledgerData := ld
-		pool.Submit(func() {
+		group.Submit(func() {
 			// Create per-ledger indexer to avoid lock contention
 			buffer := indexer.NewIndexerBuffer()
 			if processErr := m.ledgerIndexer.ProcessTransactions(ctx, ledgerData.precomputedData, existingAccountsSet, buffer); processErr != nil {
@@ -440,7 +441,9 @@ func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledger
 			ledgerBuffers[index] = buffer
 		})
 	}
-	pool.StopAndWait()
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for ledger processing: %w", err)
+	}
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}

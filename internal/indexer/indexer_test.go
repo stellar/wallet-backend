@@ -4,8 +4,10 @@ package indexer
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 
+	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
@@ -142,13 +144,15 @@ func (m *MockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCG
 func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	mockLedgerEntryProvider := &MockLedgerEntryProvider{}
+	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider)
+	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider, pool)
 
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)
 	assert.NotNil(t, indexer.tokenTransferProcessor)
 	assert.NotNil(t, indexer.processors)
+	assert.NotNil(t, indexer.pool)
 	assert.Len(t, indexer.processors, 3) // effects, contract deploy, SAC events
 }
 
@@ -336,6 +340,7 @@ func TestIndexer_CollectAllTransactionData(t *testing.T) {
 				participantsProcessor:  mockParticipants,
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+				pool:                   pond.NewPool(runtime.NumCPU()),
 			}
 
 			// Test CollectAllTransactionData
@@ -669,6 +674,7 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 				participantsProcessor:  &MockParticipantsProcessor{},
 				tokenTransferProcessor: &MockTokenTransferProcessor{},
 				processors:             []OperationProcessorInterface{},
+				pool:                   pond.NewPool(runtime.NumCPU()),
 			}
 
 			// Test ProcessTransactions
@@ -812,6 +818,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 				participantsProcessor:  &MockParticipantsProcessor{},
 				tokenTransferProcessor: mockTokenTransfer,
 				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+				pool:                   pond.NewPool(runtime.NumCPU()),
 			}
 
 			// Test getTransactionStateChanges
