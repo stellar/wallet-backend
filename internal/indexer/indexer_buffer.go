@@ -29,7 +29,7 @@ import (
 // MEMORY OPTIMIZATION:
 // Transaction structs contain large XDR fields (10-50+ KB each). When multiple participants
 // interact with the same transaction, they all point to the SAME canonical pointer instead
-// of storing duplicate copies. This reduces memory usage by 60-70% in production.
+// of storing duplicate copies.
 //
 // PERFORMANCE:
 // - Push operations: O(1) via set.Add() with automatic deduplication
@@ -39,12 +39,6 @@ import (
 // THREAD SAFETY:
 // All public methods use RWMutex for concurrent read/exclusive write access.
 // Callers can safely use multiple buffers in parallel goroutines.
-//
-// USAGE PATTERN:
-// 1. Create per-ledger or per-transaction buffers in parallel goroutines
-// 2. Push data to individual buffers without lock contention
-// 3. Sequentially merge all buffers into a single buffer
-// 4. Batch insert merged data into database
 
 type IndexerBuffer struct {
 	mu                   sync.RWMutex
@@ -81,14 +75,13 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Tr
 }
 
 // pushTransactionUnsafe is the internal implementation that assumes the caller
-// already holds the write lock. This method implements the canonical pointer pattern:
+// already holds the write lock. This method implements the following pattern:
 //
-// 1. Check if transaction already exists in txByHash (canonical storage)
-// 2. If not, store the transaction pointer as canonical
+// 1. Check if transaction already exists in txByHash
+// 2. If not, store the transaction pointer
 // 3. Add participant to the global participants set
 // 4. Add participant to this transaction's participant set in participantsByTxHash
 //
-// This ensures only ONE copy of each transaction exists, with all participants tracked in a set.
 // Caller must hold write lock.
 func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
 	txHash := transaction.Hash
@@ -115,8 +108,7 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	return len(b.txByHash)
 }
 
-// GetAllTransactions returns all unique transactions from the canonical storage.
-// Returns values (not pointers) for API compatibility.
+// GetAllTransactions returns all unique transactions.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
 	b.mu.RLock()
@@ -183,13 +175,10 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 	if _, exists := b.participantsByOpID[opID]; !exists {
 		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
-
-	// Add participant - O(1) with automatic deduplication
 	b.participantsByOpID[opID].Add(participant)
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
-// State changes represent balance/asset modifications and are linked to the account that changed.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange) {
 	b.mu.Lock()
@@ -197,22 +186,19 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 
 	b.stateChanges = append(b.stateChanges, stateChange)
 	b.pushTransactionUnsafe(stateChange.AccountID, &transaction)
+	// Fee changes dont have an operation ID associated with them
 	if stateChange.OperationID != 0 {
 		b.pushOperationUnsafe(stateChange.AccountID, &operation)
 	}
 }
 
 // GetAllStateChanges returns a copy of all state changes stored in the buffer.
-// Returns a copy to prevent external mutation of the internal slice.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	// Return a copy to prevent external mutation
-	stateChangesCopy := make([]types.StateChange, len(b.stateChanges))
-	copy(stateChangesCopy, b.stateChanges)
-	return stateChangesCopy
+	return b.stateChanges
 }
 
 // MergeBuffer merges another IndexerBuffer into this buffer. This is used to combine
@@ -220,7 +206,7 @@ func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 //
 // MERGE STRATEGY:
 // 1. Union global participant sets (O(m) set operation)
-// 2. Copy canonical storage maps (txByHash, opByID) using maps.Copy
+// 2. Copy storage maps (txByHash, opByID) using maps.Copy
 // 3. For each transaction hash in other.participantsByTxHash:
 //   - Merge other's participant set into our participant set for that tx hash
 //   - Creates new set if tx doesn't exist in our mapping yet
@@ -232,7 +218,7 @@ func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
 // 5. Append other's state changes to ours
 //
 // MEMORY EFFICIENCY:
-// Zero temporary allocations - uses direct map/set manipulation and set.Union operations.
+// Zero temporary allocations - uses direct map/set manipulation.
 //
 // Thread-safe: acquires write lock on this buffer, read lock on other buffer.
 func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
@@ -249,7 +235,9 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 	defer otherBuffer.mu.RUnlock()
 
 	// Merge participants - O(m) with set Union
-	b.participants = b.participants.Union(otherBuffer.participants)
+	for participant := range otherBuffer.participants.Iter() {
+		b.participants.Add(participant)
+	}
 
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)

@@ -157,734 +157,974 @@ func TestIndexer_NewIndexer(t *testing.T) {
 }
 
 func TestIndexer_CollectAllTransactionData(t *testing.T) {
-	tests := []struct {
-		name                 string
-		transactions         []ingest.LedgerTransaction
-		setupMocks           func(*MockParticipantsProcessor, *MockTokenTransferProcessor, *MockOperationProcessor, *MockOperationProcessor, *MockOperationProcessor)
-		expectedParticipants set.Set[string]
-		expectedTxDataCount  int
-		expectedError        string
-	}{
-		{
-			name:         "🟢 single transaction with participants",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// Transaction participants
-				txParticipants := set.NewSet("alice", "bob")
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants, nil)
+	t.Run("🟢 single transaction with participants", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
 
-				// Operation participants
-				opParticipants := map[int64]processors.OperationParticipants{
-					1: {
-						OpWrapper: &operation_processor.TransactionOperationWrapper{
-							Index:          0,
-							Operation:      createAccountOp,
-							Network:        network.TestNetworkPassphrase,
-							LedgerSequence: 12345,
-						},
-						Participants: set.NewSet("alice"),
-					},
-				}
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
+		// Setup mock expectations
+		txParticipants := set.NewSet("alice", "bob")
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants, nil)
 
-				// State changes from processors
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-					{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
-				}, nil)
-				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-					{ToID: 2, AccountID: "charlie", OperationID: 1, SortKey: "1-2"},
-				}, nil)
-				mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
-
-				// Token transfer state changes
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-					{ToID: 3, AccountID: "dave", OperationID: 0, SortKey: "0-1"},
-				}, nil)
+		opParticipants := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("alice"),
 			},
-			expectedParticipants: set.NewSet("alice", "bob", "charlie", "dave"),
-			expectedTxDataCount:  1,
-		},
-		{
-			name:         "🟢 multiple transactions with overlapping participants",
-			transactions: []ingest.LedgerTransaction{testTx, testTx2},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// First transaction
-				txParticipants1 := set.NewSet("alice", "bob")
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants1, nil)
-				opParticipants1 := map[int64]processors.OperationParticipants{
-					1: {
-						OpWrapper: &operation_processor.TransactionOperationWrapper{
-							Index:          0,
-							Operation:      createAccountOp,
-							Network:        network.TestNetworkPassphrase,
-							LedgerSequence: 12345,
-						},
-						Participants: set.NewSet("alice"),
-					},
-				}
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants1, nil)
+		}
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
 
-				// Second transaction with overlapping participants
-				txParticipants2 := set.NewSet("bob", "charlie")
-				mockParticipants.On("GetTransactionParticipants", testTx2).Return(txParticipants2, nil)
-				opParticipants2 := map[int64]processors.OperationParticipants{
-					2: {
-						OpWrapper: &operation_processor.TransactionOperationWrapper{
-							Index:          0,
-							Operation:      paymentOp,
-							Network:        network.TestNetworkPassphrase,
-							LedgerSequence: 12345,
-						},
-						Participants: set.NewSet("charlie"),
-					},
-				}
-				mockParticipants.On("GetOperationsParticipants", testTx2).Return(opParticipants2, nil)
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
+			{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
+		}, nil)
+		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
+			{ToID: 2, AccountID: "charlie", OperationID: 1, SortKey: "1-2"},
+		}, nil)
+		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
-				// Mock processors for both transactions
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
-				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
-				mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
+			{ToID: 3, AccountID: "dave", OperationID: 0, SortKey: "0-1"},
+		}, nil)
 
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx2).Return([]types.StateChange{}, nil)
-			},
-			expectedParticipants: set.NewSet("alice", "bob", "charlie"),
-			expectedTxDataCount:  2,
-		},
-		{
-			name:         "🟢 empty transaction list",
-			transactions: []ingest.LedgerTransaction{},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// No mock expectations for empty list
-			},
-			expectedParticipants: set.NewSet[string](),
-			expectedTxDataCount:  0,
-		},
-		{
-			name:         "🟢 transaction with no participants",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// Empty participants
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
-			},
-			expectedParticipants: set.NewSet[string](),
-			expectedTxDataCount:  1,
-		},
-		{
-			name:         "🔴 error getting transaction participants",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), errors.New("participant error"))
-			},
-			expectedError: "getting transaction participants: participant error",
-		},
-		{
-			name:         "🔴 error getting operations participants",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
-			},
-			expectedError: "getting operations participants: operations error",
-		},
-		{
-			name:         "🔴 error in token transfer processor",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, errors.New("token transfer error"))
-			},
-			expectedError: "processing token transfer state changes: token transfer error",
-		},
-		{
-			name:         "🔴 error in operation processor",
-			transactions: []ingest.LedgerTransaction{testTx},
-			setupMocks: func(mockParticipants *MockParticipantsProcessor, mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
-				opParticipants := map[int64]processors.OperationParticipants{
-					1: {
-						OpWrapper: &operation_processor.TransactionOperationWrapper{
-							Index:          0,
-							Operation:      createAccountOp,
-							Network:        network.TestNetworkPassphrase,
-							LedgerSequence: 12345,
-						},
-						Participants: set.NewSet("alice"),
-					},
-				}
-				mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("effects error"))
-				mockEffects.On("Name").Return("effects")
-			},
-			expectedError: "processing effects state changes: effects error",
-		},
-	}
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create mocks
-			mockParticipants := &MockParticipantsProcessor{}
-			mockTokenTransfer := &MockTokenTransferProcessor{}
-			mockEffects := &MockOperationProcessor{}
-			mockContractDeploy := &MockOperationProcessor{}
-			mockSACEvents := &MockOperationProcessor{}
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
 
-			// Setup mock expectations
-			tt.setupMocks(mockParticipants, mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEvents)
+		// Assert results
+		require.NoError(t, err)
+		assert.Len(t, precomputedData, 1)
+		assert.Equal(t, set.NewSet("alice", "bob", "charlie", "dave"), allParticipants)
 
-			// Create indexer with mocked dependencies
-			indexer := &Indexer{
-				participantsProcessor:  mockParticipants,
-				tokenTransferProcessor: mockTokenTransfer,
-				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
-				pool:                   pond.NewPool(runtime.NumCPU()),
+		// Verify PrecomputedTransactionData structure
+		txData := precomputedData[0]
+		assert.Equal(t, testTx.Index, txData.Transaction.Index)
+		assert.Equal(t, testTx.Hash, txData.Transaction.Hash)
+		assert.NotNil(t, txData.TxParticipants)
+		assert.NotNil(t, txData.OpsParticipants)
+		assert.NotNil(t, txData.StateChanges)
+		assert.NotNil(t, txData.AllParticipants)
+
+		// Verify exact transaction participants
+		assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+		assert.True(t, txData.TxParticipants.Contains("alice"))
+		assert.True(t, txData.TxParticipants.Contains("bob"))
+
+		// Verify operations participants
+		assert.Contains(t, txData.OpsParticipants, int64(1))
+		opPart := txData.OpsParticipants[int64(1)]
+		assert.Equal(t, 1, opPart.Participants.Cardinality())
+		assert.True(t, opPart.Participants.Contains("alice"))
+
+		// Verify state changes
+		assert.Len(t, txData.StateChanges, 3)
+		for _, sc := range txData.StateChanges {
+			switch sc.AccountID {
+			case "alice":
+				assert.Equal(t, int64(1), sc.ToID)
+				assert.Equal(t, int64(1), sc.OperationID)
+				assert.Equal(t, "1-1", sc.SortKey)
+			case "charlie":
+				assert.Equal(t, int64(2), sc.ToID)
+				assert.Equal(t, int64(1), sc.OperationID)
+				assert.Equal(t, "1-2", sc.SortKey)
+			case "dave":
+				assert.Equal(t, int64(3), sc.ToID)
+				assert.Equal(t, int64(0), sc.OperationID)
+				assert.Equal(t, "0-1", sc.SortKey)
 			}
+		}
 
-			// Test CollectAllTransactionData
-			precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), tt.transactions)
+		// Verify AllParticipants is union of all
+		assert.Equal(t, 4, txData.AllParticipants.Cardinality())
+		assert.True(t, txData.AllParticipants.Contains("alice"))
+		assert.True(t, txData.AllParticipants.Contains("bob"))
+		assert.True(t, txData.AllParticipants.Contains("charlie"))
+		assert.True(t, txData.AllParticipants.Contains("dave"))
 
-			// Assert results
-			if tt.expectedError != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
-				assert.Nil(t, precomputedData)
-				assert.Nil(t, allParticipants)
-			} else {
-				require.NoError(t, err)
-				assert.Len(t, precomputedData, tt.expectedTxDataCount)
-				assert.Equal(t, tt.expectedParticipants, allParticipants)
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
 
-				// Verify each PrecomputedTransactionData structure
-				for i, txData := range precomputedData {
-					// Since the processing is done in parallel, the order may not match
-					// Instead, verify that each transaction exists in the expected set
-					txFound := false
-					for _, expectedTx := range tt.transactions {
-						if txData.Transaction.Index == expectedTx.Index &&
-							txData.Transaction.Hash == expectedTx.Hash {
-							txFound = true
-							break
-						}
-					}
-					assert.True(t, txFound, "Transaction at index %d should be found in expected transactions", i)
-					assert.NotNil(t, txData.TxParticipants)
-					assert.NotNil(t, txData.OpsParticipants)
-					assert.NotNil(t, txData.StateChanges)
-					assert.NotNil(t, txData.AllParticipants)
+	t.Run("🟢 multiple transactions with overlapping participants", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
 
-					// Additional detailed assertions based on transaction
-					if txData.Transaction.Index == 1 && tt.name == "🟢 single transaction with participants" {
-						// Verify exact transaction participants
-						assert.Equal(t, 2, txData.TxParticipants.Cardinality())
-						assert.True(t, txData.TxParticipants.Contains("alice"))
-						assert.True(t, txData.TxParticipants.Contains("bob"))
+		// Setup mocks for first transaction
+		txParticipants1 := set.NewSet("alice", "bob")
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(txParticipants1, nil)
+		opParticipants1 := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("alice"),
+			},
+		}
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants1, nil)
 
-						// Verify operations participants
-						assert.Contains(t, txData.OpsParticipants, int64(1))
-						opParticipants := txData.OpsParticipants[int64(1)]
-						assert.Equal(t, 1, opParticipants.Participants.Cardinality())
-						assert.True(t, opParticipants.Participants.Contains("alice"))
+		// Setup mocks for second transaction
+		txParticipants2 := set.NewSet("bob", "charlie")
+		mockParticipants.On("GetTransactionParticipants", testTx2).Return(txParticipants2, nil)
+		opParticipants2 := map[int64]processors.OperationParticipants{
+			2: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      paymentOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("charlie"),
+			},
+		}
+		mockParticipants.On("GetOperationsParticipants", testTx2).Return(opParticipants2, nil)
 
-						// Verify state changes
-						assert.Len(t, txData.StateChanges, 3)
-						// Find each state change and verify fields
-						for _, sc := range txData.StateChanges {
-							switch sc.AccountID {
-							case "alice":
-								assert.Equal(t, int64(1), sc.ToID)
-								assert.Equal(t, int64(1), sc.OperationID)
-								assert.Equal(t, "1-1", sc.SortKey)
-							case "charlie":
-								assert.Equal(t, int64(2), sc.ToID)
-								assert.Equal(t, int64(1), sc.OperationID)
-								assert.Equal(t, "1-2", sc.SortKey)
-							case "dave":
-								assert.Equal(t, int64(3), sc.ToID)
-								assert.Equal(t, int64(0), sc.OperationID)
-								assert.Equal(t, "0-1", sc.SortKey)
-							}
-						}
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
-						// Verify AllParticipants is union of all
-						assert.Equal(t, 4, txData.AllParticipants.Cardinality())
-						assert.True(t, txData.AllParticipants.Contains("alice"))
-						assert.True(t, txData.AllParticipants.Contains("bob"))
-						assert.True(t, txData.AllParticipants.Contains("charlie"))
-						assert.True(t, txData.AllParticipants.Contains("dave"))
-					}
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx2).Return([]types.StateChange{}, nil)
 
-					if tt.name == "🟢 multiple transactions with overlapping participants" {
-						// Verify first transaction
-						if txData.Transaction.Index == 1 {
-							assert.Equal(t, 2, txData.TxParticipants.Cardinality())
-							assert.True(t, txData.TxParticipants.Contains("alice"))
-							assert.True(t, txData.TxParticipants.Contains("bob"))
-							assert.Contains(t, txData.OpsParticipants, int64(1))
-						}
-						// Verify second transaction
-						if txData.Transaction.Index == 2 {
-							assert.Equal(t, 2, txData.TxParticipants.Cardinality())
-							assert.True(t, txData.TxParticipants.Contains("bob"))
-							assert.True(t, txData.TxParticipants.Contains("charlie"))
-							assert.Contains(t, txData.OpsParticipants, int64(2))
-						}
-					}
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-					if tt.name == "🟢 transaction with no participants" {
-						assert.Equal(t, 0, txData.TxParticipants.Cardinality())
-						assert.Equal(t, 0, len(txData.OpsParticipants))
-						assert.Equal(t, 0, txData.AllParticipants.Cardinality())
-					}
-				}
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx, testTx2})
+
+		// Assert results
+		require.NoError(t, err)
+		assert.Len(t, precomputedData, 2)
+		assert.Equal(t, set.NewSet("alice", "bob", "charlie"), allParticipants)
+
+		// Verify each transaction
+		for _, txData := range precomputedData {
+			assert.NotNil(t, txData.TxParticipants)
+			assert.NotNil(t, txData.OpsParticipants)
+			assert.NotNil(t, txData.StateChanges)
+			assert.NotNil(t, txData.AllParticipants)
+
+			if txData.Transaction.Index == 1 {
+				assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+				assert.True(t, txData.TxParticipants.Contains("alice"))
+				assert.True(t, txData.TxParticipants.Contains("bob"))
+				assert.Contains(t, txData.OpsParticipants, int64(1))
 			}
+			if txData.Transaction.Index == 2 {
+				assert.Equal(t, 2, txData.TxParticipants.Cardinality())
+				assert.True(t, txData.TxParticipants.Contains("bob"))
+				assert.True(t, txData.TxParticipants.Contains("charlie"))
+				assert.Contains(t, txData.OpsParticipants, int64(2))
+			}
+		}
 
-			// Verify all mock expectations
-			mockParticipants.AssertExpectations(t)
-			mockTokenTransfer.AssertExpectations(t)
-			mockEffects.AssertExpectations(t)
-			mockContractDeploy.AssertExpectations(t)
-			mockSACEvents.AssertExpectations(t)
-		})
-	}
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🟢 empty transaction list", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{})
+
+		// Assert results
+		require.NoError(t, err)
+		assert.Len(t, precomputedData, 0)
+		assert.Equal(t, set.NewSet[string](), allParticipants)
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🟢 transaction with no participants", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
+
+		// Assert results
+		require.NoError(t, err)
+		assert.Len(t, precomputedData, 1)
+		assert.Equal(t, set.NewSet[string](), allParticipants)
+
+		txData := precomputedData[0]
+		assert.Equal(t, 0, txData.TxParticipants.Cardinality())
+		assert.Equal(t, 0, len(txData.OpsParticipants))
+		assert.Equal(t, 0, txData.AllParticipants.Cardinality())
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error getting transaction participants", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), errors.New("participant error"))
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
+
+		// Assert results
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "getting transaction participants: participant error")
+		assert.Nil(t, precomputedData)
+		assert.Nil(t, allParticipants)
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error getting operations participants", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, errors.New("operations error"))
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
+
+		// Assert results
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "getting operations participants: operations error")
+		assert.Nil(t, precomputedData)
+		assert.Nil(t, allParticipants)
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error in token transfer processor", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, errors.New("token transfer error"))
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
+
+		// Assert results
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "processing token transfer state changes: token transfer error")
+		assert.Nil(t, precomputedData)
+		assert.Nil(t, allParticipants)
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error in operation processor", func(t *testing.T) {
+		// Create mocks
+		mockParticipants := &MockParticipantsProcessor{}
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
+		opParticipants := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("alice"),
+			},
+		}
+		mockParticipants.On("GetOperationsParticipants", testTx).Return(opParticipants, nil)
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("effects error"))
+		mockEffects.On("Name").Return("effects")
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  mockParticipants,
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test CollectAllTransactionData
+		precomputedData, allParticipants, err := indexer.CollectAllTransactionData(context.Background(), []ingest.LedgerTransaction{testTx})
+
+		// Assert results
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "processing effects state changes: effects error")
+		assert.Nil(t, precomputedData)
+		assert.Nil(t, allParticipants)
+
+		// Verify mock expectations
+		mockParticipants.AssertExpectations(t)
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
 }
 
 func TestIndexer_ProcessTransactions(t *testing.T) {
-	tests := []struct {
-		name             string
-		precomputedData  []PrecomputedTransactionData
-		existingAccounts set.Set[string]
-		verifyBuffer     func(*testing.T, *IndexerBuffer)
-		expectedError    string
-	}{
-		{
-			name: "🟢 process with all existing accounts",
-			precomputedData: []PrecomputedTransactionData{
-				{
-					Transaction:    testTx,
-					TxParticipants: set.NewSet("alice", "bob"),
-					OpsParticipants: map[int64]processors.OperationParticipants{
-						1: {
-							OpWrapper: &operation_processor.TransactionOperationWrapper{
-								Index:          0,
-								Operation:      createAccountOp,
-								Network:        network.TestNetworkPassphrase,
-								LedgerSequence: 12345,
-							},
-							Participants: set.NewSet("alice"),
+	t.Run("🟢 process with all existing accounts", func(t *testing.T) {
+		// Setup
+		precomputedData := []PrecomputedTransactionData{
+			{
+				Transaction:    testTx,
+				TxParticipants: set.NewSet("alice", "bob"),
+				OpsParticipants: map[int64]processors.OperationParticipants{
+					1: {
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
+							Index:          0,
+							Operation:      createAccountOp,
+							Network:        network.TestNetworkPassphrase,
+							LedgerSequence: 12345,
 						},
+						Participants: set.NewSet("alice"),
 					},
-					StateChanges: []types.StateChange{
-						{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
-					},
-					AllParticipants: set.NewSet("alice", "bob"),
 				},
-			},
-			existingAccounts: set.NewSet("alice", "bob"),
-			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
-				// Verify participants were added correctly
-				assert.Equal(t, 2, buffer.participants.Cardinality(), "should have 2 participants")
-				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
-				assert.True(t, buffer.participants.Contains("bob"), "bob should be a participant")
-
-				// Verify transactions for alice and bob
-				txParticipants := buffer.GetAllTransactionsParticipants()
-				txHash := "0102030000000000000000000000000000000000000000000000000000000000"
-				assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
-				assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
-
-				// Verify transaction exists and has correct data
-				allTxs := buffer.GetAllTransactions()
-				require.Len(t, allTxs, 1, "should have 1 transaction")
-				assert.Equal(t, txHash, allTxs[0].Hash)
-				assert.Equal(t, uint32(12345), allTxs[0].LedgerNumber)
-
-				// Verify operations for alice (only alice is in operation participants)
-				opParticipants := buffer.GetAllOperationsParticipants()
-				assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
-				assert.False(t, opParticipants[int64(1)].Contains("bob"), "bob should NOT be in operation 1 participants")
-
-				// Verify operation exists and has correct data
-				allOps := buffer.GetAllOperations()
-				require.Len(t, allOps, 1, "should have 1 operation")
-				assert.Equal(t, int64(1), allOps[0].ID)
-				assert.Equal(t, txHash, allOps[0].TxHash)
-
-				// Verify state changes
-				stateChanges := buffer.GetAllStateChanges()
-				require.Len(t, stateChanges, 1, "should have 1 state change")
-				assert.Equal(t, "alice", stateChanges[0].AccountID)
-				assert.Equal(t, int64(1), stateChanges[0].ToID)
-				assert.Equal(t, int64(1), stateChanges[0].OperationID)
-				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
-			},
-		},
-		{
-			name: "🟢 process with mixed existing/non-existing accounts",
-			precomputedData: []PrecomputedTransactionData{
-				{
-					Transaction:     testTx,
-					TxParticipants:  set.NewSet("alice", "bob", "charlie"),
-					OpsParticipants: map[int64]processors.OperationParticipants{},
-					StateChanges: []types.StateChange{
-						{ToID: 1, AccountID: "alice", OperationID: 0, SortKey: "0-1"},
-						{ToID: 2, AccountID: "charlie", OperationID: 0, SortKey: "0-2"},
-					},
-					AllParticipants: set.NewSet("alice", "bob", "charlie"),
+				StateChanges: []types.StateChange{
+					{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
 				},
+				AllParticipants: set.NewSet("alice", "bob"),
 			},
-			existingAccounts: set.NewSet("alice", "bob"), // charlie doesn't exist
-			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
-				// Verify only existing accounts are processed (alice and bob, NOT charlie)
-				assert.Equal(t, 2, buffer.participants.Cardinality(), "should have 2 participants (not 3)")
-				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
-				assert.True(t, buffer.participants.Contains("bob"), "bob should be a participant")
-				assert.False(t, buffer.participants.Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
+		}
+		existingAccounts := set.NewSet("alice", "bob")
+		realBuffer := NewIndexerBuffer()
 
-				// Verify transactions for alice and bob
-				txParticipants := buffer.GetAllTransactionsParticipants()
-				txHash := "0102030000000000000000000000000000000000000000000000000000000000"
-				assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
-				assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
-				assert.False(t, txParticipants[txHash].Contains("charlie"), "charlie should NOT be in tx participants (doesn't exist)")
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: &MockTokenTransferProcessor{},
+			processors:             []OperationProcessorInterface{},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-				// Verify transaction exists
-				allTxs := buffer.GetAllTransactions()
-				require.Len(t, allTxs, 1, "should have 1 transaction")
-				assert.Equal(t, txHash, allTxs[0].Hash)
+		// Test ProcessTransactions
+		err := indexer.ProcessTransactions(context.Background(), precomputedData, existingAccounts, realBuffer)
 
-				// Verify state changes - only alice should have one (charlie's should be skipped)
-				stateChanges := buffer.GetAllStateChanges()
-				require.Len(t, stateChanges, 1, "should have 1 state change (alice only, charlie skipped)")
-				assert.Equal(t, "alice", stateChanges[0].AccountID, "only alice's state change should be present")
-				assert.Equal(t, int64(1), stateChanges[0].ToID)
-				assert.Equal(t, int64(0), stateChanges[0].OperationID, "fee state change (OperationID=0)")
-				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "fee state changes get order 1")
-			},
-		},
-		{
-			name: "🟢 process with no existing accounts",
-			precomputedData: []PrecomputedTransactionData{
-				{
-					Transaction:     testTx,
-					TxParticipants:  set.NewSet("alice", "bob"),
-					OpsParticipants: map[int64]processors.OperationParticipants{},
-					StateChanges:    []types.StateChange{},
-					AllParticipants: set.NewSet("alice", "bob"),
+		// Assert
+		require.NoError(t, err)
+
+		// Verify participants were added correctly
+		assert.Equal(t, 2, realBuffer.participants.Cardinality(), "should have 2 participants")
+		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
+		assert.True(t, realBuffer.participants.Contains("bob"), "bob should be a participant")
+
+		// Verify transactions for alice and bob
+		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		txHash := "0102030000000000000000000000000000000000000000000000000000000000"
+		assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
+		assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
+
+		// Verify transaction exists and has correct data
+		allTxs := realBuffer.GetAllTransactions()
+		require.Len(t, allTxs, 1, "should have 1 transaction")
+		assert.Equal(t, txHash, allTxs[0].Hash)
+		assert.Equal(t, uint32(12345), allTxs[0].LedgerNumber)
+
+		// Verify operations for alice (only alice is in operation participants)
+		opParticipants := realBuffer.GetAllOperationsParticipants()
+		assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
+		assert.False(t, opParticipants[int64(1)].Contains("bob"), "bob should NOT be in operation 1 participants")
+
+		// Verify operation exists and has correct data
+		allOps := realBuffer.GetAllOperations()
+		require.Len(t, allOps, 1, "should have 1 operation")
+		assert.Equal(t, int64(1), allOps[0].ID)
+		assert.Equal(t, txHash, allOps[0].TxHash)
+
+		// Verify state changes
+		stateChanges := realBuffer.GetAllStateChanges()
+		require.Len(t, stateChanges, 1, "should have 1 state change")
+		assert.Equal(t, "alice", stateChanges[0].AccountID)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].OperationID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
+	})
+
+	t.Run("🟢 process with mixed existing/non-existing accounts", func(t *testing.T) {
+		// Setup
+		precomputedData := []PrecomputedTransactionData{
+			{
+				Transaction:     testTx,
+				TxParticipants:  set.NewSet("alice", "bob", "charlie"),
+				OpsParticipants: map[int64]processors.OperationParticipants{},
+				StateChanges: []types.StateChange{
+					{ToID: 1, AccountID: "alice", OperationID: 0, SortKey: "0-1"},
+					{ToID: 2, AccountID: "charlie", OperationID: 0, SortKey: "0-2"},
 				},
+				AllParticipants: set.NewSet("alice", "bob", "charlie"),
 			},
-			existingAccounts: set.NewSet[string](), // No existing accounts
-			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
-				// Verify no accounts are processed since none exist
-				assert.Equal(t, 0, buffer.participants.Cardinality(), "should have 0 participants (no existing accounts)")
+		}
+		existingAccounts := set.NewSet("alice", "bob") // charlie doesn't exist
+		realBuffer := NewIndexerBuffer()
 
-				// Verify no transactions
-				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: &MockTokenTransferProcessor{},
+			processors:             []OperationProcessorInterface{},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-				// Verify no state changes
-				stateChanges := buffer.GetAllStateChanges()
-				assert.Len(t, stateChanges, 0, "should have 0 state changes")
+		// Test ProcessTransactions
+		err := indexer.ProcessTransactions(context.Background(), precomputedData, existingAccounts, realBuffer)
+
+		// Assert
+		require.NoError(t, err)
+
+		// Verify only existing accounts are processed (alice and bob, NOT charlie)
+		assert.Equal(t, 2, realBuffer.participants.Cardinality(), "should have 2 participants (not 3)")
+		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
+		assert.True(t, realBuffer.participants.Contains("bob"), "bob should be a participant")
+		assert.False(t, realBuffer.participants.Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
+
+		// Verify transactions for alice and bob
+		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		txHash := "0102030000000000000000000000000000000000000000000000000000000000"
+		assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
+		assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
+		assert.False(t, txParticipants[txHash].Contains("charlie"), "charlie should NOT be in tx participants (doesn't exist)")
+
+		// Verify transaction exists
+		allTxs := realBuffer.GetAllTransactions()
+		require.Len(t, allTxs, 1, "should have 1 transaction")
+		assert.Equal(t, txHash, allTxs[0].Hash)
+
+		// Verify state changes - only alice should have one (charlie's should be skipped)
+		stateChanges := realBuffer.GetAllStateChanges()
+		require.Len(t, stateChanges, 1, "should have 1 state change (alice only, charlie skipped)")
+		assert.Equal(t, "alice", stateChanges[0].AccountID, "only alice's state change should be present")
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(0), stateChanges[0].OperationID, "fee state change (OperationID=0)")
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "fee state changes get order 1")
+	})
+
+	t.Run("🟢 process with no existing accounts", func(t *testing.T) {
+		// Setup
+		precomputedData := []PrecomputedTransactionData{
+			{
+				Transaction:     testTx,
+				TxParticipants:  set.NewSet("alice", "bob"),
+				OpsParticipants: map[int64]processors.OperationParticipants{},
+				StateChanges:    []types.StateChange{},
+				AllParticipants: set.NewSet("alice", "bob"),
 			},
-		},
-		{
-			name:             "🟢 empty precomputed data",
-			precomputedData:  []PrecomputedTransactionData{},
-			existingAccounts: set.NewSet("alice"),
-			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
-				// Verify buffer is empty with no precomputed data
-				assert.Equal(t, 0, buffer.participants.Cardinality(), "should have 0 participants (no data)")
-				assert.Equal(t, 0, buffer.GetNumberOfTransactions(), "should have 0 transactions")
-				stateChanges := buffer.GetAllStateChanges()
-				assert.Len(t, stateChanges, 0, "should have 0 state changes")
-			},
-		},
-		{
-			name: "🟢 multiple state changes per operation verify ordering",
-			precomputedData: []PrecomputedTransactionData{
-				{
-					Transaction:    testTx,
-					TxParticipants: set.NewSet("alice"),
-					OpsParticipants: map[int64]processors.OperationParticipants{
-						1: {
-							OpWrapper: &operation_processor.TransactionOperationWrapper{
-								Index:          0,
-								Operation:      createAccountOp,
-								Network:        network.TestNetworkPassphrase,
-								LedgerSequence: 12345,
-							},
-							Participants: set.NewSet("alice"),
+		}
+		existingAccounts := set.NewSet[string]() // No existing accounts
+		realBuffer := NewIndexerBuffer()
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: &MockTokenTransferProcessor{},
+			processors:             []OperationProcessorInterface{},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test ProcessTransactions
+		err := indexer.ProcessTransactions(context.Background(), precomputedData, existingAccounts, realBuffer)
+
+		// Assert
+		require.NoError(t, err)
+
+		// Verify no accounts are processed since none exist
+		assert.Equal(t, 0, realBuffer.participants.Cardinality(), "should have 0 participants (no existing accounts)")
+
+		// Verify no transactions
+		assert.Equal(t, 0, realBuffer.GetNumberOfTransactions(), "should have 0 transactions")
+
+		// Verify no state changes
+		stateChanges := realBuffer.GetAllStateChanges()
+		assert.Len(t, stateChanges, 0, "should have 0 state changes")
+	})
+
+	t.Run("🟢 empty precomputed data", func(t *testing.T) {
+		// Setup
+		precomputedData := []PrecomputedTransactionData{}
+		existingAccounts := set.NewSet("alice")
+		realBuffer := NewIndexerBuffer()
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: &MockTokenTransferProcessor{},
+			processors:             []OperationProcessorInterface{},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test ProcessTransactions
+		err := indexer.ProcessTransactions(context.Background(), precomputedData, existingAccounts, realBuffer)
+
+		// Assert
+		require.NoError(t, err)
+
+		// Verify buffer is empty with no precomputed data
+		assert.Equal(t, 0, realBuffer.participants.Cardinality(), "should have 0 participants (no data)")
+		assert.Equal(t, 0, realBuffer.GetNumberOfTransactions(), "should have 0 transactions")
+		stateChanges := realBuffer.GetAllStateChanges()
+		assert.Len(t, stateChanges, 0, "should have 0 state changes")
+	})
+
+	t.Run("🟢 multiple state changes per operation verify ordering", func(t *testing.T) {
+		// Setup
+		precomputedData := []PrecomputedTransactionData{
+			{
+				Transaction:    testTx,
+				TxParticipants: set.NewSet("alice"),
+				OpsParticipants: map[int64]processors.OperationParticipants{
+					1: {
+						OpWrapper: &operation_processor.TransactionOperationWrapper{
+							Index:          0,
+							Operation:      createAccountOp,
+							Network:        network.TestNetworkPassphrase,
+							LedgerSequence: 12345,
 						},
+						Participants: set.NewSet("alice"),
 					},
-					StateChanges: []types.StateChange{
-						{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
-						{ToID: 2, AccountID: "alice", OperationID: 1, SortKey: "1-2"},
-						{ToID: 3, AccountID: "alice", OperationID: 1, SortKey: "1-3"},
-					},
-					AllParticipants: set.NewSet("alice"),
 				},
+				StateChanges: []types.StateChange{
+					{ToID: 1, AccountID: "alice", OperationID: 1, SortKey: "1-1"},
+					{ToID: 2, AccountID: "alice", OperationID: 1, SortKey: "1-2"},
+					{ToID: 3, AccountID: "alice", OperationID: 1, SortKey: "1-3"},
+				},
+				AllParticipants: set.NewSet("alice"),
 			},
-			existingAccounts: set.NewSet("alice"),
-			verifyBuffer: func(t *testing.T, buffer *IndexerBuffer) {
-				// Verify participant
-				assert.Equal(t, 1, buffer.participants.Cardinality(), "should have 1 participant")
-				assert.True(t, buffer.participants.Contains("alice"), "alice should be a participant")
+		}
+		existingAccounts := set.NewSet("alice")
+		realBuffer := NewIndexerBuffer()
 
-				// Verify transaction participants
-				txParticipants := buffer.GetAllTransactionsParticipants()
-				require.Len(t, txParticipants, 1, "should have 1 transaction with participants")
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: &MockTokenTransferProcessor{},
+			processors:             []OperationProcessorInterface{},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-				// Verify operation participants
-				opParticipants := buffer.GetAllOperationsParticipants()
-				require.Len(t, opParticipants, 1, "should have 1 operation with participants")
-				assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
+		// Test ProcessTransactions
+		err := indexer.ProcessTransactions(context.Background(), precomputedData, existingAccounts, realBuffer)
 
-				// Verify operation exists
-				allOps := buffer.GetAllOperations()
-				require.Len(t, allOps, 1, "should have 1 operation")
-				assert.Equal(t, int64(1), allOps[0].ID)
+		// Assert
+		require.NoError(t, err)
 
-				// Verify state changes with correct ordering
-				stateChanges := buffer.GetAllStateChanges()
-				require.Len(t, stateChanges, 3, "should have 3 state changes")
+		// Verify participant
+		assert.Equal(t, 1, realBuffer.participants.Cardinality(), "should have 1 participant")
+		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
 
-				// Verify first state change
-				assert.Equal(t, "alice", stateChanges[0].AccountID)
-				assert.Equal(t, int64(1), stateChanges[0].ToID)
-				assert.Equal(t, int64(1), stateChanges[0].OperationID)
-				assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
+		// Verify transaction participants
+		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		require.Len(t, txParticipants, 1, "should have 1 transaction with participants")
 
-				// Verify second state change
-				assert.Equal(t, "alice", stateChanges[1].AccountID)
-				assert.Equal(t, int64(2), stateChanges[1].ToID)
-				assert.Equal(t, int64(1), stateChanges[1].OperationID)
-				assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
+		// Verify operation participants
+		opParticipants := realBuffer.GetAllOperationsParticipants()
+		require.Len(t, opParticipants, 1, "should have 1 operation with participants")
+		assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
 
-				// Verify third state change
-				assert.Equal(t, "alice", stateChanges[2].AccountID)
-				assert.Equal(t, int64(3), stateChanges[2].ToID)
-				assert.Equal(t, int64(1), stateChanges[2].OperationID)
-				assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
-			},
-		},
-	}
+		// Verify operation exists
+		allOps := realBuffer.GetAllOperations()
+		require.Len(t, allOps, 1, "should have 1 operation")
+		assert.Equal(t, int64(1), allOps[0].ID)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create real buffer for actual testing
-			realBuffer := NewIndexerBuffer()
+		// Verify state changes with correct ordering
+		stateChanges := realBuffer.GetAllStateChanges()
+		require.Len(t, stateChanges, 3, "should have 3 state changes")
 
-			// Create indexer
-			indexer := &Indexer{
-				participantsProcessor:  &MockParticipantsProcessor{},
-				tokenTransferProcessor: &MockTokenTransferProcessor{},
-				processors:             []OperationProcessorInterface{},
-				pool:                   pond.NewPool(runtime.NumCPU()),
-			}
+		// Verify first state change
+		assert.Equal(t, "alice", stateChanges[0].AccountID)
+		assert.Equal(t, int64(1), stateChanges[0].ToID)
+		assert.Equal(t, int64(1), stateChanges[0].OperationID)
+		assert.Equal(t, int64(1), stateChanges[0].StateChangeOrder, "first state change should have order 1")
 
-			// Test ProcessTransactions
-			err := indexer.ProcessTransactions(context.Background(), tt.precomputedData, tt.existingAccounts, realBuffer)
+		// Verify second state change
+		assert.Equal(t, "alice", stateChanges[1].AccountID)
+		assert.Equal(t, int64(2), stateChanges[1].ToID)
+		assert.Equal(t, int64(1), stateChanges[1].OperationID)
+		assert.Equal(t, int64(2), stateChanges[1].StateChangeOrder, "second state change should have order 2")
 
-			// Assert results
-			if tt.expectedError != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
-			} else {
-				require.NoError(t, err)
-				// Verify buffer contents after successful processing
-				if tt.verifyBuffer != nil {
-					tt.verifyBuffer(t, realBuffer)
-				}
-			}
-		})
-	}
+		// Verify third state change
+		assert.Equal(t, "alice", stateChanges[2].AccountID)
+		assert.Equal(t, int64(3), stateChanges[2].ToID)
+		assert.Equal(t, int64(1), stateChanges[2].OperationID)
+		assert.Equal(t, int64(3), stateChanges[2].StateChangeOrder, "third state change should have order 3")
+	})
 }
 
 func TestIndexer_getTransactionStateChanges(t *testing.T) {
-	tests := []struct {
-		name                 string
-		transaction          ingest.LedgerTransaction
-		opsParticipants      map[int64]processors.OperationParticipants
-		setupMocks           func(*MockTokenTransferProcessor, *MockOperationProcessor, *MockOperationProcessor, *MockOperationProcessor)
-		expectedStateChanges int
-		expectedError        string
-	}{
-		{
-			name:        "🟢 state changes from all processors",
-			transaction: testTx,
-			opsParticipants: map[int64]processors.OperationParticipants{
-				1: {
-					OpWrapper: &operation_processor.TransactionOperationWrapper{
-						Index:          0,
-						Operation:      createAccountOp,
-						Network:        network.TestNetworkPassphrase,
-						LedgerSequence: 12345,
-					},
-					Participants: set.NewSet("alice"),
+	t.Run("🟢 state changes from all processors", func(t *testing.T) {
+		// Create mocks
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		opsParticipants := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
 				},
+				Participants: set.NewSet("alice"),
 			},
-			setupMocks: func(mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// Operation processors
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-					{ToID: 1, AccountID: "alice", OperationID: 1},
-				}, nil)
-				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-					{ToID: 2, AccountID: "bob", OperationID: 1},
-				}, nil)
-				mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+		}
 
-				// Token transfer processor
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
-					{ToID: 3, AccountID: "charlie", OperationID: 0},
-				}, nil)
-			},
-			expectedStateChanges: 3,
-		},
-		{
-			name:            "🟢 no operations",
-			transaction:     testTx,
-			opsParticipants: map[int64]processors.OperationParticipants{},
-			setupMocks: func(mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
-			},
-			expectedStateChanges: 0,
-		},
-		{
-			name:        "🔴 error in operation processor",
-			transaction: testTx,
-			opsParticipants: map[int64]processors.OperationParticipants{
-				1: {
-					OpWrapper: &operation_processor.TransactionOperationWrapper{
-						Index:          0,
-						Operation:      createAccountOp,
-						Network:        network.TestNetworkPassphrase,
-						LedgerSequence: 12345,
-					},
-					Participants: set.NewSet("alice"),
-				},
-			},
-			setupMocks: func(mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("processor error"))
-				mockEffects.On("Name").Return("effects")
-			},
-			expectedError: "processing effects state changes: processor error",
-		},
-		{
-			name:            "🔴 error in token transfer processor",
-			transaction:     testTx,
-			opsParticipants: map[int64]processors.OperationParticipants{},
-			setupMocks: func(mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, errors.New("token transfer error"))
-			},
-			expectedError: "processing token transfer state changes: token transfer error",
-		},
-		{
-			name:        "🟢 ErrInvalidOpType is ignored",
-			transaction: testTx,
-			opsParticipants: map[int64]processors.OperationParticipants{
-				1: {
-					OpWrapper: &operation_processor.TransactionOperationWrapper{
-						Index:          0,
-						Operation:      createAccountOp,
-						Network:        network.TestNetworkPassphrase,
-						LedgerSequence: 12345,
-					},
-					Participants: set.NewSet("alice"),
-				},
-			},
-			setupMocks: func(mockTokenTransfer *MockTokenTransferProcessor, mockEffects *MockOperationProcessor, mockContractDeploy *MockOperationProcessor, mockSACEvents *MockOperationProcessor) {
-				// One processor returns ErrInvalidOpType (should be ignored)
-				mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, processors.ErrInvalidOpType)
-				// Other processors work normally
-				mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
-					{ToID: 1, AccountID: "alice", OperationID: 1},
-				}, nil)
-				mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
+			{ToID: 1, AccountID: "alice", OperationID: 1},
+		}, nil)
+		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
+			{ToID: 2, AccountID: "bob", OperationID: 1},
+		}, nil)
+		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
 
-				mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
-			},
-			expectedStateChanges: 1,
-		},
-	}
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{
+			{ToID: 3, AccountID: "charlie", OperationID: 0},
+		}, nil)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create mocks
-			mockTokenTransfer := &MockTokenTransferProcessor{}
-			mockEffects := &MockOperationProcessor{}
-			mockContractDeploy := &MockOperationProcessor{}
-			mockSACEvents := &MockOperationProcessor{}
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-			// Setup mock expectations
-			tt.setupMocks(mockTokenTransfer, mockEffects, mockContractDeploy, mockSACEvents)
+		// Test getTransactionStateChanges
+		stateChanges, err := indexer.getTransactionStateChanges(context.Background(), testTx, opsParticipants)
 
-			// Create indexer
-			indexer := &Indexer{
-				participantsProcessor:  &MockParticipantsProcessor{},
-				tokenTransferProcessor: mockTokenTransfer,
-				processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
-				pool:                   pond.NewPool(runtime.NumCPU()),
+		// Assert
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 3)
+
+		// Verify specific state changes by AccountID
+		foundAlice := false
+		foundBob := false
+		foundCharlie := false
+		for _, sc := range stateChanges {
+			switch sc.AccountID {
+			case "alice":
+				assert.Equal(t, int64(1), sc.ToID)
+				assert.Equal(t, int64(1), sc.OperationID)
+				foundAlice = true
+			case "bob":
+				assert.Equal(t, int64(2), sc.ToID)
+				assert.Equal(t, int64(1), sc.OperationID)
+				foundBob = true
+			case "charlie":
+				assert.Equal(t, int64(3), sc.ToID)
+				assert.Equal(t, int64(0), sc.OperationID)
+				foundCharlie = true
 			}
+		}
+		assert.True(t, foundAlice, "Should have state change for alice")
+		assert.True(t, foundBob, "Should have state change for bob")
+		assert.True(t, foundCharlie, "Should have state change for charlie")
 
-			// Test getTransactionStateChanges
-			stateChanges, err := indexer.getTransactionStateChanges(context.Background(), tt.transaction, tt.opsParticipants)
+		// Verify mock expectations
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
 
-			// Assert results
-			if tt.expectedError != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedError)
-			} else {
-				require.NoError(t, err)
-				assert.Len(t, stateChanges, tt.expectedStateChanges)
+	t.Run("🟢 no operations", func(t *testing.T) {
+		// Create mocks
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
 
-				// Add detailed assertions for specific test cases
-				if tt.name == "🟢 state changes from all processors" {
-					// Verify we got exactly 3 state changes
-					assert.Len(t, stateChanges, 3)
+		// Setup mocks
+		opsParticipants := map[int64]processors.OperationParticipants{}
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
 
-					// Verify specific state changes by AccountID
-					foundAlice := false
-					foundBob := false
-					foundCharlie := false
-					for _, sc := range stateChanges {
-						switch sc.AccountID {
-						case "alice":
-							assert.Equal(t, int64(1), sc.ToID)
-							assert.Equal(t, int64(1), sc.OperationID)
-							foundAlice = true
-						case "bob":
-							assert.Equal(t, int64(2), sc.ToID)
-							assert.Equal(t, int64(1), sc.OperationID)
-							foundBob = true
-						case "charlie":
-							assert.Equal(t, int64(3), sc.ToID)
-							assert.Equal(t, int64(0), sc.OperationID)
-							foundCharlie = true
-						}
-					}
-					assert.True(t, foundAlice, "Should have state change for alice")
-					assert.True(t, foundBob, "Should have state change for bob")
-					assert.True(t, foundCharlie, "Should have state change for charlie")
-				}
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
 
-				if tt.name == "🟢 ErrInvalidOpType is ignored" {
-					// Verify we got exactly 1 state change (from contract deploy only)
-					assert.Len(t, stateChanges, 1)
+		// Test getTransactionStateChanges
+		stateChanges, err := indexer.getTransactionStateChanges(context.Background(), testTx, opsParticipants)
 
-					// Verify it's the correct state change
-					sc := stateChanges[0]
-					assert.Equal(t, "alice", sc.AccountID)
-					assert.Equal(t, int64(1), sc.ToID)
-					assert.Equal(t, int64(1), sc.OperationID)
-				}
-			}
+		// Assert
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 0)
 
-			// Verify mock expectations
-			mockTokenTransfer.AssertExpectations(t)
-			mockEffects.AssertExpectations(t)
-			mockContractDeploy.AssertExpectations(t)
-			mockSACEvents.AssertExpectations(t)
-		})
-	}
+		// Verify mock expectations
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error in operation processor", func(t *testing.T) {
+		// Create mocks
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		opsParticipants := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("alice"),
+			},
+		}
+
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, errors.New("processor error"))
+		mockEffects.On("Name").Return("effects")
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test getTransactionStateChanges
+		stateChanges, err := indexer.getTransactionStateChanges(context.Background(), testTx, opsParticipants)
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "processing effects state changes: processor error")
+		assert.Nil(t, stateChanges)
+
+		// Verify mock expectations
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🔴 error in token transfer processor", func(t *testing.T) {
+		// Create mocks
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		opsParticipants := map[int64]processors.OperationParticipants{}
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, errors.New("token transfer error"))
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test getTransactionStateChanges
+		stateChanges, err := indexer.getTransactionStateChanges(context.Background(), testTx, opsParticipants)
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "processing token transfer state changes: token transfer error")
+		assert.Nil(t, stateChanges)
+
+		// Verify mock expectations
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
+
+	t.Run("🟢 ErrInvalidOpType is ignored", func(t *testing.T) {
+		// Create mocks
+		mockTokenTransfer := &MockTokenTransferProcessor{}
+		mockEffects := &MockOperationProcessor{}
+		mockContractDeploy := &MockOperationProcessor{}
+		mockSACEvents := &MockOperationProcessor{}
+
+		// Setup mocks
+		opsParticipants := map[int64]processors.OperationParticipants{
+			1: {
+				OpWrapper: &operation_processor.TransactionOperationWrapper{
+					Index:          0,
+					Operation:      createAccountOp,
+					Network:        network.TestNetworkPassphrase,
+					LedgerSequence: 12345,
+				},
+				Participants: set.NewSet("alice"),
+			},
+		}
+
+		// One processor returns ErrInvalidOpType (should be ignored)
+		mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, processors.ErrInvalidOpType)
+		// Other processors work normally
+		mockContractDeploy.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{
+			{ToID: 1, AccountID: "alice", OperationID: 1},
+		}, nil)
+		mockSACEvents.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+
+		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
+
+		// Create indexer
+		indexer := &Indexer{
+			participantsProcessor:  &MockParticipantsProcessor{},
+			tokenTransferProcessor: mockTokenTransfer,
+			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
+			pool:                   pond.NewPool(runtime.NumCPU()),
+		}
+
+		// Test getTransactionStateChanges
+		stateChanges, err := indexer.getTransactionStateChanges(context.Background(), testTx, opsParticipants)
+
+		// Assert
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 1)
+
+		// Verify it's the correct state change
+		sc := stateChanges[0]
+		assert.Equal(t, "alice", sc.AccountID)
+		assert.Equal(t, int64(1), sc.ToID)
+		assert.Equal(t, int64(1), sc.OperationID)
+
+		// Verify mock expectations
+		mockTokenTransfer.AssertExpectations(t)
+		mockEffects.AssertExpectations(t)
+		mockContractDeploy.AssertExpectations(t)
+		mockSACEvents.AssertExpectations(t)
+	})
 }
