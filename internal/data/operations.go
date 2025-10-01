@@ -272,16 +272,17 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations
 	inserted_operations AS (
 		INSERT INTO operations
-			(id, tx_hash, operation_type, operation_xdr, ledger_created_at)
+			(id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
 		SELECT
-			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.ledger_created_at
+			o.id, o.tx_hash, o.operation_type, o.operation_xdr, o.ledger_number, o.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
 				UNNEST($2::text[]) AS tx_hash,
 				UNNEST($3::text[]) AS operation_type,
 				UNNEST($4::text[]) AS operation_xdr,
-				UNNEST($5::timestamptz[]) AS ledger_created_at
+				UNNEST($5::bigint[]) AS ledger_number,
+				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) o
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id
