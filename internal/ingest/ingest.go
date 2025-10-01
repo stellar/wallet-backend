@@ -7,7 +7,6 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -41,7 +40,7 @@ type Configs struct {
 	Network           string
 	NetworkPassphrase string
 	GetLedgersLimit   int
-	AdminEndpoint     string
+	AdminPort     int
 }
 
 func Ingest(cfg Configs) error {
@@ -91,29 +90,35 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	// Start ingest server which serves metrics and health check endpoints.
-	server := startServers(cfg, models, rpcService, metricsService)
+	servers := startServers(cfg, models, rpcService, metricsService)
 
-	// Wait for termination signal to gracefully shut down the server.
+	// Wait for termination signal to gracefully shut down the servers.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit
-		log.Info("Shutting down server...")
+		log.Info("Shutting down servers...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
 		defer cancel()
 
-		if err := server.Shutdown(ctx); err != nil {
-			log.Errorf("Server forced to shutdown: %v", err)
+		for _, server := range servers {
+			if err := server.Shutdown(ctx); err != nil {
+				log.Errorf("Server forced to shutdown: %v", err)
+			}
 		}
-		log.Info("Server gracefully stopped")
+		log.Info("Servers gracefully stopped")
 	}()
 
 	return ingestService, nil
 }
 
 // startServers initializes and starts the ingest server which serves metrics and health check endpoints.
-func startServers(cfg Configs, models *data.Models, rpcService services.RPCService, metricsSvc metrics.MetricsService) *http.Server {
+// If AdminEndpoint port is configured, also starts a separate admin server for pprof endpoints.
+func startServers(cfg Configs, models *data.Models, rpcService services.RPCService, metricsSvc metrics.MetricsService) []*http.Server {
+	servers := make([]*http.Server, 0, 2)
+
+	// Start main ingest server with health and metrics endpoints
 	mux := http.NewServeMux()
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.ServerPort),
@@ -128,29 +133,42 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	mux.Handle("/ingest-metrics", promhttp.HandlerFor(metricsSvc.GetRegistry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))
 
-	if cfg.AdminEndpoint != "" {
-		registerAdminHandlers(mux, cfg.AdminEndpoint)
-	}
-
 	go func() {
 		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Ctx(context.Background()).Fatalf("starting server on %s: %v", server.Addr, err)
+			log.Ctx(context.Background()).Fatalf("starting ingest server on %s: %v", server.Addr, err)
 		}
 	}()
 
-	return server
-}
+	servers = append(servers, server)
 
-// registerAdminHandlers exposes pprof under the configured admin endpoint for profiling.
-func registerAdminHandlers(mux *http.ServeMux, endpoint string) {
-	base := strings.TrimSuffix(endpoint, "/")
-	if base == "" {
-		base = "/debug/pprof"
+	// Start separate admin server for pprof endpoints if configured
+	if cfg.AdminPort > 0 {
+		adminMux := http.NewServeMux()
+		adminServer := &http.Server{
+			Addr:    fmt.Sprintf(":%d", cfg.AdminPort),
+			Handler: adminMux,
+		}
+
+		registerAdminHandlers(adminMux)
+
+		go func() {
+			log.Ctx(context.Background()).Infof("Starting admin server with pprof endpoints on port %d", cfg.AdminPort)
+			if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
+				log.Ctx(context.Background()).Fatalf("starting admin server on %s: %v", adminServer.Addr, err)
+			}
+		}()
+
+		servers = append(servers, adminServer)
 	}
 
-	mux.HandleFunc(base+"/", pprof.Index)
-	mux.HandleFunc(base+"/cmdline", pprof.Cmdline)
-	mux.HandleFunc(base+"/profile", pprof.Profile)
-	mux.HandleFunc(base+"/symbol", pprof.Symbol)
-	mux.HandleFunc(base+"/trace", pprof.Trace)
+	return servers
+}
+
+// registerAdminHandlers exposes pprof endpoints at /debug/pprof for profiling.
+func registerAdminHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
