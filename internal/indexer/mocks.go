@@ -50,58 +50,7 @@ func (m *MockOperationProcessor) Name() string {
 	return args.String(0)
 }
 
-type MockIndexerBuffer struct {
-	mock.Mock
-}
-
-func (m *MockIndexerBuffer) PushParticipantTransaction(participant string, tx types.Transaction) {
-	m.Called(participant, tx)
-}
-
-func (m *MockIndexerBuffer) PushParticipantOperation(participant string, op types.Operation, tx types.Transaction) {
-	m.Called(participant, op, tx)
-}
-
-func (m *MockIndexerBuffer) PushStateChanges(stateChanges []types.StateChange) {
-	m.Called(stateChanges)
-}
-
-func (m *MockIndexerBuffer) GetParticipantTransactions(participant string) []types.Transaction {
-	args := m.Called(participant)
-	return args.Get(0).([]types.Transaction)
-}
-
-func (m *MockIndexerBuffer) GetParticipantOperations(participant string) map[int64]types.Operation {
-	args := m.Called(participant)
-	return args.Get(0).(map[int64]types.Operation)
-}
-
-func (m *MockIndexerBuffer) GetParticipants() set.Set[string] {
-	args := m.Called()
-	return args.Get(0).(set.Set[string])
-}
-
-func (m *MockIndexerBuffer) GetNumberOfTransactions() int {
-	args := m.Called()
-	return args.Get(0).(int)
-}
-
-func (m *MockIndexerBuffer) GetAllTransactions() []types.Transaction {
-	args := m.Called()
-	return args.Get(0).([]types.Transaction)
-}
-
-func (m *MockIndexerBuffer) GetAllStateChanges() []types.StateChange {
-	args := m.Called()
-	return args.Get(0).([]types.StateChange)
-}
-
-func (m *MockIndexerBuffer) CalculateStateChangeOrder() {
-	m.Called()
-}
-
 var (
-	_ IndexerBufferInterface          = &MockIndexerBuffer{}
 	_ ParticipantsProcessorInterface  = &MockParticipantsProcessor{}
 	_ TokenTransferProcessorInterface = &MockTokenTransferProcessor{}
 	_ OperationProcessorInterface     = &MockOperationProcessor{}

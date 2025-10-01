@@ -4,6 +4,7 @@ go 1.23.2
 
 require (
 	github.com/alitto/pond v1.9.2
+	github.com/alitto/pond/v2 v2.5.0
 	github.com/avast/retry-go/v4 v4.6.1
 	github.com/aws/aws-sdk-go v1.55.7
 	github.com/deckarep/golang-set/v2 v2.8.0
