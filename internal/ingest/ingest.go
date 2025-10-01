@@ -40,7 +40,7 @@ type Configs struct {
 	Network           string
 	NetworkPassphrase string
 	GetLedgersLimit   int
-	AdminPort     int
+	AdminPort         int
 }
 
 func Ingest(cfg Configs) error {
