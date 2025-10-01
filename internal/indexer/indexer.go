@@ -84,12 +84,13 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 	// Process transaction data collection in parallel
 	group := i.pool.NewGroupContext(ctx)
 
-	var precomputedData []PrecomputedTransactionData
-	precomputedDataMu := sync.Mutex{}
+	precomputedData := make([]PrecomputedTransactionData, len(transactions))
 	var errs []error
 	errMu := sync.Mutex{}
 
-	for _, tx := range transactions {
+	for idx, tx := range transactions {
+		index := idx
+		tx := tx
 		group.Submit(func() {
 			txData := PrecomputedTransactionData{
 				Transaction:     tx,
@@ -134,9 +135,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			}
 
 			// Add to collection
-			precomputedDataMu.Lock()
-			precomputedData = append(precomputedData, txData)
-			precomputedDataMu.Unlock()
+			precomputedData[index] = txData
 		})
 	}
 	if err := group.Wait(); err != nil {
