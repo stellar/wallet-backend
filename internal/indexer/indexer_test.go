@@ -633,36 +633,31 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		// Assert
 		require.NoError(t, err)
 
-		// Verify participants were added correctly
-		assert.Equal(t, 2, realBuffer.participants.Cardinality(), "should have 2 participants")
-		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
-		assert.True(t, realBuffer.participants.Contains("bob"), "bob should be a participant")
-
 		// Verify transactions for alice and bob
-		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		txParticipants := realBuffer.GetTransactionsParticipants()
 		txHash := "0102030000000000000000000000000000000000000000000000000000000000"
 		assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
 		assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
 
 		// Verify transaction exists and has correct data
-		allTxs := realBuffer.GetAllTransactions()
+		allTxs := realBuffer.GetTransactions()
 		require.Len(t, allTxs, 1, "should have 1 transaction")
 		assert.Equal(t, txHash, allTxs[0].Hash)
 		assert.Equal(t, uint32(12345), allTxs[0].LedgerNumber)
 
 		// Verify operations for alice (only alice is in operation participants)
-		opParticipants := realBuffer.GetAllOperationsParticipants()
+		opParticipants := realBuffer.GetOperationsParticipants()
 		assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
 		assert.False(t, opParticipants[int64(1)].Contains("bob"), "bob should NOT be in operation 1 participants")
 
 		// Verify operation exists and has correct data
-		allOps := realBuffer.GetAllOperations()
+		allOps := realBuffer.GetOperations()
 		require.Len(t, allOps, 1, "should have 1 operation")
 		assert.Equal(t, int64(1), allOps[0].ID)
 		assert.Equal(t, txHash, allOps[0].TxHash)
 
 		// Verify state changes
-		stateChanges := realBuffer.GetAllStateChanges()
+		stateChanges := realBuffer.GetStateChanges()
 		require.Len(t, stateChanges, 1, "should have 1 state change")
 		assert.Equal(t, "alice", stateChanges[0].AccountID)
 		assert.Equal(t, int64(1), stateChanges[0].ToID)
@@ -701,26 +696,20 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		// Assert
 		require.NoError(t, err)
 
-		// Verify only existing accounts are processed (alice and bob, NOT charlie)
-		assert.Equal(t, 2, realBuffer.participants.Cardinality(), "should have 2 participants (not 3)")
-		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
-		assert.True(t, realBuffer.participants.Contains("bob"), "bob should be a participant")
-		assert.False(t, realBuffer.participants.Contains("charlie"), "charlie should NOT be a participant (doesn't exist)")
-
 		// Verify transactions for alice and bob
-		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		txParticipants := realBuffer.GetTransactionsParticipants()
 		txHash := "0102030000000000000000000000000000000000000000000000000000000000"
 		assert.True(t, txParticipants[txHash].Contains("alice"), "alice should be in tx participants")
 		assert.True(t, txParticipants[txHash].Contains("bob"), "bob should be in tx participants")
 		assert.False(t, txParticipants[txHash].Contains("charlie"), "charlie should NOT be in tx participants (doesn't exist)")
 
 		// Verify transaction exists
-		allTxs := realBuffer.GetAllTransactions()
+		allTxs := realBuffer.GetTransactions()
 		require.Len(t, allTxs, 1, "should have 1 transaction")
 		assert.Equal(t, txHash, allTxs[0].Hash)
 
 		// Verify state changes - only alice should have one (charlie's should be skipped)
-		stateChanges := realBuffer.GetAllStateChanges()
+		stateChanges := realBuffer.GetStateChanges()
 		require.Len(t, stateChanges, 1, "should have 1 state change (alice only, charlie skipped)")
 		assert.Equal(t, "alice", stateChanges[0].AccountID, "only alice's state change should be present")
 		assert.Equal(t, int64(1), stateChanges[0].ToID)
@@ -756,14 +745,11 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		// Assert
 		require.NoError(t, err)
 
-		// Verify no accounts are processed since none exist
-		assert.Equal(t, 0, realBuffer.participants.Cardinality(), "should have 0 participants (no existing accounts)")
-
 		// Verify no transactions
 		assert.Equal(t, 0, realBuffer.GetNumberOfTransactions(), "should have 0 transactions")
 
 		// Verify no state changes
-		stateChanges := realBuffer.GetAllStateChanges()
+		stateChanges := realBuffer.GetStateChanges()
 		assert.Len(t, stateChanges, 0, "should have 0 state changes")
 	})
 
@@ -788,9 +774,8 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify buffer is empty with no precomputed data
-		assert.Equal(t, 0, realBuffer.participants.Cardinality(), "should have 0 participants (no data)")
 		assert.Equal(t, 0, realBuffer.GetNumberOfTransactions(), "should have 0 transactions")
-		stateChanges := realBuffer.GetAllStateChanges()
+		stateChanges := realBuffer.GetStateChanges()
 		assert.Len(t, stateChanges, 0, "should have 0 state changes")
 	})
 
@@ -836,26 +821,22 @@ func TestIndexer_ProcessTransactions(t *testing.T) {
 		// Assert
 		require.NoError(t, err)
 
-		// Verify participant
-		assert.Equal(t, 1, realBuffer.participants.Cardinality(), "should have 1 participant")
-		assert.True(t, realBuffer.participants.Contains("alice"), "alice should be a participant")
-
 		// Verify transaction participants
-		txParticipants := realBuffer.GetAllTransactionsParticipants()
+		txParticipants := realBuffer.GetTransactionsParticipants()
 		require.Len(t, txParticipants, 1, "should have 1 transaction with participants")
 
 		// Verify operation participants
-		opParticipants := realBuffer.GetAllOperationsParticipants()
+		opParticipants := realBuffer.GetOperationsParticipants()
 		require.Len(t, opParticipants, 1, "should have 1 operation with participants")
 		assert.True(t, opParticipants[int64(1)].Contains("alice"), "alice should be in operation 1 participants")
 
 		// Verify operation exists
-		allOps := realBuffer.GetAllOperations()
+		allOps := realBuffer.GetOperations()
 		require.Len(t, allOps, 1, "should have 1 operation")
 		assert.Equal(t, int64(1), allOps[0].ID)
 
 		// Verify state changes with correct ordering
-		stateChanges := realBuffer.GetAllStateChanges()
+		stateChanges := realBuffer.GetStateChanges()
 		require.Len(t, stateChanges, 3, "should have 3 state changes")
 
 		// Verify first state change

@@ -42,7 +42,6 @@ import (
 
 type IndexerBuffer struct {
 	mu                   sync.RWMutex
-	participants         set.Set[string]
 	txByHash             map[string]*types.Transaction
 	participantsByTxHash map[string]set.Set[string]
 	opByID               map[int64]*types.Operation
@@ -54,7 +53,6 @@ type IndexerBuffer struct {
 // All maps and sets are pre-allocated to avoid nil pointer issues during concurrent access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		participants:         set.NewSet[string](),
 		txByHash:             make(map[string]*types.Transaction),
 		participantsByTxHash: make(map[string]set.Set[string]),
 		opByID:               make(map[int64]*types.Operation),
@@ -90,7 +88,6 @@ func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *t
 	}
 
 	// Track this participant globally
-	b.participants.Add(participant) // O(1)
 	if _, exists := b.participantsByTxHash[txHash]; !exists {
 		b.participantsByTxHash[txHash] = set.NewSet[string]()
 	}
@@ -108,9 +105,9 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	return len(b.txByHash)
 }
 
-// GetAllTransactions returns all unique transactions.
+// GetTransactions returns all unique transactions.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
+func (b *IndexerBuffer) GetTransactions() []types.Transaction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -122,7 +119,8 @@ func (b *IndexerBuffer) GetAllTransactions() []types.Transaction {
 	return txs
 }
 
-func (b *IndexerBuffer) GetAllTransactionsParticipants() map[string]set.Set[string] {
+// GetTransactionsParticipants returns a map of transaction hashes to its participants.
+func (b *IndexerBuffer) GetTransactionsParticipants() map[string]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -140,10 +138,10 @@ func (b *IndexerBuffer) PushOperation(participant string, operation types.Operat
 	b.pushTransactionUnsafe(participant, &transaction)
 }
 
-// GetAllOperations returns all unique operations from the canonical storage.
+// GetOperations returns all unique operations from the canonical storage.
 // Returns values (not pointers) for API compatibility.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAllOperations() []types.Operation {
+func (b *IndexerBuffer) GetOperations() []types.Operation {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -154,7 +152,8 @@ func (b *IndexerBuffer) GetAllOperations() []types.Operation {
 	return ops
 }
 
-func (b *IndexerBuffer) GetAllOperationsParticipants() map[int64]set.Set[string] {
+// GetOperationsParticipants returns a map of operation IDs to its participants.
+func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -171,7 +170,6 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 	}
 
 	// Track this participant globally
-	b.participants.Add(participant) // O(1)
 	if _, exists := b.participantsByOpID[opID]; !exists {
 		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
@@ -192,9 +190,9 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	}
 }
 
-// GetAllStateChanges returns a copy of all state changes stored in the buffer.
+// GetStateChanges returns a copy of all state changes stored in the buffer.
 // Thread-safe: uses read lock.
-func (b *IndexerBuffer) GetAllStateChanges() []types.StateChange {
+func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -233,11 +231,6 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 
 	otherBuffer.mu.RLock()
 	defer otherBuffer.mu.RUnlock()
-
-	// Merge participants - O(m) with set Union
-	for participant := range otherBuffer.participants.Iter() {
-		b.participants.Add(participant)
-	}
 
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)

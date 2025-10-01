@@ -26,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	cache "github.com/stellar/wallet-backend/internal/store"
@@ -533,8 +534,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		// 2. Insert queries
 		// 2.1. Insert transactions
-		txs := indexerBuffer.GetAllTransactions()
-		stellarAddressesByTxHash := indexerBuffer.GetAllTransactionsParticipants()
+		txs := indexerBuffer.GetTransactions()
+		stellarAddressesByTxHash := indexerBuffer.GetTransactionsParticipants()
 		if len(txs) > 0 {
 			insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
 			if err != nil {
@@ -544,8 +545,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		}
 
 		// 2.2. Insert operations
-		ops := indexerBuffer.GetAllOperations()
-		stellarAddressesByOpID := indexerBuffer.GetAllOperationsParticipants()
+		ops := indexerBuffer.GetOperations()
+		stellarAddressesByOpID := indexerBuffer.GetOperationsParticipants()
 		if len(ops) > 0 {
 			insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
 			if err != nil {
@@ -555,7 +556,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		}
 
 		// 2.3. Insert state changes
-		stateChanges := indexerBuffer.GetAllStateChanges()
+		stateChanges := indexerBuffer.GetStateChanges()
 		if len(stateChanges) > 0 {
 			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
 			if err != nil {
@@ -565,7 +566,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		}
 
 		// 3. Unlock channel accounts.
-		err := m.unlockChannelAccounts(ctx, indexerBuffer)
+		err := m.unlockChannelAccounts(ctx, txs)
 		if err != nil {
 			return fmt.Errorf("unlocking channel accounts: %w", err)
 		}
@@ -580,8 +581,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 }
 
 // unlockChannelAccounts unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccounts(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
-	txs := indexerBuffer.GetAllTransactions()
+func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}

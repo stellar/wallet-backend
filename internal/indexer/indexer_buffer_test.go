@@ -37,18 +37,15 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		indexerBuffer.PushTransaction("bob", tx2) // duplicate is a no-op
 
 		// Assert participants by transaction
-		txParticipants := indexerBuffer.GetAllTransactionsParticipants()
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.Hash])
-
-		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.participants)
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Assert GetAllTransactions
-		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetAllTransactions())
+		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, indexerBuffer.GetTransactions())
 	})
 
 	t.Run("🟢 concurrent pushes", func(t *testing.T) {
@@ -78,12 +75,9 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		wg.Wait()
 
 		// Assert participants by transaction
-		txParticipants := indexerBuffer.GetAllTransactionsParticipants()
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.Hash])
-
-		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob"), indexerBuffer.participants)
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
@@ -105,15 +99,12 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 		indexerBuffer.PushOperation("chuck", op2, tx2) // duplicate operation ID is a no-op
 
 		// Assert participants by operation
-		opParticipants := indexerBuffer.GetAllOperationsParticipants()
+		opParticipants := indexerBuffer.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob", "chuck"), opParticipants[int64(2)])
 
-		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob", "chuck"), indexerBuffer.participants)
-
 		// Assert transactions were also added
-		txParticipants := indexerBuffer.GetAllTransactionsParticipants()
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("bob", "chuck"), txParticipants[tx2.Hash])
 	})
@@ -147,12 +138,9 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 		wg.Wait()
 
 		// Assert participants by operation
-		opParticipants := indexerBuffer.GetAllOperationsParticipants()
+		opParticipants := indexerBuffer.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob", "chuck"), opParticipants[int64(2)])
-
-		// Assert participants
-		assert.Equal(t, set.NewSet("alice", "bob", "chuck"), indexerBuffer.participants)
 	})
 }
 
@@ -171,7 +159,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		indexerBuffer.PushStateChange(tx, op, sc2)
 		indexerBuffer.PushStateChange(tx, op, sc3)
 
-		allStateChanges := indexerBuffer.GetAllStateChanges()
+		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
 
@@ -201,7 +189,7 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		wg.Wait()
 
-		allStateChanges := indexerBuffer.GetAllStateChanges()
+		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Len(t, allStateChanges, 3)
 		assert.ElementsMatch(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
@@ -230,21 +218,19 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc4) // Fee state changes don't have an operation
 		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc5) // Fee state changes don't have an operation
 
-		allStateChanges := indexerBuffer.GetAllStateChanges()
+		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
 
 		// Assert transaction participants
-		txParticipants := indexerBuffer.GetAllTransactionsParticipants()
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("someone", "alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), txParticipants[tx2.Hash])
 
 		// Assert operation participants
-		opParticipants := indexerBuffer.GetAllOperationsParticipants()
+		opParticipants := indexerBuffer.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("someone", "alice"), opParticipants[int64(3)])
 		assert.Equal(t, set.NewSet("someone", "alice"), opParticipants[int64(4)])
 		assert.Equal(t, set.NewSet("eve"), opParticipants[int64(5)])
-
-		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), indexerBuffer.participants)
 	})
 }
 
@@ -280,7 +266,7 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 		indexerBuffer.PushTransaction("bob", tx2)
 		indexerBuffer.PushTransaction("charlie", tx2) // duplicate
 
-		allTxs := indexerBuffer.GetAllTransactions()
+		allTxs := indexerBuffer.GetTransactions()
 		require.Len(t, allTxs, 2)
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, allTxs)
 	})
@@ -297,7 +283,7 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 		indexerBuffer.PushTransaction("bob", tx1)
 		indexerBuffer.PushTransaction("alice", tx2)
 
-		txParticipants := indexerBuffer.GetAllTransactionsParticipants()
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx2.Hash])
 	})
@@ -315,7 +301,7 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 		indexerBuffer.PushOperation("bob", op2, tx1)
 		indexerBuffer.PushOperation("charlie", op2, tx1) // duplicate
 
-		allOps := indexerBuffer.GetAllOperations()
+		allOps := indexerBuffer.GetOperations()
 		require.Len(t, allOps, 2)
 		assert.ElementsMatch(t, []types.Operation{op1, op2}, allOps)
 	})
@@ -333,7 +319,7 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 		indexerBuffer.PushOperation("bob", op1, tx1)
 		indexerBuffer.PushOperation("alice", op2, tx1)
 
-		opParticipants := indexerBuffer.GetAllOperationsParticipants()
+		opParticipants := indexerBuffer.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice", "bob"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(2)])
 	})
@@ -354,7 +340,7 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 		indexerBuffer.PushStateChange(tx, op, sc2)
 		indexerBuffer.PushStateChange(tx, op, sc3)
 
-		allStateChanges := indexerBuffer.GetAllStateChanges()
+		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
 }
@@ -365,10 +351,8 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer2 := NewIndexerBuffer()
 
 		buffer1.MergeBuffer(buffer2)
-
-		assert.Equal(t, 0, buffer1.participants.Cardinality())
 		assert.Equal(t, 0, buffer1.GetNumberOfTransactions())
-		assert.Len(t, buffer1.GetAllStateChanges(), 0)
+		assert.Len(t, buffer1.GetStateChanges(), 0)
 	})
 
 	t.Run("🟢 merge transactions only", func(t *testing.T) {
@@ -383,16 +367,13 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Verify participants
-		assert.Equal(t, set.NewSet("alice", "bob"), buffer1.participants)
-
 		// Verify transactions
-		allTxs := buffer1.GetAllTransactions()
+		allTxs := buffer1.GetTransactions()
 		assert.Len(t, allTxs, 2)
 		assert.ElementsMatch(t, []types.Transaction{tx1, tx2}, allTxs)
 
 		// Verify transaction participants
-		txParticipants := buffer1.GetAllTransactionsParticipants()
+		txParticipants := buffer1.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.Hash])
 	})
@@ -410,16 +391,13 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Verify participants
-		assert.Equal(t, set.NewSet("alice", "bob"), buffer1.participants)
-
 		// Verify operations
-		allOps := buffer1.GetAllOperations()
+		allOps := buffer1.GetOperations()
 		assert.Len(t, allOps, 2)
 		assert.ElementsMatch(t, []types.Operation{op1, op2}, allOps)
 
 		// Verify operation participants
-		opParticipants := buffer1.GetAllOperationsParticipants()
+		opParticipants := buffer1.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
 	})
@@ -440,7 +418,7 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		buffer1.MergeBuffer(buffer2)
 
 		// Verify state changes
-		allStateChanges := buffer1.GetAllStateChanges()
+		allStateChanges := buffer1.GetStateChanges()
 		assert.Len(t, allStateChanges, 2)
 		assert.Equal(t, sc1, allStateChanges[0])
 		assert.Equal(t, sc2, allStateChanges[1])
@@ -465,20 +443,17 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Verify all participants
-		assert.Equal(t, set.NewSet("alice", "bob", "charlie"), buffer1.participants)
-
 		// Verify transactions
-		allTxs := buffer1.GetAllTransactions()
+		allTxs := buffer1.GetTransactions()
 		assert.Len(t, allTxs, 2)
 
 		// Verify tx1 has both alice and bob as participants
-		txParticipants := buffer1.GetAllTransactionsParticipants()
+		txParticipants := buffer1.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("charlie"), txParticipants[tx2.Hash])
 
 		// Verify operation participants merged
-		opParticipants := buffer1.GetAllOperationsParticipants()
+		opParticipants := buffer1.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice", "bob"), opParticipants[int64(1)])
 	})
 
@@ -496,11 +471,9 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Verify everything was copied
-		assert.Equal(t, set.NewSet("alice", "bob"), buffer1.participants)
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
-		assert.Len(t, buffer1.GetAllOperations(), 1)
-		assert.Len(t, buffer1.GetAllStateChanges(), 1)
+		assert.Len(t, buffer1.GetOperations(), 1)
+		assert.Len(t, buffer1.GetStateChanges(), 1)
 	})
 
 	t.Run("🟢 merge empty buffer into populated", func(t *testing.T) {
@@ -512,8 +485,6 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Buffer1 should remain unchanged
-		assert.Equal(t, set.NewSet("alice"), buffer1.participants)
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
 	})
 
@@ -546,7 +517,6 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		wg.Wait()
 
 		// Verify all data merged correctly
-		assert.Equal(t, set.NewSet("alice", "bob", "charlie"), buffer1.participants)
 		assert.Equal(t, 3, buffer1.GetNumberOfTransactions())
 	})
 
@@ -573,29 +543,26 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 
 		buffer1.MergeBuffer(buffer2)
 
-		// Verify all participants
-		assert.Equal(t, set.NewSet("alice", "bob"), buffer1.participants)
-
 		// Verify transactions
-		allTxs := buffer1.GetAllTransactions()
+		allTxs := buffer1.GetTransactions()
 		assert.Len(t, allTxs, 2)
 
 		// Verify operations
-		allOps := buffer1.GetAllOperations()
+		allOps := buffer1.GetOperations()
 		assert.Len(t, allOps, 2)
 
 		// Verify state changes
-		allStateChanges := buffer1.GetAllStateChanges()
+		allStateChanges := buffer1.GetStateChanges()
 		assert.Len(t, allStateChanges, 2)
 		assert.Equal(t, sc1, allStateChanges[0])
 		assert.Equal(t, sc2, allStateChanges[1])
 
 		// Verify participants mappings
-		txParticipants := buffer1.GetAllTransactionsParticipants()
+		txParticipants := buffer1.GetTransactionsParticipants()
 		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.Hash])
 		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.Hash])
 
-		opParticipants := buffer1.GetAllOperationsParticipants()
+		opParticipants := buffer1.GetOperationsParticipants()
 		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
 		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
 	})
