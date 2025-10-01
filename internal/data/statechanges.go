@@ -206,13 +206,8 @@ func (m *StateChangeModel) BatchInsert(
 	}
 
 	const insertQuery = `
-		-- STEP 1: Get existing accounts
-		WITH existing_accounts AS (
-			SELECT stellar_address FROM accounts WHERE stellar_address=ANY($7)
-		),
-
-		-- STEP 2: Create properly aligned data from arrays
-		input_data AS (
+		-- Insert state changes
+		WITH input_data AS (
 			SELECT
 				UNNEST($1::bigint[]) AS state_change_order,
 				UNNEST($2::bigint[]) AS to_id,
@@ -237,15 +232,6 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($21::jsonb[]) AS flags,
 				UNNEST($22::jsonb[]) AS key_value
 		),
-
-		-- STEP 3: Get state changes that reference existing accounts
-		valid_state_changes AS (
-			SELECT sc.*
-			FROM input_data sc
-			WHERE sc.account_id IN (SELECT stellar_address FROM existing_accounts)
-		),
-
-		-- STEP 4: Insert the valid state changes
 		inserted_state_changes AS (
 			INSERT INTO state_changes
 				(state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
@@ -254,16 +240,15 @@ func (m *StateChangeModel) BatchInsert(
 				spender_account_id, sponsored_account_id, sponsor_account_id,
 				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value)
 			SELECT
-				state_change_order, to_id, state_change_category, state_change_reason, ledger_created_at,
-				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
-				offer_id, signer_account_id,
-				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value
-			FROM valid_state_changes
+				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
+				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
+				sc.offer_id, sc.signer_account_id,
+				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
+				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.flags, sc.key_value
+			FROM input_data sc
 			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
 		)
-
 		SELECT CONCAT(to_id, '-', state_change_order) FROM inserted_state_changes;
 	`
 

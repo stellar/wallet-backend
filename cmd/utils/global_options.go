@@ -21,6 +21,17 @@ func IngestServerPortOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+func AdminPortOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "admin-port",
+		Usage:       "Port for admin server exposing pprof endpoints at /debug/pprof. Leave unset to disable.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 0,
+		Required:    false,
+	}
+}
+
 func DatabaseURLOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "database-url",

@@ -44,6 +44,20 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 	return &account, nil
 }
 
+func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
+	const query = `SELECT stellar_address FROM accounts`
+	start := time.Now()
+	accounts := []string{}
+	err := m.DB.SelectContext(ctx, &accounts, query)
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	if err != nil {
+		return nil, fmt.Errorf("getting all accounts: %w", err)
+	}
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	return accounts, nil
+}
+
 func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	const query = `INSERT INTO accounts (stellar_address) VALUES ($1)`
 	start := time.Now()
@@ -83,11 +97,30 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	return nil
 }
 
+// BatchGetByIDs returns the subset of provided account IDs that exist in the accounts table.
+func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) ([]string, error) {
+	if len(accountIDs) == 0 {
+		return []string{}, nil
+	}
+
+	const query = `SELECT stellar_address FROM accounts WHERE stellar_address = ANY($1)`
+	start := time.Now()
+	existingAccounts := []string{}
+	err := m.DB.SelectContext(ctx, &existingAccounts, query, pq.Array(accountIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		return nil, fmt.Errorf("batch getting accounts by IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
+	return existingAccounts, nil
+}
+
 // IsAccountFeeBumpEligible checks whether an account is eligible to have its transaction fee-bumped. Channel Accounts should be
 // eligible because some of the transactions will have the channel accounts as the source account (i. e. create account sponsorship).
 func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address string) (bool, error) {
 	const query = `
-		SELECT 
+		SELECT
 			EXISTS(
 				SELECT stellar_address FROM accounts WHERE stellar_address = $1
 				UNION

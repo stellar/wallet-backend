@@ -33,7 +33,6 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	const q = "INSERT INTO accounts (stellar_address) SELECT UNNEST(ARRAY[$1, $2])"
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
-	nonExistingAccount := keypair.MustRandom()
 
 	tx1 := types.Transaction{
 		Hash:            "tx1",
@@ -96,24 +95,6 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			txs:                    []types.Transaction{tx1, tx1},
 			stellarAddressesByHash: map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address())},
 			wantAccountLinks:       map[string][]string{tx1.Hash: {kp1.Address()}},
-			wantErrContains:        "",
-			wantHashes:             []string{tx1.Hash},
-		},
-		{
-			name:                   "🟡tx_with_all_non_existing_accounts_is_ignored",
-			useDBTx:                false,
-			txs:                    []types.Transaction{tx1},
-			stellarAddressesByHash: map[string]set.Set[string]{tx1.Hash: set.NewSet(nonExistingAccount.Address())},
-			wantAccountLinks:       map[string][]string{},
-			wantErrContains:        "",
-			wantHashes:             nil,
-		},
-		{
-			name:                   "🟡non_existing_account_is_ignored_but_tx_and_other_accounts_links_are_inserted",
-			useDBTx:                false,
-			txs:                    []types.Transaction{tx1},
-			stellarAddressesByHash: map[string]set.Set[string]{tx1.Hash: set.NewSet(kp1.Address(), kp2.Address(), nonExistingAccount.Address())},
-			wantAccountLinks:       map[string][]string{tx1.Hash: {kp1.Address(), kp2.Address()}},
 			wantErrContains:        "",
 			wantHashes:             []string{tx1.Hash},
 		},

@@ -194,53 +194,30 @@ func (m *TransactionModel) BatchInsert(
 		}
 	}
 
-	// 3. Single query that inserts only transactions that are connected to at least one existing account.
-	// It also inserts the transactions_accounts links.
+	// Insert transactions and transactions_accounts links with minimal account validation.
 	const insertQuery = `
-	-- STEP 1: Get existing accounts
-	WITH existing_accounts AS (
-		SELECT stellar_address FROM accounts WHERE stellar_address=ANY($9)
+	WITH
+	-- Insert transactions
+	inserted_transactions AS (
+		INSERT INTO transactions
+			(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		SELECT
+			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
+		FROM (
+			SELECT
+				UNNEST($1::text[]) AS hash,
+				UNNEST($2::bigint[]) AS to_id,
+				UNNEST($3::text[]) AS envelope_xdr,
+				UNNEST($4::text[]) AS result_xdr,
+				UNNEST($5::text[]) AS meta_xdr,
+				UNNEST($6::bigint[]) AS ledger_number,
+				UNNEST($7::timestamptz[]) AS ledger_created_at
+		) t
+		ON CONFLICT (hash) DO NOTHING
+		RETURNING hash
 	),
 
-	-- STEP 2: Get transaction hashes to insert (connected to at least one existing account)
-    valid_transactions AS (
-        SELECT DISTINCT tx_hash
-        FROM (
-			SELECT
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id
-		) ta
-		WHERE ta.account_id IN (SELECT stellar_address FROM existing_accounts)
-    ),
-
-	-- STEP 3: Insert those transactions
-    inserted_transactions AS (
-        INSERT INTO transactions
-          	(hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-        SELECT
-            vt.tx_hash,
-            t.to_id,
-            t.envelope_xdr,
-            t.result_xdr,
-            t.meta_xdr,
-            t.ledger_number,
-            t.ledger_created_at
-        FROM valid_transactions vt
-        JOIN (
-            SELECT
-                UNNEST($1::text[]) AS hash,
-                UNNEST($2::bigint[]) AS to_id,
-                UNNEST($3::text[]) AS envelope_xdr,
-                UNNEST($4::text[]) AS result_xdr,
-                UNNEST($5::text[]) AS meta_xdr,
-                UNNEST($6::bigint[]) AS ledger_number,
-                UNNEST($7::timestamptz[]) AS ledger_created_at
-        ) t ON t.hash = vt.tx_hash
-        ON CONFLICT (hash) DO NOTHING
-        RETURNING hash
-    ),
-
-	-- STEP 4: Insert transactions_accounts links
+	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
 			(tx_hash, account_id)
@@ -251,12 +228,10 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($8::text[]) AS tx_hash,
 				UNNEST($9::text[]) AS account_id
 		) ta
-		INNER JOIN existing_accounts ea ON ea.stellar_address = ta.account_id
-		INNER JOIN inserted_transactions it ON it.hash = ta.tx_hash
 		ON CONFLICT DO NOTHING
 	)
 
-	-- STEP 5: Return the hashes of successfully inserted transactions
+	-- Return the hashes of successfully inserted transactions
 	SELECT hash FROM inserted_transactions;
     `
 

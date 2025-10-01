@@ -233,6 +233,7 @@ services:
       GET_LEDGERS_LIMIT: 150
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      # ADMIN_PORT: 9094  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
 
   ingest-mainnet:
     container_name: ingest-mainnet
@@ -274,6 +275,7 @@ services:
       GET_LEDGERS_LIMIT: 20
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      # ADMIN_PORT: 9095  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
 volumes:
   postgres-db:
     driver: local

@@ -15,7 +15,64 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-func TestAccountModelInsert(t *testing.T) {
+func TestAccountModel_BatchGetByIDs(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	mockMetricsService := metrics.NewMockMetricsService()
+	defer mockMetricsService.AssertExpectations(t)
+
+	accountModel := &AccountModel{
+		DB:             dbConnectionPool,
+		MetricsService: mockMetricsService,
+	}
+
+	ctx := context.Background()
+
+	t.Run("empty input returns empty result", func(t *testing.T) {
+		result, err := accountModel.BatchGetByIDs(ctx, []string{})
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("returns existing accounts only", func(t *testing.T) {
+		// Insert some test accounts
+		_, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1), ($2)", "account1", "account2")
+		require.NoError(t, err)
+
+		// Test with mix of existing and non-existing accounts
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return().Once()
+
+		result, err := accountModel.BatchGetByIDs(ctx, []string{"account1", "nonexistent", "account2", "another_nonexistent"})
+		require.NoError(t, err)
+
+		// Should only return the existing accounts
+		assert.Len(t, result, 2)
+		assert.Contains(t, result, "account1")
+		assert.Contains(t, result, "account2")
+		assert.NotContains(t, result, "nonexistent")
+		assert.NotContains(t, result, "another_nonexistent")
+	})
+
+	t.Run("returns empty when no accounts exist", func(t *testing.T) {
+		// Clean up the table
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+		require.NoError(t, err)
+
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return().Once()
+
+		result, err := accountModel.BatchGetByIDs(ctx, []string{"nonexistent1", "nonexistent2"})
+		require.NoError(t, err)
+		assert.Empty(t, result)
+	})
+}
+
+func TestAccountModel_Insert(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -71,7 +128,7 @@ func TestAccountModelInsert(t *testing.T) {
 	})
 }
 
-func TestAccountModelDelete(t *testing.T) {
+func TestAccountModel_Delete(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
@@ -259,7 +316,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, operationID2, addressSet[address2])
 }
 
-func TestAccountModelIsAccountFeeBumpEligible(t *testing.T) {
+func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
