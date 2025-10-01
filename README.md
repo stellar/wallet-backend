@@ -787,9 +787,11 @@ query ListTransactions {
 
 **2. Complexity Limits**
 
-Queries are limited to a complexity score of **1000** to prevent resource exhaustion. Complexity is calculated based on:
+Queries are limited by a configurable complexity score (default: **1000**) to prevent resource exhaustion. Complexity is calculated based on:
 - Number of fields requested
 - Pagination parameters (`first`/`last` multiplied by field complexity)
+
+The complexity limit can be configured via the `--graphql-complexity-limit` flag or the `GRAPHQL_COMPLEXITY_LIMIT` environment variable.
 
 If a query exceeds the limit, you'll receive an error:
 ```json
