@@ -227,6 +227,8 @@ query ListTransactions {
 - `last: Int` - Return the last N items (backward pagination)
 - `before: String` - Return items before this cursor
 
+Note that you can only use `first/after` and `last/before`. Any other combination will result in an error.
+
 ##### 3. Get Account by Address
 
 Retrieve account information and related data.
@@ -371,7 +373,7 @@ query GetOperation {
 
 ##### 6. List State Changes
 
-Query all state changes with optional filtering.
+Query all state changes.
 
 ```graphql
 query ListStateChanges {
@@ -535,7 +537,7 @@ mutation BuildTransaction {
 
 ##### 4. Create Fee Bump Transaction
 
-Wrap a signed transaction in a fee bump transaction.
+Wrap a signed transaction in a fee bump transaction and sign it using the wallet backend's distribution account.
 
 ```graphql
 mutation CreateFeeBump {
@@ -638,14 +640,14 @@ State changes represent modifications to the blockchain state. The API uses an *
 
 | Category | Types | Description |
 |----------|-------|-------------|
-| `BALANCE` | `StandardBalanceChange` | Changes to token balances |
-| `ACCOUNT` | `AccountChange` | Account creation/deletion |
+| `BALANCE` | `StandardBalanceChange` | Changes to an account's balance |
+| `ACCOUNT` | `AccountChange` | Account creation/merge |
 | `SIGNER` | `SignerChange` | Signer additions/removals |
 | `SIGNATURE_THRESHOLD` | `SignerThresholdsChange` | Threshold changes (low/medium/high) |
 | `METADATA` | `MetadataChange` | Account metadata/data entries |
 | `FLAGS` | `FlagsChange` | Account flag changes |
 | `TRUSTLINE` | `TrustlineChange` | Trustline limit changes |
-| `SPONSORSHIP` | `ReservesChange` | Sponsorship changes |
+| `RESERVES` | `ReservesChange` | Changes to the base reserves |
 | `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` | Balance authorization flags |
 
 **State Change Reasons:**
@@ -655,7 +657,7 @@ Reasons provide context for why a state change occurred:
 - `DEBIT`, `CREDIT` - Balance decreases/increases
 - `MINT`, `BURN` - Token creation/destruction
 - `ADD`, `REMOVE` - Adding/removing signers, trustlines
-- `UPDATE` - General updates
+- `UPDATE` - Updates to the state. Could be account flags, reserves etc...
 - `LOW`, `MEDIUM`, `HIGH` - Threshold levels
 - `HOME_DOMAIN` - Home domain changes
 - `SET`, `CLEAR` - Setting/clearing values
@@ -760,14 +762,22 @@ Prevents N+1 query problems by batching and caching database requests. When quer
 - Cache results within a single request
 - Reduce database roundtrips
 
+For example, without dataloader, the following query would:
+1. First fetch first 5 transactions
+2. For each transaction, make an individual DB call to get the operations
+
+However, with dataloader, the individual DB calls to get operations get converted to a single DB call for all batched operations for all transactions.
 ```graphql
-# This efficiently loads all accounts in a single query
-query {
-  transactions(first: 10) {
+query ListTransactions {
+  transactions(first: 5, after: "cursor123") {
     edges {
       node {
-        accounts {  # DataLoader batches these
-          address
+        operations {
+          id
+          operationType
+          operationXdr
+          ledgerNumber
+          ledgerCreatedAt
         }
       }
     }
