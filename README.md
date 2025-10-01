@@ -634,26 +634,26 @@ query {
 
 #### State Changes
 
-State changes represent modifications to the blockchain state. The API uses an **interface-based design** where all state changes implement the `BaseStateChange` interface.
+State changes represent modifications to an account's state. The API uses an **interface-based design** where all state changes implement the `BaseStateChange` interface.
 
 **State Change Categories:**
 
 | Category | Types | Description |
 |----------|-------|-------------|
-| `BALANCE` | `StandardBalanceChange` | Changes to an account's balance |
-| `ACCOUNT` | `AccountChange` | Account creation/merge |
+| `BALANCE` | `StandardBalanceChange` | Changes to an account's balance (payments, mints, burns, clawbacks) |
+| `ACCOUNT` | `AccountChange` | Account creation or merge operations |
 | `SIGNER` | `SignerChange` | Signer additions/removals |
 | `SIGNATURE_THRESHOLD` | `SignerThresholdsChange` | Threshold changes (low/medium/high) |
 | `METADATA` | `MetadataChange` | Account metadata/data entries |
 | `FLAGS` | `FlagsChange` | Account flag changes |
 | `TRUSTLINE` | `TrustlineChange` | Trustline limit changes |
-| `RESERVES` | `ReservesChange` | Changes to the base reserves |
-| `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` | Balance authorization flags |
+| `RESERVES` | `ReservesChange` | Sponsorship relationships for an account's base reserves |
+| `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` | Balance authorization for trustlines and contract accounts |
 
 **State Change Reasons:**
 
 Reasons provide context for why a state change occurred:
-- `CREATE`, `MERGE` - Account/trustline lifecycle
+- `CREATE`, `MERGE` - Account lifecycle
 - `DEBIT`, `CREDIT` - Balance decreases/increases
 - `MINT`, `BURN` - Token creation/destruction
 - `ADD`, `REMOVE` - Adding/removing signers, trustlines
@@ -662,6 +662,7 @@ Reasons provide context for why a state change occurred:
 - `HOME_DOMAIN` - Home domain changes
 - `SET`, `CLEAR` - Setting/clearing values
 - `DATA_ENTRY` - Data entry operations
+- `SPONSOR`, `UNSPONSOR` - Sponsorship relationship changes
 
 **Example: Querying Specific State Change Types:**
 
@@ -689,7 +690,7 @@ query GetBalanceChanges {
 }
 ```
 
-**Example: Filtering by Account:**
+**Example: Querying state changes for a specific account:**
 
 ```graphql
 query GetAccountStateChanges {
@@ -717,6 +718,47 @@ query GetAccountStateChanges {
 }
 ```
 
+**Field Structure Details:**
+
+Several state change fields return JSON-formatted strings containing old and new values. Here are the structures:
+
+1. **signerWeights** (SignerChange):
+   - For new signers: `{"new": 1}`
+   - For updated signers: `{"old": 1, "new": 2}`
+   - For removed signers: `{"old": 1}`
+
+2. **thresholds** (SignerThresholdsChange):
+   - Format: `{"old": "10", "new": "20"}`
+   - Values represent threshold weights as strings
+
+3. **trustlineLimit** (TrustlineChange):
+   - For new trustlines: `{"limit": {"new": "1000"}}`
+   - For updated trustlines: `{"limit": {"old": "1000", "new": "2000"}}`
+
+4. **keyValue** (MetadataChange and BalanceAuthorizationChange):
+   - For MetadataChange (home domain): `{"home_domain": "example.com"}`
+   - For MetadataChange (data entry): `{"entry_name": {"old": "base64OldValue", "new": "base64NewValue"}}`
+   - For BalanceAuthorizationChange (liquidity pools): `{"liquidity_pool_id": "pool_id"}`
+
+5. **flags** (FlagsChange and BalanceAuthorizationChange):
+   - Array of flag names that were set or cleared
+   - See Flag Values Reference below for possible values
+
+**Flag Values Reference:**
+
+*Account Flags (FlagsChange):*
+- `auth_required_flag` - Authorization required for accounts to hold assets
+- `auth_revocable_flag` - Issuer can revoke authorization
+- `auth_immutable_flag` - Authorization flags cannot be changed
+- `auth_clawback_enabled_flag` - Issuer can clawback assets
+
+*Trustline/Balance Authorization Flags (BalanceAuthorizationChange):*
+- `authorized` - Trustline is authorized to hold assets
+- `authorized_to_maintain_liabilites` - Can maintain liabilities but not increase balance
+- `clawback_enabled_flag` - Asset issuer can clawback this balance
+- `auth_revocable_flag` - Authorization can be revoked
+- `auth_immutable_flag` - Authorization flags are immutable
+
 #### Error Handling
 
 The GraphQL API returns structured errors with detailed information:
@@ -738,18 +780,25 @@ The GraphQL API returns structured errors with detailed information:
 }
 ```
 
-**Common Error Codes:**
+**Error with Additional Context (Extensions):**
 
-| Code | Description |
-|------|-------------|
-| `ACCOUNT_ALREADY_EXISTS` | Account is already registered |
-| `ACCOUNT_NOT_FOUND` | Account does not exist |
-| `INVALID_ADDRESS` | Invalid Stellar address format |
-| `INVALID_TRANSACTION_XDR` | Cannot parse transaction XDR |
-| `CHANNEL_ACCOUNT_UNAVAILABLE` | No channel accounts available |
-| `FEE_EXCEEDS_MAXIMUM` | Transaction fee too high |
-| `INVALID_SOROBAN_TRANSACTION` | Invalid Soroban transaction structure |
-| `FORBIDDEN_SIGNER` | Unauthorized transaction signer |
+Some errors include additional context in the `extensions` field. For example, when a fee exceeds the maximum:
+
+```json
+{
+  "errors": [
+    {
+      "message": "Transaction fee exceeds maximum allowed",
+      "extensions": {
+        "code": "FEE_EXCEEDS_MAXIMUM",
+        "maximumBaseFee": "10000"
+      },
+      "path": ["createFeeBumpTransaction"]
+    }
+  ],
+  "data": null
+}
+```
 
 #### Performance Features
 
