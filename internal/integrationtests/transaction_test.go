@@ -23,13 +23,12 @@ import (
 )
 
 const (
-	networkPassphrase                = "Standalone Network ; February 2017"
+	networkPassphrase = "Standalone Network ; February 2017"
 )
 
 type TransactionTestSuite struct {
 	suite.Suite
 	containers                         *infrastructure.SharedContainers
-	keyPairs                           *infrastructure.KeyPairs
 	RPCService                         services.RPCService
 	WBClient                           *wbclient.Client
 	PrimaryAccountKP                   *keypair.Full
@@ -48,18 +47,15 @@ func (suite *TransactionTestSuite) SetupSuite() {
 	suite.Require().NoError(err, "failed to get wallet-backend connection string")
 
 	// Parse keypairs
-	suite.PrimaryAccountKP, err = keypair.ParseFull(primarySourceAccountPrivateKey)
+	suite.PrimaryAccountKP = suite.containers.GetPrimarySourceAccountKeyPair(ctx)
 	suite.Require().NoError(err, "failed to parse primary account keypair")
 
-	suite.SecondaryAccountKP, err = keypair.ParseFull(secondarySourceAccountPrivateKey)
+	suite.SecondaryAccountKP = suite.containers.GetSecondarySourceAccountKeyPair(ctx)
 	suite.Require().NoError(err, "failed to parse secondary account keypair")
 
-	// Fund test accounts using friendbot
-	suite.fundAccount(ctx, suite.PrimaryAccountKP.Address())
-	suite.fundAccount(ctx, suite.SecondaryAccountKP.Address())
-
 	// Initialize wallet-backend client
-	jwtTokenGenerator, err := auth.NewJWTTokenGenerator(clientAuthPrivateKey)
+	clientAuthKP := suite.containers.GetClientAuthKeyPair(ctx)
+	jwtTokenGenerator, err := auth.NewJWTTokenGenerator(clientAuthKP.Seed())
 	suite.Require().NoError(err, "failed to create JWT token generator")
 	requestSigner := auth.NewHTTPRequestSigner(jwtTokenGenerator)
 	suite.WBClient = wbclient.NewClient(wbURL, requestSigner)

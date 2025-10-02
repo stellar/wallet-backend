@@ -1,5 +1,5 @@
 ENDPOINT="0.0.0.0:8000"
-FRIENDBOT_URL="http://stellar-core:11626/friendbot"
+FRIENDBOT_URL="http://friendbot"
 NETWORK_PASSPHRASE="Standalone Network ; February 2017"
 STELLAR_CORE_URL="http://stellar-core:11626"
 CAPTIVE_CORE_CONFIG_PATH="/config/captive-core.cfg"

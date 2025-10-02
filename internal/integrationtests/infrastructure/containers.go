@@ -2,7 +2,9 @@
 package infrastructure
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -10,27 +12,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stretchr/testify/require"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 const (
-	WalletBackendContainerName = "wallet-backend"
-	WalletBackendContainerPort = "8002"
-	WalletBackendContainerTag  = "integration-test"
-	WalletBackendDockerfile    = "Dockerfile"
-	WalletBackendContext       = "../../../"
+	walletBackendContainerName = "wallet-backend"
+	walletBackendContainerPort = "8002"
+	walletBackendContainerTag  = "integration-test"
+	walletBackendDockerfile    = "Dockerfile"
+	walletBackendContext       = "../../../"
+	networkPassphrase          = "Standalone Network ; February 2017"
 )
 
 // TestContainer wraps a testcontainer with connection string helper
 type TestContainer struct {
 	testcontainers.Container
-	MappedPortStr string
+	MappedPortStr    string
 	ConnectionString string
 }
 
@@ -51,16 +57,18 @@ func (c *TestContainer) GetConnectionString(ctx context.Context) (string, error)
 
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
-	TestNetwork            *testcontainers.DockerNetwork
-	PostgresContainer      *TestContainer
-	StellarCoreContainer   *TestContainer
-	RPCContainer           *TestContainer
-	WalletDBContainer      *TestContainer
-	WalletBackendContainer *TestContainer
-	ClientAuthKeyPair             *keypair.Full
-	PrimarySourceAccountKeyPair   *keypair.Full
-	SecondarySourceAccountKeyPair *keypair.Full
-	DistributionAccountKeyPair    *keypair.Full
+	TestNetwork                   *testcontainers.DockerNetwork
+	PostgresContainer             *TestContainer
+	StellarCoreContainer          *TestContainer
+	RPCContainer                  *TestContainer
+	WalletDBContainer             *TestContainer
+	WalletBackendContainer        *TestContainer
+	clientAuthKeyPair             *keypair.Full
+	primarySourceAccountKeyPair   *keypair.Full
+	secondarySourceAccountKeyPair *keypair.Full
+	distributionAccountKeyPair    *keypair.Full
+	masterAccount                 *txnbuild.SimpleAccount
+	masterKeyPair                 *keypair.Full
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
@@ -82,25 +90,57 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.StellarCoreContainer, err = createStellarCoreContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
-	// Create and fund accounts
-	shared.ClientAuthKeyPair = shared.createAndFundAccount(ctx, t)
-	shared.PrimarySourceAccountKeyPair = shared.createAndFundAccount(ctx, t)
-	shared.SecondarySourceAccountKeyPair = shared.createAndFundAccount(ctx, t)
-	shared.DistributionAccountKeyPair = shared.createAndFundAccount(ctx, t)
-
 	// Start Stellar RPC
 	shared.RPCContainer, err = createRPCContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
+
+	// Initialize master account for funding
+	shared.masterKeyPair = keypair.Root(networkPassphrase)
+	shared.masterAccount = &txnbuild.SimpleAccount{
+		AccountID: shared.masterKeyPair.Address(),
+		Sequence:  0,
+	}
+
+	// Create keypairs for all test accounts
+	shared.clientAuthKeyPair = keypair.MustRandom()
+	shared.primarySourceAccountKeyPair = keypair.MustRandom()
+	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
+	shared.distributionAccountKeyPair = keypair.MustRandom()
+
+	// Create and fund all accounts in a single transaction
+	shared.createAndFundAccounts(ctx, t, []*keypair.Full{
+		shared.clientAuthKeyPair,
+		shared.primarySourceAccountKeyPair,
+		shared.secondarySourceAccountKeyPair,
+		shared.distributionAccountKeyPair,
+	})
 
 	// Start PostgreSQL for wallet-backend
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
 	// Start wallet-backend service
-	shared.WalletBackendContainer, err = createWalletBackendAPIContainer(ctx, WalletBackendContainerName, WalletBackendContainerTag, shared.TestNetwork)
+	shared.WalletBackendContainer, err = createWalletBackendAPIContainer(ctx, walletBackendContainerName,
+		walletBackendContainerTag, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
 	require.NoError(t, err)
 
 	return shared
+}
+
+func (s *SharedContainers) GetClientAuthKeyPair(ctx context.Context) *keypair.Full {
+	return s.clientAuthKeyPair
+}
+
+func (s *SharedContainers) GetPrimarySourceAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.primarySourceAccountKeyPair
+}
+
+func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.secondarySourceAccountKeyPair
+}
+
+func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.distributionAccountKeyPair
 }
 
 // Cleanup cleans up shared containers after all tests complete
@@ -125,23 +165,64 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 	}
 }
 
-// createAndFundAccount creates and funds an account using the standalone network friendbot
-func (s *SharedContainers) createAndFundAccount(ctx context.Context, t *testing.T) *keypair.Full {
-	kp := keypair.MustRandom()
-	coreURL, err := s.StellarCoreContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get stellar-core connection string")
+// createAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
+func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+	// Build CreateAccount operations for all accounts
+	ops := make([]txnbuild.Operation, len(accounts))
+	for i, kp := range accounts {
+		ops[i] = &txnbuild.CreateAccount{
+			Destination:   kp.Address(),
+			Amount:        "10000", // Fund each with 10,000 XLM
+			SourceAccount: s.masterKeyPair.Address(),
+		}
+	}
 
-	friendbotURL := fmt.Sprintf("%s/friendbot?addr=%s", coreURL, kp.Address())
+	// Build transaction with all operations
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           ops,
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
+		},
+	})
+	require.NoError(t, err)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(friendbotURL)
-	require.NoError(t, err, "failed to fund account %s", kp.Address())
-	defer resp.Body.Close()
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err)
 
-	require.Equal(t, http.StatusOK, resp.StatusCode, "friendbot returned non-200 status for account %s", kp.Address())
-	log.Ctx(ctx).Infof("💰 Funded account: %s", kp.Address())
+	// Get RPC URL and submit
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err)
 
-	return kp
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+
+	// Submit transaction to RPC
+	client := &http.Client{Timeout: 30 * time.Second}
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit account creation transaction")
+	require.Equal(t, entities.SuccessStatus, sendResult.Status, "account creation transaction failed with status: %s", sendResult.Status)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "transaction not confirmed after 10 seconds")
+
+	// Log funded accounts
+	for _, kp := range accounts {
+		log.Ctx(ctx).Infof("💰 Funded account: %s", kp.Address())
+	}
 }
 
 // createPostgresContainer starts a PostgreSQL container for Stellar Core
@@ -169,9 +250,10 @@ func createPostgresContainer(ctx context.Context, testNetwork *testcontainers.Do
 	if err != nil {
 		return nil, fmt.Errorf("creating postgres container: %w", err)
 	}
+	log.Ctx(ctx).Infof("🔄 Created PostgreSQL container")
 
 	return &TestContainer{
-		Container: container,
+		Container:     container,
 		MappedPortStr: "5432",
 	}, nil
 }
@@ -184,7 +266,7 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "stellar-core",
-		Image: "stellar/stellar-core:22",
+		Image: "stellar/stellar-core:23",
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -225,9 +307,10 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 	if err != nil {
 		return nil, fmt.Errorf("creating stellar-core container: %w", err)
 	}
+	log.Ctx(ctx).Infof("🔄 Created Stellar Core container")
 
 	return &TestContainer{
-		Container: container,
+		Container:     container,
 		MappedPortStr: "11626",
 	}, nil
 }
@@ -240,7 +323,7 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "stellar-rpc",
-		Image: "stellar/stellar-rpc:latest",
+		Image: "stellar/stellar-rpc:23.0.4",
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -275,9 +358,10 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 	if err != nil {
 		return nil, fmt.Errorf("creating RPC container: %w", err)
 	}
+	log.Ctx(ctx).Infof("🔄 Created RPC container")
 
 	return &TestContainer{
-		Container: container,
+		Container:     container,
 		MappedPortStr: "8000",
 	}, nil
 }
@@ -307,20 +391,23 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 	if err != nil {
 		return nil, fmt.Errorf("creating wallet-db container: %w", err)
 	}
+	log.Ctx(ctx).Infof("🔄 Created Wallet DB container")
 
 	return &TestContainer{
-		Container: container,
+		Container:     container,
 		MappedPortStr: "5432",
 	}, nil
 }
 
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
-func createWalletBackendAPIContainer(ctx context.Context, name string, tag string, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+func createWalletBackendAPIContainer(ctx context.Context, name string, tag string,
+	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
 		Name: name,
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    WalletBackendContext,
-			Dockerfile: WalletBackendDockerfile,
+			Context:    walletBackendContext,
+			Dockerfile: walletBackendDockerfile,
 			KeepImage:  true,
 			Tag:        tag,
 		},
@@ -331,24 +418,24 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 			"sh", "-c",
 			"./wallet-backend migrate up && ./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
 		},
-		ExposedPorts: []string{fmt.Sprintf("%s/tcp", WalletBackendContainerPort)},
+		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerPort)},
 		Env: map[string]string{
-			"RPC_URL":                          		"http://stellar-rpc:8000",
-			"DATABASE_URL":                     		"postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                             		WalletBackendContainerPort,
-			"LOG_LEVEL":                        		"DEBUG",
-			"NETWORK":                          		"standalone",
-			"NETWORK_PASSPHRASE":               		"Standalone Network ; February 2017",
-			"CLIENT_AUTH_PUBLIC_KEYS":          		"GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
-			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  		"GC2BRLN55MHAW6QPKJBTXARC35IWK55DX6OGDPRTANYWXVLS3LPY5BWR",
-			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": 		"SAJKJRHPCQFZH5PBLXOM2OBXZJT323F7N23Y7ZFNW4ABUBMM334HB7PY",
-			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": 	"ENV",
-			"NUMBER_CHANNEL_ACCOUNTS":                 	"7",
-			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   	"GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
-			"STELLAR_ENVIRONMENT":                     	"integration-test",
+			"RPC_URL":                          "http://stellar-rpc:8000",
+			"DATABASE_URL":                     "postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
+			"PORT":                             walletBackendContainerPort,
+			"LOG_LEVEL":                        "DEBUG",
+			"NETWORK":                          "standalone",
+			"NETWORK_PASSPHRASE":               "Standalone Network ; February 2017",
+			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
+			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
+			"NUMBER_CHANNEL_ACCOUNTS":                 "7",
+			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
+			"STELLAR_ENVIRONMENT":                     "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
-		WaitingFor: wait.ForHTTP("/health").WithPort(WalletBackendContainerPort + "/tcp"),
+		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerPort + "/tcp"),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -359,9 +446,96 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 	if err != nil {
 		return nil, fmt.Errorf("creating wallet-backend container: %w", err)
 	}
+	log.Ctx(ctx).Infof("🔄 Created Wallet Backend API container")
 
 	return &TestContainer{
-		Container: container,
-		MappedPortStr: WalletBackendContainerPort,
+		Container:     container,
+		MappedPortStr: walletBackendContainerPort,
 	}, nil
+}
+
+// submitTransactionToRPC submits a transaction XDR to the RPC endpoint
+func submitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSendTransactionResult, error) {
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "sendTransaction",
+		"params": map[string]string{
+			"transaction": txXDR,
+		},
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("posting to RPC: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close() //nolint:errcheck
+	}()
+
+	var rpcResp struct {
+		Result entities.RPCSendTransactionResult `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+
+	return &rpcResp.Result, nil
+}
+
+// getTransactionFromRPC polls RPC for transaction status
+func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.RPCGetTransactionResult, error) {
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "getTransaction",
+		"params": map[string]string{
+			"hash": hash,
+		},
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("posting to RPC: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close() //nolint:errcheck
+	}()
+
+	var rpcResp struct {
+		Result entities.RPCGetTransactionResult `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+
+	return &rpcResp.Result, nil
 }
