@@ -31,6 +31,7 @@ const (
 	walletBackendDockerfile    = "Dockerfile"
 	walletBackendContext       = "../../../"
 	networkPassphrase          = "Standalone Network ; February 2017"
+	protocolVersion            = 23 // Default protocol version for Stellar Core upgrades
 )
 
 // TestContainer wraps a testcontainer with connection string helper
@@ -204,7 +205,7 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	client := &http.Client{Timeout: 30 * time.Second}
 	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to submit account creation transaction")
-	require.Equal(t, entities.SuccessStatus, sendResult.Status, "account creation transaction failed with status: %s", sendResult.Status)
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "account creation transaction failed with status: %s", sendResult.Status)
 
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
@@ -223,6 +224,36 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	for _, kp := range accounts {
 		log.Ctx(ctx).Infof("💰 Funded account: %s", kp.Address())
 	}
+}
+
+// triggerProtocolUpgrade triggers a protocol upgrade on Stellar Core
+func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, version int) error {
+	// Get container's HTTP endpoint
+	coreURL, err := container.GetConnectionString(ctx)
+	if err != nil {
+		return fmt.Errorf("getting core connection string: %w", err)
+	}
+
+	// Build upgrade URL with parameters
+	upgradeURL := fmt.Sprintf("%s/upgrades?mode=set&upgradetime=1970-01-01T00:00:00Z&protocolversion=%d", coreURL, version)
+
+	// Make HTTP GET request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(upgradeURL)
+	if err != nil {
+		return fmt.Errorf("triggering protocol upgrade: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close() //nolint:errcheck
+	}()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("protocol upgrade failed with status code: %d", resp.StatusCode)
+	}
+
+	log.Ctx(ctx).Infof("⬆️  Triggered Stellar Core protocol upgrade to version %d", version)
+	return nil
 }
 
 // createPostgresContainer starts a PostgreSQL container for Stellar Core
@@ -309,10 +340,17 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 	}
 	log.Ctx(ctx).Infof("🔄 Created Stellar Core container")
 
-	return &TestContainer{
+	testContainer := &TestContainer{
 		Container:     container,
 		MappedPortStr: "11626",
-	}, nil
+	}
+
+	// Trigger protocol upgrade
+	if err := triggerProtocolUpgrade(ctx, testContainer, protocolVersion); err != nil {
+		return nil, fmt.Errorf("triggering protocol upgrade: %w", err)
+	}
+
+	return testContainer, nil
 }
 
 // createRPCContainer starts a Stellar RPC container for testing
