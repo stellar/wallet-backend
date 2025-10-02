@@ -1,0 +1,12 @@
+ENDPOINT="0.0.0.0:8000"
+FRIENDBOT_URL="http://stellar-core:11626/friendbot"
+NETWORK_PASSPHRASE="Standalone Network ; February 2017"
+STELLAR_CORE_URL="http://stellar-core:11626"
+CAPTIVE_CORE_CONFIG_PATH="/config/captive-core.cfg"
+CAPTIVE_CORE_STORAGE_PATH="/tmp/captive-core"
+STELLAR_CORE_BINARY_PATH="/usr/bin/stellar-core"
+HISTORY_ARCHIVE_URLS=["http://stellar-core:1570"]
+DB_PATH="rpc_db.sqlite"
+STELLAR_CAPTIVE_CORE_HTTP_PORT=11626
+CHECKPOINT_FREQUENCY=8
+INGESTION_RANGE="latest"

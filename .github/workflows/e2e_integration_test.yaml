@@ -7,21 +7,6 @@ on:
       - main
   workflow_call: # allows this workflow to be called from another workflow
 
-env:
-  CLIENT_AUTH_PUBLIC_KEYS: "GA3S5CCDSXIJI27PXQ2BUBEK3F5H3NBJWMAM6OCMLHQJWSHV35JDD7KK"
-  CLIENT_AUTH_PRIVATE_KEY: ${{ secrets.CLIENT_AUTH_PRIVATE_KEY }}
-  DISTRIBUTION_ACCOUNT_PUBLIC_KEY: "GBJVDOVDJWLASN7YSHMXKGEHLCPS3ADLDPBALZJNF2QG5ZCCA4V5GBCN"
-  DISTRIBUTION_ACCOUNT_PRIVATE_KEY: ${{ secrets.DISTRIBUTION_ACCOUNT_PRIVATE_KEY }}
-  DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER: "ENV"
-  NUMBER_CHANNEL_ACCOUNTS: "7"
-  CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE: ${{ secrets.CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE }} # GCUDC7BVRDP6E4HEUDJCSL25KBOAID3C6BIOQRGR3K3BAIHGQGJF36NQ
-  PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${{ secrets.PRIMARY_SOURCE_ACCOUNT_PRIVATE_KEY }} # GAHRRYTIJIUCI3DFKMVNC7TPAUZE6JLUGZS6VY7K5JIXOKQFIEDWN2NS
-  SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY: ${{ secrets.SECONDARY_SOURCE_ACCOUNT_PRIVATE_KEY }} # GBHCBTC2LT6DIDE2CNBF3IVGQNVCLLTGLEJJBRM4UKJTBYKWULOV5GQC
-  STELLAR_ENVIRONMENT: "GITHUB_WORKFLOW"
-  NETWORK: "testnet"
-  NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
-  RPC_URL: "https://soroban-testnet.stellar.org"
-
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -29,19 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Cleanup data
-        run: docker compose -f docker-compose.yaml down -v
-        shell: bash
-
-      - name: Run Docker Compose (Using SDF RPC Testnet)
-        run: docker compose -f docker-compose.yaml up --build -V -d api-testnet --wait
-        shell: bash
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
 
       - name: Run Integration Tests
-        shell: bash
-        run: docker exec api-testnet bash -c "./wallet-backend integration-tests --log-level=DEBUG"
-
-      - name: Docker logs
-        if: always()
-        run: docker compose -f docker-compose.yaml logs && docker compose -f docker-compose.yaml down
+        run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
         shell: bash
