@@ -17,7 +17,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	graphql "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
-	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 )
 
 type mockAccountService struct {
@@ -1012,7 +1011,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), transactionservices.ErrInvalidTimeout)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), services.ErrInvalidTimeout)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
@@ -1065,7 +1064,7 @@ func TestMutationResolver_BuildTransaction(t *testing.T) {
 			TransactionXdr: txXDR,
 		}
 
-		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), transactionservices.ErrInvalidSorobanOperationCount)
+		mockTransactionService.On("BuildAndSignTransactionWithChannelAccount", ctx, mock.AnythingOfType("*txnbuild.GenericTransaction"), (*entities.RPCSimulateTransactionResult)(nil)).Return((*txnbuild.Transaction)(nil), services.ErrInvalidSorobanOperationCount)
 
 		result, err := resolver.BuildTransaction(ctx, input)
 
