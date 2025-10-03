@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
 )
 
@@ -20,10 +19,6 @@ func NewEnvSignatureClient(privateKey string, networkPassphrase string) (*envSig
 	distributionAccountFull, err := keypair.ParseFull(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("parsing distribution account private key: %w", err)
-	}
-
-	if networkPassphrase != network.TestNetworkPassphrase && networkPassphrase != network.PublicNetworkPassphrase {
-		return nil, fmt.Errorf("invalid network passphrase provided: %s", networkPassphrase)
 	}
 
 	return &envSignatureClient{

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"runtime"
@@ -452,8 +453,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
+		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"sh", "-c",
 			"./wallet-backend migrate up && ./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerPort)},
@@ -463,7 +464,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 			"PORT":                             walletBackendContainerPort,
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
-			"NETWORK_PASSPHRASE":               "Standalone Network ; February 2017",
+			"NETWORK_PASSPHRASE":               networkPassphrase,
+			"BASE_FEE":                         "1000000",
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
@@ -482,6 +484,15 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		Started:          true,
 	})
 	if err != nil {
+		// If we got a container reference, print its logs
+		if container != nil {
+			logs, logErr := container.Logs(ctx)
+			if logErr == nil {
+				defer logs.Close()
+				logBytes, _ := io.ReadAll(logs)
+				log.Ctx(ctx).Errorf("Container logs:\n%s", string(logBytes))
+			}
+		}
 		return nil, fmt.Errorf("creating wallet-backend container: %w", err)
 	}
 	log.Ctx(ctx).Infof("🔄 Created Wallet Backend API container")
