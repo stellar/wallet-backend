@@ -27,7 +27,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -79,7 +78,7 @@ type handlerDeps struct {
 	AccountService     services.AccountService
 	FeeBumpService     services.FeeBumpService
 	MetricsService     metrics.MetricsService
-	TransactionService txservices.TransactionService
+	TransactionService services.TransactionService
 	RPCService         services.RPCService
 	// GraphQL
 	GraphQLComplexityLimit int
@@ -153,7 +152,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
+	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,

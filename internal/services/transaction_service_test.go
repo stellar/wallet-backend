@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/entities"
-	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
@@ -169,7 +168,7 @@ func TestValidateOptions(t *testing.T) {
 			DistributionAccountSignatureClient: nil,
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
 			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
-			RPCService:                         &services.RPCServiceMock{},
+			RPCService:                         &RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
@@ -181,7 +180,7 @@ func TestValidateOptions(t *testing.T) {
 			DistributionAccountSignatureClient: nil,
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
 			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
-			RPCService:                         &services.RPCServiceMock{},
+			RPCService:                         &RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
@@ -194,7 +193,7 @@ func TestValidateOptions(t *testing.T) {
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      nil,
 			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
-			RPCService:                         &services.RPCServiceMock{},
+			RPCService:                         &RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
@@ -207,7 +206,7 @@ func TestValidateOptions(t *testing.T) {
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
 			ChannelAccountStore:                nil,
-			RPCService:                         &services.RPCServiceMock{},
+			RPCService:                         &RPCServiceMock{},
 			BaseFee:                            114,
 		}
 		err := opts.ValidateOptions()
@@ -233,7 +232,7 @@ func TestValidateOptions(t *testing.T) {
 			DistributionAccountSignatureClient: &signing.SignatureClientMock{},
 			ChannelAccountSignatureClient:      &signing.SignatureClientMock{},
 			ChannelAccountStore:                &store.ChannelAccountStoreMock{},
-			RPCService:                         &services.RPCServiceMock{},
+			RPCService:                         &RPCServiceMock{},
 			BaseFee:                            txnbuild.MinBaseFee - 10,
 		}
 		err := opts.ValidateOptions()
@@ -251,7 +250,7 @@ func TestBuildAndSignTransactionWithChannelAccount(t *testing.T) {
 	mDistributionAccountSignatureClient := signing.SignatureClientMock{}
 	mChannelAccountSignatureClient := signing.SignatureClientMock{}
 	mChannelAccountStore := store.ChannelAccountStoreMock{}
-	mRPCService := services.RPCServiceMock{}
+	mRPCService := RPCServiceMock{}
 	txService, outerErr := NewTransactionService(TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: &mDistributionAccountSignatureClient,
