@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -26,14 +28,21 @@ import (
 )
 
 const (
-	walletBackendContainerName = "wallet-backend"
-	walletBackendContainerPort = "8002"
-	walletBackendContainerTag  = "integration-test"
-	walletBackendDockerfile    = "Dockerfile"
-	walletBackendContext       = "../../"
-	networkPassphrase          = "Standalone Network ; February 2017"
-	protocolVersion            = 23 // Default protocol version for Stellar Core upgrades
+	walletBackendAPIContainerName    = "wallet-backend-api"
+	walletBackendIngestContainerName = "wallet-backend-ingest"
+	walletBackendContainerAPIPort    = "8002"
+	walletBackendContainerIngestPort = "8003"
+	walletBackendContainerTag        = "integration-test"
+	walletBackendDockerfile          = "Dockerfile"
+	walletBackendContext             = "../../"
+	networkPassphrase                = "Standalone Network ; February 2017"
+	protocolVersion                  = 23 // Default protocol version for Stellar Core upgrades
 )
+
+type WalletBackendContainer struct {
+	API    *TestContainer
+	Ingest *TestContainer
+}
 
 // TestContainer wraps a testcontainer with connection string helper
 type TestContainer struct {
@@ -57,6 +66,26 @@ func (c *TestContainer) GetConnectionString(ctx context.Context) (string, error)
 	return fmt.Sprintf("http://%s:%s", host, port.Port()), nil
 }
 
+// GetHost returns the host for the container
+func (c *TestContainer) GetHost(ctx context.Context) (string, error) {
+	host, err := c.Host(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting container host: %w", err)
+	}
+
+	return host, nil
+}
+
+// GetPort returns the port for the container
+func (c *TestContainer) GetPort(ctx context.Context) (string, error) {
+	port, err := c.MappedPort(ctx, nat.Port(c.MappedPortStr))
+	if err != nil {
+		return "", fmt.Errorf("getting mapped port: %w", err)
+	}
+
+	return port.Port(), nil
+}
+
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
 	TestNetwork                   *testcontainers.DockerNetwork
@@ -64,7 +93,7 @@ type SharedContainers struct {
 	StellarCoreContainer          *TestContainer
 	RPCContainer                  *TestContainer
 	WalletDBContainer             *TestContainer
-	WalletBackendContainer        *TestContainer
+	WalletBackendContainer        *WalletBackendContainer
 	clientAuthKeyPair             *keypair.Full
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
@@ -117,12 +146,21 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 		shared.distributionAccountKeyPair,
 	})
 
+	// Deploy native asset SAC so it can be used in smart contract operations
+	shared.deployNativeAssetSAC(ctx, t)
+
 	// Start PostgreSQL for wallet-backend
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
+	// Start wallet-backend ingest
+	shared.WalletBackendContainer = &WalletBackendContainer{}
+	shared.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
+		walletBackendContainerTag, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
+	require.NoError(t, err)
+
 	// Start wallet-backend service
-	shared.WalletBackendContainer, err = createWalletBackendAPIContainer(ctx, walletBackendContainerName,
+	shared.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
 		walletBackendContainerTag, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
 	require.NoError(t, err)
 
@@ -147,8 +185,11 @@ func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *k
 
 // Cleanup cleans up shared containers after all tests complete
 func (s *SharedContainers) Cleanup(ctx context.Context) {
-	if s.WalletBackendContainer != nil {
-		_ = s.WalletBackendContainer.Terminate(ctx) //nolint:errcheck
+	if s.WalletBackendContainer.API != nil {
+		_ = s.WalletBackendContainer.API.Terminate(ctx) //nolint:errcheck
+	}
+	if s.WalletBackendContainer.Ingest != nil {
+		_ = s.WalletBackendContainer.Ingest.Terminate(ctx) //nolint:errcheck
 	}
 	if s.RPCContainer != nil {
 		_ = (*s.RPCContainer).Terminate(ctx) //nolint:errcheck
@@ -165,6 +206,103 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 	if s.TestNetwork != nil {
 		_ = s.TestNetwork.Remove(ctx) //nolint:errcheck
 	}
+}
+
+// deployNativeAssetSAC deploys the Stellar Asset Contract for the native asset (XLM)
+func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.T) {
+	log.Ctx(ctx).Info("Deploying native asset SAC...")
+
+	// Create the InvokeHostFunction operation to deploy the native asset contract
+	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
+	deployOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeCreateContract,
+			CreateContract: &xdr.CreateContractArgs{
+				ContractIdPreimage: xdr.ContractIdPreimage{
+					Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
+					FromAsset: &nativeAsset,
+				},
+				Executable: xdr.ContractExecutable{
+					Type: xdr.ContractExecutableTypeContractExecutableStellarAsset,
+				},
+			},
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build SAC deployment transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode SAC deployment transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate SAC deployment transaction")
+	require.Empty(t, simulationResult.Error, "SAC deployment simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	deployOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild SAC deployment transaction")
+
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign SAC deployment transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed SAC deployment transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit SAC deployment transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "SAC deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "SAC deployment transaction not confirmed after 10 seconds")
+
+	log.Ctx(ctx).Info("✅ Native asset SAC deployed successfully")
 }
 
 // createAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
@@ -438,6 +576,68 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 	}, nil
 }
 
+// createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
+func createWalletBackendIngestContainer(ctx context.Context, name string, tag string,
+	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
+) (*TestContainer, error) {
+	containerRequest := testcontainers.ContainerRequest{
+		Name: name,
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:    walletBackendContext,
+			Dockerfile: walletBackendDockerfile,
+			KeepImage:  true,
+			Tag:        tag,
+		},
+		Labels: map[string]string{
+			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+		},
+		Entrypoint: []string{"sh", "-c"},
+		Cmd: []string{
+			"./wallet-backend migrate up && ./wallet-backend ingest",
+		},
+		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerIngestPort)},
+		Env: map[string]string{
+			"RPC_URL":                          "http://stellar-rpc:8000",
+			"DATABASE_URL":                     "postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
+			"PORT":                             walletBackendContainerIngestPort,
+			"LOG_LEVEL":                        "DEBUG",
+			"NETWORK":                          "standalone",
+			"GET_LEDGERS_LIMIT":                "200",
+			"NETWORK_PASSPHRASE":               networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
+			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
+			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
+			"STELLAR_ENVIRONMENT":                     "integration-test",
+		},
+		Networks: []string{testNetwork.Name},
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: containerRequest,
+		Reuse:            true,
+		Started:          true,
+	})
+	if err != nil {
+		// If we got a container reference, print its logs
+		if container != nil {
+			logs, logErr := container.Logs(ctx)
+			if logErr == nil {
+				defer logs.Close()
+				logBytes, _ := io.ReadAll(logs)
+				log.Ctx(ctx).Errorf("Container logs:\n%s", string(logBytes))
+			}
+		}
+		return nil, fmt.Errorf("creating wallet-backend ingest container: %w", err)
+	}
+	log.Ctx(ctx).Infof("🔄 Created Wallet Backend Ingest container")
+
+	return &TestContainer{
+		Container:     container,
+		MappedPortStr: walletBackendContainerIngestPort,
+	}, nil
+}
+
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
 func createWalletBackendAPIContainer(ctx context.Context, name string, tag string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
@@ -457,15 +657,14 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		Cmd: []string{
 			"./wallet-backend migrate up && ./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
 		},
-		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerPort)},
+		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
 			"RPC_URL":                          "http://stellar-rpc:8000",
 			"DATABASE_URL":                     "postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                             walletBackendContainerPort,
+			"PORT":                             walletBackendContainerAPIPort,
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
 			"NETWORK_PASSPHRASE":               networkPassphrase,
-			"BASE_FEE":                         "1000000",
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
@@ -475,7 +674,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 			"STELLAR_ENVIRONMENT":                     "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
-		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerPort + "/tcp"),
+		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -493,14 +692,57 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 				log.Ctx(ctx).Errorf("Container logs:\n%s", string(logBytes))
 			}
 		}
-		return nil, fmt.Errorf("creating wallet-backend container: %w", err)
+		return nil, fmt.Errorf("creating wallet-backend API container: %w", err)
 	}
 	log.Ctx(ctx).Infof("🔄 Created Wallet Backend API container")
 
 	return &TestContainer{
 		Container:     container,
-		MappedPortStr: walletBackendContainerPort,
+		MappedPortStr: walletBackendContainerAPIPort,
 	}, nil
+}
+
+// simulateTransactionRPC simulates a transaction via RPC to get resource footprint
+func simulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSimulateTransactionResult, error) {
+	requestBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "simulateTransaction",
+		"params": map[string]string{
+			"transaction": txXDR,
+		},
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request: %w", err)
+	}
+
+	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("posting to RPC: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close() //nolint:errcheck
+	}()
+
+	var rpcResp struct {
+		Result entities.RPCSimulateTransactionResult `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+
+	return &rpcResp.Result, nil
 }
 
 // submitTransactionToRPC submits a transaction XDR to the RPC endpoint

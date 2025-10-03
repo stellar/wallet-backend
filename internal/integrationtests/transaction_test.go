@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
@@ -43,7 +44,7 @@ func (suite *TransactionTestSuite) SetupSuite() {
 	ctx := context.Background()
 
 	// Get wallet-backend URL from container
-	wbURL, err := suite.containers.WalletBackendContainer.GetConnectionString(ctx)
+	wbURL, err := suite.containers.WalletBackendContainer.API.GetConnectionString(ctx)
 	suite.Require().NoError(err, "failed to get wallet-backend connection string")
 
 	// Parse keypairs
@@ -69,7 +70,17 @@ func (suite *TransactionTestSuite) SetupSuite() {
 
 	// Initialize RPC service
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	suite.RPCService, err = services.NewRPCService(rpcURL, networkPassphrase, httpClient, nil)
+	dbHost, err := suite.containers.WalletDBContainer.GetHost(ctx)
+	suite.Require().NoError(err, "failed to get database host")
+	dbPort, err := suite.containers.WalletDBContainer.GetPort(ctx)
+	suite.Require().NoError(err, "failed to get database port")
+	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	suite.Require().NoError(err, "failed to open database connection pool")
+	db, err := dbConnectionPool.SqlxDB(ctx)
+	suite.Require().NoError(err, "failed to get sqlx db")
+	metricsService := metrics.NewMetricsService(db)
+	suite.RPCService, err = services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
 	suite.Require().NoError(err, "failed to create RPC service")
 
 	// Start tracking RPC health
