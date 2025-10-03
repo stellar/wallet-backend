@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 
@@ -37,10 +36,6 @@ const (
 var _ SignatureClient = (*channelAccountDBSignatureClient)(nil)
 
 func NewChannelAccountDBSignatureClient(dbConnectionPool db.ConnectionPool, networkPassphrase string, privateKeyEncrypter signingutils.PrivateKeyEncrypter, encryptionPassphrase string) (*channelAccountDBSignatureClient, error) {
-	if networkPassphrase != network.TestNetworkPassphrase && networkPassphrase != network.PublicNetworkPassphrase {
-		return nil, fmt.Errorf("invalid network passphrase provided: %s", networkPassphrase)
-	}
-
 	return &channelAccountDBSignatureClient{
 		networkPassphrase:    networkPassphrase,
 		dbConnectionPool:     dbConnectionPool,

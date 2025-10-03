@@ -13,8 +13,6 @@ func Test_CustomClaims_Validate(t *testing.T) {
 	invalidBody := []byte(`{"x": "y"}`)
 	validMethodAndPath := "GET /valid/uri"
 	invalidMethodAndPath := "POST /invalid/uri"
-	validAudience := "test.com"
-	invalidAudience := "invalid.test.com"
 	validSubject := testKP1.Address()
 	invalidSubject := "invalid-public-key"
 	validIssuedAt := time.Now()
@@ -24,7 +22,6 @@ func Test_CustomClaims_Validate(t *testing.T) {
 	testCases := []struct {
 		name            string
 		claims          *customClaims
-		audience        string
 		methodAndPath   string
 		body            []byte
 		maxTimeout      time.Duration
@@ -39,10 +36,8 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   validSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
 					ExpiresAt: jwtgo.NewNumericDate(tooLongExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:        validAudience,
 			methodAndPath:   validMethodAndPath,
 			body:            validBody,
 			maxTimeout:      15 * time.Second,
@@ -57,10 +52,8 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   validSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validExpiresAt.Add(-DefaultMaxTimeout - time.Second)),
 					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:        validAudience,
 			methodAndPath:   validMethodAndPath,
 			body:            validBody,
 			maxTimeout:      15 * time.Second,
@@ -75,32 +68,12 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   invalidSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
 					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:        validAudience,
 			methodAndPath:   validMethodAndPath,
 			body:            validBody,
 			maxTimeout:      15 * time.Second,
 			wantErrContains: "the JWT subject is not a valid Stellar public key",
-		},
-		{
-			name: "🔴invalid_audience",
-			claims: &customClaims{
-				BodyHash:      HashBody(validBody),
-				MethodAndPath: validMethodAndPath,
-				RegisteredClaims: jwtgo.RegisteredClaims{
-					Subject:   validSubject,
-					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
-					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{invalidAudience},
-				},
-			},
-			audience:        validAudience,
-			methodAndPath:   validMethodAndPath,
-			body:            validBody,
-			maxTimeout:      15 * time.Second,
-			wantErrContains: "the JWT audience [invalid.test.com] does not match the expected audience [test.com]",
 		},
 		{
 			name: "🔴invalid_method_and_path",
@@ -111,10 +84,8 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   validSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
 					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:        validAudience,
 			methodAndPath:   validMethodAndPath,
 			body:            validBody,
 			maxTimeout:      15 * time.Second,
@@ -129,10 +100,8 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   validSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
 					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:        validAudience,
 			methodAndPath:   validMethodAndPath,
 			body:            validBody,
 			maxTimeout:      15 * time.Second,
@@ -147,10 +116,8 @@ func Test_CustomClaims_Validate(t *testing.T) {
 					Subject:   validSubject,
 					IssuedAt:  jwtgo.NewNumericDate(validIssuedAt),
 					ExpiresAt: jwtgo.NewNumericDate(validExpiresAt),
-					Audience:  jwtgo.ClaimStrings{validAudience},
 				},
 			},
-			audience:      validAudience,
 			methodAndPath: validMethodAndPath,
 			body:          validBody,
 			maxTimeout:    15 * time.Second,
@@ -159,7 +126,7 @@ func Test_CustomClaims_Validate(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.claims.Validate(tc.audience, tc.methodAndPath, tc.body, tc.maxTimeout)
+			err := tc.claims.Validate(tc.methodAndPath, tc.body, tc.maxTimeout)
 			if tc.wantErrContains != "" {
 				assert.ErrorContains(t, err, tc.wantErrContains)
 			} else {

@@ -227,6 +227,17 @@ func NetworkOption(configKey *string) *config.ConfigOption {
 	}
 }
 
+func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "graphql-complexity-limit",
+		Usage:       "The maximum complexity limit for GraphQL queries. Complexity is calculated based on fields and pagination parameters.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 1000,
+		Required:    false,
+	}
+}
+
 func DistributionAccountSignatureProviderOption(scOpts *SignatureClientOptions) config.ConfigOptions {
 	opts := config.ConfigOptions{}
 	opts = append(opts, DistributionAccountPublicKeyOption(&scOpts.DistributionAccountPublicKey))

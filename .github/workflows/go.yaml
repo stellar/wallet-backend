@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'internal/serve/graphql/generated/**'
   workflow_call: # allows this workflow to be called from another workflow
 
 jobs:
@@ -17,7 +19,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.23.2"
+          go-version: "1.24.2"
           cache: true
           cache-dependency-path: go.sum
 
@@ -32,7 +34,7 @@ jobs:
       - name: Run `shadow@v0.31.0`
         run: |
           go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow@v0.31.0
-          shadow ./...
+          shadow ./... | { grep -v "generated.go" || true; }
 
       - name: Run `exhaustive@v0.12.0`
         run: |
@@ -42,7 +44,7 @@ jobs:
       - name: Run `deadcode@v0.31.0`
         run: |
           go install golang.org/x/tools/cmd/deadcode@v0.31.0
-          output=$(deadcode -test ./...)
+          output=$(deadcode -test ./... | { grep -v "UnmarshalUInt32" || true; })
           if [[ -n "$output" ]]; then
             echo "🚨 Deadcode found:"
             echo "$output"
@@ -74,7 +76,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.23.2"
+          go-version: "1.24.2"
           cache: true
           cache-dependency-path: go.sum
 
@@ -113,7 +115,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.23.2"
+          go-version: "1.24.2"
           cache: true
           cache-dependency-path: go.sum
 
@@ -141,6 +143,20 @@ jobs:
             echo "Failed 😭"
             exit 1
           fi
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Run Integration Tests
+        run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
+        shell: bash
 
   complete:
     if: always()

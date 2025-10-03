@@ -34,6 +34,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
+		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",
@@ -44,11 +45,11 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 		{
 			Name:           "client-auth-public-keys",
-			Usage:          "A comma-separated list of public keys whose private keys are authorized to sign the payloads when making HTTP requests to this server.",
+			Usage:          "A comma-separated list of public keys whose private keys are authorized to sign the payloads when making HTTP requests to this server. If not provided or empty, authentication is disabled.",
 			OptType:        types.String,
 			CustomSetValue: utils.SetConfigOptionStellarPublicKeyList,
 			ConfigKey:      &cfg.ClientAuthPublicKeys,
-			Required:       true,
+			Required:       false,
 		},
 		{
 			Name:        "client-auth-max-timeout-seconds",

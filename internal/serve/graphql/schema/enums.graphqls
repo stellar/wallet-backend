@@ -1,0 +1,71 @@
+# GraphQL Enums - provide type safety and restrict values to predefined options
+# These enums match Go constants and provide better GraphQL introspection
+
+# OperationType enum - defines all possible operation types
+# GraphQL enums are validated at query time, preventing invalid values
+enum OperationType {
+  CREATE_ACCOUNT
+  PAYMENT
+  PATH_PAYMENT_STRICT_RECEIVE
+  PATH_PAYMENT_STRICT_SEND
+  MANAGE_SELL_OFFER
+  CREATE_PASSIVE_SELL_OFFER
+  MANAGE_BUY_OFFER
+  SET_OPTIONS
+  CHANGE_TRUST
+  ALLOW_TRUST
+  ACCOUNT_MERGE
+  INFLATION
+  MANAGE_DATA
+  BUMP_SEQUENCE
+  CREATE_CLAIMABLE_BALANCE
+  CLAIM_CLAIMABLE_BALANCE
+  BEGIN_SPONSORING_FUTURE_RESERVES
+  END_SPONSORING_FUTURE_RESERVES
+  REVOKE_SPONSORSHIP
+  CLAWBACK
+  CLAWBACK_CLAIMABLE_BALANCE
+  SET_TRUST_LINE_FLAGS
+  LIQUIDITY_POOL_DEPOSIT
+  LIQUIDITY_POOL_WITHDRAW
+  INVOKE_HOST_FUNCTION
+  EXTEND_FOOTPRINT_TTL
+  RESTORE_FOOTPRINT
+}
+
+# StateChangeCategory enum - categorizes the type of state change
+# Used in GraphQL queries to filter state changes by category
+enum StateChangeCategory {
+  BALANCE
+  ACCOUNT
+  SIGNER
+  SIGNATURE_THRESHOLD
+  METADATA
+  FLAGS
+  TRUSTLINE
+  RESERVES
+  BALANCE_AUTHORIZATION
+}
+
+# StateChangeReason enum - provides specific reason for the state change
+# Used in GraphQL queries to understand why a state change occurred
+enum StateChangeReason {
+  CREATE
+  MERGE
+  DEBIT
+  CREDIT
+  MINT
+  BURN
+  ADD
+  REMOVE
+  UPDATE
+  LOW
+  MEDIUM
+  HIGH
+  HOME_DOMAIN
+  SET
+  CLEAR
+  DATA_ENTRY
+  SPONSOR
+  UNSPONSOR
+}

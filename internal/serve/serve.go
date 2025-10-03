@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/go-chi/chi"
@@ -12,13 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 	supporthttp "github.com/stellar/go/support/http"
 	"github.com/stellar/go/support/log"
-	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
@@ -26,12 +27,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
-)
 
-// blockedOperationTypes is now empty but we're keeping it here in case we want to block specific operations again.
-var blockedOperationTypes = []xdr.OperationType{}
+	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+	"github.com/99designs/gqlgen/graphql/handler/lru"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
+	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
+	"github.com/vektah/gqlparser/v2/ast"
+)
 
 type Configs struct {
 	Port                        int
@@ -54,6 +58,9 @@ type Configs struct {
 	// RPC
 	RPCURL string
 
+	// GraphQL
+	GraphQLComplexityLimit int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -62,19 +69,19 @@ type handlerDeps struct {
 	Models              *data.Models
 	Port                int
 	DatabaseURL         string
-	ServerHostname      string
 	RequestAuthVerifier auth.HTTPRequestVerifier
 	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 
 	// Services
-	AccountService            services.AccountService
-	AccountSponsorshipService services.AccountSponsorshipService
-	PaymentService            services.PaymentService
-	MetricsService            metrics.MetricsService
-	TransactionService        txservices.TransactionService
-	RPCService                services.RPCService
 
+	AccountService     services.AccountService
+	FeeBumpService     services.FeeBumpService
+	MetricsService     metrics.MetricsService
+	TransactionService services.TransactionService
+	RPCService         services.RPCService
+	// GraphQL
+	GraphQLComplexityLimit int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -136,25 +143,16 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating account service: %w", err)
 	}
 
-	accountSponsorshipService, err := services.NewAccountSponsorshipService(services.AccountSponsorshipServiceOptions{
+	feeBumpService, err := services.NewFeeBumpService(services.FeeBumpServiceOptions{
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
-		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
-		RPCService:                         rpcService,
-		MaxSponsoredBaseReserves:           cfg.MaxSponsoredBaseReserves,
 		BaseFee:                            int64(cfg.BaseFee),
 		Models:                             models,
-		BlockedOperationsTypes:             blockedOperationTypes,
 	})
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating account sponsorship service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	paymentService, err := services.NewPaymentService(models, cfg.ServerBaseURL)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating payment service: %w", err)
-	}
-
-	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
+	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
@@ -182,24 +180,18 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
-	serverHostname, err := url.ParseRequestURI(cfg.ServerBaseURL)
-	if err != nil {
-		return handlerDeps{}, fmt.Errorf("parsing hostname: %w", err)
-	}
-
 	return handlerDeps{
-		Models:                    models,
-		ServerHostname:            serverHostname.Hostname(),
-		RequestAuthVerifier:       requestAuthVerifier,
-		SupportedAssets:           cfg.SupportedAssets,
-		AccountService:            accountService,
-		AccountSponsorshipService: accountSponsorshipService,
-		PaymentService:            paymentService,
-		MetricsService:            metricsService,
-		RPCService:                rpcService,
-		AppTracker:                cfg.AppTracker,
-		NetworkPassphrase:         cfg.NetworkPassphrase,
-		TransactionService:        txService,
+		Models:                 models,
+		RequestAuthVerifier:    requestAuthVerifier,
+		SupportedAssets:        cfg.SupportedAssets,
+		AccountService:         accountService,
+		FeeBumpService:         feeBumpService,
+		MetricsService:         metricsService,
+		RPCService:             rpcService,
+		AppTracker:             cfg.AppTracker,
+		NetworkPassphrase:      cfg.NetworkPassphrase,
+		TransactionService:     txService,
+		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
 }
 
@@ -229,55 +221,102 @@ func handler(deps handlerDeps) http.Handler {
 	}.GetHealth)
 	mux.Get("/api-metrics", promhttp.HandlerFor(deps.MetricsService.GetRegistry(), promhttp.HandlerOpts{}).ServeHTTP)
 
-	// Authenticated routes
+	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
-		r.Use(middleware.AuthenticationMiddleware(deps.ServerHostname, deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		// Apply authentication middleware only if auth verifier is configured
+		if deps.RequestAuthVerifier != nil {
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.MetricsService))
+		}
 
-		r.Route("/accounts", func(r chi.Router) {
-			handler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
+		r.Route("/graphql", func(r chi.Router) {
+			r.Use(middleware.DataloaderMiddleware(deps.Models))
+
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
+
+			config := generated.Config{
+				Resolvers: resolver,
 			}
+			addComplexityCalculation(&config)
+			srv := gqlhandler.New(
+				generated.NewExecutableSchema(
+					config,
+				),
+			)
+			srv.AddTransport(transport.Options{})
+			srv.AddTransport(transport.GET{})
+			srv.AddTransport(transport.POST{})
+			srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+			srv.Use(extension.Introspection{})
+			srv.Use(extension.AutomaticPersistedQuery{
+				Cache: lru.New[string](100),
+			})
+			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
+			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
-			r.Post("/{address}", handler.RegisterAccount)
-			r.Delete("/{address}", handler.DeregisterAccount)
-		})
+			// Add complexity logging - reports all queries with their complexity values
+			reporter := middleware.NewComplexityLogger()
+			srv.Use(complexityreporter.NewExtension(reporter))
 
-		r.Route("/payments", func(r chi.Router) {
-			handler := &httphandler.PaymentHandler{
-				PaymentService: deps.PaymentService,
-				AppTracker:     deps.AppTracker,
-			}
-
-			r.Get("/", handler.GetPayments)
-		})
-
-		// TODO: Bring create-fee-bump and build under /transactions. Move create-sponsored-account to /accounts.
-		r.Route("/tx", func(r chi.Router) {
-			accountHandler := &httphandler.AccountHandler{
-				AccountService:            deps.AccountService,
-				AccountSponsorshipService: deps.AccountSponsorshipService,
-				SupportedAssets:           deps.SupportedAssets,
-				AppTracker:                deps.AppTracker,
-			}
-
-			r.Post("/create-sponsored-account", accountHandler.SponsorAccountCreation)
-			r.Post("/create-fee-bump", accountHandler.CreateFeeBumpTransaction)
-		})
-
-		r.Route("/transactions", func(r chi.Router) {
-			handler := &httphandler.TransactionsHandler{
-				TransactionService: deps.TransactionService,
-				AppTracker:         deps.AppTracker,
-				NetworkPassphrase:  deps.NetworkPassphrase,
-				MetricsService:     deps.MetricsService,
-			}
-
-			r.Post("/build", handler.BuildTransactions)
+			r.Handle("/query", srv)
 		})
 	})
 
 	return mux
+}
+
+func addComplexityCalculation(config *generated.Config) {
+	/*
+		Complexity Calculation
+		--------------------------------
+		Complexity is a measure of the computational cost of a query.
+		It is used to determine the performance of a query and to prevent
+		queries that are too complex from being executed.
+
+		By default, graphql assigns a complexity of 1 to each field. This means that a query with 10 fields will have a complexity of 10.
+		However, we also want to take into account the number of items requested for paginated queries. So we use the first/last parameters
+		to calculate the final complexity.
+
+		For example, for the following query, the complexity is calculated as follows:
+		--------------------------------
+		transactions(first: 10) {
+				edges {
+					node {
+						hash
+						operations(first: 2) {
+							edges {
+								node {
+									id
+									stateChanges(first: 5) {
+										edges {
+											node {
+												stateChangeCategory
+												stateChangeReason
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		--------------------------------
+		Complexity = 10*(1+1+1+2*(1+1+1+5*(1+1+1+1))) = 490
+		--------------------------------
+	*/
+	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, after *string, last *int32, before *string) int {
+		limit := 10 // default limit when no pagination parameters provided
+		if first != nil {
+			limit = int(*first)
+		} else if last != nil {
+			limit = int(*last)
+		}
+		return childComplexity * limit
+	}
+	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
+	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.Operations = paginatedQueryComplexityFunc
+	config.Complexity.Transaction.StateChanges = paginatedQueryComplexityFunc
+	config.Complexity.Operation.StateChanges = paginatedQueryComplexityFunc
 }

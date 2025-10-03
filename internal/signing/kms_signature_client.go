@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/aws/aws-sdk-go/service/kms/kmsiface"
 	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/network"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/txnbuild"
 
@@ -32,10 +31,6 @@ var _ SignatureClient = (*kmsSignatureClient)(nil)
 func NewKMSSignatureClient(publicKey string, networkPassphrase string, keypairStore store.KeypairStore, client kmsiface.KMSAPI, awsKeyARN string) (*kmsSignatureClient, error) {
 	if !strkey.IsValidEd25519PublicKey(publicKey) {
 		return nil, ErrInvalidPublicKeyProvided
-	}
-
-	if networkPassphrase != network.TestNetworkPassphrase && networkPassphrase != network.PublicNetworkPassphrase {
-		return nil, fmt.Errorf("invalid network passphrase provided: %s", networkPassphrase)
 	}
 
 	if keypairStore == nil {

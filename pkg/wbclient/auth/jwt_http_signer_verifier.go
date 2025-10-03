@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -22,7 +21,7 @@ type HTTPRequestSigner interface {
 
 // HTTPRequestVerifier is responsible for verifying HTTP requests using JWTs.
 type HTTPRequestVerifier interface {
-	VerifyHTTPRequest(req *http.Request, audience string) error
+	VerifyHTTPRequest(req *http.Request) error
 }
 
 // JWTHTTPSignerVerifier implements both signing and verifying of HTTP requests.
@@ -50,21 +49,11 @@ func (s *JWTHTTPSignerVerifier) SignHTTPRequest(req *http.Request, timeout time.
 		req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}()
 
-	// Parse the hostname
-	scheme := req.URL.Scheme
-	if scheme == "" {
-		scheme = "http"
-	}
-	u, err := url.ParseRequestURI(scheme + "://" + req.Host)
-	if err != nil {
-		return fmt.Errorf("parsing hostname: %w", err)
-	}
-
 	// Generate the method and path
 	methodAndPath := fmt.Sprintf("%s %s", req.Method, req.URL.Path)
 
 	// Generate the token and sign the request
-	jwtToken, err := s.generator.GenerateJWT(u.Hostname(), methodAndPath, bodyBytes, time.Now().Add(timeout))
+	jwtToken, err := s.generator.GenerateJWT(methodAndPath, bodyBytes, time.Now().Add(timeout))
 	if err != nil {
 		return fmt.Errorf("generating JWT token: %w", err)
 	}
@@ -74,7 +63,7 @@ func (s *JWTHTTPSignerVerifier) SignHTTPRequest(req *http.Request, timeout time.
 }
 
 // VerifyHTTPRequest verifies the JWT in an HTTP request.
-func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience string) error {
+func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request) error {
 	authHeader := req.Header.Get("Authorization")
 	if authHeader == "" {
 		return fmt.Errorf("missing Authorization header: %w", ErrUnauthorized)
@@ -103,7 +92,7 @@ func (s *JWTHTTPSignerVerifier) VerifyHTTPRequest(req *http.Request, audience st
 
 	// Parse the JWT
 	tokenString := authHeader[len("Bearer "):] // Remove "Bearer " prefix
-	_, _, err := s.parser.ParseJWT(tokenString, audience, methodAndPath, bodyBytes)
+	_, _, err := s.parser.ParseJWT(tokenString, methodAndPath, bodyBytes)
 	if err != nil {
 		return fmt.Errorf("verifying JWT: %w: %w", err, ErrUnauthorized)
 	}

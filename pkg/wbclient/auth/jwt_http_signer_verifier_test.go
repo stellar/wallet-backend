@@ -123,7 +123,7 @@ func Test_JWTHTTPSignerVerifier_Integration(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			ts := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				err := reqJWTVerifier.VerifyHTTPRequest(r, "example.com")
+				err := reqJWTVerifier.VerifyHTTPRequest(r)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusUnauthorized)
 					return

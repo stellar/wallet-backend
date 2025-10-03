@@ -143,8 +143,8 @@ func TestSetConfigOptionStellarPublicKeyList(t *testing.T) {
 
 	testCases := []customSetterTestCase[[]string]{
 		{
-			name:            "🔴returns_an_error_if_the_public_keys_are_empty",
-			wantErrContains: "no public keys provided in client-auth-public-keys",
+			name:       "🟢allows_empty_public_keys_when_not_required",
+			wantResult: []string{},
 		},
 		{
 			name:            "🔴returns_an_error_if_the_public_key_is_invalid",

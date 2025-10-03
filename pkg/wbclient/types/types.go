@@ -3,8 +3,7 @@ package types
 import "github.com/stellar/wallet-backend/internal/entities"
 
 type Transaction struct {
-	Operations       []string                              `json:"operations" validate:"required"`
-	Timeout          int64                                 `json:"timeout" validate:"required"`
+	TransactionXdr   string                                `json:"transactionXdr" validate:"required"`
 	SimulationResult entities.RPCSimulateTransactionResult `json:"simulationResult,omitempty"`
 }
 
@@ -14,6 +13,10 @@ type BuildTransactionsRequest struct {
 
 type BuildTransactionsResponse struct {
 	TransactionXDRs []string `json:"transactionXdrs"`
+}
+
+type BuildTransactionResponse struct {
+	TransactionXDR string `json:"transactionXdr"`
 }
 
 type CreateFeeBumpTransactionRequest struct {

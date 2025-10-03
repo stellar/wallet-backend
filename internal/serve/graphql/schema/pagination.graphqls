@@ -1,0 +1,36 @@
+type TransactionConnection {
+    edges: [TransactionEdge!]
+    pageInfo: PageInfo!
+}
+
+type TransactionEdge {
+    node: Transaction
+    cursor: String!
+}
+
+type OperationConnection {
+    edges: [OperationEdge!]
+    pageInfo: PageInfo!
+}
+
+type OperationEdge {
+    node: Operation
+    cursor: String!
+}
+
+type StateChangeConnection {
+    edges: [StateChangeEdge!]
+    pageInfo: PageInfo!
+}
+
+type StateChangeEdge {
+    node: BaseStateChange
+    cursor: String!
+}
+
+type PageInfo {
+    startCursor: String
+    endCursor: String
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+}
