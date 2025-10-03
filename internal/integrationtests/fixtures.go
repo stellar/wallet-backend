@@ -501,6 +501,7 @@ type category string
 const (
 	categoryStellarClassic category = "STELLAR_CLASSIC"
 	categorySoroban        category = "SOROBAN"
+	timeoutSeconds         = 45 * time.Second
 )
 
 type UseCase struct {
@@ -524,7 +525,7 @@ func (u *UseCase) Name() string {
 
 func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	useCases := []*UseCase{}
-	timeoutSeconds := int64(txTimeout.Seconds())
+	timeoutSeconds := int64(timeoutSeconds.Seconds())
 
 	// PaymentOp
 	if paymentOpXDR, txSigners, err := f.preparePaymentOp(); err != nil {
