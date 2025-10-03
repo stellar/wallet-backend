@@ -143,6 +143,20 @@ jobs:
             echo "Failed 😭"
             exit 1
           fi
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.2'
+
+      - name: Run Integration Tests
+        run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
+        shell: bash
 
   complete:
     if: always()
