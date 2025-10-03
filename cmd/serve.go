@@ -34,6 +34,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
+		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",

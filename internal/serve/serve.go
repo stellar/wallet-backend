@@ -27,7 +27,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
 	signingutils "github.com/stellar/wallet-backend/internal/signing/utils"
-	txservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -59,6 +58,9 @@ type Configs struct {
 	// RPC
 	RPCURL string
 
+	// GraphQL
+	GraphQLComplexityLimit int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -76,8 +78,10 @@ type handlerDeps struct {
 	AccountService     services.AccountService
 	FeeBumpService     services.FeeBumpService
 	MetricsService     metrics.MetricsService
-	TransactionService txservices.TransactionService
+	TransactionService services.TransactionService
 	RPCService         services.RPCService
+	// GraphQL
+	GraphQLComplexityLimit int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -148,7 +152,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
-	txService, err := txservices.NewTransactionService(txservices.TransactionServiceOptions{
+	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
 		ChannelAccountSignatureClient:      cfg.ChannelAccountSignatureClient,
@@ -177,16 +181,17 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:              models,
-		RequestAuthVerifier: requestAuthVerifier,
-		SupportedAssets:     cfg.SupportedAssets,
-		AccountService:      accountService,
-		FeeBumpService:      feeBumpService,
-		MetricsService:      metricsService,
-		RPCService:          rpcService,
-		AppTracker:          cfg.AppTracker,
-		NetworkPassphrase:   cfg.NetworkPassphrase,
-		TransactionService:  txService,
+		Models:                 models,
+		RequestAuthVerifier:    requestAuthVerifier,
+		SupportedAssets:        cfg.SupportedAssets,
+		AccountService:         accountService,
+		FeeBumpService:         feeBumpService,
+		MetricsService:         metricsService,
+		RPCService:             rpcService,
+		AppTracker:             cfg.AppTracker,
+		NetworkPassphrase:      cfg.NetworkPassphrase,
+		TransactionService:     txService,
+		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
 }
 
@@ -246,7 +251,7 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
-			srv.Use(extension.FixedComplexityLimit(1000))
+			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
 			reporter := middleware.NewComplexityLogger()

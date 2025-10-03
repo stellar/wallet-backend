@@ -20,7 +20,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/signing"
 	"github.com/stellar/wallet-backend/internal/signing/store"
-	transactionservices "github.com/stellar/wallet-backend/internal/transactions/services"
 	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 )
 
@@ -121,19 +120,19 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	tx, err := r.transactionService.BuildAndSignTransactionWithChannelAccount(ctx, genericTx, simulationResult)
 	if err != nil {
 		switch {
-		case errors.Is(err, transactionservices.ErrInvalidTimeout),
-			errors.Is(err, transactionservices.ErrInvalidOperationChannelAccount),
-			errors.Is(err, transactionservices.ErrInvalidOperationMissingSource):
+		case errors.Is(err, services.ErrInvalidTimeout),
+			errors.Is(err, services.ErrInvalidOperationChannelAccount),
+			errors.Is(err, services.ErrInvalidOperationMissingSource):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]any{
 					"code": "INVALID_OPERATION_STRUCTURE",
 				},
 			}
-		case errors.Is(err, transactionservices.ErrInvalidSorobanOperationCount),
-			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationEmpty),
-			errors.Is(err, transactionservices.ErrInvalidSorobanSimulationFailed),
-			errors.Is(err, transactionservices.ErrInvalidSorobanOperationType):
+		case errors.Is(err, services.ErrInvalidSorobanOperationCount),
+			errors.Is(err, services.ErrInvalidSorobanSimulationEmpty),
+			errors.Is(err, services.ErrInvalidSorobanSimulationFailed),
+			errors.Is(err, services.ErrInvalidSorobanOperationType):
 			return nil, &gqlerror.Error{
 				Message: err.Error(),
 				Extensions: map[string]any{
