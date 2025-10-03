@@ -29,7 +29,7 @@ const (
 	walletBackendContainerPort = "8002"
 	walletBackendContainerTag  = "integration-test"
 	walletBackendDockerfile    = "Dockerfile"
-	walletBackendContext       = "../../../"
+	walletBackendContext       = "../../"
 	networkPassphrase          = "Standalone Network ; February 2017"
 	protocolVersion            = 23 // Default protocol version for Stellar Core upgrades
 )
@@ -84,7 +84,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	require.NoError(t, err)
 
 	// Start PostgreSQL for Stellar Core
-	shared.PostgresContainer, err = createPostgresContainer(ctx, shared.TestNetwork)
+	shared.PostgresContainer, err = createCoreDBContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
 	// Start Stellar Core
@@ -256,8 +256,8 @@ func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, versi
 	return nil
 }
 
-// createPostgresContainer starts a PostgreSQL container for Stellar Core
-func createPostgresContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+// createCoreDBContainer starts a PostgreSQL container for Stellar Core
+func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "core-postgres",
 		Image: "postgres:9.6.17-alpine",
@@ -279,9 +279,9 @@ func createPostgresContainer(ctx context.Context, testNetwork *testcontainers.Do
 		Started:          true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating postgres container: %w", err)
+		return nil, fmt.Errorf("creating core postgres container: %w", err)
 	}
-	log.Ctx(ctx).Infof("🔄 Created PostgreSQL container")
+	log.Ctx(ctx).Infof("🔄 Created Core DB container")
 
 	return &TestContainer{
 		Container:     container,
@@ -429,7 +429,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 	if err != nil {
 		return nil, fmt.Errorf("creating wallet-db container: %w", err)
 	}
-	log.Ctx(ctx).Infof("🔄 Created Wallet DB container")
+	log.Ctx(ctx).Infof("🔄 Created Wallet Backend DB container")
 
 	return &TestContainer{
 		Container:     container,
