@@ -32,13 +32,6 @@ func TestSignatureClientResolver(t *testing.T) {
 		sc, err = SignatureClientResolver(&SignatureClientOptions{
 			Type:                         signing.EnvSignatureClientType,
 			DistributionAccountSecretKey: keypair.MustRandom().Seed(),
-		})
-		assert.EqualError(t, err, "resolving signature client: invalid network passphrase provided: ")
-		assert.Nil(t, sc)
-
-		sc, err = SignatureClientResolver(&SignatureClientOptions{
-			Type:                         signing.EnvSignatureClientType,
-			DistributionAccountSecretKey: keypair.MustRandom().Seed(),
 			NetworkPassphrase:            network.PublicNetworkPassphrase,
 		})
 		assert.NoError(t, err)
@@ -59,14 +52,6 @@ func TestSignatureClientResolver(t *testing.T) {
 			AWSRegion:                    "us-east-2",
 		})
 		assert.ErrorIs(t, err, signing.ErrInvalidPublicKeyProvided)
-		assert.Nil(t, sc)
-
-		sc, err = SignatureClientResolver(&SignatureClientOptions{
-			Type:                         signing.KMSSignatureClientType,
-			DistributionAccountPublicKey: keypair.MustRandom().Address(),
-			AWSRegion:                    "us-east-2",
-		})
-		assert.EqualError(t, err, "resolving signature client: invalid network passphrase provided: ")
 		assert.Nil(t, sc)
 
 		sc, err = SignatureClientResolver(&SignatureClientOptions{

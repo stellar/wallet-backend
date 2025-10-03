@@ -501,7 +501,7 @@ type category string
 const (
 	categoryStellarClassic category = "STELLAR_CLASSIC"
 	categorySoroban        category = "SOROBAN"
-	timeoutSeconds         = 45 * time.Second
+	timeoutSeconds                  = 45 * time.Second
 )
 
 type UseCase struct {
