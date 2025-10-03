@@ -1703,9 +1703,8 @@ enum StateChangeCategory {
   METADATA
   FLAGS
   TRUSTLINE
-  SPONSORSHIP
+  RESERVES
   BALANCE_AUTHORIZATION
-  AUTHORIZATION
 }
 
 # StateChangeReason enum - provides specific reason for the state change
@@ -1727,6 +1726,8 @@ enum StateChangeReason {
   SET
   CLEAR
   DATA_ENTRY
+  SPONSOR
+  UNSPONSOR
 }
 `, BuiltIn: false},
 	{Name: "../schema/mutations.graphqls", Input: `# GraphQL Mutation root type - defines all available mutations in the API

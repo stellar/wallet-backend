@@ -58,6 +58,9 @@ type Configs struct {
 	// RPC
 	RPCURL string
 
+	// GraphQL
+	GraphQLComplexityLimit int
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -77,6 +80,8 @@ type handlerDeps struct {
 	MetricsService     metrics.MetricsService
 	TransactionService services.TransactionService
 	RPCService         services.RPCService
+	// GraphQL
+	GraphQLComplexityLimit int
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 }
@@ -176,16 +181,17 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
 
 	return handlerDeps{
-		Models:              models,
-		RequestAuthVerifier: requestAuthVerifier,
-		SupportedAssets:     cfg.SupportedAssets,
-		AccountService:      accountService,
-		FeeBumpService:      feeBumpService,
-		MetricsService:      metricsService,
-		RPCService:          rpcService,
-		AppTracker:          cfg.AppTracker,
-		NetworkPassphrase:   cfg.NetworkPassphrase,
-		TransactionService:  txService,
+		Models:                 models,
+		RequestAuthVerifier:    requestAuthVerifier,
+		SupportedAssets:        cfg.SupportedAssets,
+		AccountService:         accountService,
+		FeeBumpService:         feeBumpService,
+		MetricsService:         metricsService,
+		RPCService:             rpcService,
+		AppTracker:             cfg.AppTracker,
+		NetworkPassphrase:      cfg.NetworkPassphrase,
+		TransactionService:     txService,
+		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
 }
 
@@ -245,7 +251,7 @@ func handler(deps handlerDeps) http.Handler {
 				Cache: lru.New[string](100),
 			})
 			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
-			srv.Use(extension.FixedComplexityLimit(1000))
+			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
 			reporter := middleware.NewComplexityLogger()
