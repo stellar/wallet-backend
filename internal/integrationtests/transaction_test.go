@@ -49,10 +49,7 @@ func (suite *TransactionTestSuite) SetupSuite() {
 
 	// Parse keypairs
 	suite.PrimaryAccountKP = suite.containers.GetPrimarySourceAccountKeyPair(ctx)
-	suite.Require().NoError(err, "failed to parse primary account keypair")
-
 	suite.SecondaryAccountKP = suite.containers.GetSecondarySourceAccountKeyPair(ctx)
-	suite.Require().NoError(err, "failed to parse secondary account keypair")
 
 	// Initialize wallet-backend client
 	clientAuthKP := suite.containers.GetClientAuthKeyPair(ctx)
@@ -68,8 +65,7 @@ func (suite *TransactionTestSuite) SetupSuite() {
 	suite.Require().NoError(err, "failed to get RPC port")
 	rpcURL := fmt.Sprintf("http://%s:%s", rpcHost, rpcPort.Port())
 
-	// Initialize RPC service
-	httpClient := &http.Client{Timeout: 30 * time.Second}
+	// Get database host and port
 	dbHost, err := suite.containers.WalletDBContainer.GetHost(ctx)
 	suite.Require().NoError(err, "failed to get database host")
 	dbPort, err := suite.containers.WalletDBContainer.GetPort(ctx)
@@ -79,6 +75,9 @@ func (suite *TransactionTestSuite) SetupSuite() {
 	suite.Require().NoError(err, "failed to open database connection pool")
 	db, err := dbConnectionPool.SqlxDB(ctx)
 	suite.Require().NoError(err, "failed to get sqlx db")
+
+	// Initialize RPC service
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	metricsService := metrics.NewMetricsService(db)
 	suite.RPCService, err = services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
 	suite.Require().NoError(err, "failed to create RPC service")
