@@ -623,8 +623,8 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 		if container != nil {
 			logs, logErr := container.Logs(ctx)
 			if logErr == nil {
-				defer logs.Close()
-				logBytes, _ := io.ReadAll(logs)
+				defer logs.Close()              //nolint:errcheck
+				logBytes, _ := io.ReadAll(logs) //nolint:errcheck
 				log.Ctx(ctx).Errorf("Container logs:\n%s", string(logBytes))
 			}
 		}
@@ -687,8 +687,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		if container != nil {
 			logs, logErr := container.Logs(ctx)
 			if logErr == nil {
-				defer logs.Close()
-				logBytes, _ := io.ReadAll(logs)
+				defer logs.Close()              //nolint:errcheck
+				logBytes, _ := io.ReadAll(logs) //nolint:errcheck
 				log.Ctx(ctx).Errorf("Container logs:\n%s", string(logBytes))
 			}
 		}

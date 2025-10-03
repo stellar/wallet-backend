@@ -1,3 +1,4 @@
+// Package integrationtests provides helper utilities for integration testing
 package integrationtests
 
 import (
@@ -5,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -133,4 +135,35 @@ func (s *Set[T]) Slice() []T {
 		slice = append(slice, value)
 	}
 	return slice
+}
+
+// RenderResult renders a result string for a use case.
+func RenderResult(useCase *UseCase) string {
+	status := useCase.getTransactionResult.Status
+	var statusEmoji string
+	switch status {
+	case entities.SuccessStatus:
+		statusEmoji = "✅"
+	case entities.FailedStatus:
+		statusEmoji = "❌"
+	case entities.NotFoundStatus:
+		statusEmoji = "⏳"
+	default:
+		statusEmoji = "⁉️"
+	}
+	statusText := fmt.Sprintf("%s %s", statusEmoji, status)
+
+	var builder strings.Builder
+
+	builder.WriteString(statusText)
+	builder.WriteString(fmt.Sprintf(" {Use Case: %s", useCase.name))
+	builder.WriteString(fmt.Sprintf(", Category: %s", useCase.category))
+	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.sendTransactionResult.Hash))
+	if status != entities.SuccessStatus {
+		txResult := useCase.getTransactionResult
+		builder.WriteString(fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR))
+	}
+	builder.WriteString("}")
+
+	return builder.String()
 }
