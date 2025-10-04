@@ -18,27 +18,6 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-const (
-	graphqlPath           = "/graphql/query"
-	buildTransactionQuery = `
-		mutation BuildTransaction($input: BuildTransactionInput!) {
-			buildTransaction(input: $input) {
-				success
-				transactionXdr
-			}
-		}
-	`
-	createFeeBumpTransactionQuery = `
-		mutation CreateFeeBumpTransaction($input: CreateFeeBumpTransactionInput!) {
-			createFeeBumpTransaction(input: $input) {
-				success
-				transaction
-				networkPassphrase
-			}
-		}
-	`
-)
-
 type GraphQLRequest struct {
 	Query     string                 `json:"query"`
 	Variables map[string]interface{} `json:"variables,omitempty"`
@@ -71,6 +50,38 @@ type CreateFeeBumpTransactionPayload struct {
 
 type CreateFeeBumpTransactionData struct {
 	CreateFeeBumpTransaction CreateFeeBumpTransactionPayload `json:"createFeeBumpTransaction"`
+}
+
+type RegisterAccountData struct {
+	RegisterAccount types.RegisterAccountPayload `json:"registerAccount"`
+}
+
+type DeregisterAccountData struct {
+	DeregisterAccount types.DeregisterAccountPayload `json:"deregisterAccount"`
+}
+
+type TransactionByHashData struct {
+	TransactionByHash *types.GraphQLTransaction `json:"transactionByHash"`
+}
+
+type TransactionsData struct {
+	Transactions *types.TransactionConnection `json:"transactions"`
+}
+
+type AccountByAddressData struct {
+	AccountByAddress *types.Account `json:"accountByAddress"`
+}
+
+type OperationsData struct {
+	Operations *types.OperationConnection `json:"operations"`
+}
+
+type OperationByIDData struct {
+	OperationByID *types.Operation `json:"operationById"`
+}
+
+type StateChangesData struct {
+	StateChanges *types.StateChangeConnection `json:"stateChanges"`
 }
 
 type Client struct {
@@ -144,11 +155,11 @@ func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transac
 	}
 
 	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionQuery,
+		Query:     buildTransactionQuery(),
 		Variables: variables,
 	}
 
-	resp, err := c.request(ctx, http.MethodPost, graphqlPath, gqlRequest)
+	resp, err := c.request(ctx, gqlRequest)
 	if err != nil {
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
@@ -200,11 +211,11 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 	}
 
 	gqlRequest := GraphQLRequest{
-		Query:     createFeeBumpTransactionQuery,
+		Query:     createFeeBumpTransactionQuery(),
 		Variables: variables,
 	}
 
-	resp, err := c.request(ctx, http.MethodPost, graphqlPath, gqlRequest)
+	resp, err := c.request(ctx, gqlRequest)
 	if err != nil {
 		return nil, fmt.Errorf("calling client request: %w", err)
 	}
@@ -233,18 +244,365 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 	}, nil
 }
 
-func (c *Client) request(ctx context.Context, method, path string, bodyObj any) (*http.Response, error) {
+func (c *Client) RegisterAccount(ctx context.Context, address string) (*types.RegisterAccountPayload, error) {
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"address": address,
+		},
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     registerAccountQuery(),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data RegisterAccountData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return &data.RegisterAccount, nil
+}
+
+func (c *Client) DeregisterAccount(ctx context.Context, address string) (*types.DeregisterAccountPayload, error) {
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"address": address,
+		},
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     deregisterAccountQuery(),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data DeregisterAccountData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return &data.DeregisterAccount, nil
+}
+
+func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...*QueryOptions) (*types.GraphQLTransaction, error) {
+	var fields []string
+	if len(opts) > 0 && opts[0] != nil {
+		fields = opts[0].TransactionFields
+	}
+
+	variables := map[string]interface{}{
+		"hash": hash,
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildTransactionByHashQuery(fields),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data TransactionByHashData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.TransactionByHash, nil
+}
+
+func (c *Client) GetTransactions(ctx context.Context, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {
+	var fields []string
+	if len(opts) > 0 && opts[0] != nil {
+		fields = opts[0].TransactionFields
+	}
+
+	variables := map[string]interface{}{}
+	if first != nil {
+		variables["first"] = *first
+	}
+	if after != nil {
+		variables["after"] = *after
+	}
+	if last != nil {
+		variables["last"] = *last
+	}
+	if before != nil {
+		variables["before"] = *before
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildTransactionsQuery(fields),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data TransactionsData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.Transactions, nil
+}
+
+func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts ...*QueryOptions) (*types.Account, error) {
+	var fields []string
+	if len(opts) > 0 && opts[0] != nil {
+		fields = opts[0].AccountFields
+	}
+
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildAccountByAddressQuery(fields),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data AccountByAddressData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.AccountByAddress, nil
+}
+
+func (c *Client) GetOperations(ctx context.Context, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
+	var fields []string
+	if len(opts) > 0 && opts[0] != nil {
+		fields = opts[0].OperationFields
+	}
+
+	variables := map[string]interface{}{}
+	if first != nil {
+		variables["first"] = *first
+	}
+	if after != nil {
+		variables["after"] = *after
+	}
+	if last != nil {
+		variables["last"] = *last
+	}
+	if before != nil {
+		variables["before"] = *before
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildOperationsQuery(fields),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data OperationsData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.Operations, nil
+}
+
+func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryOptions) (*types.Operation, error) {
+	var fields []string
+	if len(opts) > 0 && opts[0] != nil {
+		fields = opts[0].OperationFields
+	}
+
+	variables := map[string]interface{}{
+		"id": id,
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildOperationByIDQuery(fields),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data OperationByIDData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.OperationByID, nil
+}
+
+func (c *Client) GetStateChanges(ctx context.Context, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+	variables := map[string]interface{}{}
+	if first != nil {
+		variables["first"] = *first
+	}
+	if after != nil {
+		variables["after"] = *after
+	}
+	if last != nil {
+		variables["last"] = *last
+	}
+	if before != nil {
+		variables["before"] = *before
+	}
+
+	gqlRequest := GraphQLRequest{
+		Query:     buildStateChangesQuery(),
+		Variables: variables,
+	}
+
+	resp, err := c.request(ctx, gqlRequest)
+	if err != nil {
+		return nil, fmt.Errorf("calling client request: %w", err)
+	}
+
+	if c.isHTTPError(resp) {
+		return nil, c.logHTTPError(ctx, resp)
+	}
+
+	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
+	}
+
+	if len(gqlResponse.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+	}
+
+	var data StateChangesData
+	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return data.StateChanges, nil
+}
+
+func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
 	reqBody, err := json.Marshal(bodyObj)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling request body: %w", err)
 	}
 
-	u, err := url.JoinPath(c.BaseURL, path)
+	u, err := url.JoinPath(c.BaseURL, graphqlPath)
 	if err != nil {
 		return nil, fmt.Errorf("joining path: %w", err)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, method, u, bytes.NewBuffer(reqBody))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
