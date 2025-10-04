@@ -57,14 +57,6 @@ type AccountFieldSet struct{}
 func (AccountFieldSet) AllFields() []string {
 	return []string{
 		"address",
-		"createdAt",
-	}
-}
-
-// MinimalFields returns minimal account fields (just address)
-func (AccountFieldSet) MinimalFields() []string {
-	return []string{
-		"address",
 	}
 }
 
