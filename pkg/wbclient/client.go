@@ -190,32 +190,9 @@ func (c *Client) BuildTransaction(ctx context.Context, transaction types.Transac
 		},
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[BuildTransactionData](c, ctx, buildTransactionQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data BuildTransactionData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return &types.BuildTransactionResponse{
@@ -239,15 +216,10 @@ func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, 
 	return &response, nil
 }
 
-func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
-	variables := map[string]interface{}{
-		"input": map[string]interface{}{
-			"transactionXDR": transactionXDR,
-		},
-	}
-
+// executeGraphQL executes a GraphQL query and returns the unmarshaled response data
+func executeGraphQL[T any](c *Client, ctx context.Context, query string, variables map[string]interface{}) (*T, error) {
 	gqlRequest := GraphQLRequest{
-		Query:     createFeeBumpTransactionQuery(),
+		Query:     query,
 		Variables: variables,
 	}
 
@@ -269,9 +241,53 @@ func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) 
 		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
 	}
 
-	var data CreateFeeBumpTransactionData
+	var data T
 	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
 		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+	}
+
+	return &data, nil
+}
+
+// buildPaginationVars builds a variables map from pagination parameters
+func buildPaginationVars(first, last *int32, after, before *string) map[string]interface{} {
+	vars := make(map[string]interface{})
+	if first != nil {
+		vars["first"] = *first
+	}
+	if after != nil {
+		vars["after"] = *after
+	}
+	if last != nil {
+		vars["last"] = *last
+	}
+	if before != nil {
+		vars["before"] = *before
+	}
+	return vars
+}
+
+// mergeVariables merges multiple variable maps into one
+func mergeVariables(maps ...map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+func (c *Client) FeeBumpTransaction(ctx context.Context, transactionXDR string) (*types.TransactionEnvelopeResponse, error) {
+	variables := map[string]interface{}{
+		"input": map[string]interface{}{
+			"transactionXDR": transactionXDR,
+		},
+	}
+
+	data, err := executeGraphQL[CreateFeeBumpTransactionData](c, ctx, createFeeBumpTransactionQuery(), variables)
+	if err != nil {
+		return nil, err
 	}
 
 	return &types.TransactionEnvelopeResponse{
@@ -287,32 +303,9 @@ func (c *Client) RegisterAccount(ctx context.Context, address string) (*types.Re
 		},
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     registerAccountQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[RegisterAccountData](c, ctx, registerAccountQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data RegisterAccountData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return &data.RegisterAccount, nil
@@ -325,32 +318,9 @@ func (c *Client) DeregisterAccount(ctx context.Context, address string) (*types.
 		},
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     deregisterAccountQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[DeregisterAccountData](c, ctx, deregisterAccountQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data DeregisterAccountData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return &data.DeregisterAccount, nil
@@ -366,32 +336,9 @@ func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...
 		"hash": hash,
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionByHashQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[TransactionByHashData](c, ctx, buildTransactionByHashQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data TransactionByHashData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.TransactionByHash, nil
@@ -403,46 +350,11 @@ func (c *Client) GetTransactions(ctx context.Context, first, last *int32, after,
 		fields = opts[0].TransactionFields
 	}
 
-	variables := map[string]interface{}{}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := buildPaginationVars(first, last, after, before)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionsQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[TransactionsData](c, ctx, buildTransactionsQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data TransactionsData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.Transactions, nil
@@ -458,32 +370,9 @@ func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts .
 		"address": address,
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildAccountByAddressQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[AccountByAddressData](c, ctx, buildAccountByAddressQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data AccountByAddressData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.AccountByAddress, nil
@@ -495,46 +384,11 @@ func (c *Client) GetOperations(ctx context.Context, first, last *int32, after, b
 		fields = opts[0].OperationFields
 	}
 
-	variables := map[string]interface{}{}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := buildPaginationVars(first, last, after, before)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildOperationsQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[OperationsData](c, ctx, buildOperationsQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data OperationsData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.Operations, nil
@@ -550,78 +404,20 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 		"id": id,
 	}
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildOperationByIDQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[OperationByIDData](c, ctx, buildOperationByIDQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data OperationByIDData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.OperationByID, nil
 }
 
 func (c *Client) GetStateChanges(ctx context.Context, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables := map[string]interface{}{}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := buildPaginationVars(first, last, after, before)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildStateChangesQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[StateChangesData](c, ctx, buildStateChangesQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data StateChangesData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.StateChanges, nil
@@ -633,48 +429,14 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, fir
 		fields = opts[0].TransactionFields
 	}
 
-	variables := map[string]interface{}{
-		"address": address,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildAccountTransactionsQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[AccountTransactionsData](c, ctx, buildAccountTransactionsQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data AccountTransactionsData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.AccountByAddress.Transactions, nil
@@ -686,96 +448,28 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 		fields = opts[0].OperationFields
 	}
 
-	variables := map[string]interface{}{
-		"address": address,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildAccountOperationsQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data AccountOperationsData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.AccountByAddress.Operations, nil
 }
 
 func (c *Client) GetAccountStateChanges(ctx context.Context, address string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables := map[string]interface{}{
-		"address": address,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"address": address},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildAccountStateChangesQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data AccountStateChangesData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.AccountByAddress.StateChanges, nil
@@ -787,144 +481,42 @@ func (c *Client) GetTransactionOperations(ctx context.Context, hash string, firs
 		fields = opts[0].OperationFields
 	}
 
-	variables := map[string]interface{}{
-		"hash": hash,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"hash": hash},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionOperationsQuery(fields),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[TransactionOperationsData](c, ctx, buildTransactionOperationsQuery(fields), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data TransactionOperationsData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.TransactionByHash.Operations, nil
 }
 
 func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables := map[string]interface{}{
-		"hash": hash,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"hash": hash},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildTransactionStateChangesQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[TransactionStateChangesData](c, ctx, buildTransactionStateChangesQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data TransactionStateChangesData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.TransactionByHash.StateChanges, nil
 }
 
 func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables := map[string]interface{}{
-		"id": id,
-	}
-	if first != nil {
-		variables["first"] = *first
-	}
-	if after != nil {
-		variables["after"] = *after
-	}
-	if last != nil {
-		variables["last"] = *last
-	}
-	if before != nil {
-		variables["before"] = *before
-	}
+	variables := mergeVariables(
+		map[string]interface{}{"id": id},
+		buildPaginationVars(first, last, after, before),
+	)
 
-	gqlRequest := GraphQLRequest{
-		Query:     buildOperationStateChangesQuery(),
-		Variables: variables,
-	}
-
-	resp, err := c.request(ctx, gqlRequest)
+	data, err := executeGraphQL[OperationStateChangesData](c, ctx, buildOperationStateChangesQuery(), variables)
 	if err != nil {
-		return nil, fmt.Errorf("calling client request: %w", err)
-	}
-
-	if c.isHTTPError(resp) {
-		return nil, c.logHTTPError(ctx, resp)
-	}
-
-	gqlResponse, err := parseResponseBody[GraphQLResponse](ctx, resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing GraphQL response body: %w", err)
-	}
-
-	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
-	}
-
-	var data OperationStateChangesData
-	if err := json.Unmarshal(gqlResponse.Data, &data); err != nil {
-		return nil, fmt.Errorf("unmarshaling GraphQL data: %w", err)
+		return nil, err
 	}
 
 	return data.OperationByID.StateChanges, nil

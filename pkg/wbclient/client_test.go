@@ -1198,3 +1198,197 @@ func TestClient_GetOperationStateChanges(t *testing.T) {
 		assert.Equal(t, "{\"key\":\"value\"}", metadataChange.KeyValue)
 	})
 }
+
+// Test helper functions
+
+func TestBuildPaginationVars(t *testing.T) {
+	t.Run("all_params_nil", func(t *testing.T) {
+		vars := buildPaginationVars(nil, nil, nil, nil)
+		assert.Empty(t, vars)
+	})
+
+	t.Run("only_first", func(t *testing.T) {
+		first := int32(10)
+		vars := buildPaginationVars(&first, nil, nil, nil)
+		assert.Equal(t, map[string]interface{}{"first": int32(10)}, vars)
+	})
+
+	t.Run("only_after", func(t *testing.T) {
+		after := "cursor1"
+		vars := buildPaginationVars(nil, nil, &after, nil)
+		assert.Equal(t, map[string]interface{}{"after": "cursor1"}, vars)
+	})
+
+	t.Run("only_last", func(t *testing.T) {
+		last := int32(5)
+		vars := buildPaginationVars(nil, &last, nil, nil)
+		assert.Equal(t, map[string]interface{}{"last": int32(5)}, vars)
+	})
+
+	t.Run("only_before", func(t *testing.T) {
+		before := "cursor2"
+		vars := buildPaginationVars(nil, nil, nil, &before)
+		assert.Equal(t, map[string]interface{}{"before": "cursor2"}, vars)
+	})
+
+	t.Run("first_and_after", func(t *testing.T) {
+		first := int32(10)
+		after := "cursor1"
+		vars := buildPaginationVars(&first, nil, &after, nil)
+		expected := map[string]interface{}{
+			"first": int32(10),
+			"after": "cursor1",
+		}
+		assert.Equal(t, expected, vars)
+	})
+
+	t.Run("last_and_before", func(t *testing.T) {
+		last := int32(5)
+		before := "cursor2"
+		vars := buildPaginationVars(nil, &last, nil, &before)
+		expected := map[string]interface{}{
+			"last":   int32(5),
+			"before": "cursor2",
+		}
+		assert.Equal(t, expected, vars)
+	})
+
+	t.Run("all_params", func(t *testing.T) {
+		first := int32(10)
+		last := int32(5)
+		after := "cursor1"
+		before := "cursor2"
+		vars := buildPaginationVars(&first, &last, &after, &before)
+		expected := map[string]interface{}{
+			"first":  int32(10),
+			"last":   int32(5),
+			"after":  "cursor1",
+			"before": "cursor2",
+		}
+		assert.Equal(t, expected, vars)
+	})
+}
+
+func TestMergeVariables(t *testing.T) {
+	t.Run("no_maps", func(t *testing.T) {
+		result := mergeVariables()
+		assert.Empty(t, result)
+	})
+
+	t.Run("single_map", func(t *testing.T) {
+		map1 := map[string]interface{}{"key1": "value1", "key2": 42}
+		result := mergeVariables(map1)
+		expected := map[string]interface{}{"key1": "value1", "key2": 42}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("two_non_overlapping_maps", func(t *testing.T) {
+		map1 := map[string]interface{}{"key1": "value1"}
+		map2 := map[string]interface{}{"key2": "value2"}
+		result := mergeVariables(map1, map2)
+		expected := map[string]interface{}{"key1": "value1", "key2": "value2"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("two_overlapping_maps", func(t *testing.T) {
+		map1 := map[string]interface{}{"key1": "value1", "shared": "first"}
+		map2 := map[string]interface{}{"key2": "value2", "shared": "second"}
+		result := mergeVariables(map1, map2)
+		expected := map[string]interface{}{"key1": "value1", "key2": "value2", "shared": "second"}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("multiple_maps", func(t *testing.T) {
+		map1 := map[string]interface{}{"a": 1}
+		map2 := map[string]interface{}{"b": 2}
+		map3 := map[string]interface{}{"c": 3}
+		result := mergeVariables(map1, map2, map3)
+		expected := map[string]interface{}{"a": 1, "b": 2, "c": 3}
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("with_pagination_vars", func(t *testing.T) {
+		first := int32(10)
+		after := "cursor1"
+		baseVars := map[string]interface{}{"address": "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"}
+		paginationVars := buildPaginationVars(&first, nil, &after, nil)
+
+		result := mergeVariables(baseVars, paginationVars)
+		expected := map[string]interface{}{
+			"address": "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			"first":   int32(10),
+			"after":   "cursor1",
+		}
+		assert.Equal(t, expected, result)
+	})
+}
+
+func TestExecuteGraphQL(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		responseData := map[string]interface{}{
+			"registerAccount": types.RegisterAccountPayload{
+				Success: true,
+				Account: &types.Account{
+					Address: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+				},
+			},
+		}
+
+		client, server := createTestClient(mockGraphQLHandler(t, "registerAccount", responseData))
+		defer server.Close()
+
+		variables := map[string]interface{}{
+			"input": map[string]interface{}{
+				"address": "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			},
+		}
+
+		data, err := executeGraphQL[RegisterAccountData](client, context.Background(), registerAccountQuery(), variables)
+		require.NoError(t, err)
+		require.NotNil(t, data)
+		assert.True(t, data.RegisterAccount.Success)
+		assert.NotNil(t, data.RegisterAccount.Account)
+		assert.Equal(t, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N", data.RegisterAccount.Account.Address)
+	})
+
+	t.Run("graphql_error", func(t *testing.T) {
+		client, server := createTestClient(mockGraphQLErrorHandler("Test error", "TEST_ERROR"))
+		defer server.Close()
+
+		variables := map[string]interface{}{}
+		data, err := executeGraphQL[RegisterAccountData](client, context.Background(), registerAccountQuery(), variables)
+		assert.Error(t, err)
+		assert.Nil(t, data)
+		assert.Contains(t, err.Error(), "Test error")
+	})
+
+	t.Run("http_error", func(t *testing.T) {
+		client, server := createTestClient(mockHTTPErrorHandler(http.StatusInternalServerError))
+		defer server.Close()
+
+		variables := map[string]interface{}{}
+		data, err := executeGraphQL[RegisterAccountData](client, context.Background(), registerAccountQuery(), variables)
+		assert.Error(t, err)
+		assert.Nil(t, data)
+	})
+
+	t.Run("unmarshal_error", func(t *testing.T) {
+		// Return invalid JSON that can't be unmarshaled
+		handler := func(w http.ResponseWriter, r *http.Request) {
+			response := GraphQLResponse{
+				Data: json.RawMessage(`{"registerAccount": "not an object"}`),
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		}
+
+		client, server := createTestClient(handler)
+		defer server.Close()
+
+		variables := map[string]interface{}{}
+		data, err := executeGraphQL[RegisterAccountData](client, context.Background(), registerAccountQuery(), variables)
+		assert.Error(t, err)
+		assert.Nil(t, data)
+		assert.Contains(t, err.Error(), "unmarshaling GraphQL data")
+	})
+}
