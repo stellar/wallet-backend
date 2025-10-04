@@ -150,7 +150,6 @@ func registerAccountQuery() string {
 				success
 				account {
 					address
-					createdAt
 				}
 			}
 		}
