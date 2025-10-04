@@ -699,3 +699,502 @@ func TestClient_GetStateChanges_WithPolymorphicTypes(t *testing.T) {
 		assert.Equal(t, "{\"key\":\"value\"}", metadataChange.KeyValue)
 	})
 }
+
+func TestClient_GetAccountTransactions(t *testing.T) {
+	t.Run("success_with_all_fields", func(t *testing.T) {
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		first := int32(10)
+
+		responseJSON := `{
+			"accountByAddress": {
+				"transactions": {
+					"edges": [
+						{
+							"node": {
+								"hash": "abc123",
+								"envelopeXdr": "envelopeXdr",
+								"resultXdr": "resultXdr",
+								"metaXdr": "metaXdr",
+								"ledgerNumber": 12345
+							},
+							"cursor": "cursor1"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor1",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "AccountTransactions")
+			assert.Contains(t, req.Query, "accountByAddress")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			TransactionFields: TransactionFields.AllFields(),
+		}
+
+		result, err := client.GetAccountTransactions(context.Background(), address, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, "abc123", result.Edges[0].Node.Hash)
+	})
+
+	t.Run("success_with_custom_fields", func(t *testing.T) {
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		first := int32(5)
+
+		responseJSON := `{
+			"accountByAddress": {
+				"transactions": {
+					"edges": [
+						{
+							"node": {
+								"hash": "def456",
+								"ledgerNumber": 67890
+							},
+							"cursor": "cursor2"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor2",
+						"endCursor": "cursor2",
+						"hasNextPage": true,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			TransactionFields: []string{"hash", "ledgerNumber"},
+		}
+
+		result, err := client.GetAccountTransactions(context.Background(), address, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, "def456", result.Edges[0].Node.Hash)
+		assert.True(t, result.PageInfo.HasNextPage)
+	})
+}
+
+func TestClient_GetAccountOperations(t *testing.T) {
+	t.Run("success_with_all_fields", func(t *testing.T) {
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		first := int32(10)
+
+		responseJSON := `{
+			"accountByAddress": {
+				"operations": {
+					"edges": [
+						{
+							"node": {
+								"id": 123,
+								"operationType": "PAYMENT",
+								"operationXdr": "operationXdr",
+								"ledgerNumber": 12345
+							},
+							"cursor": "cursor1"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor1",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "AccountOperations")
+			assert.Contains(t, req.Query, "accountByAddress")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			OperationFields: OperationFields.AllFields(),
+		}
+
+		result, err := client.GetAccountOperations(context.Background(), address, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, int64(123), result.Edges[0].Node.ID)
+		assert.Equal(t, types.OperationTypePayment, result.Edges[0].Node.OperationType)
+	})
+
+	t.Run("success_with_custom_fields", func(t *testing.T) {
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		first := int32(5)
+
+		responseJSON := `{
+			"accountByAddress": {
+				"operations": {
+					"edges": [
+						{
+							"node": {
+								"id": 456,
+								"operationType": "CREATE_ACCOUNT"
+							},
+							"cursor": "cursor2"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor2",
+						"endCursor": "cursor2",
+						"hasNextPage": true,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			OperationFields: []string{"id", "operationType"},
+		}
+
+		result, err := client.GetAccountOperations(context.Background(), address, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, int64(456), result.Edges[0].Node.ID)
+	})
+}
+
+func TestClient_GetAccountStateChanges(t *testing.T) {
+	t.Run("success_with_polymorphic_types", func(t *testing.T) {
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		first := int32(10)
+
+		responseJSON := `{
+			"accountByAddress": {
+				"stateChanges": {
+					"edges": [
+						{
+							"node": {
+								"__typename": "StandardBalanceChange",
+								"type": "BALANCE",
+								"reason": "CREDIT",
+								"ledgerNumber": 12345,
+								"tokenId": "native",
+								"amount": "100.0000000"
+							},
+							"cursor": "cursor1"
+						},
+						{
+							"node": {
+								"__typename": "SignerChange",
+								"type": "SIGNER",
+								"reason": "ADD",
+								"ledgerNumber": 12346,
+								"signerAddress": "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+							},
+							"cursor": "cursor2"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor2",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "AccountStateChanges")
+			assert.Contains(t, req.Query, "accountByAddress")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		result, err := client.GetAccountStateChanges(context.Background(), address, &first, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 2)
+
+		// Check first edge is StandardBalanceChange
+		balanceChange, ok := result.Edges[0].Node.(*types.StandardBalanceChange)
+		require.True(t, ok, "expected StandardBalanceChange type")
+		assert.Equal(t, types.StateChangeCategoryBalance, balanceChange.Type)
+		assert.Equal(t, "native", balanceChange.TokenID)
+
+		// Check second edge is SignerChange
+		signerChange, ok := result.Edges[1].Node.(*types.SignerChange)
+		require.True(t, ok, "expected SignerChange type")
+		assert.Equal(t, types.StateChangeCategorySigner, signerChange.Type)
+	})
+}
+
+func TestClient_GetTransactionOperations(t *testing.T) {
+	t.Run("success_with_all_fields", func(t *testing.T) {
+		hash := "abc123"
+		first := int32(10)
+
+		responseJSON := `{
+			"transactionByHash": {
+				"operations": {
+					"edges": [
+						{
+							"node": {
+								"id": 789,
+								"operationType": "PAYMENT",
+								"operationXdr": "operationXdr",
+								"ledgerNumber": 54321
+							},
+							"cursor": "cursor1"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor1",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "TransactionOperations")
+			assert.Contains(t, req.Query, "transactionByHash")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			OperationFields: OperationFields.AllFields(),
+		}
+
+		result, err := client.GetTransactionOperations(context.Background(), hash, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, int64(789), result.Edges[0].Node.ID)
+	})
+
+	t.Run("success_with_custom_fields", func(t *testing.T) {
+		hash := "def456"
+		first := int32(5)
+
+		responseJSON := `{
+			"transactionByHash": {
+				"operations": {
+					"edges": [
+						{
+							"node": {
+								"id": 101112,
+								"operationType": "CREATE_ACCOUNT"
+							},
+							"cursor": "cursor2"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor2",
+						"endCursor": "cursor2",
+						"hasNextPage": true,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		opts := &QueryOptions{
+			OperationFields: []string{"id", "operationType"},
+		}
+
+		result, err := client.GetTransactionOperations(context.Background(), hash, &first, nil, nil, nil, opts)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+		assert.Equal(t, int64(101112), result.Edges[0].Node.ID)
+	})
+}
+
+func TestClient_GetTransactionStateChanges(t *testing.T) {
+	t.Run("success_with_polymorphic_types", func(t *testing.T) {
+		hash := "abc123"
+		first := int32(10)
+
+		responseJSON := `{
+			"transactionByHash": {
+				"stateChanges": {
+					"edges": [
+						{
+							"node": {
+								"__typename": "AccountChange",
+								"type": "ACCOUNT",
+								"reason": "CREATE",
+								"ledgerNumber": 12345,
+								"tokenId": "native",
+								"amount": "1000.0000000"
+							},
+							"cursor": "cursor1"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor1",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "TransactionStateChanges")
+			assert.Contains(t, req.Query, "transactionByHash")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		result, err := client.GetTransactionStateChanges(context.Background(), hash, &first, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+
+		// Check edge is AccountChange
+		accountChange, ok := result.Edges[0].Node.(*types.AccountChange)
+		require.True(t, ok, "expected AccountChange type")
+		assert.Equal(t, types.StateChangeCategoryAccount, accountChange.Type)
+	})
+}
+
+func TestClient_GetOperationStateChanges(t *testing.T) {
+	t.Run("success_with_polymorphic_types", func(t *testing.T) {
+		id := int64(123456)
+		first := int32(10)
+
+		responseJSON := `{
+			"operationById": {
+				"stateChanges": {
+					"edges": [
+						{
+							"node": {
+								"__typename": "MetadataChange",
+								"type": "METADATA",
+								"reason": "SET",
+								"ledgerNumber": 12345,
+								"keyValue": "{\"key\":\"value\"}"
+							},
+							"cursor": "cursor1"
+						}
+					],
+					"pageInfo": {
+						"startCursor": "cursor1",
+						"endCursor": "cursor1",
+						"hasNextPage": false,
+						"hasPreviousPage": false
+					}
+				}
+			}
+		}`
+
+		client, server := createTestClient(func(w http.ResponseWriter, r *http.Request) {
+			var req GraphQLRequest
+			err := json.NewDecoder(r.Body).Decode(&req)
+			require.NoError(t, err)
+			assert.Contains(t, req.Query, "OperationStateChanges")
+			assert.Contains(t, req.Query, "operationById")
+
+			w.Header().Set("Content-Type", "application/json")
+			response := GraphQLResponse{
+				Data: json.RawMessage(responseJSON),
+			}
+			_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // test code
+		})
+		defer server.Close()
+
+		result, err := client.GetOperationStateChanges(context.Background(), id, &first, nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Len(t, result.Edges, 1)
+
+		// Check edge is MetadataChange
+		metadataChange, ok := result.Edges[0].Node.(*types.MetadataChange)
+		require.True(t, ok, "expected MetadataChange type")
+		assert.Equal(t, types.StateChangeCategoryMetadata, metadataChange.Type)
+		assert.Equal(t, "{\"key\":\"value\"}", metadataChange.KeyValue)
+	})
+}

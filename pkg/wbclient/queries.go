@@ -275,6 +275,153 @@ func buildStateChangesQuery() string {
 	`, stateChangeFragments)
 }
 
+// buildAccountTransactionsQuery builds the GraphQL query for fetching an account's transactions with pagination
+func buildAccountTransactionsQuery(fields []string) string {
+	fieldList := buildFieldList(fields, defaultTransactionFields)
+	return fmt.Sprintf(`
+		query AccountTransactions($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+			accountByAddress(address: $address) {
+				transactions(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, fieldList)
+}
+
+// buildAccountOperationsQuery builds the GraphQL query for fetching an account's operations with pagination
+func buildAccountOperationsQuery(fields []string) string {
+	fieldList := buildFieldList(fields, defaultOperationFields)
+	return fmt.Sprintf(`
+		query AccountOperations($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+			accountByAddress(address: $address) {
+				operations(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, fieldList)
+}
+
+// buildAccountStateChangesQuery builds the GraphQL query for fetching an account's state changes with pagination
+func buildAccountStateChangesQuery() string {
+	return fmt.Sprintf(`
+		query AccountStateChanges($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+			accountByAddress(address: $address) {
+				stateChanges(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, stateChangeFragments)
+}
+
+// buildTransactionOperationsQuery builds the GraphQL query for fetching a transaction's operations with pagination
+func buildTransactionOperationsQuery(fields []string) string {
+	fieldList := buildFieldList(fields, defaultOperationFields)
+	return fmt.Sprintf(`
+		query TransactionOperations($hash: String!, $first: Int, $after: String, $last: Int, $before: String) {
+			transactionByHash(hash: $hash) {
+				operations(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, fieldList)
+}
+
+// buildTransactionStateChangesQuery builds the GraphQL query for fetching a transaction's state changes with pagination
+func buildTransactionStateChangesQuery() string {
+	return fmt.Sprintf(`
+		query TransactionStateChanges($hash: String!, $first: Int, $after: String, $last: Int, $before: String) {
+			transactionByHash(hash: $hash) {
+				stateChanges(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, stateChangeFragments)
+}
+
+// buildOperationStateChangesQuery builds the GraphQL query for fetching an operation's state changes with pagination
+func buildOperationStateChangesQuery() string {
+	return fmt.Sprintf(`
+		query OperationStateChanges($id: Int64!, $first: Int, $after: String, $last: Int, $before: String) {
+			operationById(id: $id) {
+				stateChanges(first: $first, after: $after, last: $last, before: $before) {
+					edges {
+						node {
+							%s
+						}
+						cursor
+					}
+					pageInfo {
+						startCursor
+						endCursor
+						hasNextPage
+						hasPreviousPage
+					}
+				}
+			}
+		}
+	`, stateChangeFragments)
+}
+
 // buildFieldList constructs a field list string from a slice of field names
 // If fields is nil or empty, returns the defaultFields
 func buildFieldList(fields []string, defaultFields string) string {
