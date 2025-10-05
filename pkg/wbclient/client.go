@@ -120,6 +120,21 @@ type OperationStateChangesData struct {
 	} `json:"operationById"`
 }
 
+// QueryOptions allows clients to specify which fields to fetch for each entity type
+type QueryOptions struct {
+	// TransactionFields specifies which transaction fields to fetch
+	// If nil or empty, all default fields are fetched
+	TransactionFields []string
+
+	// OperationFields specifies which operation fields to fetch
+	// If nil or empty, all default fields are fetched
+	OperationFields []string
+
+	// AccountFields specifies which account fields to fetch
+	// If nil or empty, all default fields are fetched
+	AccountFields []string
+}
+
 type Client struct {
 	HTTPClient    *http.Client
 	BaseURL       string

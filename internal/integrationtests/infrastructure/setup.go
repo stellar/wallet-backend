@@ -184,10 +184,6 @@ func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context)
 	return s.secondarySourceAccountKeyPair
 }
 
-func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
-	return s.distributionAccountKeyPair
-}
-
 // Cleanup cleans up shared containers after all tests complete
 func (s *SharedContainers) Cleanup(ctx context.Context) {
 	if s.WalletBackendContainer.API != nil {
