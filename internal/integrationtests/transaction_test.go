@@ -4,22 +4,13 @@ package integrationtests
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
-	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/internal/signing"
-	"github.com/stellar/wallet-backend/internal/signing/store"
-	"github.com/stellar/wallet-backend/pkg/wbclient"
-	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -27,76 +18,27 @@ const (
 	networkPassphrase = "Standalone Network ; February 2017"
 )
 
-type TransactionTestSuite struct {
+type BuildAndSubmitTransactionsTestSuite struct {
 	suite.Suite
-	containers                         *infrastructure.SharedContainers
-	RPCService                         services.RPCService
-	WBClient                           *wbclient.Client
-	PrimaryAccountKP                   *keypair.Full
-	SecondaryAccountKP                 *keypair.Full
-	DistributionAccountSignatureClient signing.SignatureClient
-	ChannelAccountStore                store.ChannelAccountStore
-	DBConnectionPool                   db.ConnectionPool
-	Fixtures                           Fixtures
+	testEnv  *infrastructure.TestEnvironment
+	Fixtures Fixtures
 }
 
-func (suite *TransactionTestSuite) SetupSuite() {
+func (suite *BuildAndSubmitTransactionsTestSuite) SetupSuite() {
 	ctx := context.Background()
 
-	// Get wallet-backend URL from container
-	wbURL, err := suite.containers.WalletBackendContainer.API.GetConnectionString(ctx)
-	suite.Require().NoError(err, "failed to get wallet-backend connection string")
-
-	// Parse keypairs
-	suite.PrimaryAccountKP = suite.containers.GetPrimarySourceAccountKeyPair(ctx)
-	suite.SecondaryAccountKP = suite.containers.GetSecondarySourceAccountKeyPair(ctx)
-
-	// Initialize wallet-backend client
-	clientAuthKP := suite.containers.GetClientAuthKeyPair(ctx)
-	jwtTokenGenerator, err := auth.NewJWTTokenGenerator(clientAuthKP.Seed())
-	suite.Require().NoError(err, "failed to create JWT token generator")
-	requestSigner := auth.NewHTTPRequestSigner(jwtTokenGenerator)
-	suite.WBClient = wbclient.NewClient(wbURL, requestSigner)
-
-	// Get RPC host and port
-	rpcHost, err := (*suite.containers.RPCContainer).Host(ctx)
-	suite.Require().NoError(err, "failed to get RPC host")
-	rpcPort, err := (*suite.containers.RPCContainer).MappedPort(ctx, "8000")
-	suite.Require().NoError(err, "failed to get RPC port")
-	rpcURL := fmt.Sprintf("http://%s:%s", rpcHost, rpcPort.Port())
-
-	// Get database host and port
-	dbHost, err := suite.containers.WalletDBContainer.GetHost(ctx)
-	suite.Require().NoError(err, "failed to get database host")
-	dbPort, err := suite.containers.WalletDBContainer.GetPort(ctx)
-	suite.Require().NoError(err, "failed to get database port")
-	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
-	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
-	suite.Require().NoError(err, "failed to open database connection pool")
-	db, err := dbConnectionPool.SqlxDB(ctx)
-	suite.Require().NoError(err, "failed to get sqlx db")
-
-	// Initialize RPC service
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	metricsService := metrics.NewMetricsService(db)
-	suite.RPCService, err = services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
-	suite.Require().NoError(err, "failed to create RPC service")
-
-	// Start tracking RPC health
-	go suite.RPCService.TrackRPCServiceHealth(ctx, nil)
-
-	// Initialize fixtures
+	// Initialize fixtures using the shared test environment
 	suite.Fixtures = Fixtures{
 		NetworkPassphrase:  networkPassphrase,
-		PrimaryAccountKP:   suite.PrimaryAccountKP,
-		SecondaryAccountKP: suite.SecondaryAccountKP,
-		RPCService:         suite.RPCService,
+		PrimaryAccountKP:   suite.testEnv.PrimaryAccountKP,
+		SecondaryAccountKP: suite.testEnv.SecondaryAccountKP,
+		RPCService:         suite.testEnv.RPCService,
 	}
 
 	log.Ctx(ctx).Info("✅ TransactionTestSuite setup complete")
 }
 
-func (suite *TransactionTestSuite) TestTransactionFlow() {
+func (suite *BuildAndSubmitTransactionsTestSuite) TestTransactionFlow() {
 	ctx := context.Background()
 
 	log.Ctx(ctx).Info("🆕 Starting integration tests...")
@@ -111,7 +53,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 	log.Ctx(ctx).Info("===> 2️⃣ [WalletBackend] Building transactions...")
 	for _, useCase := range useCases {
 		var builtTxResponse *types.BuildTransactionResponse
-		builtTxResponse, err = suite.WBClient.BuildTransaction(ctx, useCase.requestedTransaction)
+		builtTxResponse, err = suite.testEnv.WBClient.BuildTransaction(ctx, useCase.requestedTransaction)
 		suite.Require().NoError(err, "failed to build transaction for %s", useCase.Name())
 		log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", useCase.Name(), builtTxResponse)
 		useCase.builtTransactionXDR = builtTxResponse.TransactionXDR
@@ -132,7 +74,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 	log.Ctx(ctx).Info("===> 4️⃣ [WalletBackend] Creating fee bump transaction...")
 	for _, useCase := range useCases {
 		var feeBumpTxResponse *types.TransactionEnvelopeResponse
-		feeBumpTxResponse, err = suite.WBClient.FeeBumpTransaction(ctx, useCase.signedTransactionXDR)
+		feeBumpTxResponse, err = suite.testEnv.WBClient.FeeBumpTransaction(ctx, useCase.signedTransactionXDR)
 		suite.Require().NoError(err, "failed to create fee bump transaction for %s", useCase.Name())
 		useCase.feeBumpedTransactionXDR = feeBumpTxResponse.Transaction
 		log.Ctx(ctx).Debugf("✅ [%s] feeBumpTxResponse: %+v", useCase.Name(), feeBumpTxResponse)
@@ -147,7 +89,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 
 	// Step 5: wait for RPC to be healthy
 	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Waiting for RPC service to become healthy...")
-	err = WaitForRPCHealthAndRun(ctx, suite.RPCService, 40*time.Second, nil)
+	err = WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil)
 	suite.Require().NoError(err, "RPC service did not become healthy")
 
 	// Step 6: submit transactions to RPC
@@ -160,7 +102,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 			time.Sleep(useCase.delayTime)
 		}
 
-		res, err := suite.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR)
+		res, err := suite.testEnv.RPCService.SendTransaction(useCase.feeBumpedTransactionXDR)
 		suite.Require().NoError(err, "failed to send transaction for %s", useCase.Name())
 		useCase.sendTransactionResult = res
 		log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
@@ -170,7 +112,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 	// Step 7: poll the network for the transaction
 	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Waiting for transaction confirmation...")
 	for _, useCase := range useCases {
-		txResult, err := WaitForTransactionConfirmation(ctx, suite.RPCService, useCase.sendTransactionResult.Hash)
+		txResult, err := WaitForTransactionConfirmation(ctx, suite.testEnv.RPCService, useCase.sendTransactionResult.Hash)
 		if err != nil {
 			log.Ctx(ctx).Errorf("[useCase=%s,hash=%s] waiting for transaction confirmation: %v", useCase.Name(), useCase.sendTransactionResult.Hash, err)
 		}
@@ -186,7 +128,7 @@ func (suite *TransactionTestSuite) TestTransactionFlow() {
 	log.Ctx(ctx).Info("✅ All integration tests passed!")
 }
 
-func (suite *TransactionTestSuite) signTransactions(ctx context.Context, useCases []*UseCase) error {
+func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context, useCases []*UseCase) error {
 	for i, useCase := range useCases {
 		tx, err := parseTxXDR(useCase.builtTransactionXDR)
 		if err != nil {
@@ -213,7 +155,7 @@ func (suite *TransactionTestSuite) signTransactions(ctx context.Context, useCase
 }
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
-func (suite *TransactionTestSuite) assertBuildTransactionResult(useCases []*UseCase) {
+func (suite *BuildAndSubmitTransactionsTestSuite) assertBuildTransactionResult(useCases []*UseCase) {
 	// Note: We can't easily access the channel account store from here in the containerized environment,
 	// so we'll just verify that the transactions were built successfully
 	for _, useCase := range useCases {
@@ -235,7 +177,7 @@ func (suite *TransactionTestSuite) assertBuildTransactionResult(useCases []*UseC
 }
 
 // assertFeeBumpTransactionResult asserts that the fee bump transaction result is correct.
-func (suite *TransactionTestSuite) assertFeeBumpTransactionResult(useCase *UseCase) {
+func (suite *BuildAndSubmitTransactionsTestSuite) assertFeeBumpTransactionResult(useCase *UseCase) {
 	feeBumpTx, err := parseFeeBumpTxXDR(useCase.feeBumpedTransactionXDR)
 	suite.Require().NoError(err, "[%s] failed to parse fee bump transaction from XDR", useCase.Name())
 

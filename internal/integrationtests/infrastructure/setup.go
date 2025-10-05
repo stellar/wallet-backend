@@ -24,7 +24,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 const (
@@ -829,4 +834,97 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 	}
 
 	return &rpcResp.Result, nil
+}
+
+// TestEnvironment holds all initialized services and clients for integration tests
+type TestEnvironment struct {
+	WBClient           *wbclient.Client
+	RPCService         services.RPCService
+	PrimaryAccountKP   *keypair.Full
+	SecondaryAccountKP *keypair.Full
+}
+
+// createWalletBackendClient initializes the wallet-backend client
+func createWalletBackendClient(containers *SharedContainers, ctx context.Context) (*wbclient.Client, error) {
+	wbURL, err := containers.WalletBackendContainer.API.GetConnectionString(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wallet-backend connection string: %w", err)
+	}
+
+	clientAuthKP := containers.GetClientAuthKeyPair(ctx)
+	jwtTokenGenerator, err := auth.NewJWTTokenGenerator(clientAuthKP.Seed())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JWT token generator: %w", err)
+	}
+
+	requestSigner := auth.NewHTTPRequestSigner(jwtTokenGenerator)
+	return wbclient.NewClient(wbURL, requestSigner), nil
+}
+
+// createRPCService initializes the RPC service
+func createRPCService(containers *SharedContainers, ctx context.Context) (services.RPCService, error) {
+	rpcURL, err := containers.RPCContainer.GetConnectionString(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get RPC connection string: %w", err)
+	}
+
+	// Get database connection for metrics
+	dbHost, err := containers.WalletDBContainer.GetHost(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database host: %w", err)
+	}
+	dbPort, err := containers.WalletDBContainer.GetPort(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database port: %w", err)
+	}
+	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection pool: %w", err)
+	}
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sqlx db: %w", err)
+	}
+
+	// Initialize RPC service
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC service: %w", err)
+	}
+
+	// Start tracking RPC health
+	go rpcService.TrackRPCServiceHealth(ctx, nil)
+
+	return rpcService, nil
+}
+
+// NewTestEnvironment creates and initializes a test environment with all required services
+func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*TestEnvironment, error) {
+	// Initialize wallet-backend client
+	wbClient, err := createWalletBackendClient(containers, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize RPC service
+	rpcService, err := createRPCService(containers, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get keypairs
+	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
+	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
+
+	log.Ctx(ctx).Info("✅ TestEnvironment setup complete")
+
+	return &TestEnvironment{
+		WBClient:           wbClient,
+		RPCService:         rpcService,
+		PrimaryAccountKP:   primaryAccountKP,
+		SecondaryAccountKP: secondaryAccountKP,
+	}, nil
 }

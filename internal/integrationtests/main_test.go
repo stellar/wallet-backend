@@ -22,12 +22,26 @@ func TestIntegrationTests(t *testing.T) {
 	log.DefaultLogger = log.New()
 	log.DefaultLogger.SetLevel(logrus.DebugLevel)
 
-	containers := infrastructure.NewSharedContainers(t)
-	defer containers.Cleanup(context.Background())
+	ctx := context.Background()
 
-	t.Run("TransactionTestSuite", func(t *testing.T) {
-		suite.Run(t, &TransactionTestSuite{
-			containers: containers,
+	// Initialize shared containers
+	containers := infrastructure.NewSharedContainers(t)
+	defer containers.Cleanup(ctx)
+
+	// Initialize shared test environment once
+	testEnv, err := infrastructure.NewTestEnvironment(containers, ctx)
+	if err != nil {
+		t.Fatalf("Failed to initialize test environment: %v", err)
+	}
+
+	t.Run("AccountRegisterTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountRegisterTestSuite{
+			testEnv: testEnv,
+		})
+	})
+	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
+		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
+			testEnv: testEnv,
 		})
 	})
 }
