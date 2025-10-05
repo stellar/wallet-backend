@@ -39,9 +39,9 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
-	// t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
-	// 	suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
-	// 		testEnv: testEnv,
-	// 	})
-	// })
+	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
+		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
+			testEnv: testEnv,
+		})
+	})
 }

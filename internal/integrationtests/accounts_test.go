@@ -20,7 +20,13 @@ func (suite *AccountRegisterTestSuite) TestAccountRegistration() {
 	address := suite.testEnv.PrimaryAccountKP.Address()
 	account, err := client.RegisterAccount(ctx, suite.testEnv.PrimaryAccountKP.Address())
 	suite.Require().NoError(err)
+	suite.Require().True(account.Success)
 	suite.Require().Equal(address, account.Account.Address)
+
+	// Fetch the address to make sure it was registered
+	fetchedAccount, err := client.GetAccountByAddress(ctx, address)
+	suite.Require().NoError(err)
+	suite.Require().Equal(address, fetchedAccount.Address)
 }
 
 func (suite *AccountRegisterTestSuite) TestDuplicateAccountRegistration() {
