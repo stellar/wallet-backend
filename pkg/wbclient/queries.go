@@ -31,7 +31,6 @@ const (
 
 	defaultAccountFields = `
 		address
-		createdAt
 	`
 
 	// State change fragments for all concrete types
