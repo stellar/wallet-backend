@@ -915,7 +915,7 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
 
-	log.Ctx(ctx).Info("✅ TestEnvironment setup complete")
+	log.Ctx(ctx).Info("✅ Test environment setup complete")
 
 	return &TestEnvironment{
 		WBClient:           wbClient,
