@@ -197,6 +197,8 @@ func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return fmt.Errorf("unmarshaling state change edge: %w", err)
 	}
+	fmt.Println("temp.Node", string(temp.Node))
+	fmt.Println("temp.Cursor", temp.Cursor)
 
 	e.Cursor = temp.Cursor
 

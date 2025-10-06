@@ -40,7 +40,7 @@ const (
 	walletBackendIngestContainerName = "wallet-backend-ingest"
 	walletBackendContainerAPIPort    = "8002"
 	walletBackendContainerIngestPort = "8003"
-	walletBackendContainerTag        = "wallet-backend:integration-test"
+	walletBackendContainerTag        = "integration-test"
 	walletBackendDockerfile          = "Dockerfile"
 	walletBackendContext             = "../../"
 	networkPassphrase                = "Standalone Network ; February 2017"
@@ -627,6 +627,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 	// Build image tag with git commit hash
 	commitHash := getGitCommitHash()
 	imageTag := fmt.Sprintf("%s-%s", tag, commitHash)
+	fullImageName := fmt.Sprintf("wallet-backend:%s", imageTag)
 
 	// Prepare base container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -657,12 +658,13 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 	}
 
 	// Check if we need to rebuild the image
-	if shouldRebuildImage(imageTag) {
+	if shouldRebuildImage(fullImageName) {
 		// Build image from Dockerfile
 		containerRequest.FromDockerfile = testcontainers.FromDockerfile{
 			Context:    walletBackendContext,
 			Dockerfile: walletBackendDockerfile,
 			KeepImage:  true,
+			Repo:       "wallet-backend",
 			Tag:        imageTag,
 			BuildArgs: map[string]*string{
 				"GIT_COMMIT": &commitHash,
@@ -670,7 +672,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 		}
 	} else {
 		// Use existing image
-		containerRequest.Image = imageTag
+		containerRequest.Image = fullImageName
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -705,6 +707,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 	// Build image tag with git commit hash
 	commitHash := getGitCommitHash()
 	imageTag := fmt.Sprintf("%s-%s", tag, commitHash)
+	fullImageName := fmt.Sprintf("wallet-backend:%s", imageTag)
 
 	// Prepare base container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -737,12 +740,13 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 	}
 
 	// Check if we need to rebuild the image
-	if shouldRebuildImage(imageTag) {
+	if shouldRebuildImage(fullImageName) {
 		// Build image from Dockerfile
 		containerRequest.FromDockerfile = testcontainers.FromDockerfile{
 			Context:    walletBackendContext,
 			Dockerfile: walletBackendDockerfile,
 			KeepImage:  true,
+			Repo:       "wallet-backend",
 			Tag:        imageTag,
 			BuildArgs: map[string]*string{
 				"GIT_COMMIT": &commitHash,
@@ -750,7 +754,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		}
 	} else {
 		// Use existing image
-		containerRequest.Image = imageTag
+		containerRequest.Image = fullImageName
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
