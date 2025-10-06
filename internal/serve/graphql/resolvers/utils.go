@@ -218,7 +218,16 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 	fieldToColumnMap := getColumnMap(model)
 	dbColumns := make([]string, 0, len(fields))
 	for _, field := range fields {
-		if colName, ok := fieldToColumnMap[field.Name]; ok {
+		fieldName := field.Name
+		// In our graphql schema, we have changed the stateChangeCategory and stateChangeReason fields to type and reason respectively.
+		// So in order to have them resolve to the db column, we need to manually change the field name here.
+		switch fieldName {
+		case "type":
+			fieldName = "stateChangeCategory"
+		case "reason":
+			fieldName = "stateChangeReason"
+		}
+		if colName, ok := fieldToColumnMap[fieldName]; ok {
 			dbColumns = append(dbColumns, colName)
 		}
 	}
