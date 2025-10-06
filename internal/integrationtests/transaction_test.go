@@ -21,8 +21,8 @@ const (
 
 type BuildAndSubmitTransactionsTestSuite struct {
 	suite.Suite
-	testEnv  *infrastructure.TestEnvironment
-	pool     pond.Pool
+	testEnv *infrastructure.TestEnvironment
+	pool    pond.Pool
 }
 
 func (suite *BuildAndSubmitTransactionsTestSuite) TearDownSuite() {
