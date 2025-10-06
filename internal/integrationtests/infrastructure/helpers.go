@@ -1,5 +1,5 @@
-// Package integrationtests provides helper utilities for integration testing
-package integrationtests
+// Package infrastructure provides helper utilities for integration testing
+package infrastructure
 
 import (
 	"context"
@@ -139,7 +139,7 @@ func (s *Set[T]) Slice() []T {
 
 // RenderResult renders a result string for a use case.
 func RenderResult(useCase *UseCase) string {
-	status := useCase.getTransactionResult.Status
+	status := useCase.GetTransactionResult.Status
 	var statusEmoji string
 	switch status {
 	case entities.SuccessStatus:
@@ -158,9 +158,9 @@ func RenderResult(useCase *UseCase) string {
 	builder.WriteString(statusText)
 	builder.WriteString(fmt.Sprintf(" {Use Case: %s", useCase.name))
 	builder.WriteString(fmt.Sprintf(", Category: %s", useCase.category))
-	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.sendTransactionResult.Hash))
+	builder.WriteString(fmt.Sprintf(", Hash: %s", useCase.SendTransactionResult.Hash))
 	if status != entities.SuccessStatus {
-		txResult := useCase.getTransactionResult
+		txResult := useCase.GetTransactionResult
 		builder.WriteString(fmt.Sprintf("ResultXDR: %+v, ErrorResultXDR: %+v, ResultMetaXDR: %+v", txResult.ResultXDR, txResult.ErrorResultXDR, txResult.ResultMetaXDR))
 	}
 	builder.WriteString("}")

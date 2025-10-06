@@ -838,6 +838,17 @@ type TestEnvironment struct {
 	RPCService         services.RPCService
 	PrimaryAccountKP   *keypair.Full
 	SecondaryAccountKP *keypair.Full
+	UseCases           []*UseCase
+}
+
+func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
+	fixtures := Fixtures{
+		NetworkPassphrase:  networkPassphrase,
+		PrimaryAccountKP:   primaryAccountKP,
+		SecondaryAccountKP: secondaryAccountKP,
+		RPCService:         rpcService,
+	}
+	return fixtures.PrepareUseCases(ctx)
 }
 
 // createWalletBackendClient initializes the wallet-backend client
@@ -915,6 +926,12 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
 
+	// Prepare use cases
+	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, rpcService)
+	if err != nil {
+		return nil, err
+	}
+
 	log.Ctx(ctx).Info("✅ Test environment setup complete")
 
 	return &TestEnvironment{
@@ -922,5 +939,6 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		RPCService:         rpcService,
 		PrimaryAccountKP:   primaryAccountKP,
 		SecondaryAccountKP: secondaryAccountKP,
+		UseCases:           useCases,
 	}, nil
 }

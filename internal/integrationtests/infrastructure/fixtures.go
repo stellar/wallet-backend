@@ -1,4 +1,4 @@
-package integrationtests
+package infrastructure
 
 import (
 	"context"
@@ -66,9 +66,15 @@ type Fixtures struct {
 
 // preparePaymentOp creates a payment operation.
 func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 3 state changes:
+		- 1 debit change for primary account for the fee of the transaction
+		- 1 credit change for secondary account for the amount of the payment
+		- 1 debit change for primary account for the amount of the payment
+	*/
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: f.PrimaryAccountKP.Address(),
-		Destination:   f.PrimaryAccountKP.Address(),
+		Destination:   f.SecondaryAccountKP.Address(),
 		Amount:        "10",
 		Asset:         txnbuild.NativeAsset{},
 	}
@@ -507,14 +513,14 @@ const (
 type UseCase struct {
 	name                    string
 	category                category
-	delayTime               time.Duration
-	txSigners               *Set[*keypair.Full]
-	requestedTransaction    types.Transaction
-	builtTransactionXDR     string
-	signedTransactionXDR    string
-	feeBumpedTransactionXDR string
-	sendTransactionResult   entities.RPCSendTransactionResult
-	getTransactionResult    entities.RPCGetTransactionResult
+	DelayTime               time.Duration
+	TxSigners               *Set[*keypair.Full]
+	RequestedTransaction    types.Transaction
+	BuiltTransactionXDR     string
+	SignedTransactionXDR    string
+	FeeBumpedTransactionXDR string
+	SendTransactionResult   entities.RPCSendTransactionResult
+	GetTransactionResult    entities.RPCGetTransactionResult
 }
 
 func (u *UseCase) Name() string {
@@ -538,8 +544,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "paymentOp",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -556,8 +562,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "sponsoredAccountCreationOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -573,8 +579,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "customAssetsOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -590,8 +596,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "authRequiredOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -607,9 +613,9 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "accountMergeOp",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			delayTime:            6 * time.Second,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			DelayTime:            6 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -625,8 +631,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 
@@ -642,8 +648,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categorySoroban,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 

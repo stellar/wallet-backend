@@ -44,4 +44,9 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
+	t.Run("DataValidationTestSuite", func(t *testing.T) {
+		suite.Run(t, &DataValidationTestSuite{
+			testEnv: testEnv,
+		})
+	})
 }
