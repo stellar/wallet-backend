@@ -120,6 +120,37 @@ unit-test: ## Run unit tests
 	@echo "==> Running unit tests..."
 	ENABLE_INTEGRATION_TESTS=false go test -v -race ./...
 
+build-integration-image: ## Build integration test Docker image with git commit tag
+	@echo "==> Building integration test image..."
+	@GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "latest"); \
+	IMAGE_TAG="wallet-backend:integration-test-$$GIT_COMMIT"; \
+	$(SUDO) docker build \
+		--file Dockerfile \
+		--tag "$$IMAGE_TAG" \
+		--build-arg GIT_COMMIT="$$GIT_COMMIT" \
+		.; \
+	echo "✅ Built image: $$IMAGE_TAG"
+
+rebuild-integration-image: ## Force rebuild integration test Docker image
+	@echo "==> Force rebuilding integration test image..."
+	@GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "latest"); \
+	IMAGE_TAG="wallet-backend:integration-test-$$GIT_COMMIT"; \
+	$(SUDO) docker build \
+		--file Dockerfile \
+		--no-cache \
+		--tag "$$IMAGE_TAG" \
+		--build-arg GIT_COMMIT="$$GIT_COMMIT" \
+		.; \
+	echo "✅ Force rebuilt image: $$IMAGE_TAG"
+
+integration-test: ## Run integration tests (auto-detects if rebuild needed)
+	@echo "==> Running integration tests..."
+	ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
+
+integration-test-clean: ## Force rebuild integration test image and run tests
+	@echo "==> Force rebuilding and running integration tests..."
+	FORCE_REBUILD=true ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
+
 docker-build:
 	$(SUDO) docker build \
 		--file Dockerfile \

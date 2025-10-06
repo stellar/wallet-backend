@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,12 +40,52 @@ const (
 	walletBackendIngestContainerName = "wallet-backend-ingest"
 	walletBackendContainerAPIPort    = "8002"
 	walletBackendContainerIngestPort = "8003"
-	walletBackendContainerTag        = "integration-test"
+	walletBackendContainerTag        = "wallet-backend:integration-test"
 	walletBackendDockerfile          = "Dockerfile"
 	walletBackendContext             = "../../"
 	networkPassphrase                = "Standalone Network ; February 2017"
 	protocolVersion                  = 23 // Default protocol version for Stellar Core upgrades
 )
+
+// getGitCommitHash returns the current git commit hash (short form)
+// Falls back to "latest" if not in a git repository or if git command fails
+func getGitCommitHash() string {
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "latest"
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// imageExists checks if a Docker image exists locally
+func imageExists(imageName string) bool {
+	cmd := exec.Command("docker", "images", "-q", imageName)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
+// shouldRebuildImage determines if the Docker image should be rebuilt
+// Returns true if FORCE_REBUILD=true or if the image doesn't exist
+func shouldRebuildImage(imageTag string) bool {
+	// Check for force rebuild environment variable
+	if os.Getenv("FORCE_REBUILD") == "true" {
+		log.Info("FORCE_REBUILD=true, rebuilding image")
+		return true
+	}
+
+	// Check if image exists
+	if !imageExists(imageTag) {
+		log.Infof("Image %s not found, building it", imageTag)
+		return true
+	}
+
+	log.Infof("Using existing image: %s", imageTag)
+	return false
+}
 
 type WalletBackendContainer struct {
 	API    *TestContainer
@@ -581,14 +624,13 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 func createWalletBackendIngestContainer(ctx context.Context, name string, tag string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
 ) (*TestContainer, error) {
+	// Build image tag with git commit hash
+	commitHash := getGitCommitHash()
+	imageTag := fmt.Sprintf("%s-%s", tag, commitHash)
+
+	// Prepare base container request
 	containerRequest := testcontainers.ContainerRequest{
 		Name: name,
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    walletBackendContext,
-			Dockerfile: walletBackendDockerfile,
-			KeepImage:  true,
-			Tag:        tag,
-		},
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -612,6 +654,23 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 			"STELLAR_ENVIRONMENT":                     "integration-test",
 		},
 		Networks: []string{testNetwork.Name},
+	}
+
+	// Check if we need to rebuild the image
+	if shouldRebuildImage(imageTag) {
+		// Build image from Dockerfile
+		containerRequest.FromDockerfile = testcontainers.FromDockerfile{
+			Context:    walletBackendContext,
+			Dockerfile: walletBackendDockerfile,
+			KeepImage:  true,
+			Tag:        imageTag,
+			BuildArgs: map[string]*string{
+				"GIT_COMMIT": &commitHash,
+			},
+		}
+	} else {
+		// Use existing image
+		containerRequest.Image = imageTag
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -643,14 +702,13 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 func createWalletBackendAPIContainer(ctx context.Context, name string, tag string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
 ) (*TestContainer, error) {
+	// Build image tag with git commit hash
+	commitHash := getGitCommitHash()
+	imageTag := fmt.Sprintf("%s-%s", tag, commitHash)
+
+	// Prepare base container request
 	containerRequest := testcontainers.ContainerRequest{
 		Name: name,
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    walletBackendContext,
-			Dockerfile: walletBackendDockerfile,
-			KeepImage:  true,
-			Tag:        tag,
-		},
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -676,6 +734,23 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, tag strin
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
+	}
+
+	// Check if we need to rebuild the image
+	if shouldRebuildImage(imageTag) {
+		// Build image from Dockerfile
+		containerRequest.FromDockerfile = testcontainers.FromDockerfile{
+			Context:    walletBackendContext,
+			Dockerfile: walletBackendDockerfile,
+			KeepImage:  true,
+			Tag:        imageTag,
+			BuildArgs: map[string]*string{
+				"GIT_COMMIT": &commitHash,
+			},
+		}
+	} else {
+		// Use existing image
+		containerRequest.Image = imageTag
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

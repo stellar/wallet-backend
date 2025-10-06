@@ -3,8 +3,12 @@ FROM golang:1.24.6-bullseye AS api-build
 ARG GIT_COMMIT
 
 WORKDIR /src/wallet-backend
+
+# Copy dependency files first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
+
+# Copy source code after dependencies are cached
 COPY . ./
 RUN go build -o /bin/wallet-backend -ldflags "-X main.GitCommit=$GIT_COMMIT" .
 
