@@ -68,7 +68,7 @@ type Fixtures struct {
 func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 3 state changes:
-		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		- 1 BALANCE/DEBIT change for wallet-backend's distribution account for the fee of the transaction
 		- 1 BALANCE/CREDIT change for secondary account for the amount of the payment
 		- 1 BALANCE/DEBIT change for primary account for the amount of the payment
 	*/
@@ -96,12 +96,12 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 // NOTE 2: one manageData operation is included here as a bonus.
 func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full) ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate ~9 state changes:
+		Should generate 9 state changes:
 		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
 		- 1 ACCOUNT/CREATE change for the new account
 		- 1 BALANCE/CREDIT change for the new account (amount is 0)
 		- 1 BALANCE/DEBIT change from funder (amount is 0)
-		- 1 METADATA/DATA_ENTRY creation change for "foo"="bar"
+		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
 		- 4 RESERVES/SPONSOR+UNSPONSOR changes (2 for BeginSponsoringFutureReserves: sponsor and sponsored, 2 for EndSponsoringFutureReserves: sponsor and sponsored)
 	*/
 	operations := []txnbuild.Operation{

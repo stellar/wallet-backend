@@ -81,7 +81,7 @@ type SignerThresholdsChange struct {
 // MetadataChange represents a metadata state change
 type MetadataChange struct {
 	BaseStateChangeFields
-	KeyValue string `json:"keyValue"`
+	KeyValue string `json:"metadataKeyValue"`
 }
 
 // FlagsChange represents a flags state change
@@ -107,7 +107,7 @@ type ReservesChange struct {
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
 	Flags    []string `json:"flags"`
-	KeyValue *string  `json:"keyValue,omitempty"`
+	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
 }
 
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses

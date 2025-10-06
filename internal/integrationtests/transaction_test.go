@@ -25,6 +25,10 @@ type BuildAndSubmitTransactionsTestSuite struct {
 	pool    pond.Pool
 }
 
+func (suite *BuildAndSubmitTransactionsTestSuite) SetupSuite() {
+	suite.pool = pond.NewPool(0)
+}
+
 func (suite *BuildAndSubmitTransactionsTestSuite) TearDownSuite() {
 	if suite.pool != nil {
 		suite.pool.StopAndWait()

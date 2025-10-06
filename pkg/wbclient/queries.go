@@ -77,7 +77,7 @@ const (
 			ingestedAt
 			ledgerCreatedAt
 			ledgerNumber
-			keyValue
+			metadataKeyValue: keyValue
 		}
 		... on FlagsChange {
 			type
@@ -111,7 +111,7 @@ const (
 			ledgerCreatedAt
 			ledgerNumber
 			flags
-			keyValue
+			balanceAuthKeyValue: keyValue
 		}
 	`
 )
