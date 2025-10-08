@@ -13,9 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-var (
-	xlmAsset = xdr.MustNewNativeAsset()
-)
+var xlmAsset = xdr.MustNewNativeAsset()
 
 type DataValidationTestSuite struct {
 	suite.Suite
@@ -92,9 +90,9 @@ func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, 
 	// - 1 BALANCE/DEBIT change for primary account for the amount of the payment
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 3 state changes")
 
-	contractId, err := xlmAsset.ContractID(suite.testEnv.NetworkPassphrase)
+	contractID, err := xlmAsset.ContractID(suite.testEnv.NetworkPassphrase)
 	suite.Require().NoError(err, "failed to get contract ID")
-	xlmContractAddress := strkey.MustEncode(strkey.VersionByteContract, contractId[:])
+	xlmContractAddress := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
 	// Track counts of each type/reason combination
 	paymentCreditCount := 0
