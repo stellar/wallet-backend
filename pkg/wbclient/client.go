@@ -265,8 +265,12 @@ func executeGraphQL[T any](c *Client, ctx context.Context, query string, variabl
 }
 
 // buildPaginationVars builds a variables map from pagination parameters
-func buildPaginationVars(first, last *int32, after, before *string) map[string]interface{} {
+func buildPaginationVars(first, last *int32, after, before *string) (map[string]interface{}, error) {
 	vars := make(map[string]interface{})
+	err := validatePaginationParams(first, after, last, before)
+	if err != nil {
+		return nil, fmt.Errorf("validating pagination params: %w", err)
+	}
 	if first != nil {
 		vars["first"] = *first
 	}
@@ -279,7 +283,35 @@ func buildPaginationVars(first, last *int32, after, before *string) map[string]i
 	if before != nil {
 		vars["before"] = *before
 	}
-	return vars
+	return vars, nil
+}
+
+func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
+	if first != nil && last != nil {
+		return fmt.Errorf("first and last cannot be used together")
+	}
+
+	if after != nil && before != nil {
+		return fmt.Errorf("after and before cannot be used together")
+	}
+
+	if first != nil && *first <= 0 {
+		return fmt.Errorf("first must be greater than 0")
+	}
+
+	if last != nil && *last <= 0 {
+		return fmt.Errorf("last must be greater than 0")
+	}
+
+	if first != nil && before != nil {
+		return fmt.Errorf("first and before cannot be used together")
+	}
+
+	if last != nil && after != nil {
+		return fmt.Errorf("last and after cannot be used together")
+	}
+
+	return nil
 }
 
 // mergeVariables merges multiple variable maps into one
@@ -365,7 +397,10 @@ func (c *Client) GetTransactions(ctx context.Context, first, last *int32, after,
 		fields = opts[0].TransactionFields
 	}
 
-	variables := buildPaginationVars(first, last, after, before)
+	variables, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
 
 	data, err := executeGraphQL[TransactionsData](c, ctx, buildTransactionsQuery(fields), variables)
 	if err != nil {
@@ -399,7 +434,10 @@ func (c *Client) GetOperations(ctx context.Context, first, last *int32, after, b
 		fields = opts[0].OperationFields
 	}
 
-	variables := buildPaginationVars(first, last, after, before)
+	variables, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
 
 	data, err := executeGraphQL[OperationsData](c, ctx, buildOperationsQuery(fields), variables)
 	if err != nil {
@@ -428,7 +466,10 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 }
 
 func (c *Client) GetStateChanges(ctx context.Context, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables := buildPaginationVars(first, last, after, before)
+	variables, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
 
 	data, err := executeGraphQL[StateChangesData](c, ctx, buildStateChangesQuery(), variables)
 	if err != nil {
@@ -444,9 +485,14 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, fir
 		fields = opts[0].TransactionFields
 	}
 
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"address": address},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[AccountTransactionsData](c, ctx, buildAccountTransactionsQuery(fields), variables)
@@ -463,9 +509,14 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 		fields = opts[0].OperationFields
 	}
 
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"address": address},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
@@ -477,9 +528,14 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 }
 
 func (c *Client) GetAccountStateChanges(ctx context.Context, address string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"address": address},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
@@ -496,9 +552,14 @@ func (c *Client) GetTransactionOperations(ctx context.Context, hash string, firs
 		fields = opts[0].OperationFields
 	}
 
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"hash": hash},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[TransactionOperationsData](c, ctx, buildTransactionOperationsQuery(fields), variables)
@@ -510,9 +571,14 @@ func (c *Client) GetTransactionOperations(ctx context.Context, hash string, firs
 }
 
 func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"hash": hash},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[TransactionStateChangesData](c, ctx, buildTransactionStateChangesQuery(), variables)
@@ -524,9 +590,14 @@ func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, fi
 }
 
 func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(first, last, after, before)
+	if err != nil {
+		return nil, fmt.Errorf("building pagination variables: %w", err)
+	}
+
 	variables := mergeVariables(
 		map[string]interface{}{"id": id},
-		buildPaginationVars(first, last, after, before),
+		paginationVars,
 	)
 
 	data, err := executeGraphQL[OperationStateChangesData](c, ctx, buildOperationStateChangesQuery(), variables)
