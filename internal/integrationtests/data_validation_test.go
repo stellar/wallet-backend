@@ -39,15 +39,9 @@ func (suite *DataValidationTestSuite) TestPaymentOperationDataValidation() {
 	suite.Require().NotEmpty(paymentUseCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
 	txHash := paymentUseCase.GetTransactionResult.Hash
-
-	// Validate Transaction
 	suite.validateTransaction(ctx, txHash)
-
-	// Validate Operations
 	suite.validateOperations(ctx, txHash)
-
-	// Validate State Changes
-	suite.validateStateChanges(ctx, txHash)
+	suite.validateStateChanges(ctx, txHash, paymentUseCase.GetTransactionResult.Ledger)
 }
 
 func (suite *DataValidationTestSuite) validateTransaction(ctx context.Context, txHash string) {
@@ -85,7 +79,7 @@ func (suite *DataValidationTestSuite) validateOperations(ctx context.Context, tx
 	suite.Require().False(operation.IngestedAt.IsZero(), "ingested at should not be zero")
 }
 
-func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, txHash string) {
+func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, txHash string, actualLedgerNumber int64) {
 	// Fetch state changes for the transaction
 	first := int32(10)
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -111,9 +105,7 @@ func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, 
 
 		stateChange := edge.Node
 		suite.Require().Equal(types.StateChangeCategoryBalance, stateChange.GetType(), "all state changes should be BALANCE type")
-
-		// Verify common fields
-		suite.Require().NotZero(stateChange.GetLedgerNumber(), "ledger number should not be zero")
+		suite.Require().Equal(actualLedgerNumber, int64(stateChange.GetLedgerNumber()), "ledger number should not be zero")
 		suite.Require().False(stateChange.GetLedgerCreatedAt().IsZero(), "ledger created at should not be zero")
 		suite.Require().False(stateChange.GetIngestedAt().IsZero(), "ingested at should not be zero")
 

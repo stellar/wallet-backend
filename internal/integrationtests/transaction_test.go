@@ -189,8 +189,6 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactio
 		suite.Require().NoError(err)
 	}
 	suite.Require().Empty(errs)
-
-	log.Ctx(ctx).Info("✅ All integration tests passed!")
 }
 
 func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context, useCases []*infrastructure.UseCase) error {

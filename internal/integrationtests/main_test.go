@@ -28,7 +28,7 @@ func TestIntegrationTests(t *testing.T) {
 	containers := infrastructure.NewSharedContainers(t)
 	defer containers.Cleanup(ctx)
 
-	// Initialize shared test environment once
+	// Initialize shared test environment
 	testEnv, err := infrastructure.NewTestEnvironment(containers, ctx)
 	if err != nil {
 		t.Fatalf("Failed to initialize test environment: %v", err)
@@ -49,4 +49,5 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
+	log.Ctx(ctx).Info("✅ All integration tests passed!")
 }
