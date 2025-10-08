@@ -25,7 +25,7 @@ type BaseStateChangeFields struct {
 	IngestedAt      time.Time           `json:"ingestedAt"`
 	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
 	LedgerNumber    uint32              `json:"ledgerNumber"`
-	Account         *Account            `json:"account"`
+	Account         Account            `json:"account"`
 }
 
 // GetType returns the state change category
@@ -55,9 +55,6 @@ func (b BaseStateChangeFields) GetLedgerNumber() uint32 {
 
 // GetAccountID returns the account address
 func (b BaseStateChangeFields) GetAccountID() string {
-	if b.Account == nil {
-		return ""
-	}
 	return b.Account.Address
 }
 
