@@ -49,5 +49,4 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
-	log.Ctx(ctx).Info("✅ All integration tests passed!")
 }
