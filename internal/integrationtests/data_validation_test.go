@@ -119,11 +119,12 @@ func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, 
 		// Count each type of state change
 		switch stateChange.GetReason() {
 		case types.StateChangeReasonDebit:
-			// Should be payment debit of 10 XLM
-			// suite.Require().Equal(suite.testEnv.PrimaryAccountKP.Address(), balanceChange.GetAccountID(), "account ID should be primary account")
+			// Should be payment debit of 10 XLM from primary account
+			suite.Require().Equal(suite.testEnv.PrimaryAccountKP.Address(), stateChange.GetAccountID(), "debit account ID should be primary account")
 			paymentDebitCount++
 		case types.StateChangeReasonCredit:
-			// Should be payment credit of 10 XLM
+			// Should be payment credit of 10 XLM to secondary account
+			suite.Require().Equal(suite.testEnv.SecondaryAccountKP.Address(), stateChange.GetAccountID(), "credit account ID should be secondary account")
 			paymentCreditCount++
 		case types.StateChangeReasonCreate, types.StateChangeReasonMerge, types.StateChangeReasonMint,
 			types.StateChangeReasonBurn, types.StateChangeReasonAdd, types.StateChangeReasonRemove,

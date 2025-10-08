@@ -15,6 +15,7 @@ type StateChangeNode interface {
 	GetIngestedAt() time.Time
 	GetLedgerCreatedAt() time.Time
 	GetLedgerNumber() uint32
+	GetAccountID() string
 }
 
 // BaseStateChangeFields contains the common fields shared by all state change types
@@ -24,6 +25,7 @@ type BaseStateChangeFields struct {
 	IngestedAt      time.Time           `json:"ingestedAt"`
 	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
 	LedgerNumber    uint32              `json:"ledgerNumber"`
+	Account         *Account            `json:"account"`
 }
 
 // GetType returns the state change category
@@ -49,6 +51,14 @@ func (b BaseStateChangeFields) GetLedgerCreatedAt() time.Time {
 // GetLedgerNumber returns the ledger number
 func (b BaseStateChangeFields) GetLedgerNumber() uint32 {
 	return b.LedgerNumber
+}
+
+// GetAccountID returns the account address
+func (b BaseStateChangeFields) GetAccountID() string {
+	if b.Account == nil {
+		return ""
+	}
+	return b.Account.Address
 }
 
 // StandardBalanceChange represents a standard balance state change

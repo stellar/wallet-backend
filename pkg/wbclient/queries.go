@@ -36,80 +36,43 @@ const (
 	// State change fragments for all concrete types
 	stateChangeFragments = `
 		__typename
+		type
+		reason
+		ingestedAt
+		ledgerCreatedAt
+		ledgerNumber
+		account {
+			address
+		}
 		... on StandardBalanceChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			tokenId
 			amount
 		}
 		... on AccountChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			tokenId
 			amount
 		}
 		... on SignerChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			signerAddress
 			signerWeights
 		}
 		... on SignerThresholdsChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			thresholds
 		}
 		... on MetadataChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			metadataKeyValue: keyValue
 		}
 		... on FlagsChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			flags
 		}
 		... on TrustlineChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			limit
 		}
 		... on ReservesChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			sponsoredAddress
 			sponsorAddress
 		}
 		... on BalanceAuthorizationChange {
-			type
-			reason
-			ingestedAt
-			ledgerCreatedAt
-			ledgerNumber
 			flags
 			balanceAuthKeyValue: keyValue
 		}
