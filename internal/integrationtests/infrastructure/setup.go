@@ -917,6 +917,7 @@ type TestEnvironment struct {
 	RPCService         services.RPCService
 	PrimaryAccountKP   *keypair.Full
 	SecondaryAccountKP *keypair.Full
+	NetworkPassphrase  string
 	UseCases           []*UseCase
 }
 
@@ -1019,5 +1020,6 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		PrimaryAccountKP:   primaryAccountKP,
 		SecondaryAccountKP: secondaryAccountKP,
 		UseCases:           useCases,
+		NetworkPassphrase:  networkPassphrase,
 	}, nil
 }

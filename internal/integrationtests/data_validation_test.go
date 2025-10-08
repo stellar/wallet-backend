@@ -4,11 +4,17 @@ package integrationtests
 import (
 	"context"
 
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
+	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
+)
+
+var (
+	xlmAsset = xdr.MustNewNativeAsset()
 )
 
 type DataValidationTestSuite struct {
@@ -92,6 +98,10 @@ func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, 
 	// - 1 BALANCE/DEBIT change for primary account for the amount of the payment
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 3 state changes")
 
+	contractId, err := xlmAsset.ContractID(suite.testEnv.NetworkPassphrase)
+	suite.Require().NoError(err, "failed to get contract ID")
+	xlmContractAddress := strkey.MustEncode(strkey.VersionByteContract, contractId[:])
+
 	// Track counts of each type/reason combination
 	paymentCreditCount := 0
 	paymentDebitCount := 0
@@ -112,7 +122,7 @@ func (suite *DataValidationTestSuite) validateStateChanges(ctx context.Context, 
 		suite.Require().True(ok, "state change should be StandardBalanceChange type")
 
 		// Verify token ID is native asset
-		suite.Require().Equal("native", balanceChange.TokenID, "token ID should be native")
+		suite.Require().Equal(xlmContractAddress, balanceChange.TokenID, "token ID should be native")
 		suite.Require().NotEmpty(balanceChange.Amount, "amount should not be empty")
 		suite.Require().Equal("100000000", balanceChange.Amount, "payment amount should be 10 XLM (100000000 stroops)")
 
