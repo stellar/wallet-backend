@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +27,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
+	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
 
 const (
@@ -34,10 +42,88 @@ const (
 	walletBackendContainerIngestPort = "8003"
 	walletBackendContainerTag        = "integration-test"
 	walletBackendDockerfile          = "Dockerfile"
-	walletBackendContext             = "../../"
 	networkPassphrase                = "Standalone Network ; February 2017"
 	protocolVersion                  = 23 // Default protocol version for Stellar Core upgrades
 )
+
+// getGitCommitHash returns the current git commit hash (short form)
+// Falls back to "latest" if not in a git repository or if git command fails
+func getGitCommitHash() string {
+	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "latest"
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// imageExists checks if a Docker image exists locally
+func imageExists(imageName string) bool {
+	cmd := exec.Command("docker", "images", "-q", imageName)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
+// shouldRebuildImage determines if the Docker image should be rebuilt
+// Returns true if FORCE_REBUILD=true or if the image doesn't exist
+func shouldRebuildImage(imageTag string) bool {
+	// Check for force rebuild environment variable
+	if os.Getenv("FORCE_REBUILD") == "true" {
+		log.Info("FORCE_REBUILD=true, rebuilding image")
+		return true
+	}
+
+	// Check if image exists
+	if !imageExists(imageTag) {
+		log.Infof("Image %s not found, building it", imageTag)
+		return true
+	}
+
+	log.Infof("Using existing image: %s", imageTag)
+	return false
+}
+
+// ensureWalletBackendImage builds or verifies the wallet-backend Docker image exists
+// Returns the full image name that can be used for container creation
+func ensureWalletBackendImage(ctx context.Context, tag string) (string, error) {
+	// Build image tag with git commit hash
+	commitHash := getGitCommitHash()
+	imageTag := fmt.Sprintf("%s-%s", tag, commitHash)
+	fullImageName := fmt.Sprintf("wallet-backend:%s", imageTag)
+
+	// Check if we need to rebuild
+	if shouldRebuildImage(fullImageName) {
+		log.Ctx(ctx).Infof("Building wallet-backend image: %s", fullImageName)
+
+		// Get the directory of the current source file for relative paths
+		_, filename, _, _ := runtime.Caller(0)
+		dir := filepath.Dir(filename)
+		contextPath := filepath.Join(dir, "../../../")
+		dockerfilePath := filepath.Join(contextPath, walletBackendDockerfile)
+
+		// Build Docker image using docker build command
+		cmd := exec.Command("docker", "build",
+			"-t", fullImageName,
+			"--build-arg", fmt.Sprintf("GIT_COMMIT=%s", commitHash),
+			"-f", dockerfilePath,
+			contextPath,
+		)
+
+		// Capture output for debugging
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Ctx(ctx).Errorf("Docker build failed: %s", string(output))
+			return "", fmt.Errorf("building wallet-backend image: %w", err)
+		}
+
+		log.Ctx(ctx).Infof("✅ Successfully built wallet-backend image: %s", fullImageName)
+	}
+
+	return fullImageName, nil
+}
 
 type WalletBackendContainer struct {
 	API    *TestContainer
@@ -153,15 +239,19 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
+	// Build or verify wallet-backend Docker image
+	walletBackendImage, err := ensureWalletBackendImage(ctx, walletBackendContainerTag)
+	require.NoError(t, err)
+
 	// Start wallet-backend ingest
 	shared.WalletBackendContainer = &WalletBackendContainer{}
 	shared.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		walletBackendContainerTag, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
+		walletBackendImage, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
 	require.NoError(t, err)
 
 	// Start wallet-backend service
 	shared.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		walletBackendContainerTag, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
+		walletBackendImage, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
 	require.NoError(t, err)
 
 	return shared
@@ -177,10 +267,6 @@ func (s *SharedContainers) GetPrimarySourceAccountKeyPair(ctx context.Context) *
 
 func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context) *keypair.Full {
 	return s.secondarySourceAccountKeyPair
-}
-
-func (s *SharedContainers) GetDistributionAccountKeyPair(ctx context.Context) *keypair.Full {
-	return s.distributionAccountKeyPair
 }
 
 // Cleanup cleans up shared containers after all tests complete
@@ -577,17 +663,13 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 }
 
 // createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
-func createWalletBackendIngestContainer(ctx context.Context, name string, tag string,
+func createWalletBackendIngestContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
 ) (*TestContainer, error) {
+	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
-		Name: name,
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    walletBackendContext,
-			Dockerfile: walletBackendDockerfile,
-			KeepImage:  true,
-			Tag:        tag,
-		},
+		Name:  name,
+		Image: imageName,
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -639,17 +721,13 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, tag st
 }
 
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
-func createWalletBackendAPIContainer(ctx context.Context, name string, tag string,
+func createWalletBackendAPIContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,
 ) (*TestContainer, error) {
+	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
-		Name: name,
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    walletBackendContext,
-			Dockerfile: walletBackendDockerfile,
-			KeepImage:  true,
-			Tag:        tag,
-		},
+		Name:  name,
+		Image: imageName,
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -829,4 +907,117 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 	}
 
 	return &rpcResp.Result, nil
+}
+
+// TestEnvironment holds all initialized services and clients for integration tests
+type TestEnvironment struct {
+	WBClient           *wbclient.Client
+	RPCService         services.RPCService
+	PrimaryAccountKP   *keypair.Full
+	SecondaryAccountKP *keypair.Full
+	NetworkPassphrase  string
+	UseCases           []*UseCase
+}
+
+func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
+	fixtures := Fixtures{
+		NetworkPassphrase:  networkPassphrase,
+		PrimaryAccountKP:   primaryAccountKP,
+		SecondaryAccountKP: secondaryAccountKP,
+		RPCService:         rpcService,
+	}
+	return fixtures.PrepareUseCases(ctx)
+}
+
+// createWalletBackendClient initializes the wallet-backend client
+func createWalletBackendClient(containers *SharedContainers, ctx context.Context) (*wbclient.Client, error) {
+	wbURL, err := containers.WalletBackendContainer.API.GetConnectionString(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wallet-backend connection string: %w", err)
+	}
+
+	clientAuthKP := containers.GetClientAuthKeyPair(ctx)
+	jwtTokenGenerator, err := auth.NewJWTTokenGenerator(clientAuthKP.Seed())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create JWT token generator: %w", err)
+	}
+
+	requestSigner := auth.NewHTTPRequestSigner(jwtTokenGenerator)
+	return wbclient.NewClient(wbURL, requestSigner), nil
+}
+
+// createRPCService initializes the RPC service
+func createRPCService(containers *SharedContainers, ctx context.Context) (services.RPCService, error) {
+	rpcURL, err := containers.RPCContainer.GetConnectionString(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get RPC connection string: %w", err)
+	}
+
+	// Get database connection for metrics
+	dbHost, err := containers.WalletDBContainer.GetHost(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database host: %w", err)
+	}
+	dbPort, err := containers.WalletDBContainer.GetPort(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database port: %w", err)
+	}
+	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection pool: %w", err)
+	}
+	sqlxDB, err := dbConnectionPool.SqlxDB(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sqlx db: %w", err)
+	}
+
+	// Initialize RPC service
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	metricsService := metrics.NewMetricsService(sqlxDB)
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RPC service: %w", err)
+	}
+
+	// Start tracking RPC health
+	go rpcService.TrackRPCServiceHealth(ctx, nil)
+
+	return rpcService, nil
+}
+
+// NewTestEnvironment creates and initializes a test environment with all required services
+func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*TestEnvironment, error) {
+	// Initialize wallet-backend client
+	wbClient, err := createWalletBackendClient(containers, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize RPC service
+	rpcService, err := createRPCService(containers, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get keypairs
+	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
+	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
+
+	// Prepare use cases
+	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, rpcService)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Ctx(ctx).Info("✅ Test environment setup complete")
+
+	return &TestEnvironment{
+		WBClient:           wbClient,
+		RPCService:         rpcService,
+		PrimaryAccountKP:   primaryAccountKP,
+		SecondaryAccountKP: secondaryAccountKP,
+		UseCases:           useCases,
+		NetworkPassphrase:  networkPassphrase,
+	}, nil
 }

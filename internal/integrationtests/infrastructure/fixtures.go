@@ -1,4 +1,4 @@
-package integrationtests
+package infrastructure
 
 import (
 	"context"
@@ -66,9 +66,15 @@ type Fixtures struct {
 
 // preparePaymentOp creates a payment operation.
 func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 3 state changes:
+		- 1 BALANCE/DEBIT change for wallet-backend's distribution account for the fee of the transaction
+		- 1 BALANCE/CREDIT change for secondary account for the amount of the payment
+		- 1 BALANCE/DEBIT change for primary account for the amount of the payment
+	*/
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: f.PrimaryAccountKP.Address(),
-		Destination:   f.PrimaryAccountKP.Address(),
+		Destination:   f.SecondaryAccountKP.Address(),
 		Amount:        "10",
 		Asset:         txnbuild.NativeAsset{},
 	}
@@ -89,6 +95,15 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 // NOTE: the account created here is meant to be deleted at a later time through an account merge operation.
 // NOTE 2: one manageData operation is included here as a bonus.
 func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full) ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 9 state changes:
+		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		- 1 ACCOUNT/CREATE change for the new account
+		- 1 BALANCE/CREDIT change for the new account (amount is 0)
+		- 1 BALANCE/DEBIT change from funder (amount is 0)
+		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
+		- 4 RESERVES/SPONSOR+UNSPONSOR changes (2 for BeginSponsoringFutureReserves: sponsor and sponsored, 2 for EndSponsoringFutureReserves: sponsor and sponsored)
+	*/
 	operations := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
 			SponsoredID:   newAccountKP.Address(),
@@ -120,6 +135,24 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full
 // prepareCustomAssetsOps creates a customAsset, creates liquidity for it through a passive sell offer, and then
 // consumes that liquidity through path payments and manage offers.
 func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~15+ state changes (variable based on trade execution):
+
+		Guaranteed state changes (minimum 8):
+		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
+		- 3 changes for TEST2 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
+		- 1 TRUSTLINE/REMOVE change for removing trustline
+		- 1 BALANCE/DEBIT for Secondary when all remaining TEST2 is sent back
+
+		Variable trade-related changes (7+ additional):
+		- CreatePassiveSellOffer: May not generate state changes if not immediately matched
+		- PathPaymentStrictSend: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
+		- ManageSellOffer: Generates trade state changes when matched
+		- ManageBuyOffer: Generates trade state changes when matched
+		- PathPaymentStrictReceive: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
+		- Each trade execution creates additional debit/credit pairs based on liquidity consumed
+	*/
 	xlmAsset := txnbuild.NativeAsset{}
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -208,6 +241,18 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 
 // prepareAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
 func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~18 state changes:
+		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		- 3 FLAGS/SET changes for setting auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
+		- 1 BALANCE_AUTHORIZATION/SET change for setting AUTHORIZED flag on trustline
+		- 3 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
+		- 1 BALANCE_AUTHORIZATION/CLEAR change for clearing AUTHORIZED flag on trustline
+		- 2 changes for clawback (1 BALANCE/BURN for Primary as issuer, 1 BALANCE/DEBIT from Secondary)
+		- 1 TRUSTLINE/REMOVE change for removing trustline
+		- 3 FLAGS/CLEAR changes for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+	*/
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
 		Code:   "TEST1",
@@ -290,6 +335,12 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 
 // prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 3 state changes:
+		- 1 BALANCE/DEBIT change for transaction fee
+		- 1 ACCOUNT/MERGE change for the merged account (includes implicit debit of all balance)
+		- 1 BALANCE/CREDIT change for the destination account receiving the merged balance
+	*/
 	op := &txnbuild.AccountMerge{
 		SourceAccount: newAccountKP.Address(),
 		Destination:   f.PrimaryAccountKP.Address(),
@@ -311,6 +362,12 @@ func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *S
 // - If sourceAccountKP == nil: SorobanAuthEntry will be used, and the transaction won't require another signature later.
 // - If sourceAccountKP != nil: this contract invocation will rely on the sourceAccount being a transaction signer at a later point.
 func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP *keypair.Full) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	/*
+		Should generate 3 state changes:
+		- 1 BALANCE/DEBIT change for transaction fee
+		- 2 BALANCE changes for the XLM transfer (1 BALANCE/DEBIT from source, 1 BALANCE/CREDIT to destination)
+		Note: Even self-transfers (Primary to Primary) generate both debit and credit state changes
+	*/
 	invokeXLMTransferSAC, err := f.createInvokeContractOp(sourceAccountKP)
 	if err != nil {
 		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
@@ -507,14 +564,14 @@ const (
 type UseCase struct {
 	name                    string
 	category                category
-	delayTime               time.Duration
-	txSigners               *Set[*keypair.Full]
-	requestedTransaction    types.Transaction
-	builtTransactionXDR     string
-	signedTransactionXDR    string
-	feeBumpedTransactionXDR string
-	sendTransactionResult   entities.RPCSendTransactionResult
-	getTransactionResult    entities.RPCGetTransactionResult
+	DelayTime               time.Duration
+	TxSigners               *Set[*keypair.Full]
+	RequestedTransaction    types.Transaction
+	BuiltTransactionXDR     string
+	SignedTransactionXDR    string
+	FeeBumpedTransactionXDR string
+	SendTransactionResult   entities.RPCSendTransactionResult
+	GetTransactionResult    entities.RPCGetTransactionResult
 }
 
 func (u *UseCase) Name() string {
@@ -538,8 +595,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "paymentOp",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -556,8 +613,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "sponsoredAccountCreationOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -573,8 +630,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "customAssetsOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -590,8 +647,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "authRequiredOps",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -607,9 +664,9 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "accountMergeOp",
 			category:             categoryStellarClassic,
-			txSigners:            txSigners,
-			delayTime:            6 * time.Second,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR},
+			TxSigners:            txSigners,
+			DelayTime:            6 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
 
@@ -625,8 +682,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 
@@ -642,8 +699,8 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		useCases = append(useCases, &UseCase{
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categorySoroban,
-			txSigners:            txSigners,
-			requestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 

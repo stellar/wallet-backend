@@ -8,3 +8,4 @@ env.sh
 __debug_bin*
 *.out
 CLAUDE.md
+.claude/

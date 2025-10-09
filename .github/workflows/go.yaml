@@ -154,6 +154,26 @@ jobs:
         with:
           go-version: '1.24.2'
 
+      - name: Get short commit hash
+        id: git
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build integration test image with cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: wallet-backend:integration-test-${{ steps.git.outputs.short_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: false
+          load: true
+          build-args: |
+            GIT_COMMIT=${{ steps.git.outputs.short_sha }}
+
       - name: Run Integration Tests
         run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
         shell: bash
