@@ -75,6 +75,90 @@ func validateBalanceChange(suite *DataValidationTestSuite, bc *types.StandardBal
 	suite.Require().Equal(expectedAccount, bc.GetAccountID(), "account ID mismatch")
 }
 
+// validateAccountChange validates an account state change
+func validateAccountChange(suite *DataValidationTestSuite, ac *types.AccountChange, expectedTokenID, expectedAmount, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(ac, "account change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryAccount, ac.GetType(), "should be ACCOUNT type")
+	suite.Require().Equal(expectedReason, ac.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedTokenID, ac.TokenID, "token ID mismatch")
+	suite.Require().Equal(expectedAmount, ac.Amount, "amount mismatch")
+	suite.Require().Equal(expectedAccount, ac.GetAccountID(), "account ID mismatch")
+}
+
+// validateSignerChange validates a signer state change
+func validateSignerChange(suite *DataValidationTestSuite, sc *types.SignerChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(sc, "signer change should not be nil")
+	suite.Require().Equal(types.StateChangeCategorySigner, sc.GetType(), "should be SIGNER type")
+	suite.Require().Equal(expectedReason, sc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, sc.GetAccountID(), "account ID mismatch")
+	// SignerAddress and SignerWeights can be nil for REMOVE operations
+	if expectedReason != types.StateChangeReasonRemove {
+		suite.Require().NotNil(sc.SignerAddress, "signer address should not be nil")
+		suite.Require().NotNil(sc.SignerWeights, "signer weights should not be nil")
+		suite.Require().NotEmpty(*sc.SignerAddress, "signer address should not be empty")
+		suite.Require().NotEmpty(*sc.SignerWeights, "signer weights should not be empty")
+	}
+}
+
+// validateSignerThresholdsChange validates a signer thresholds state change
+func validateSignerThresholdsChange(suite *DataValidationTestSuite, stc *types.SignerThresholdsChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(stc, "signer thresholds change should not be nil")
+	suite.Require().Equal(types.StateChangeCategorySignatureThreshold, stc.GetType(), "should be SIGNATURE_THRESHOLD type")
+	suite.Require().Equal(expectedReason, stc.GetReason(), "reason mismatch")
+	suite.Require().NotEmpty(stc.Thresholds, "thresholds should not be empty")
+	suite.Require().Equal(expectedAccount, stc.GetAccountID(), "account ID mismatch")
+}
+
+// validateMetadataChange validates a metadata state change
+func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(mc, "metadata change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryMetadata, mc.GetType(), "should be METADATA type")
+	suite.Require().Equal(expectedReason, mc.GetReason(), "reason mismatch")
+	suite.Require().NotEmpty(mc.KeyValue, "key value should not be empty")
+	suite.Require().Equal(expectedAccount, mc.GetAccountID(), "account ID mismatch")
+}
+
+// validateFlagsChange validates a flags state change
+func validateFlagsChange(suite *DataValidationTestSuite, fc *types.FlagsChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(fc, "flags change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryFlags, fc.GetType(), "should be FLAGS type")
+	suite.Require().Equal(expectedReason, fc.GetReason(), "reason mismatch")
+	suite.Require().NotNil(fc.Flags, "flags should not be nil")
+	suite.Require().NotEmpty(fc.Flags, "flags should not be empty")
+	suite.Require().Equal(expectedAccount, fc.GetAccountID(), "account ID mismatch")
+}
+
+// validateTrustlineChange validates a trustline state change
+func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.TrustlineChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(tc, "trustline change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryTrustline, tc.GetType(), "should be TRUSTLINE type")
+	suite.Require().Equal(expectedReason, tc.GetReason(), "reason mismatch")
+	suite.Require().NotEmpty(tc.Limit, "limit should not be empty")
+	suite.Require().Equal(expectedAccount, tc.GetAccountID(), "account ID mismatch")
+}
+
+// validateReservesChange validates a reserves state change
+func validateReservesChange(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(rc, "reserves change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
+	suite.Require().Equal(expectedReason, rc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
+	// At least one of SponsoredAddress or SponsorAddress should be populated
+	hasSponsored := rc.SponsoredAddress != nil && *rc.SponsoredAddress != ""
+	hasSponsor := rc.SponsorAddress != nil && *rc.SponsorAddress != ""
+	suite.Require().True(hasSponsored || hasSponsor, "either sponsored address or sponsor address should be populated")
+}
+
+// validateBalanceAuthorizationChange validates a balance authorization state change
+func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(bac, "balance authorization change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryBalanceAuthorization, bac.GetType(), "should be BALANCE_AUTHORIZATION type")
+	suite.Require().Equal(expectedReason, bac.GetReason(), "reason mismatch")
+	suite.Require().NotNil(bac.Flags, "flags should not be nil")
+	suite.Require().NotEmpty(bac.Flags, "flags should not be empty")
+	suite.Require().Equal(expectedAccount, bac.GetAccountID(), "account ID mismatch")
+}
+
 // assertStateChangeCounts asserts the count of state changes by reason
 func assertStateChangeCounts(suite *DataValidationTestSuite, stateChanges *types.StateChangeConnection, expectedCounts map[types.StateChangeReason]int) {
 	actualCounts := make(map[types.StateChangeReason]int)
@@ -237,9 +321,33 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 		types.StateChangeReasonUnsponsor: 2,
 	})
 
-	// Validate base fields for all state changes
+	// Validate each state change with specific field validations
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// Validate specific fields based on state change type
+		switch sc := edge.Node.(type) {
+		case *types.StandardBalanceChange:
+			// Validate balance changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		case *types.AccountChange:
+			// Validate account change (tokenId, amount, account, reason should be CREATE)
+			validateAccountChange(suite, sc, sc.TokenID, sc.Amount, sc.GetAccountID(), types.StateChangeReasonCreate)
+
+		case *types.MetadataChange:
+			// Validate metadata change (keyValue, account, reason should be DATA_ENTRY)
+			validateMetadataChange(suite, sc, sc.GetAccountID(), types.StateChangeReasonDataEntry)
+
+		case *types.ReservesChange:
+			// Validate reserves change (sponsored/sponsor addresses, account)
+			validateReservesChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		default:
+			suite.Fail("unexpected state change type: %T", sc)
+		}
 	}
 }
 
@@ -297,9 +405,36 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	// Variable state changes based on trade execution (15+ minimum)
 	suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
 
-	// Validate base fields for all state changes
+	// Validate each state change with specific field validations
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// Validate specific fields based on state change type
+		switch sc := edge.Node.(type) {
+		case *types.StandardBalanceChange:
+			// Validate balance changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		case *types.TrustlineChange:
+			// Validate trustline changes (limit, account)
+			validateTrustlineChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.FlagsChange:
+			// Validate flags changes (flags, account)
+			validateFlagsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.AccountChange:
+			// Validate account changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		default:
+			// Allow other state change types without specific validation
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+		}
 	}
 }
 
@@ -357,9 +492,48 @@ func (suite *DataValidationTestSuite) validateAuthRequiredStateChanges(ctx conte
 	// Should have around 18 state changes
 	suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
 
-	// Validate base fields for all state changes
+	// Validate each state change with specific field validations
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// Validate specific fields based on state change type
+		switch sc := edge.Node.(type) {
+		case *types.StandardBalanceChange:
+			// Validate balance changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		case *types.TrustlineChange:
+			// Validate trustline changes (limit, account)
+			validateTrustlineChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.FlagsChange:
+			// Validate flags changes (flags, account)
+			validateFlagsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.BalanceAuthorizationChange:
+			// Validate balance authorization changes (flags, account)
+			validateBalanceAuthorizationChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.SignerChange:
+			// Validate signer changes (signer address/weights, account)
+			validateSignerChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.SignerThresholdsChange:
+			// Validate signer thresholds changes (thresholds, account)
+			validateSignerThresholdsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+
+		case *types.AccountChange:
+			// Validate account changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		default:
+			// Allow other state change types without specific validation
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+		}
 	}
 }
 
@@ -416,9 +590,25 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 		types.StateChangeReasonMerge:  1,
 	})
 
-	// Validate base fields for all state changes
+	// Validate each state change with specific field validations
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// Validate specific fields based on state change type
+		switch sc := edge.Node.(type) {
+		case *types.StandardBalanceChange:
+			// Validate balance changes (tokenId, amount, account)
+			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+
+		case *types.AccountChange:
+			// Validate account merge (tokenId, amount, account, reason should be MERGE)
+			validateAccountChange(suite, sc, sc.TokenID, sc.Amount, sc.GetAccountID(), types.StateChangeReasonMerge)
+
+		default:
+			suite.Fail("unexpected state change type: %T", sc)
+		}
 	}
 }
 
@@ -468,9 +658,18 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 		types.StateChangeReasonCredit: 1,
 	})
 
-	// Validate base fields for all state changes
+	// Validate each state change with specific field validations
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+
+		// All state changes should be StandardBalanceChange
+		balanceChange, ok := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().True(ok, "state change should be StandardBalanceChange type")
+
+		// Validate balance change fields (tokenId, amount, account)
+		suite.Require().NotEmpty(balanceChange.TokenID, "token ID should not be empty")
+		suite.Require().NotEmpty(balanceChange.Amount, "amount should not be empty")
+		suite.Require().NotEmpty(balanceChange.GetAccountID(), "account ID should not be empty")
 	}
 }
 
