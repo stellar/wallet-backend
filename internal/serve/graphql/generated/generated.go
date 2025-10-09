@@ -64,7 +64,7 @@ type ComplexityRoot struct {
 	Account struct {
 		Address      func(childComplexity int) int
 		Operations   func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		StateChanges func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		StateChanges func(childComplexity int, filter *AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) int
 		Transactions func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
@@ -285,7 +285,7 @@ type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
 	Transactions(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
 	Operations(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
-	StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
+	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type AccountChangeResolver interface {
 	Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error)
@@ -446,7 +446,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Account.StateChanges(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.complexity.Account.StateChanges(childComplexity, args["filter"].(*AccountStateChangeFilterInput), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Account.transactions":
 		if e.complexity.Account.Transactions == nil {
@@ -1513,6 +1513,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputAccountStateChangeFilterInput,
 		ec.unmarshalInputBuildTransactionInput,
 		ec.unmarshalInputCreateFeeBumpTransactionInput,
 		ec.unmarshalInputDeregisterAccountInput,
@@ -1631,7 +1632,11 @@ type Account{
   
   # All state changes associated with this account
   # Uses resolver to fetch related state changes
-  stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+  # Optional filter parameter allows filtering by transaction hash and/or operation ID
+  stateChanges(
+    filter: AccountStateChangeFilterInput
+    first: Int, after: String, last: Int, before: String
+  ):   StateChangeConnection
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -1728,6 +1733,20 @@ enum StateChangeReason {
   DATA_ENTRY
   SPONSOR
   UNSPONSOR
+}
+`, BuiltIn: false},
+	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries
+# Input types encapsulate filter parameters following GraphQL best practices
+
+"""
+Input type for filtering account state changes by transaction and/or operation
+"""
+input AccountStateChangeFilterInput {
+  """Filter by transaction hash - returns only state changes from this transaction"""
+  transactionHash: String
+
+  """Filter by operation ID - returns only state changes from this operation"""
+  operationId: Int64
 }
 `, BuiltIn: false},
 	{Name: "../schema/mutations.graphqls", Input: `# GraphQL Mutation root type - defines all available mutations in the API
@@ -2134,28 +2153,46 @@ func (ec *executionContext) field_Account_operations_argsBefore(
 func (ec *executionContext) field_Account_stateChanges_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Account_stateChanges_argsFirst(ctx, rawArgs)
+	arg0, err := ec.field_Account_stateChanges_argsFilter(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := ec.field_Account_stateChanges_argsAfter(ctx, rawArgs)
+	args["filter"] = arg0
+	arg1, err := ec.field_Account_stateChanges_argsFirst(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := ec.field_Account_stateChanges_argsLast(ctx, rawArgs)
+	args["first"] = arg1
+	arg2, err := ec.field_Account_stateChanges_argsAfter(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := ec.field_Account_stateChanges_argsBefore(ctx, rawArgs)
+	args["after"] = arg2
+	arg3, err := ec.field_Account_stateChanges_argsLast(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["last"] = arg3
+	arg4, err := ec.field_Account_stateChanges_argsBefore(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg4
 	return args, nil
 }
+func (ec *executionContext) field_Account_stateChanges_argsFilter(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (*AccountStateChangeFilterInput, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("filter"))
+	if tmp, ok := rawArgs["filter"]; ok {
+		return ec.unmarshalOAccountStateChangeFilterInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountStateChangeFilterInput(ctx, tmp)
+	}
+
+	var zeroVal *AccountStateChangeFilterInput
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Account_stateChanges_argsFirst(
 	ctx context.Context,
 	rawArgs map[string]any,
@@ -3205,7 +3242,7 @@ func (ec *executionContext) _Account_stateChanges(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Account().StateChanges(rctx, obj, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+		return ec.resolvers.Account().StateChanges(rctx, obj, fc.Args["filter"].(*AccountStateChangeFilterInput), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -12259,6 +12296,40 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputAccountStateChangeFilterInput(ctx context.Context, obj any) (AccountStateChangeFilterInput, error) {
+	var it AccountStateChangeFilterInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"transactionHash", "operationId"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "transactionHash":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("transactionHash"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TransactionHash = data
+		case "operationId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("operationId"))
+			data, err := ec.unmarshalOInt642ᚖint64(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.OperationID = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputBuildTransactionInput(ctx context.Context, obj any) (BuildTransactionInput, error) {
 	var it BuildTransactionInput
 	asMap := map[string]any{}
@@ -17195,6 +17266,14 @@ func (ec *executionContext) marshalOAccount2ᚖgithubᚗcomᚋstellarᚋwallet�
 	return ec._Account(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalOAccountStateChangeFilterInput2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountStateChangeFilterInput(ctx context.Context, v any) (*AccountStateChangeFilterInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputAccountStateChangeFilterInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalOBaseStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseStateChange(ctx context.Context, sel ast.SelectionSet, v BaseStateChange) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -17247,6 +17326,24 @@ func (ec *executionContext) marshalOInt2ᚖint32(ctx context.Context, sel ast.Se
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalInt32(*v)
+	return res
+}
+
+func (ec *executionContext) unmarshalOInt642ᚖint64(ctx context.Context, v any) (*int64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalInt64(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOInt642ᚖint64(ctx context.Context, sel ast.SelectionSet, v *int64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalInt64(*v)
 	return res
 }
 

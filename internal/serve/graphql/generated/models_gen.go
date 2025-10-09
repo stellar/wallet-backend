@@ -20,6 +20,14 @@ type BaseStateChange interface {
 	GetTransaction() *types.Transaction
 }
 
+// Input type for filtering account state changes by transaction and/or operation
+type AccountStateChangeFilterInput struct {
+	// Filter by transaction hash - returns only state changes from this transaction
+	TransactionHash *string `json:"transactionHash,omitempty"`
+	// Filter by operation ID - returns only state changes from this operation
+	OperationID *int64 `json:"operationId,omitempty"`
+}
+
 type BuildTransactionInput struct {
 	TransactionXdr   string                 `json:"transactionXdr"`
 	SimulationResult *SimulationResultInput `json:"simulationResult,omitempty"`

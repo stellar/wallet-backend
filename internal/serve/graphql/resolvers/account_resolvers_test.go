@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 func TestAccountResolver_Transactions(t *testing.T) {
@@ -273,7 +274,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 
 	t.Run("get all state changes", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, stateChanges.Edges, 20)
@@ -287,7 +288,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("get state changes with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
 		first := int32(3)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, &first, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
@@ -299,7 +300,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		// Get the next cursor
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 		// Fee state change with no operation
@@ -313,7 +314,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		first = int32(100)
 		nextCursor = stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, &first, nextCursor, nil, nil)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
 		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 2, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
@@ -327,7 +328,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("get state changes with last/before limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
 		last := int32(3)
-		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nil)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 4, 1).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
@@ -339,7 +340,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		// Get the next cursor
 		nextCursor := stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 3)
 		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 3, 2).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
@@ -351,7 +352,7 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 		nextCursor = stateChanges.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(100)
-		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, &last, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges.Edges, 14)
 		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()), fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
@@ -364,9 +365,154 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	t.Run("account with no state changes", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: "non-existent-account"}
 		ctx := getTestCtx("state_changes", []string{"to_id", "state_change_order"})
-		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil)
+		stateChanges, err := resolver.StateChanges(ctx, nonExistentAccount, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges.Edges)
+	})
+}
+
+func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: "test-account"}
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	t.Run("filter by transaction hash only", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		txHash := "tx1"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		// tx1 has 3 operations (0, 1, 2), each operation has 2 state changes except op 0 (1 state change)
+		// Total: 1 + 2 + 2 = 5 state changes
+		require.Len(t, stateChanges.Edges, 5)
+
+		// Verify all returned state changes are from tx1
+		// First state change is from operation 0
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		// Next state changes are from operation 1
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[2].Node).ToID, extractStateChangeIDs(stateChanges.Edges[2].Node).StateChangeOrder))
+		// Last state changes are from operation 2
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[3].Node).ToID, extractStateChangeIDs(stateChanges.Edges[3].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[4].Node).ToID, extractStateChangeIDs(stateChanges.Edges[4].Node).StateChangeOrder))
+	})
+
+	t.Run("filter by operation ID only", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		opID := toid.New(1000, 1, 1).ToInt64()
+		filter := &graphql1.AccountStateChangeFilterInput{
+			OperationID: &opID,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		// Operation 1 has 2 state changes
+		require.Len(t, stateChanges.Edges, 2)
+
+		// Verify both state changes are from the specified operation
+		assert.Equal(t, fmt.Sprintf("%d:1", opID),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", opID),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+	})
+
+	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		txHash := "tx2"
+		opID := toid.New(1000, 2, 1).ToInt64()
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+			OperationID:     &opID,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		// Only state changes that match both filters
+		require.Len(t, stateChanges.Edges, 2)
+
+		// Verify both state changes match both filters
+		assert.Equal(t, fmt.Sprintf("%d:1", opID),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:2", opID),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+	})
+
+	t.Run("filter with no matching results", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		txHash := "non-existent-tx"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		require.Empty(t, stateChanges.Edges)
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("filter with pagination", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		txHash := "tx1"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+		}
+
+		// Get first 2 state changes
+		first := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, &first, nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 0).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 1).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get next page
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 2)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 1).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.Equal(t, fmt.Sprintf("%d:1", toid.New(1000, 1, 2).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[1].Node).ToID, extractStateChangeIDs(stateChanges.Edges[1].Node).StateChangeOrder))
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
+
+		// Get final page
+		nextCursor = stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 1)
+		assert.Equal(t, fmt.Sprintf("%d:2", toid.New(1000, 1, 2).ToInt64()),
+			fmt.Sprintf("%d:%d", extractStateChangeIDs(stateChanges.Edges[0].Node).ToID, extractStateChangeIDs(stateChanges.Edges[0].Node).StateChangeOrder))
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 }

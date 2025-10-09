@@ -87,15 +87,27 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, fi
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, filter *graphql1.AccountStateChangeFilterInput, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	params, err := parsePaginationParams(first, after, last, before, true)
 	if err != nil {
 		return nil, fmt.Errorf("parsing pagination params: %w", err)
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
+	// Extract filter values
+	var txHash *string
+	var operationID *int64
+	if filter != nil {
+		if filter.TransactionHash != nil {
+			txHash = filter.TransactionHash
+		}
+		if filter.OperationID != nil {
+			operationID = filter.OperationID
+		}
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, txHash, operationID, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
