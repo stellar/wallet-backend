@@ -516,3 +516,134 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 		assert.True(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 }
+
+func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
+	parentAccount := &types.Account{StellarAddress: "test-account"}
+
+	mockMetricsService := &metrics.MockMetricsService{}
+	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	defer mockMetricsService.AssertExpectations(t)
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{
+				DB:             testDBConnectionPool,
+				MetricsService: mockMetricsService,
+			},
+		},
+	}}
+
+	t.Run("filter by category only", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		category := "BALANCE"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			Category: &category,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		require.NoError(t, err)
+		// Verify all returned state changes are BALANCE category
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+		}
+	})
+
+	t.Run("filter by reason only", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		reason := "CREDIT"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			Reason: &reason,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		require.NoError(t, err)
+
+		// Verify all returned state changes are CREDIT reason
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, types.StateChangeReasonCredit, sc.Node.GetReason())
+		}
+	})
+
+	t.Run("filter by both category and reason", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		category := "SIGNER"
+		reason := "ADD"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			Category: &category,
+			Reason:   &reason,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		require.NoError(t, err)
+
+		// Verify all returned state changes are SIGNER category and ADD reason
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, types.StateChangeCategorySigner, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeReasonAdd, sc.Node.GetReason())
+		}
+	})
+
+	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		txHash := "tx1"
+		opID := toid.New(1000, 1, 1).ToInt64()
+		category := "BALANCE"
+		reason := "CREDIT"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			TransactionHash: &txHash,
+			OperationID:     &opID,
+			Category:        &category,
+			Reason:          &reason,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+		require.NoError(t, err)
+
+		// Verify all returned state changes are BALANCE category and CREDIT reason
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, opID, extractStateChangeIDs(sc.Node).ToID)
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeReasonCredit, sc.Node.GetReason())
+		}
+	})
+
+	t.Run("filter by category with pagination", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		category := "BALANCE"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			Category: &category,
+		}
+
+		// Get first 2 state changes
+		first := int32(2)
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, &first, nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, stateChanges.Edges, 2)
+		assert.True(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+		}
+
+		// Get next page
+		nextCursor := stateChanges.PageInfo.EndCursor
+		assert.NotNil(t, nextCursor)
+		stateChanges, err = resolver.StateChanges(ctx, parentAccount, filter, &first, nextCursor, nil, nil)
+		require.NoError(t, err)
+		assert.LessOrEqual(t, len(stateChanges.Edges), 2)
+		for _, sc := range stateChanges.Edges {
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+		}
+	})
+
+	t.Run("filter with no matching results", func(t *testing.T) {
+		ctx := getTestCtx("state_changes", []string{""})
+		category := "NON_EXISTENT_CATEGORY"
+		filter := &graphql1.AccountStateChangeFilterInput{
+			Category: &category,
+		}
+		stateChanges, err := resolver.StateChanges(ctx, parentAccount, filter, nil, nil, nil, nil)
+
+		require.NoError(t, err)
+		require.Empty(t, stateChanges.Edges)
+		assert.False(t, stateChanges.PageInfo.HasNextPage)
+		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+}

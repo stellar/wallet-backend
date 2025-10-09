@@ -97,6 +97,8 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 	// Extract filter values
 	var txHash *string
 	var operationID *int64
+	var category *string
+	var reason *string
 	if filter != nil {
 		if filter.TransactionHash != nil {
 			txHash = filter.TransactionHash
@@ -104,10 +106,16 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 		if filter.OperationID != nil {
 			operationID = filter.OperationID
 		}
+		if filter.Category != nil {
+			category = filter.Category
+		}
+		if filter.Reason != nil {
+			reason = filter.Reason
+		}
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, txHash, operationID, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	stateChanges, err := r.models.StateChanges.BatchGetByAccountAddress(ctx, obj.StellarAddress, txHash, operationID, category, reason, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}

@@ -19,8 +19,8 @@ type StateChangeModel struct {
 }
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
-// Optional filters: txHash and operationID can be used to further filter results.
-func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// Optional filters: txHash, operationID, category, and reason can be used to further filter results.
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
 	args := []interface{}{accountAddress}
@@ -43,6 +43,20 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	if operationID != nil {
 		queryBuilder.WriteString(fmt.Sprintf(" AND operation_id = $%d", argIndex))
 		args = append(args, *operationID)
+		argIndex++
+	}
+
+	// Add category filter if provided
+	if category != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_category = $%d", argIndex))
+		args = append(args, *category)
+		argIndex++
+	}
+
+	// Add reason filter if provided
+	if reason != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_reason = $%d", argIndex))
+		args = append(args, *reason)
 		argIndex++
 	}
 

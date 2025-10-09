@@ -26,6 +26,10 @@ type AccountStateChangeFilterInput struct {
 	TransactionHash *string `json:"transactionHash,omitempty"`
 	// Filter by operation ID - returns only state changes from this operation
 	OperationID *int64 `json:"operationId,omitempty"`
+	// Filter by state change category - returns only state changes with this category
+	Category *string `json:"category,omitempty"`
+	// Filter by state change reason - returns only state changes with this reason
+	Reason *string `json:"reason,omitempty"`
 }
 
 type BuildTransactionInput struct {

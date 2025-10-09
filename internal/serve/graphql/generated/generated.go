@@ -1747,6 +1747,12 @@ input AccountStateChangeFilterInput {
 
   """Filter by operation ID - returns only state changes from this operation"""
   operationId: Int64
+
+  """Filter by state change category - returns only state changes with this category"""
+  category: String
+  
+  """Filter by state change reason - returns only state changes with this reason"""
+  reason: String
 }
 `, BuiltIn: false},
 	{Name: "../schema/mutations.graphqls", Input: `# GraphQL Mutation root type - defines all available mutations in the API
@@ -12303,7 +12309,7 @@ func (ec *executionContext) unmarshalInputAccountStateChangeFilterInput(ctx cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"transactionHash", "operationId"}
+	fieldsInOrder := [...]string{"transactionHash", "operationId", "category", "reason"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -12324,6 +12330,20 @@ func (ec *executionContext) unmarshalInputAccountStateChangeFilterInput(ctx cont
 				return it, err
 			}
 			it.OperationID = data
+		case "category":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("category"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Category = data
+		case "reason":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("reason"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Reason = data
 		}
 	}
 

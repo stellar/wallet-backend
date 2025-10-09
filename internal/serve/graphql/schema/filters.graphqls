@@ -10,4 +10,10 @@ input AccountStateChangeFilterInput {
 
   """Filter by operation ID - returns only state changes from this operation"""
   operationId: Int64
+
+  """Filter by state change category - returns only state changes with this category"""
+  category: String
+  
+  """Filter by state change reason - returns only state changes with this reason"""
+  reason: String
 }
