@@ -25,7 +25,7 @@ type BaseStateChangeFields struct {
 	IngestedAt      time.Time           `json:"ingestedAt"`
 	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
 	LedgerNumber    uint32              `json:"ledgerNumber"`
-	Account         Account            `json:"account"`
+	Account         Account             `json:"account"`
 }
 
 // GetType returns the state change category
