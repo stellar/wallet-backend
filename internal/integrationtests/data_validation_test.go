@@ -230,39 +230,39 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
 }
 
-// func (suite *DataValidationTestSuite) TestSponsoredAccountCreationDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating sponsored account creation operations data...")
+func (suite *DataValidationTestSuite) TestSponsoredAccountCreationDataValidation() {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("🔍 Validating sponsored account creation operations data...")
 
-// 	// Find the sponsored account creation use case
-// 	useCase := findUseCase(suite, "Stellarclassic/sponsoredAccountCreationOps")
-// 	suite.Require().NotNil(useCase, "sponsoredAccountCreationOps use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+	// Find the sponsored account creation use case
+	useCase := findUseCase(suite, "Stellarclassic/sponsoredAccountCreationOps")
+	suite.Require().NotNil(useCase, "sponsoredAccountCreationOps use case not found")
+	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-// 	txHash := useCase.GetTransactionResult.Hash
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-// 	suite.validateSponsoredAccountCreationOperations(ctx, txHash, int64(tx.LedgerNumber))
-// 	suite.validateSponsoredAccountCreationStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
-// }
+	txHash := useCase.GetTransactionResult.Hash
+	tx := validateTransactionBase(suite, ctx, txHash)
+	suite.validateSponsoredAccountCreationOperations(ctx, txHash, int64(tx.LedgerNumber))
+	// suite.validateSponsoredAccountCreationStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
+}
 
-// func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
+func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(10)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction operations")
+	suite.Require().NotNil(operations, "operations should not be nil")
+	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
 
-// 	expectedOpTypes := []types.OperationType{
-// 		types.OperationTypeBeginSponsoringFutureReserves,
-// 		types.OperationTypeCreateAccount,
-// 		types.OperationTypeManageData,
-// 		types.OperationTypeEndSponsoringFutureReserves,
-// 	}
+	expectedOpTypes := []types.OperationType{
+		types.OperationTypeBeginSponsoringFutureReserves,
+		types.OperationTypeCreateAccount,
+		types.OperationTypeManageData,
+		types.OperationTypeEndSponsoringFutureReserves,
+	}
 
-// 	for i, edge := range operations.Edges {
-// 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-// 	}
-// }
+	for i, edge := range operations.Edges {
+		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
+	}
+}
 
 // func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChanges(ctx context.Context, txHash string, ledgerNumber int64, useCase *infrastructure.UseCase) {
 // 	first := int32(20)
