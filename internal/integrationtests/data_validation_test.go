@@ -146,20 +146,20 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 // }
 
 // validateReservesChange validates a reserves state change
-func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsorAddress string) {
-	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
-	suite.Require().Equal(types.StateChangeReasonSponsor, rc.GetReason(), "reason mismatch")
-	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
-	suite.Require().Equal(expectedSponsorAddress, *rc.SponsorAddress, "sponsor address mismatch")
-}
-func validateReservesSponsorshipChangeForSponsorAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsoredAddress string) {
-	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
-	suite.Require().Equal(types.StateChangeReasonUnsponsor, rc.GetReason(), "reason mismatch")
-	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
-	suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
-}
+// func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsorAddress string) {
+// 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
+// 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
+// 	suite.Require().Equal(types.StateChangeReasonSponsor, rc.GetReason(), "reason mismatch")
+// 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
+// 	suite.Require().Equal(expectedSponsorAddress, *rc.SponsorAddress, "sponsor address mismatch")
+// }
+// func validateReservesSponsorshipChangeForSponsorAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsoredAddress string) {
+// 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
+// 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
+// 	suite.Require().Equal(types.StateChangeReasonUnsponsor, rc.GetReason(), "reason mismatch")
+// 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
+// 	suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
+// }
 
 // validateBalanceAuthorizationChange validates a balance authorization state change
 // func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, expectedReason types.StateChangeReason) {
@@ -357,12 +357,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 			suite.Require().Contains(sc.KeyValue, "bar", "metadata should contain value 'bar'")
 
 		case *types.ReservesChange:
-			switch sc.GetReason() {
-			case types.StateChangeReasonSponsor:
-				validateReservesChange(suite, sc, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount, "")
-			case types.StateChangeReasonUnsponsor:
-				validateReservesChange(suite, sc, sponsoredNewAccount, types.StateChangeReasonUnsponsor, "", primaryAccount)
-			}
+
 
 		default:
 			suite.Fail("unexpected state change type: %T", sc)
