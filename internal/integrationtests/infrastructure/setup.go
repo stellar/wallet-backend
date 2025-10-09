@@ -184,6 +184,7 @@ type SharedContainers struct {
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
 	distributionAccountKeyPair    *keypair.Full
+	sponsoredNewAccountKeyPair    *keypair.Full
 	masterAccount                 *txnbuild.SimpleAccount
 	masterKeyPair                 *keypair.Full
 }
@@ -223,6 +224,9 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.primarySourceAccountKeyPair = keypair.MustRandom()
 	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
 	shared.distributionAccountKeyPair = keypair.MustRandom()
+	
+	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
+	shared.sponsoredNewAccountKeyPair = keypair.MustRandom()
 
 	// Create and fund all accounts in a single transaction
 	shared.createAndFundAccounts(ctx, t, []*keypair.Full{
@@ -267,6 +271,10 @@ func (s *SharedContainers) GetPrimarySourceAccountKeyPair(ctx context.Context) *
 
 func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context) *keypair.Full {
 	return s.secondarySourceAccountKeyPair
+}
+
+func (s *SharedContainers) GetSponsoredNewAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.sponsoredNewAccountKeyPair
 }
 
 // Cleanup cleans up shared containers after all tests complete
@@ -915,15 +923,17 @@ type TestEnvironment struct {
 	RPCService         services.RPCService
 	PrimaryAccountKP   *keypair.Full
 	SecondaryAccountKP *keypair.Full
+	SponsoredNewAccountKP *keypair.Full
 	NetworkPassphrase  string
 	UseCases           []*UseCase
 }
 
-func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
+func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
 	fixtures := Fixtures{
 		NetworkPassphrase:  networkPassphrase,
 		PrimaryAccountKP:   primaryAccountKP,
 		SecondaryAccountKP: secondaryAccountKP,
+		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		RPCService:         rpcService,
 	}
 	return fixtures.PrepareUseCases(ctx)
@@ -1003,9 +1013,10 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	// Get keypairs
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
+	sponsoredNewAccountKP := containers.GetSponsoredNewAccountKeyPair(ctx)
 
 	// Prepare use cases
-	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, rpcService)
+	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
 	if err != nil {
 		return nil, err
 	}
@@ -1017,6 +1028,7 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		RPCService:         rpcService,
 		PrimaryAccountKP:   primaryAccountKP,
 		SecondaryAccountKP: secondaryAccountKP,
+		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		UseCases:           useCases,
 		NetworkPassphrase:  networkPassphrase,
 	}, nil

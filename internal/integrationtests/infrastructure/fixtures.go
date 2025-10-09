@@ -61,6 +61,7 @@ type Fixtures struct {
 	NetworkPassphrase  string
 	PrimaryAccountKP   *keypair.Full
 	SecondaryAccountKP *keypair.Full
+	SponsoredNewAccountKP *keypair.Full
 	RPCService         services.RPCService
 }
 
@@ -94,24 +95,26 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 // prepareSponsoredAccountCreationOps creates an account using sponsored reserves.
 // NOTE: the account created here is meant to be deleted at a later time through an account merge operation.
 // NOTE 2: one manageData operation is included here as a bonus.
-func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full) ([]string, *Set[*keypair.Full], error) {
+func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 9 state changes:
-		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		Should generate 8 state changes:
 		- 1 ACCOUNT/CREATE change for the new account
-		- 1 BALANCE/CREDIT change for the new account (amount is 0)
-		- 1 BALANCE/DEBIT change from funder (amount is 0)
+		- 1 BALANCE/CREDIT change for the new account (amount is 5)
+		- 1 BALANCE/DEBIT change from primary account (amount is 5)
 		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
-		- 4 RESERVES/SPONSOR+UNSPONSOR changes (2 for BeginSponsoringFutureReserves: sponsor and sponsored, 2 for EndSponsoringFutureReserves: sponsor and sponsored)
+		- 1 RESERVES/SPONSOR change for primary account with sponsored account = new account
+		- 1 RESERVES/SPONSOR change for new account with sponsor = primary account
+		- 1 RESERVES/UNSPONSOR change for primary account with sponsored account = new account
+		- 1 RESERVES/UNSPONSOR change for new account with sponsor = primary account
 	*/
 	operations := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
-			SponsoredID:   newAccountKP.Address(),
+			SponsoredID:   f.SponsoredNewAccountKP.Address(),
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
 		&txnbuild.CreateAccount{
-			Amount:        "0",
-			Destination:   newAccountKP.Address(),
+			Amount:        "5",
+			Destination:   f.SponsoredNewAccountKP.Address(),
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
 		&txnbuild.ManageData{
@@ -120,7 +123,7 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
 		&txnbuild.EndSponsoringFutureReserves{
-			SourceAccount: newAccountKP.Address(),
+			SourceAccount: f.SponsoredNewAccountKP.Address(),
 		},
 	}
 
@@ -129,7 +132,7 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps(newAccountKP *keypair.Full
 		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
 	}
 
-	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, newAccountKP), nil
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SponsoredNewAccountKP), nil
 }
 
 // prepareCustomAssetsOps creates a customAsset, creates liquidity for it through a passive sell offer, and then
@@ -334,7 +337,7 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 }
 
 // prepareAccountMergeOp creates an account merge operation.
-func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *Set[*keypair.Full], error) {
+func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 3 state changes:
 		- 1 BALANCE/DEBIT change for transaction fee
@@ -342,7 +345,7 @@ func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *S
 		- 1 BALANCE/CREDIT change for the destination account receiving the merged balance
 	*/
 	op := &txnbuild.AccountMerge{
-		SourceAccount: newAccountKP.Address(),
+		SourceAccount: f.SponsoredNewAccountKP.Address(),
 		Destination:   f.PrimaryAccountKP.Address(),
 	}
 
@@ -355,7 +358,7 @@ func (f *Fixtures) prepareAccountMergeOp(newAccountKP *keypair.Full) (string, *S
 		return "", nil, fmt.Errorf("encoding account merge operation XDR to base64: %w", err)
 	}
 
-	return b64OpXDR, NewSet(newAccountKP), nil
+	return b64OpXDR, NewSet(f.SponsoredNewAccountKP), nil
 }
 
 // prepareInvokeContractOp creates an invokeContractOp. The signature type will be one of the following:
@@ -601,8 +604,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// SponsoredAccountCreationOps
-	newAccountKP := keypair.MustRandom()
-	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps(newAccountKP)
+	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
 	} else {
@@ -653,7 +655,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// AccountMergeOp
-	accountMergeOp, txSigners, err := f.prepareAccountMergeOp(newAccountKP)
+	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
 	if err != nil {
 		return nil, fmt.Errorf("preparing account merge operation: %w", err)
 	} else {

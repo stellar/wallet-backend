@@ -17,7 +17,11 @@ func (suite *AccountRegisterTestSuite) TestAccountRegistration() {
 	ctx := context.Background()
 
 	client := suite.testEnv.WBClient
-	addresses := []string{suite.testEnv.PrimaryAccountKP.Address(), suite.testEnv.SecondaryAccountKP.Address()}
+	addresses := []string{
+		suite.testEnv.PrimaryAccountKP.Address(), 
+		suite.testEnv.SecondaryAccountKP.Address(),
+		suite.testEnv.SponsoredNewAccountKP.Address(),
+	}
 	for _, address := range addresses {
 		account, err := client.RegisterAccount(ctx, address)
 		suite.Require().NoError(err)
