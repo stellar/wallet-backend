@@ -58,11 +58,11 @@ import (
 // &txnbuild.RestoreFootprint{},
 
 type Fixtures struct {
-	NetworkPassphrase  string
-	PrimaryAccountKP   *keypair.Full
-	SecondaryAccountKP *keypair.Full
+	NetworkPassphrase     string
+	PrimaryAccountKP      *keypair.Full
+	SecondaryAccountKP    *keypair.Full
 	SponsoredNewAccountKP *keypair.Full
-	RPCService         services.RPCService
+	RPCService            services.RPCService
 }
 
 // preparePaymentOp creates a payment operation.
@@ -141,8 +141,7 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 	/*
 		Should generate ~15+ state changes (variable based on trade execution):
 
-		Guaranteed state changes (minimum 8):
-		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
+		Guaranteed state changes (minimum 7):
 		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
 		- 3 changes for TEST2 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
 		- 1 TRUSTLINE/REMOVE change for removing trustline
@@ -246,7 +245,6 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
 	/*
 		Should generate ~18 state changes:
-		- 1 BALANCE/DEBIT change for primary account for the fee of the transaction
 		- 3 FLAGS/SET changes for setting auth flags (auth_required, auth_revocable, auth_clawback_enabled)
 		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
 		- 1 BALANCE_AUTHORIZATION/SET change for setting AUTHORIZED flag on trustline

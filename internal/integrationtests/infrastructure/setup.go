@@ -224,7 +224,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.primarySourceAccountKeyPair = keypair.MustRandom()
 	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
 	shared.distributionAccountKeyPair = keypair.MustRandom()
-	
+
 	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
 	shared.sponsoredNewAccountKeyPair = keypair.MustRandom()
 
@@ -741,7 +741,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend migrate up && ./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
+			"./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
@@ -919,22 +919,22 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 
 // TestEnvironment holds all initialized services and clients for integration tests
 type TestEnvironment struct {
-	WBClient           *wbclient.Client
-	RPCService         services.RPCService
-	PrimaryAccountKP   *keypair.Full
-	SecondaryAccountKP *keypair.Full
+	WBClient              *wbclient.Client
+	RPCService            services.RPCService
+	PrimaryAccountKP      *keypair.Full
+	SecondaryAccountKP    *keypair.Full
 	SponsoredNewAccountKP *keypair.Full
-	NetworkPassphrase  string
-	UseCases           []*UseCase
+	NetworkPassphrase     string
+	UseCases              []*UseCase
 }
 
 func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
 	fixtures := Fixtures{
-		NetworkPassphrase:  networkPassphrase,
-		PrimaryAccountKP:   primaryAccountKP,
-		SecondaryAccountKP: secondaryAccountKP,
+		NetworkPassphrase:     networkPassphrase,
+		PrimaryAccountKP:      primaryAccountKP,
+		SecondaryAccountKP:    secondaryAccountKP,
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
-		RPCService:         rpcService,
+		RPCService:            rpcService,
 	}
 	return fixtures.PrepareUseCases(ctx)
 }
@@ -1024,12 +1024,12 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	log.Ctx(ctx).Info("✅ Test environment setup complete")
 
 	return &TestEnvironment{
-		WBClient:           wbClient,
-		RPCService:         rpcService,
-		PrimaryAccountKP:   primaryAccountKP,
-		SecondaryAccountKP: secondaryAccountKP,
+		WBClient:              wbClient,
+		RPCService:            rpcService,
+		PrimaryAccountKP:      primaryAccountKP,
+		SecondaryAccountKP:    secondaryAccountKP,
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
-		UseCases:           useCases,
-		NetworkPassphrase:  networkPassphrase,
+		UseCases:              useCases,
+		NetworkPassphrase:     networkPassphrase,
 	}, nil
 }

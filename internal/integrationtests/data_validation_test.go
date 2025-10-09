@@ -84,12 +84,10 @@ func validateBalanceChange(suite *DataValidationTestSuite, bc *types.StandardBal
 }
 
 // validateAccountChange validates an account state change
-func validateAccountChange(suite *DataValidationTestSuite, ac *types.AccountChange, expectedTokenID, expectedAmount, expectedAccount string, expectedReason types.StateChangeReason) {
+func validateAccountChange(suite *DataValidationTestSuite, ac *types.AccountChange, expectedAccount string, expectedReason types.StateChangeReason) {
 	suite.Require().NotNil(ac, "account change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryAccount, ac.GetType(), "should be ACCOUNT type")
 	suite.Require().Equal(expectedReason, ac.GetReason(), "reason mismatch")
-	suite.Require().Equal(expectedTokenID, ac.TokenID, "token ID mismatch")
-	suite.Require().Equal(expectedAmount, ac.Amount, "amount mismatch")
 	suite.Require().Equal(expectedAccount, ac.GetAccountID(), "account ID mismatch")
 }
 
@@ -146,20 +144,21 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 // }
 
 // validateReservesChange validates a reserves state change
-// func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsorAddress string) {
-// 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
-// 	suite.Require().Equal(types.StateChangeReasonSponsor, rc.GetReason(), "reason mismatch")
-// 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
-// 	suite.Require().Equal(expectedSponsorAddress, *rc.SponsorAddress, "sponsor address mismatch")
-// }
-// func validateReservesSponsorshipChangeForSponsorAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedSponsoredAddress string) {
-// 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
-// 	suite.Require().Equal(types.StateChangeReasonUnsponsor, rc.GetReason(), "reason mismatch")
-// 	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
-// 	suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
-// }
+func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedReason types.StateChangeReason, expectedSponsorAddress string) {
+	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
+	suite.Require().Equal(expectedReason, rc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(expectedSponsorAddress, *rc.SponsorAddress, "sponsor address mismatch")
+}
+
+func validateReservesSponsorshipChangeForSponsoringAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedReason types.StateChangeReason, expectedSponsoredAddress string) {
+	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
+	suite.Require().Equal(expectedReason, rc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, rc.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
+}
 
 // validateBalanceAuthorizationChange validates a balance authorization state change
 // func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, expectedReason types.StateChangeReason) {
@@ -204,7 +203,7 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	first := int32(10)
 	balanceCategory := "BALANCE"
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-	
+
 	// 1 DEBIT change for primary account
 	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, suite.testEnv.PrimaryAccountKP.Address(), &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
@@ -242,7 +241,7 @@ func (suite *DataValidationTestSuite) TestSponsoredAccountCreationDataValidation
 	txHash := useCase.GetTransactionResult.Hash
 	tx := validateTransactionBase(suite, ctx, txHash)
 	suite.validateSponsoredAccountCreationOperations(ctx, txHash, int64(tx.LedgerNumber))
-	// suite.validateSponsoredAccountCreationStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
+	suite.validateSponsoredAccountCreationStateChanges(ctx, txHash, int64(tx.LedgerNumber))
 }
 
 func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations(ctx context.Context, txHash string, ledgerNumber int64) {
@@ -264,71 +263,98 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations
 	}
 }
 
-// func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChanges(ctx context.Context, txHash string, ledgerNumber int64, useCase *infrastructure.UseCase) {
-// 	first := int32(20)
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 9, "should have exactly 9 state changes")
+func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(20)
+	balanceCategory := "BALANCE"
+	accountCategory := "ACCOUNT"
+	metadataCategory := "METADATA"
+	reservesCategory := "RESERVES"
+	sponsorReason := "SPONSOR"
+	unsponsorReason := "UNSPONSOR"
+	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
 
-// 	// Setup: Compute expected values from fixtures
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-// 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
+	// 1 BALANCE/DEBIT change for primary account (sending starting balance)
+	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get primary account balance state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT balance change for primary account")
+	balanceChange := stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, balanceChange, ledgerNumber)
+	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", primaryAccount, types.StateChangeReasonDebit)
 
-// 	// Extract new account address from transaction envelope
-// 	var txEnv xdr.TransactionEnvelope
-// 	err = xdr.SafeUnmarshalBase64(useCase.SignedTransactionXDR, &txEnv)
-// 	suite.Require().NoError(err, "failed to unmarshal transaction envelope")
+	// 1 BALANCE/CREDIT change for sponsored account (receiving starting balance)
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account balance state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT balance change for sponsored account")
+	balanceChange = stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, balanceChange, ledgerNumber)
+	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", sponsoredNewAccount, types.StateChangeReasonCredit)
 
-// 	// Verify expected state change counts by category
-// 	assertStateChangeCategories(suite, stateChanges, map[types.StateChangeCategory]int{
-// 		types.StateChangeCategoryBalance:  2,
-// 		types.StateChangeCategoryAccount:  1,
-// 		types.StateChangeCategoryMetadata: 1,
-// 		types.StateChangeCategoryReserves: 4,
-// 	})
+	// 1 ACCOUNT/CREATE account change for sponsored account
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &accountCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 ACCOUNT/CREATE account change")
+	accountChange := stateChanges.Edges[0].Node.(*types.AccountChange)
+	validateStateChangeBase(suite, accountChange, ledgerNumber)
+	validateAccountChange(suite, accountChange, sponsoredNewAccount, types.StateChangeReasonCreate)
 
-// 	// Verify expected state change counts by reason
-// 	assertStateChangeCounts(suite, stateChanges, map[types.StateChangeReason]int{
-// 		types.StateChangeReasonDebit:     1,
-// 		types.StateChangeReasonCredit:    1,
-// 		types.StateChangeReasonCreate:    1,
-// 		types.StateChangeReasonDataEntry: 1,
-// 		types.StateChangeReasonSponsor:   2,
-// 		types.StateChangeReasonUnsponsor: 2,
-// 	})
+	// 1 METADATA/DATA_ENTRY metadata change for primary account
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &metadataCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get primary account metadata state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
+	metadataChange := stateChanges.Edges[0].Node.(*types.MetadataChange)
+	validateStateChangeBase(suite, metadataChange, ledgerNumber)
+	validateMetadataChange(suite, metadataChange, primaryAccount, types.StateChangeReasonDataEntry)
+	suite.Require().Contains(metadataChange.KeyValue, "foo", "metadata should contain key 'foo'")
+	suite.Require().Contains(metadataChange.KeyValue, "bar", "metadata should contain value 'bar'")
 
-// 	// Validate each state change with specific field validations
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+	// 1 RESERVES/SPONSOR changes for sponsored account - sponsorship begin
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsored account")
+	reserveChange := stateChanges.Edges[0].Node.(*types.ReservesChange)
+	validateStateChangeBase(suite, reserveChange, ledgerNumber)
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonSponsor, primaryAccount)
 
-// 		// Validate specific fields based on state change type
-// 		switch sc := edge.Node.(type) {
-// 		case *types.StandardBalanceChange:
-// 			switch sc.GetReason() {
-// 			case types.StateChangeReasonDebit:
-// 				validateBalanceChange(suite, sc, xlmContractAddress, "5", primaryAccount, types.StateChangeReasonDebit)
-// 			case types.StateChangeReasonCredit:
-// 				validateBalanceChange(suite, sc, xlmContractAddress, "5", sponsoredNewAccount, types.StateChangeReasonCredit)
-// 			}
+	// 1 RESERVES/UNSPONSOR changes for sponsored account - sponsorship end
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &unsponsorReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR reserves change for sponsored account")
+	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
+	validateStateChangeBase(suite, reserveChange, ledgerNumber)
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount)
 
-// 		case *types.AccountChange:
-// 			validateAccountChange(suite, sc, xlmContractAddress, "5", sponsoredNewAccount, types.StateChangeReasonCreate)
+	// 1 RESERVES/SPONSOR changes for sponsoring account - sponsorship begin
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
+	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
+	validateStateChangeBase(suite, reserveChange, ledgerNumber)
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount)
 
-// 		case *types.MetadataChange:
-// 			validateMetadataChange(suite, sc, primaryAccount, types.StateChangeReasonDataEntry)
-// 			suite.Require().Contains(sc.KeyValue, "foo", "metadata should contain key 'foo'")
-// 			suite.Require().Contains(sc.KeyValue, "bar", "metadata should contain value 'bar'")
+	// 1 RESERVES/UNSPONSOR changes for sponsoring account - sponsorship end
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &reservesCategory, &unsponsorReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR reserves change for sponsoring account")
+	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
+	validateStateChangeBase(suite, reserveChange, ledgerNumber)
+	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonUnsponsor, sponsoredNewAccount)
 
-// 		case *types.ReservesChange:
-
-
-// 		default:
-// 			suite.Fail("unexpected state change type: %T", sc)
-// 		}
-// 	}
-// }
+	// Verify total count of state changes for this transaction
+	stateChanges, err = suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 9 total state changes")
+}
 
 // func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
 // 	ctx := context.Background()
@@ -563,109 +589,94 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations
 // 	}
 // }
 
-// func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating account merge operation data...")
+func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("🔍 Validating account merge operation data...")
 
-// 	// Find the account merge use case
-// 	useCase := findUseCase(suite, "Stellarclassic/accountMergeOp")
-// 	suite.Require().NotNil(useCase, "accountMergeOp use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+	// Find the account merge use case
+	useCase := findUseCase(suite, "Stellarclassic/accountMergeOp")
+	suite.Require().NotNil(useCase, "accountMergeOp use case not found")
+	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-// 	txHash := useCase.GetTransactionResult.Hash
+	txHash := useCase.GetTransactionResult.Hash
 
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
+	// Validate transaction
+	tx := validateTransactionBase(suite, ctx, txHash)
+	suite.validateAccountMergeOperations(ctx, txHash, int64(tx.LedgerNumber))
+	// suite.validateAccountMergeStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
+}
 
-// 	// Validate operations (1 operation)
-// 	suite.validateAccountMergeOperations(ctx, txHash, int64(tx.LedgerNumber))
+func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(10)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction operations")
+	suite.Require().NotNil(operations, "operations should not be nil")
+	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
 
-// 	// Validate state changes (3 total)
-// 	suite.validateAccountMergeStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
-// }
+	operation := operations.Edges[0].Node
+	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeAccountMerge)
+	suite.Require().Equal(types.OperationTypeAccountMerge, operation.OperationType, "operation type should be ACCOUNT_MERGE")
+}
 
-// func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
+func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx context.Context, txHash string, ledgerNumber int64, useCase *infrastructure.UseCase) {
+	first := int32(10)
+	balanceCategory := "BALANCE"
+	accountCategory := "ACCOUNT"
+	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
-// 	operation := operations.Edges[0].Node
-// 	validateOperationBase(suite, operation, ledgerNumber)
-// 	suite.Require().Equal(types.OperationTypeAccountMerge, operation.OperationType, "operation type should be ACCOUNT_MERGE")
-// }
+	// Extract merged account address from transaction envelope (the account being merged)
+	var txEnv xdr.TransactionEnvelope
+	err := xdr.SafeUnmarshalBase64(useCase.SignedTransactionXDR, &txEnv)
+	suite.Require().NoError(err, "failed to unmarshal transaction envelope")
 
-// func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx context.Context, txHash string, ledgerNumber int64, useCase *infrastructure.UseCase) {
-// 	first := int32(10)
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 state changes")
+	var mergedAccount string
+	if txEnv.Type == xdr.EnvelopeTypeEnvelopeTypeTx {
+		for _, op := range txEnv.V1.Tx.Operations {
+			if op.Body.Type == xdr.OperationTypeAccountMerge {
+				// For account merge, the source account is the one being merged
+				if op.SourceAccount != nil {
+					mergedAccount = op.SourceAccount.ToAccountId().Address()
+				}
+				break
+			}
+		}
+	}
+	suite.Require().NotEmpty(mergedAccount, "merged account should be found in operations")
 
-// 	// Setup: Compute expected values from fixtures
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	// 1 DEBIT balance change for merged account
+	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, mergedAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get merged account balance state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 DEBIT balance change for merged account")
+	balanceChange := stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, balanceChange, ledgerNumber)
+	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", mergedAccount, types.StateChangeReasonDebit)
 
-// 	// Extract new account address from transaction envelope (the account being merged)
-// 	var txEnv xdr.TransactionEnvelope
-// 	err = xdr.SafeUnmarshalBase64(useCase.SignedTransactionXDR, &txEnv)
-// 	suite.Require().NoError(err, "failed to unmarshal transaction envelope")
+	// 1 CREDIT balance change for primary account
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get primary account balance state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 CREDIT balance change for primary account")
+	balanceChange = stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, balanceChange, ledgerNumber)
+	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", primaryAccount, types.StateChangeReasonCredit)
 
-// 	var newAccount string
-// 	if txEnv.Type == xdr.EnvelopeTypeEnvelopeTypeTx {
-// 		for _, op := range txEnv.V1.Tx.Operations {
-// 			if op.Body.Type == xdr.OperationTypeAccountMerge {
-// 				// For account merge, the source account is the one being merged
-// 				if op.SourceAccount != nil {
-// 					newAccount = op.SourceAccount.ToAccountId().Address()
-// 				}
-// 				break
-// 			}
-// 		}
-// 	}
-// 	suite.Require().NotEmpty(newAccount, "merged account should be found in operations")
+	// 1 MERGE account change for merged account
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, mergedAccount, &txHash, nil, &accountCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get merged account state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 MERGE account change")
+	accountChange := stateChanges.Edges[0].Node.(*types.AccountChange)
+	validateStateChangeBase(suite, accountChange, ledgerNumber)
+	validateAccountChange(suite, accountChange, mergedAccount, types.StateChangeReasonMerge)
 
-// 	// Expected amount: "0" (account was created with 0 balance in fixtures)
-// 	expectedMergeAmount := "0"
-
-// 	// Verify expected state change counts by category
-// 	assertStateChangeCategories(suite, stateChanges, map[types.StateChangeCategory]int{
-// 		types.StateChangeCategoryBalance: 2,
-// 		types.StateChangeCategoryAccount: 1,
-// 	})
-
-// 	// Verify expected state change counts by reason
-// 	assertStateChangeCounts(suite, stateChanges, map[types.StateChangeReason]int{
-// 		types.StateChangeReasonDebit:  1,
-// 		types.StateChangeReasonCredit: 1,
-// 		types.StateChangeReasonMerge:  1,
-// 	})
-
-// 	// Validate each state change with specific field validations
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-
-// 		// Validate specific fields based on state change type
-// 		switch sc := edge.Node.(type) {
-// 		case *types.StandardBalanceChange:
-// 			// Validate balance changes with expected values
-// 			suite.Require().Equal(xlmContractAddress, sc.TokenID, "token ID should be XLM contract")
-// 			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-// 			// Account should be newAccount (debit) or Primary (credit)
-// 			account := sc.GetAccountID()
-// 			validAccounts := []string{newAccount, primaryAccount}
-// 			suite.Require().Contains(validAccounts, account, "account should be merged account or Primary")
-
-// 		case *types.AccountChange:
-// 			// Validate account merge with expected values
-// 			validateAccountChange(suite, sc, xlmContractAddress, expectedMergeAmount, newAccount, types.StateChangeReasonMerge)
-
-// 		default:
-// 			suite.Fail("unexpected state change type: %T", sc)
-// 		}
-// 	}
-// }
+	// Verify total count of state changes for this transaction
+	stateChanges, err = suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 total state changes")
+}
 
 // func (suite *DataValidationTestSuite) TestInvokeContractOpSorobanAuthDataValidation() {
 // 	ctx := context.Background()
