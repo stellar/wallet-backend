@@ -1997,7 +1997,7 @@ type TrustlineChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  limit:                      String!
+  limit:                      String! @goField(forceResolver: true)
 }
 
 type ReservesChange implements BaseStateChange{
