@@ -187,6 +187,7 @@ func (m *StateChangeModel) BatchInsert(
 	funderAccountIDs := make([]*string, len(stateChanges))
 	signerWeights := make([]*types.NullableJSONB, len(stateChanges))
 	thresholds := make([]*types.NullableJSONB, len(stateChanges))
+	trustlineLimits := make([]*types.NullableJSONB, len(stateChanges))
 	flags := make([]*types.NullableJSON, len(stateChanges))
 	keyValues := make([]*types.NullableJSONB, len(stateChanges))
 
@@ -238,6 +239,9 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.Thresholds != nil {
 			thresholds[i] = &sc.Thresholds
 		}
+		if sc.TrustlineLimit != nil {
+			trustlineLimits[i] = &sc.TrustlineLimit
+		}
 		if sc.Flags != nil {
 			flags[i] = &sc.Flags
 		}
@@ -270,8 +274,9 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($18::text[]) AS funder_account_id,
 				UNNEST($19::jsonb[]) AS signer_weights,
 				UNNEST($20::jsonb[]) AS thresholds,
-				UNNEST($21::jsonb[]) AS flags,
-				UNNEST($22::jsonb[]) AS key_value
+				UNNEST($21::jsonb[]) AS trustline_limit,
+				UNNEST($22::jsonb[]) AS flags,
+				UNNEST($23::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
@@ -279,13 +284,13 @@ func (m *StateChangeModel) BatchInsert(
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value)
+				deployer_account_id, funder_account_id, signer_weights, thresholds, trustline_limit, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
 				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
 				sc.offer_id, sc.signer_account_id,
 				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
-				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.flags, sc.key_value
+				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
 			FROM input_data sc
 			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
@@ -316,6 +321,7 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(funderAccountIDs),
 		pq.Array(signerWeights),
 		pq.Array(thresholds),
+		pq.Array(trustlineLimits),
 		pq.Array(flags),
 		pq.Array(keyValues),
 	)
