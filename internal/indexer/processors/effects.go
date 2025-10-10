@@ -305,6 +305,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 	var stateChange types.StateChange
 
+	log.Debugf("processor: processing trustline effect: %s, address: %s, limit: %s", effect.TypeString, effect.Address, effect.Details["limit"])
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
