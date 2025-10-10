@@ -297,8 +297,8 @@ func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.Tr
 }
 
 // TokenID is the resolver for the tokenId field.
-func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.TokenID), nil
+func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TokenID), nil
 }
 
 // Limit is the resolver for the limit field.

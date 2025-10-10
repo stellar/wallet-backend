@@ -107,7 +107,7 @@ type TrustlineChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String @goField(forceResolver: true)
+  tokenId:                    String! @goField(forceResolver: true)
   limit:                      String @goField(forceResolver: true)
 }
 

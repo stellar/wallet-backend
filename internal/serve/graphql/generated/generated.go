@@ -394,7 +394,7 @@ type TrustlineChangeResolver interface {
 	Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
+	TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error)
 	Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
 }
 
@@ -2017,7 +2017,7 @@ type TrustlineChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String @goField(forceResolver: true)
+  tokenId:                    String! @goField(forceResolver: true)
   limit:                      String @goField(forceResolver: true)
 }
 
@@ -10281,11 +10281,14 @@ func (ec *executionContext) _TrustlineChange_tokenId(ctx context.Context, field 
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
-	res := resTmp.(*string)
+	res := resTmp.(string)
 	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -16238,13 +16241,16 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 		case "tokenId":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._TrustlineChange_tokenId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
