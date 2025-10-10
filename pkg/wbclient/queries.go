@@ -48,6 +48,9 @@ const (
 			tokenId
 			amount
 		}
+		... on AccountChange {
+			funderAddress
+		}
 		... on SignerChange {
 			signerAddress
 			signerWeights
@@ -62,6 +65,7 @@ const (
 			flags
 		}
 		... on TrustlineChange {
+			tokenId
 			limit
 		}
 		... on ReservesChange {

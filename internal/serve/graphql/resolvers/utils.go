@@ -232,6 +232,8 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "sponsorAccountId"
 		case "signerAddress":
 			fieldName = "signerAccountId"
+		case "funderAddress":
+			fieldName = "funderAccountId"
 		case "limit":
 			fieldName = "trustlineLimit"
 		}

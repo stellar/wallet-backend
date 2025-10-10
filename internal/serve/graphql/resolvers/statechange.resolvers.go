@@ -36,6 +36,11 @@ func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.Acco
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// FunderAddress is the resolver for the funderAddress field.
+func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.FunderAccountID), nil
+}
+
 // Type is the resolver for the type field.
 func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
@@ -289,6 +294,11 @@ func (r *trustlineChangeResolver) Operation(ctx context.Context, obj *types.Trus
 // Transaction is the resolver for the transaction field.
 func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.TokenID), nil
 }
 
 // Limit is the resolver for the limit field.
