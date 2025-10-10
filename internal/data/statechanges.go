@@ -77,6 +77,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		}
 	}
 
+	// TODO: Extract the ordering code to separate function in utils and use everywhere
 	// Add ordering
 	if sortOrder == DESC {
 		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
