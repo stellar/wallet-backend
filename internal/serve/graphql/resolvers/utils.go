@@ -232,6 +232,8 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "sponsorAccountId"
 		case "signerAddress":
 			fieldName = "signerAccountId"
+		case "limit":
+			fieldName = "trustlineLimit"
 		}
 		if colName, ok := fieldToColumnMap[fieldName]; ok {
 			dbColumns = append(dbColumns, colName)

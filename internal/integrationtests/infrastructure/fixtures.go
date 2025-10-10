@@ -618,21 +618,21 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// CustomAssetsOps
-	// customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing custom assets operations: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "customAssetsOps",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
+	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "customAssetsOps",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
 
 	// // AuthRequiredOps
 	// authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()

@@ -2,6 +2,7 @@
 package integrationtests
 
 import (
+	"fmt"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -360,111 +361,110 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 9 total state changes")
 }
 
-// func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating custom assets operations data...")
+func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("🔍 Validating custom assets operations data...")
 
-// 	// Find the custom assets use case
-// 	useCase := findUseCase(suite, "Stellarclassic/customAssetsOps")
-// 	suite.Require().NotNil(useCase, "customAssetsOps use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+	// Find the custom assets use case
+	useCase := findUseCase(suite, "Stellarclassic/customAssetsOps")
+	suite.Require().NotNil(useCase, "customAssetsOps use case not found")
+	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-// 	txHash := useCase.GetTransactionResult.Hash
+	txHash := useCase.GetTransactionResult.Hash
+	tx := validateTransactionBase(suite, ctx, txHash)
+	suite.validateCustomAssetsOperations(ctx, txHash, int64(tx.LedgerNumber))
+	suite.validateCustomAssetsStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+}
 
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
+func (suite *DataValidationTestSuite) validateCustomAssetsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(10)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction operations")
+	suite.Require().NotNil(operations, "operations should not be nil")
+	suite.Require().Len(operations.Edges, 8, "should have exactly 8 operations")
 
-// 	// Validate operations (8 operations)
-// 	suite.validateCustomAssetsOperations(ctx, txHash, int64(tx.LedgerNumber))
+	expectedOpTypes := []types.OperationType{
+		types.OperationTypeChangeTrust,
+		types.OperationTypePayment,
+		types.OperationTypeCreatePassiveSellOffer,
+		types.OperationTypePathPaymentStrictSend,
+		types.OperationTypeManageSellOffer,
+		types.OperationTypeManageBuyOffer,
+		types.OperationTypePathPaymentStrictReceive,
+		types.OperationTypeChangeTrust,
+	}
 
-// 	// Validate state changes (15+ variable based on trade execution)
-// 	suite.validateCustomAssetsStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-// }
+	for i, edge := range operations.Edges {
+		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+	}
+}
 
-// func (suite *DataValidationTestSuite) validateCustomAssetsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 8, "should have exactly 8 operations")
+func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(50)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	for _, edge := range stateChanges.Edges {
+		str := fmt.Sprintf("%+v\n", edge.Node)
+		fmt.Println(str)
+	}
 
-// 	expectedOpTypes := []types.OperationType{
-// 		types.OperationTypeChangeTrust,
-// 		types.OperationTypePayment,
-// 		types.OperationTypeCreatePassiveSellOffer,
-// 		types.OperationTypePathPaymentStrictSend,
-// 		types.OperationTypeManageSellOffer,
-// 		types.OperationTypeManageBuyOffer,
-// 		types.OperationTypePathPaymentStrictReceive,
-// 		types.OperationTypeChangeTrust,
-// 	}
+	// // Variable state changes based on trade execution (15+ minimum)
+	// suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
 
-// 	for i, edge := range operations.Edges {
-// 		validateOperationBase(suite, edge.Node, ledgerNumber)
-// 		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
-// 	}
-// }
+	// // Setup: Compute expected values from fixtures
+	// xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 
-// func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(50)
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	// // Compute TEST2 custom asset contract address (issuer=Primary, code="TEST2")
+	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
+	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
+	fmt.Println("test2ContractAddress", test2ContractAddress)
 
-// 	// Variable state changes based on trade execution (15+ minimum)
-// 	suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
+	// primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	// secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
-// 	// Setup: Compute expected values from fixtures
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	// // Validate each state change with specific field validations
+	// for _, edge := range stateChanges.Edges {
+	// 	validateStateChangeBase(suite, edge.Node, ledgerNumber)
 
-// 	// Compute TEST2 custom asset contract address (issuer=Primary, code="TEST2")
-// 	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
-// 	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
+	// 	// Validate specific fields based on state change type
+	// 	switch sc := edge.Node.(type) {
+	// 	case *types.StandardBalanceChange:
+	// 		// Validate balance changes with expected values
+	// 		// Token should be either XLM or TEST2
+	// 		validTokens := []string{xlmContractAddress, test2ContractAddress}
+	// 		suite.Require().Contains(validTokens, sc.TokenID, "token ID should be XLM or TEST2 contract")
+	// 		suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+	// 		// Account should be Primary or Secondary
+	// 		account := sc.GetAccountID()
+	// 		validAccounts := []string{primaryAccount, secondaryAccount}
+	// 		suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
 
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-// 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
+	// 	case *types.TrustlineChange:
+	// 		// Validate trustline changes with expected values
+	// 		validateTrustlineChange(suite, sc, secondaryAccount, sc.GetReason())
+	// 		suite.Require().NotEmpty(sc.Limit, "limit should not be empty")
 
-// 	// Validate each state change with specific field validations
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+	// 	case *types.FlagsChange:
+	// 		// Validate flags changes with expected values
+	// 		validateFlagsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
+	// 		suite.Require().NotEmpty(sc.Flags, "flags array should not be empty")
 
-// 		// Validate specific fields based on state change type
-// 		switch sc := edge.Node.(type) {
-// 		case *types.StandardBalanceChange:
-// 			// Validate balance changes with expected values
-// 			// Token should be either XLM or TEST2
-// 			validTokens := []string{xlmContractAddress, test2ContractAddress}
-// 			suite.Require().Contains(validTokens, sc.TokenID, "token ID should be XLM or TEST2 contract")
-// 			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-// 			// Account should be Primary or Secondary
-// 			account := sc.GetAccountID()
-// 			validAccounts := []string{primaryAccount, secondaryAccount}
-// 			suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
+	// 	case *types.AccountChange:
+	// 		// Validate account changes (for fee debits)
+	// 		suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
+	// 		suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
+	// 		account := sc.GetAccountID()
+	// 		validAccounts := []string{primaryAccount, secondaryAccount}
+	// 		suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
 
-// 		case *types.TrustlineChange:
-// 			// Validate trustline changes with expected values
-// 			validateTrustlineChange(suite, sc, secondaryAccount, sc.GetReason())
-// 			suite.Require().NotEmpty(sc.Limit, "limit should not be empty")
-
-// 		case *types.FlagsChange:
-// 			// Validate flags changes with expected values
-// 			validateFlagsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
-// 			suite.Require().NotEmpty(sc.Flags, "flags array should not be empty")
-
-// 		case *types.AccountChange:
-// 			// Validate account changes (for fee debits)
-// 			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
-// 			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-// 			account := sc.GetAccountID()
-// 			validAccounts := []string{primaryAccount, secondaryAccount}
-// 			suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
-
-// 		default:
-// 			// Allow other state change types without specific validation
-// 			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
-// 		}
-// 	}
-// }
+	// 	default:
+	// 		// Allow other state change types without specific validation
+	// 		suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
+	// 	}
+	// }
+}
 
 // func (suite *DataValidationTestSuite) TestAuthRequiredOpsDataValidation() {
 // 	ctx := context.Background()
