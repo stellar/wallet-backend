@@ -332,15 +332,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	validateStateChangeBase(suite, reserveChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonSponsor, primaryAccount)
 
-	// 1 RESERVES/UNSPONSOR changes for sponsored account - sponsorship end
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &unsponsorReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR reserves change for sponsored account")
-	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
-	validateStateChangeBase(suite, reserveChange, ledgerNumber)
-	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount)
-
 	// 1 RESERVES/SPONSOR changes for sponsoring account - sponsorship begin
 	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
@@ -349,6 +340,15 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
 	validateStateChangeBase(suite, reserveChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount)
+	
+	// 1 RESERVES/UNSPONSOR changes for sponsored account - sponsorship end
+	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &unsponsorReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR reserves change for sponsored account")
+	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
+	validateStateChangeBase(suite, reserveChange, ledgerNumber)
+	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount)
 
 	// 1 RESERVES/UNSPONSOR changes for sponsoring account - sponsorship end
 	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &reservesCategory, &unsponsorReason, &first, nil, nil, nil)
