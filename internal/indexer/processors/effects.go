@@ -226,6 +226,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
 		effects.EffectDataSponsorshipRemoved, effects.EffectSignerSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
 		formerSponsor, err := safeStringFromDetails(effect.Details, "former_sponsor")
+		log.Debugf("processor: processing sponsorship removed effect: %s, sponsoredAccountID: %s, sponsorAccountID: %s", effect.TypeString, effect.Address, formerSponsor)
 		if err != nil {
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
