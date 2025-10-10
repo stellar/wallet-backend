@@ -36,16 +36,6 @@ func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.Acco
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
-// TokenID is the resolver for the tokenId field.
-func (r *accountChangeResolver) TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TokenID), nil
-}
-
-// Amount is the resolver for the amount field.
-func (r *accountChangeResolver) Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
-}
-
 // Type is the resolver for the type field.
 func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
@@ -356,3 +346,18 @@ type (
 	standardBalanceChangeResolver      struct{ *Resolver }
 	trustlineChangeResolver            struct{ *Resolver }
 )
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *accountChangeResolver) TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TokenID), nil
+}
+func (r *accountChangeResolver) Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount), nil
+}
+*/

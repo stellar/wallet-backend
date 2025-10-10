@@ -48,10 +48,6 @@ const (
 			tokenId
 			amount
 		}
-		... on AccountChange {
-			tokenId
-			amount
-		}
 		... on SignerChange {
 			signerAddress
 			signerWeights

@@ -40,9 +40,6 @@ type AccountChange implements BaseStateChange {
   account:                    Account! @goField(forceResolver: true)
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
-
-  tokenId:                    String!              
-  amount:                     String!
 }
 
 type SignerChange implements BaseStateChange {

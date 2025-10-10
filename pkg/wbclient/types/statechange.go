@@ -68,8 +68,6 @@ type StandardBalanceChange struct {
 // AccountChange represents an account state change
 type AccountChange struct {
 	BaseStateChangeFields
-	TokenID string `json:"tokenId"`
-	Amount  string `json:"amount"`
 }
 
 // SignerChange represents a signer state change

@@ -3,7 +3,8 @@ package integrationtests
 
 import (
 	"context"
-
+	"encoding/json"
+	"encoding/base64"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
@@ -116,12 +117,22 @@ func validateAccountChange(suite *DataValidationTestSuite, ac *types.AccountChan
 // }
 
 // validateMetadataChange validates a metadata state change
-func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataChange, expectedAccount string, expectedReason types.StateChangeReason) {
+func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataChange, expectedAccount string, expectedReason types.StateChangeReason, expectedKey string, expectedValue string) {
 	suite.Require().NotNil(mc, "metadata change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryMetadata, mc.GetType(), "should be METADATA type")
 	suite.Require().Equal(expectedReason, mc.GetReason(), "reason mismatch")
 	suite.Require().NotEmpty(mc.KeyValue, "key value should not be empty")
 	suite.Require().Equal(expectedAccount, mc.GetAccountID(), "account ID mismatch")
+	
+	// Decode the key value
+	var result map[string]map[string]string
+	err := json.Unmarshal([]byte(mc.KeyValue), &result)
+	suite.Require().NoError(err, "failed to unmarshal metadata change key value", mc.KeyValue)
+	value, ok := result[expectedKey]["new"]
+	suite.Require().True(ok, "key should exist in the result")
+	valueDecoded, err := base64.StdEncoding.DecodeString(value)
+	suite.Require().NoError(err, "failed to decode value", value)
+	suite.Require().Equal(expectedValue, string(valueDecoded), "value does not match in the result")
 }
 
 // validateFlagsChange validates a flags state change
@@ -309,9 +320,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
 	metadataChange := stateChanges.Edges[0].Node.(*types.MetadataChange)
 	validateStateChangeBase(suite, metadataChange, ledgerNumber)
-	validateMetadataChange(suite, metadataChange, primaryAccount, types.StateChangeReasonDataEntry)
-	suite.Require().Contains(metadataChange.KeyValue, "foo", "metadata should contain key 'foo'")
-	suite.Require().Contains(metadataChange.KeyValue, "bar", "metadata should contain value 'bar'")
+	validateMetadataChange(suite, metadataChange, primaryAccount, types.StateChangeReasonDataEntry, "foo", "bar")
 
 	// 1 RESERVES/SPONSOR changes for sponsored account - sponsorship begin
 	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
