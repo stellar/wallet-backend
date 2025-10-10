@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stellar/go/support/log"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -246,9 +245,6 @@ func (m *StateChangeModel) BatchInsert(
 			keyValues[i] = &sc.KeyValue
 		}
 	}
-
-	log.Ctx(ctx).Debugf("inserting sponsored IDs: %v", sponsoredAccountIDs)
-	log.Ctx(ctx).Debugf("inserting sponsor IDs: %v", sponsorAccountIDs)
 
 	const insertQuery = `
 		-- Insert state changes
