@@ -68,6 +68,7 @@ type StandardBalanceChange struct {
 // AccountChange represents an account state change
 type AccountChange struct {
 	BaseStateChangeFields
+	FunderAddress *string `json:"funderAddress,omitempty"`
 }
 
 // SignerChange represents a signer state change
@@ -98,6 +99,7 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
+	TokenID *string `json:"tokenId,omitempty"`
 	Limit *string `json:"limit,omitempty"`
 }
 
