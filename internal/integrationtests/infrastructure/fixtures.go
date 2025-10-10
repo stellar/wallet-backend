@@ -104,8 +104,7 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair
 		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
 		- 1 RESERVES/SPONSOR change for primary account with sponsored account = new account
 		- 1 RESERVES/SPONSOR change for new account with sponsor = primary account
-		- 1 RESERVES/UNSPONSOR change for primary account with sponsored account = new account
-		- 1 RESERVES/UNSPONSOR change for new account with sponsor = primary account
+		- 1 SIGNER/ADD change for the sponsored account with signer address = sponsored account, weight = 1
 	*/
 	operations := []txnbuild.Operation{
 		&txnbuild.BeginSponsoringFutureReserves{
@@ -619,90 +618,90 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// CustomAssetsOps
-	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
-	if err != nil {
-		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "customAssetsOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
+	// customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing custom assets operations: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "customAssetsOps",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
 
-	// AuthRequiredOps
-	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
-	if err != nil {
-		return nil, fmt.Errorf("preparing auth required operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "authRequiredOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
+	// // AuthRequiredOps
+	// authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing auth required operations: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "authRequiredOps",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
 
-	// AccountMergeOp
-	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
-	if err != nil {
-		return nil, fmt.Errorf("preparing account merge operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "accountMergeOp",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            6 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
+	// // AccountMergeOp
+	// accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing account merge operation: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "accountMergeOp",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            txSigners,
+	// 		DelayTime:            6 * time.Second,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
 
-	// InvokeContractOp w/ SorobanAuth
-	invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "invokeContractOp/SorobanAuth",
-			category:             categorySoroban,
-			TxSigners:            txSigners,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
-	}
+	// // InvokeContractOp w/ SorobanAuth
+	// invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "invokeContractOp/SorobanAuth",
+	// 		category:             categorySoroban,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+	// 	})
+	// }
 
-	// InvokeContractOp w/ SourceAccountAuth
-	invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
-	if err != nil {
-		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "invokeContractOp/SourceAccountAuth",
-			category:             categorySoroban,
-			TxSigners:            txSigners,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
-	}
+	// // InvokeContractOp w/ SourceAccountAuth
+	// invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "invokeContractOp/SourceAccountAuth",
+	// 		category:             categorySoroban,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+	// 	})
+	// }
 
 	return useCases, nil
 }

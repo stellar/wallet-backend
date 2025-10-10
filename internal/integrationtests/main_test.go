@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
@@ -44,6 +45,11 @@ func TestIntegrationTests(t *testing.T) {
 			testEnv: testEnv,
 		})
 	})
+
+	// Wait for ingest service to process all transactions
+	log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")
+	time.Sleep(10 * time.Second)
+
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
 			testEnv: testEnv,
