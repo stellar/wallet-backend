@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sync"
 
+	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
@@ -22,6 +25,17 @@ var xlmAsset = xdr.MustNewNativeAsset()
 type DataValidationTestSuite struct {
 	suite.Suite
 	testEnv *infrastructure.TestEnvironment
+	pool    pond.Pool
+}
+
+// SetupSuite initializes the pool for parallel test execution
+func (suite *DataValidationTestSuite) SetupSuite() {
+	suite.pool = pond.NewPool(10)
+}
+
+// TearDownSuite cleans up the pool after all tests complete
+func (suite *DataValidationTestSuite) TearDownSuite() {
+	suite.pool.StopAndWait()
 }
 
 // getAssetContractAddress computes the contract address for a given asset
@@ -39,6 +53,51 @@ func findUseCase(suite *DataValidationTestSuite, useCaseName string) *infrastruc
 		}
 	}
 	return nil
+}
+
+// stateChangeQuery defines a query for fetching state changes
+type stateChangeQuery struct {
+	name     string
+	account  string
+	txHash   *string
+	category *string
+	reason   *string
+}
+
+// fetchStateChangesInParallel fetches multiple state changes in parallel using pond worker pool
+func (suite *DataValidationTestSuite) fetchStateChangesInParallel(
+	ctx context.Context,
+	queries []stateChangeQuery,
+	first *int32,
+) map[string]*types.StateChangeConnection {
+	results := make(map[string]*types.StateChangeConnection)
+	resultsMu := sync.Mutex{}
+	group := suite.pool.NewGroupContext(ctx)
+	var errs []error
+	errMu := sync.Mutex{}
+
+	for _, q := range queries {
+		query := q // capture variable
+		group.Submit(func() {
+			sc, err := suite.testEnv.WBClient.GetAccountStateChanges(
+				ctx, query.account, query.txHash, nil, query.category, query.reason, first, nil, nil, nil)
+			if err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("%s: %w", query.name, err))
+				errMu.Unlock()
+				return
+			}
+			resultsMu.Lock()
+			results[query.name] = sc
+			resultsMu.Unlock()
+		})
+	}
+
+	suite.Require().NoError(group.Wait(), "waiting for parallel state change fetches")
+	if len(errs) > 0 {
+		suite.Require().Fail("errors fetching state changes", errors.Join(errs...))
+	}
+	return results
 }
 
 // validateTransactionBase validates common transaction fields
@@ -228,27 +287,38 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	first := int32(10)
 	balanceCategory := "BALANCE"
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
+
+	// Fetch balance changes for both accounts in parallel
+	paymentQueries := []stateChangeQuery{
+		{name: "primaryBalanceChange", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+		{name: "secondaryBalanceChange", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+	}
+	paymentResults := suite.fetchStateChangesInParallel(ctx, paymentQueries, &first)
+
+	// Extract results
+	primaryStateChanges := paymentResults["primaryBalanceChange"]
+	secondaryStateChanges := paymentResults["secondaryBalanceChange"]
+
+	// Validate results are not nil
+	suite.Require().NotNil(primaryStateChanges, "primary state changes should not be nil")
+	suite.Require().NotNil(secondaryStateChanges, "secondary state changes should not be nil")
 
 	// 1 DEBIT change for primary account
-	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, suite.testEnv.PrimaryAccountKP.Address(), &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
-	sc := stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	suite.Require().Len(primaryStateChanges.Edges, 1, "should have exactly 1 state change for primary account")
+	sc := primaryStateChanges.Edges[0].Node.(*types.StandardBalanceChange)
 	validateStateChangeBase(suite, sc, ledgerNumber)
-	validateBalanceChange(suite, sc, xlmContractAddress, "100000000", suite.testEnv.PrimaryAccountKP.Address(), types.StateChangeReasonDebit)
+	validateBalanceChange(suite, sc, xlmContractAddress, "100000000", primaryAccount, types.StateChangeReasonDebit)
 
 	// 1 CREDIT change for secondary account
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, suite.testEnv.SecondaryAccountKP.Address(), &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
-	sc = stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	suite.Require().Len(secondaryStateChanges.Edges, 1, "should have exactly 1 state change for secondary account")
+	sc = secondaryStateChanges.Edges[0].Node.(*types.StandardBalanceChange)
 	validateStateChangeBase(suite, sc, ledgerNumber)
-	validateBalanceChange(suite, sc, xlmContractAddress, "100000000", suite.testEnv.SecondaryAccountKP.Address(), types.StateChangeReasonCredit)
+	validateBalanceChange(suite, sc, xlmContractAddress, "100000000", secondaryAccount, types.StateChangeReasonCredit)
 
 	// Only 2 state changes for this transaction
-	stateChanges, err = suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
@@ -301,71 +371,80 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
 
+	// Fetch all state changes in parallel
+	sponsorshipQueries := []stateChangeQuery{
+		{name: "primaryBalanceChange", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+		{name: "sponsoredBalanceChange", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+		{name: "sponsoredAccountChange", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: nil},
+		{name: "primaryMetadataChange", account: primaryAccount, txHash: &txHash, category: &metadataCategory, reason: nil},
+		{name: "sponsoredReservesChange", account: sponsoredNewAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
+		{name: "primaryReservesChange", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
+		{name: "sponsoredSignerChange", account: sponsoredNewAccount, txHash: &txHash, category: &signerCategory, reason: &addReason},
+	}
+	sponsorshipResults := suite.fetchStateChangesInParallel(ctx, sponsorshipQueries, &first)
+
+	// Extract and validate results
+	primaryBalanceChanges := sponsorshipResults["primaryBalanceChange"]
+	sponsoredBalanceChanges := sponsorshipResults["sponsoredBalanceChange"]
+	sponsoredAccountChanges := sponsorshipResults["sponsoredAccountChange"]
+	primaryMetadataChanges := sponsorshipResults["primaryMetadataChange"]
+	sponsoredReservesChanges := sponsorshipResults["sponsoredReservesChange"]
+	primaryReservesChanges := sponsorshipResults["primaryReservesChange"]
+	sponsoredSignerChanges := sponsorshipResults["sponsoredSignerChange"]
+
+	// Validate all results are not nil
+	suite.Require().NotNil(primaryBalanceChanges, "primary balance changes should not be nil")
+	suite.Require().NotNil(sponsoredBalanceChanges, "sponsored balance changes should not be nil")
+	suite.Require().NotNil(sponsoredAccountChanges, "sponsored account changes should not be nil")
+	suite.Require().NotNil(primaryMetadataChanges, "primary metadata changes should not be nil")
+	suite.Require().NotNil(sponsoredReservesChanges, "sponsored reserves changes should not be nil")
+	suite.Require().NotNil(primaryReservesChanges, "primary reserves changes should not be nil")
+	suite.Require().NotNil(sponsoredSignerChanges, "sponsored signer changes should not be nil")
+
 	// 1 BALANCE/DEBIT change for primary account (sending starting balance)
-	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get primary account balance state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT balance change for primary account")
-	balanceChange := stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	suite.Require().Len(primaryBalanceChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT balance change for primary account")
+	balanceChange := primaryBalanceChanges.Edges[0].Node.(*types.StandardBalanceChange)
 	validateStateChangeBase(suite, balanceChange, ledgerNumber)
 	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", primaryAccount, types.StateChangeReasonDebit)
 
 	// 1 BALANCE/CREDIT change for sponsored account (receiving starting balance)
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account balance state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT balance change for sponsored account")
-	balanceChange = stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
+	suite.Require().Len(sponsoredBalanceChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT balance change for sponsored account")
+	balanceChange = sponsoredBalanceChanges.Edges[0].Node.(*types.StandardBalanceChange)
 	validateStateChangeBase(suite, balanceChange, ledgerNumber)
 	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", sponsoredNewAccount, types.StateChangeReasonCredit)
 
 	// 1 ACCOUNT/CREATE account change for sponsored account
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &accountCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 ACCOUNT/CREATE account change")
-	accountChange := stateChanges.Edges[0].Node.(*types.AccountChange)
+	suite.Require().Len(sponsoredAccountChanges.Edges, 1, "should have exactly 1 ACCOUNT/CREATE account change")
+	accountChange := sponsoredAccountChanges.Edges[0].Node.(*types.AccountChange)
 	validateStateChangeBase(suite, accountChange, ledgerNumber)
 	validateAccountChange(suite, accountChange, sponsoredNewAccount, primaryAccount, types.StateChangeReasonCreate)
 
 	// 1 METADATA/DATA_ENTRY metadata change for primary account
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &metadataCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get primary account metadata state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
-	metadataChange := stateChanges.Edges[0].Node.(*types.MetadataChange)
+	suite.Require().Len(primaryMetadataChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
+	metadataChange := primaryMetadataChanges.Edges[0].Node.(*types.MetadataChange)
 	validateStateChangeBase(suite, metadataChange, ledgerNumber)
 	validateMetadataChange(suite, metadataChange, primaryAccount, types.StateChangeReasonDataEntry, "foo", "bar")
 
 	// 1 RESERVES/SPONSOR change for sponsored account - sponsorship begin
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsored account")
-	reserveChange := stateChanges.Edges[0].Node.(*types.ReservesChange)
+	suite.Require().Len(sponsoredReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsored account")
+	reserveChange := sponsoredReservesChanges.Edges[0].Node.(*types.ReservesChange)
 	validateStateChangeBase(suite, reserveChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoredAccount(suite, reserveChange, sponsoredNewAccount, types.StateChangeReasonSponsor, primaryAccount)
 
 	// 1 RESERVES/SPONSOR change for sponsoring account - sponsorship begin
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &reservesCategory, &sponsorReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account reserves state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
-	reserveChange = stateChanges.Edges[0].Node.(*types.ReservesChange)
+	suite.Require().Len(primaryReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
+	reserveChange = primaryReservesChanges.Edges[0].Node.(*types.ReservesChange)
 	validateStateChangeBase(suite, reserveChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoringAccount(suite, reserveChange, primaryAccount, types.StateChangeReasonSponsor, sponsoredNewAccount)
 
 	// 1 SIGNER/ADD change for sponsored account with default signer weight = 1
-	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, sponsoredNewAccount, &txHash, nil, &signerCategory, &addReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get sponsored account signer state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
-	signerChange := stateChanges.Edges[0].Node.(*types.SignerChange)
+	suite.Require().Len(sponsoredSignerChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
+	signerChange := sponsoredSignerChanges.Edges[0].Node.(*types.SignerChange)
 	validateStateChangeBase(suite, signerChange, ledgerNumber)
 	validateSignerChange(suite, signerChange, sponsoredNewAccount, sponsoredNewAccount, 1, types.StateChangeReasonAdd)
 
 	// Verify total count of state changes for this transaction
-	stateChanges, err = suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 9 total state changes")
@@ -451,29 +530,34 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	// 2. CONSERVATION LAW VALIDATIONS
 	log.Ctx(ctx).Info("🔍 Validating token conservation laws...")
 
-	// 2a. Primary Account: MINT = BURN
-	mintChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, &mintReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get primary account MINT changes")
+	// Fetch MINT/BURN/CREDIT/DEBIT changes in parallel
+	conservationQueries := []stateChangeQuery{
+		{name: "mintChanges", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
+		{name: "burnChanges", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &burnReason},
+		{name: "creditChanges", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
+		{name: "debitChanges", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
+	}
+	conservationResults := suite.fetchStateChangesInParallel(ctx, conservationQueries, &first)
+
+	// Extract results
+	mintChanges := conservationResults["mintChanges"]
+	burnChanges := conservationResults["burnChanges"]
+	creditChanges := conservationResults["creditChanges"]
+	debitChanges := conservationResults["debitChanges"]
+
+	// Validate results are not nil
 	suite.Require().NotNil(mintChanges, "MINT changes should not be nil")
-
-	burnChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, &burnReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get primary account BURN changes")
 	suite.Require().NotNil(burnChanges, "BURN changes should not be nil")
+	suite.Require().NotNil(creditChanges, "CREDIT changes should not be nil")
+	suite.Require().NotNil(debitChanges, "DEBIT changes should not be nil")
 
+	// 2a. Primary Account: MINT = BURN
 	totalMint := sumAmounts(suite, mintChanges, test2ContractAddress)
 	totalBurn := sumAmounts(suite, burnChanges, test2ContractAddress)
 	suite.Require().Equal(totalMint, totalBurn, "Primary account: MINT should equal BURN for TEST2")
 	log.Ctx(ctx).Infof("✅ Primary account TEST2 conservation: MINT=%d, BURN=%d", totalMint, totalBurn)
 
 	// 2b. Secondary Account: CREDIT = DEBIT for TEST2
-	creditChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceCategory, &creditReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get secondary account CREDIT changes")
-	suite.Require().NotNil(creditChanges, "CREDIT changes should not be nil")
-
-	debitChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceCategory, &debitReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get secondary account DEBIT changes")
-	suite.Require().NotNil(debitChanges, "DEBIT changes should not be nil")
-
 	totalCredit := sumAmounts(suite, creditChanges, test2ContractAddress)
 	totalDebit := sumAmounts(suite, debitChanges, test2ContractAddress)
 	suite.Require().Equal(totalCredit, totalDebit, "Secondary account: CREDIT should equal DEBIT for TEST2")
@@ -482,10 +566,22 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	// 3. CATEGORY-BASED VALIDATIONS
 	log.Ctx(ctx).Info("🔍 Validating category-specific state changes...")
 
-	// 3a. TRUSTLINE Changes: Secondary should have exactly 2 (ADD and REMOVE)
-	trustlineChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &trustlineCategory, nil, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get trustline changes")
+	// Fetch TRUSTLINE and BALANCE_AUTHORIZATION changes in parallel
+	categoryQueries := []stateChangeQuery{
+		{name: "trustlineChanges", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: nil},
+		{name: "authChanges", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
+	}
+	categoryResults := suite.fetchStateChangesInParallel(ctx, categoryQueries, &first)
+
+	// Extract results
+	trustlineChanges := categoryResults["trustlineChanges"]
+	authChanges := categoryResults["authChanges"]
+
+	// Validate results are not nil
 	suite.Require().NotNil(trustlineChanges, "trustline changes should not be nil")
+	suite.Require().NotNil(authChanges, "balance authorization changes should not be nil")
+
+	// 3a. TRUSTLINE Changes: Secondary should have exactly 2 (ADD and REMOVE)
 	suite.Require().Len(trustlineChanges.Edges, 2, "should have exactly 2 trustline changes (ADD and REMOVE)")
 
 	// Validate ADD and REMOVE trustline changes
@@ -509,9 +605,6 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	log.Ctx(ctx).Info("✅ TRUSTLINE changes validated: ADD and REMOVE found")
 
 	// 3b. BALANCE_AUTHORIZATION Changes: Secondary should have exactly 1 (SET with empty flags)
-	authChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceAuthCategory, &setReason, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get balance authorization changes")
-	suite.Require().NotNil(authChanges, "balance authorization changes should not be nil")
 	suite.Require().Len(authChanges.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET change")
 
 	authChange := authChanges.Edges[0].Node.(*types.BalanceAuthorizationChange)
