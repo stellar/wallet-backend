@@ -308,7 +308,6 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
-		log.Debugf("processor: processing trustline effect: %s, address: %s, limit: %s", effect.TypeString, effect.Address, effect.Details["limit"])
 		// Create the trustline state change
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
