@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
@@ -112,15 +113,6 @@ func validateSignerChange(suite *DataValidationTestSuite, sc *types.SignerChange
 	suite.Require().Equal(expectedSignerWeights, value, "signer weights do not match in the result")
 }
 
-// // validateSignerThresholdsChange validates a signer thresholds state change
-// func validateSignerThresholdsChange(suite *DataValidationTestSuite, stc *types.SignerThresholdsChange, expectedAccount string, expectedReason types.StateChangeReason) {
-// 	suite.Require().NotNil(stc, "signer thresholds change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategorySignatureThreshold, stc.GetType(), "should be SIGNATURE_THRESHOLD type")
-// 	suite.Require().Equal(expectedReason, stc.GetReason(), "reason mismatch")
-// 	suite.Require().NotEmpty(stc.Thresholds, "thresholds should not be empty")
-// 	suite.Require().Equal(expectedAccount, stc.GetAccountID(), "account ID mismatch")
-// }
-
 // validateMetadataChange validates a metadata state change
 func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataChange, expectedAccount string, expectedReason types.StateChangeReason, expectedKey string, expectedValue string) {
 	suite.Require().NotNil(mc, "metadata change should not be nil")
@@ -140,25 +132,6 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 	suite.Require().Equal(expectedValue, string(valueDecoded), "value does not match in the result")
 }
 
-// validateFlagsChange validates a flags state change
-// func validateFlagsChange(suite *DataValidationTestSuite, fc *types.FlagsChange, expectedAccount string, expectedReason types.StateChangeReason) {
-// 	suite.Require().NotNil(fc, "flags change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategoryFlags, fc.GetType(), "should be FLAGS type")
-// 	suite.Require().Equal(expectedReason, fc.GetReason(), "reason mismatch")
-// 	suite.Require().NotNil(fc.Flags, "flags should not be nil")
-// 	suite.Require().NotEmpty(fc.Flags, "flags should not be empty")
-// 	suite.Require().Equal(expectedAccount, fc.GetAccountID(), "account ID mismatch")
-// }
-
-// // validateTrustlineChange validates a trustline state change
-// func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.TrustlineChange, expectedAccount string, expectedReason types.StateChangeReason) {
-// 	suite.Require().NotNil(tc, "trustline change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategoryTrustline, tc.GetType(), "should be TRUSTLINE type")
-// 	suite.Require().Equal(expectedReason, tc.GetReason(), "reason mismatch")
-// 	suite.Require().NotEmpty(tc.Limit, "limit should not be empty")
-// 	suite.Require().Equal(expectedAccount, tc.GetAccountID(), "account ID mismatch")
-// }
-
 // validateReservesChange validates a reserves state change
 func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, expectedReason types.StateChangeReason, expectedSponsorAddress string) {
 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
@@ -176,15 +149,51 @@ func validateReservesSponsorshipChangeForSponsoringAccount(suite *DataValidation
 	suite.Require().Equal(expectedSponsoredAddress, *rc.SponsoredAddress, "sponsored address mismatch")
 }
 
-// validateBalanceAuthorizationChange validates a balance authorization state change
-// func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, expectedReason types.StateChangeReason) {
-// 	suite.Require().NotNil(bac, "balance authorization change should not be nil")
-// 	suite.Require().Equal(types.StateChangeCategoryBalanceAuthorization, bac.GetType(), "should be BALANCE_AUTHORIZATION type")
-// 	suite.Require().Equal(expectedReason, bac.GetReason(), "reason mismatch")
-// 	suite.Require().NotNil(bac.Flags, "flags should not be nil")
-// 	suite.Require().NotEmpty(bac.Flags, "flags should not be empty")
-// 	suite.Require().Equal(expectedAccount, bac.GetAccountID(), "account ID mismatch")
-// }
+// sumAmounts aggregates amounts from balance changes for a specific token and returns the total as int64
+func sumAmounts(suite *DataValidationTestSuite, sc *types.StateChangeConnection, tokenID string) int64 {
+	var total int64
+	for _, edge := range sc.Edges {
+		balanceChange, ok := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().True(ok, "state change should be StandardBalanceChange type")
+
+		// Skip if tokenID doesn't match (filter by token)
+		if balanceChange.TokenID != tokenID {
+			continue
+		}
+
+		// Parse amount string to int64
+		var amount int64
+		_, err := fmt.Sscanf(balanceChange.Amount, "%d", &amount)
+		suite.Require().NoError(err, "failed to parse amount: %s", balanceChange.Amount)
+		total += amount
+	}
+	return total
+}
+
+// validateTrustlineChangeDetailed validates a trustline state change with detailed checks
+func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.TrustlineChange, expectedAccount string, expectedTokenID string, expectedReason types.StateChangeReason) {
+	suite.Require().NotNil(tc, "trustline change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryTrustline, tc.GetType(), "should be TRUSTLINE type")
+	suite.Require().Equal(expectedReason, tc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, tc.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(expectedTokenID, tc.TokenID, "token ID mismatch")
+	if expectedReason == types.StateChangeReasonAdd {
+		suite.Require().NotNil(tc.Limit, "limit should not be nil for ADD")
+		suite.Require().NotEmpty(*tc.Limit, "limit should not be empty for ADD")
+	}
+}
+
+// validateBalanceAuthorizationChangeDetailed validates a balance authorization state change
+func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, expectedReason types.StateChangeReason, expectedFlags []string) {
+	suite.Require().NotNil(bac, "balance authorization change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryBalanceAuthorization, bac.GetType(), "should be BALANCE_AUTHORIZATION type")
+	suite.Require().Equal(expectedReason, bac.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedAccount, bac.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(len(expectedFlags), len(bac.Flags), "flags count mismatch")
+	for _, expectedFlag := range expectedFlags {
+		suite.Require().Contains(bac.Flags, expectedFlag, "expected flag not found: %s", expectedFlag)
+	}
+}
 
 func (suite *DataValidationTestSuite) TestPaymentOperationDataValidation() {
 	ctx := context.Background()
@@ -403,398 +412,149 @@ func (suite *DataValidationTestSuite) validateCustomAssetsOperations(ctx context
 
 func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(50)
+
+	// Setup: Compute expected values from fixtures
+	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
+	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
+	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
+
+	// Define filter constants
+	balanceCategory := "BALANCE"
+	trustlineCategory := "TRUSTLINE"
+	balanceAuthCategory := "BALANCE_AUTHORIZATION"
+	mintReason := string(types.StateChangeReasonMint)
+	burnReason := string(types.StateChangeReasonBurn)
+	creditReason := string(types.StateChangeReasonCredit)
+	debitReason := string(types.StateChangeReasonDebit)
+	setReason := string(types.StateChangeReasonSet)
+
+	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+	log.Ctx(ctx).Info("🔍 Validating total state change count...")
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	suite.Require().Len(stateChanges.Edges, 25, "should have exactly 25 state changes")
+	log.Ctx(ctx).Info("✅ Total state change count validated: 25")
+
+	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		str := fmt.Sprintf("%+v\n", edge.Node)
-		fmt.Println(str)
+		// str := fmt.Sprintf("%+v\n", edge.Node)
+		// fmt.Println(str)
+		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+	}
+	// fmt.Println("PrimaryAccountKP", suite.testEnv.PrimaryAccountKP.Address())
+	// fmt.Println("SecondaryAccountKP", suite.testEnv.SecondaryAccountKP.Address())
+	// fmt.Println("test2ContractAddress", test2ContractAddress)
+
+	// 2. CONSERVATION LAW VALIDATIONS
+	log.Ctx(ctx).Info("🔍 Validating token conservation laws...")
+
+	// 2a. Primary Account: MINT = BURN
+	mintChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, &mintReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get primary account MINT changes")
+	suite.Require().NotNil(mintChanges, "MINT changes should not be nil")
+
+	burnChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, &burnReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get primary account BURN changes")
+	suite.Require().NotNil(burnChanges, "BURN changes should not be nil")
+
+	totalMint := sumAmounts(suite, mintChanges, test2ContractAddress)
+	totalBurn := sumAmounts(suite, burnChanges, test2ContractAddress)
+	suite.Require().Equal(totalMint, totalBurn, "Primary account: MINT should equal BURN for TEST2")
+	log.Ctx(ctx).Infof("✅ Primary account TEST2 conservation: MINT=%d, BURN=%d", totalMint, totalBurn)
+
+	// 2b. Secondary Account: CREDIT = DEBIT for TEST2
+	creditChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceCategory, &creditReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get secondary account CREDIT changes")
+	suite.Require().NotNil(creditChanges, "CREDIT changes should not be nil")
+
+	debitChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceCategory, &debitReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get secondary account DEBIT changes")
+	suite.Require().NotNil(debitChanges, "DEBIT changes should not be nil")
+
+	totalCredit := sumAmounts(suite, creditChanges, test2ContractAddress)
+	totalDebit := sumAmounts(suite, debitChanges, test2ContractAddress)
+	suite.Require().Equal(totalCredit, totalDebit, "Secondary account: CREDIT should equal DEBIT for TEST2")
+	log.Ctx(ctx).Infof("✅ Secondary account TEST2 conservation: CREDIT=%d, DEBIT=%d", totalCredit, totalDebit)
+
+	// 3. CATEGORY-BASED VALIDATIONS
+	log.Ctx(ctx).Info("🔍 Validating category-specific state changes...")
+
+	// 3a. TRUSTLINE Changes: Secondary should have exactly 2 (ADD and REMOVE)
+	trustlineChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &trustlineCategory, nil, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get trustline changes")
+	suite.Require().NotNil(trustlineChanges, "trustline changes should not be nil")
+	suite.Require().Len(trustlineChanges.Edges, 2, "should have exactly 2 trustline changes (ADD and REMOVE)")
+
+	// Validate ADD and REMOVE trustline changes
+	foundAdd := false
+	foundRemove := false
+	for _, edge := range trustlineChanges.Edges {
+		tc := edge.Node.(*types.TrustlineChange)
+		validateStateChangeBase(suite, tc, ledgerNumber)
+		suite.Require().Equal(test2ContractAddress, tc.TokenID, "trustline token ID should be TEST2")
+
+		if tc.GetReason() == types.StateChangeReasonAdd {
+			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, types.StateChangeReasonAdd)
+			foundAdd = true
+		} else if tc.GetReason() == types.StateChangeReasonRemove {
+			validateTrustlineChange(suite, tc, secondaryAccount, test2ContractAddress, types.StateChangeReasonRemove)
+			foundRemove = true
+		}
+	}
+	suite.Require().True(foundAdd, "should have ADD trustline change")
+	suite.Require().True(foundRemove, "should have REMOVE trustline change")
+	log.Ctx(ctx).Info("✅ TRUSTLINE changes validated: ADD and REMOVE found")
+
+	// 3b. BALANCE_AUTHORIZATION Changes: Secondary should have exactly 1 (SET with empty flags)
+	authChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, secondaryAccount, &txHash, nil, &balanceAuthCategory, &setReason, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get balance authorization changes")
+	suite.Require().NotNil(authChanges, "balance authorization changes should not be nil")
+	suite.Require().Len(authChanges.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET change")
+
+	authChange := authChanges.Edges[0].Node.(*types.BalanceAuthorizationChange)
+	validateStateChangeBase(suite, authChange, ledgerNumber)
+	validateBalanceAuthorizationChange(suite, authChange, secondaryAccount, types.StateChangeReasonSet, []string{})
+	log.Ctx(ctx).Info("✅ BALANCE_AUTHORIZATION validated: SET with empty Flags (issuer has no auth flags)")
+
+	// 4. SPECIFIC BALANCE CHANGE VALIDATIONS
+	log.Ctx(ctx).Info("🔍 Validating specific balance changes...")
+
+	// 4a. Validate MINT changes have correct token ID and account
+	for _, edge := range mintChanges.Edges {
+		bc := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().Equal(test2ContractAddress, bc.TokenID, "MINT token should be TEST2")
+		suite.Require().Equal(primaryAccount, bc.GetAccountID(), "MINT account should be Primary")
+		suite.Require().NotEmpty(bc.Amount, "MINT amount should not be empty")
 	}
 
-	// // Variable state changes based on trade execution (15+ minimum)
-	// suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
+	// 4b. Validate BURN changes have correct token ID and account
+	for _, edge := range burnChanges.Edges {
+		bc := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().Equal(test2ContractAddress, bc.TokenID, "BURN token should be TEST2")
+		suite.Require().Equal(primaryAccount, bc.GetAccountID(), "BURN account should be Primary")
+		suite.Require().NotEmpty(bc.Amount, "BURN amount should not be empty")
+	}
 
-	// // Setup: Compute expected values from fixtures
-	// xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	// 4c. Validate CREDIT changes have correct token ID and account
+	tokenSet := set.NewSet(test2ContractAddress, xlmContractAddress)
+	for _, edge := range creditChanges.Edges {
+		bc := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().True(tokenSet.Contains(bc.TokenID), "CREDIT token should be TEST2 or XLM")
+		suite.Require().Equal(secondaryAccount, bc.GetAccountID(), "CREDIT account should be Secondary")
+		suite.Require().NotEmpty(bc.Amount, "CREDIT amount should not be empty")
+	}
 
-	// // Compute TEST2 custom asset contract address (issuer=Primary, code="TEST2")
-	fmt.Println("PrimaryAccountKP", suite.testEnv.PrimaryAccountKP.Address())
-	fmt.Println("SecondaryAccountKP", suite.testEnv.SecondaryAccountKP.Address())
-	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
-	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
-	fmt.Println("test2ContractAddress", test2ContractAddress)
+	// 4d. Validate DEBIT changes have correct token ID and account
+	for _, edge := range debitChanges.Edges {
+		bc := edge.Node.(*types.StandardBalanceChange)
+		suite.Require().True(tokenSet.Contains(bc.TokenID), "DEBIT token should be TEST2 or XLM")
+		suite.Require().Equal(secondaryAccount, bc.GetAccountID(), "DEBIT account should be Secondary")
+		suite.Require().NotEmpty(bc.Amount, "DEBIT amount should not be empty")
+	}
 
-	// primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-	// secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
-
-	// // Validate each state change with specific field validations
-	// for _, edge := range stateChanges.Edges {
-	// 	validateStateChangeBase(suite, edge.Node, ledgerNumber)
-
-	// 	// Validate specific fields based on state change type
-	// 	switch sc := edge.Node.(type) {
-	// 	case *types.StandardBalanceChange:
-	// 		// Validate balance changes with expected values
-	// 		// Token should be either XLM or TEST2
-	// 		validTokens := []string{xlmContractAddress, test2ContractAddress}
-	// 		suite.Require().Contains(validTokens, sc.TokenID, "token ID should be XLM or TEST2 contract")
-	// 		suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-	// 		// Account should be Primary or Secondary
-	// 		account := sc.GetAccountID()
-	// 		validAccounts := []string{primaryAccount, secondaryAccount}
-	// 		suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
-
-	// 	case *types.TrustlineChange:
-	// 		// Validate trustline changes with expected values
-	// 		validateTrustlineChange(suite, sc, secondaryAccount, sc.GetReason())
-	// 		suite.Require().NotEmpty(sc.Limit, "limit should not be empty")
-
-	// 	case *types.FlagsChange:
-	// 		// Validate flags changes with expected values
-	// 		validateFlagsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
-	// 		suite.Require().NotEmpty(sc.Flags, "flags array should not be empty")
-
-	// 	case *types.AccountChange:
-	// 		// Validate account changes (for fee debits)
-	// 		suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
-	// 		suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-	// 		account := sc.GetAccountID()
-	// 		validAccounts := []string{primaryAccount, secondaryAccount}
-	// 		suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
-
-	// 	default:
-	// 		// Allow other state change types without specific validation
-	// 		suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
-	// 	}
-	// }
+	log.Ctx(ctx).Info("✅ All specific balance changes validated")
+	log.Ctx(ctx).Info("🎉 Custom assets state changes validation complete!")
 }
-
-// func (suite *DataValidationTestSuite) TestAuthRequiredOpsDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating auth required operations data...")
-
-// 	// Find the auth required use case
-// 	useCase := findUseCase(suite, "Stellarclassic/authRequiredOps")
-// 	suite.Require().NotNil(useCase, "authRequiredOps use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
-
-// 	txHash := useCase.GetTransactionResult.Hash
-
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-
-// 	// Validate operations (8 operations)
-// 	suite.validateAuthRequiredOperations(ctx, txHash, int64(tx.LedgerNumber))
-
-// 	// Validate state changes (~18)
-// 	suite.validateAuthRequiredStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-// }
-
-// func (suite *DataValidationTestSuite) validateAuthRequiredOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 8, "should have exactly 8 operations")
-
-// 	expectedOpTypes := []types.OperationType{
-// 		types.OperationTypeSetOptions,
-// 		types.OperationTypeChangeTrust,
-// 		types.OperationTypeSetTrustLineFlags,
-// 		types.OperationTypePayment,
-// 		types.OperationTypeSetTrustLineFlags,
-// 		types.OperationTypeClawback,
-// 		types.OperationTypeChangeTrust,
-// 		types.OperationTypeSetOptions,
-// 	}
-
-// 	for i, edge := range operations.Edges {
-// 		validateOperationBase(suite, edge.Node, ledgerNumber)
-// 		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
-// 	}
-// }
-
-// func (suite *DataValidationTestSuite) validateAuthRequiredStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(50)
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-
-// 	// Should have around 18 state changes
-// 	suite.Require().GreaterOrEqual(len(stateChanges.Edges), 15, "should have at least 15 state changes")
-
-// 	// Setup: Compute expected values from fixtures
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-
-// 	// Compute TEST1 custom asset contract address (issuer=Primary, code="TEST1")
-// 	test1Asset := xdr.MustNewCreditAsset("TEST1", suite.testEnv.PrimaryAccountKP.Address())
-// 	test1ContractAddress := suite.getAssetContractAddress(test1Asset)
-
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-// 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
-
-// 	// Expected flags from fixtures (AUTH_REQUIRED, AUTH_REVOCABLE, AUTH_CLAWBACK_ENABLED)
-// 	expectedFlags := []string{"AUTH_REQUIRED", "AUTH_REVOCABLE", "AUTH_CLAWBACK_ENABLED"}
-
-// 	// Validate each state change with specific field validations
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-
-// 		// Validate specific fields based on state change type
-// 		switch sc := edge.Node.(type) {
-// 		case *types.StandardBalanceChange:
-// 			// Validate balance changes with expected values
-// 			// Token should be either XLM (for fees) or TEST1 (for payment/clawback)
-// 			validTokens := []string{xlmContractAddress, test1ContractAddress}
-// 			suite.Require().Contains(validTokens, sc.TokenID, "token ID should be XLM or TEST1 contract")
-// 			// Amount should be expectedPaymentAmount ("1000") or fee (variable)
-// 			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-// 			// Account should be Primary or Secondary
-// 			account := sc.GetAccountID()
-// 			validAccounts := []string{primaryAccount, secondaryAccount}
-// 			suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
-
-// 		case *types.TrustlineChange:
-// 			// Validate trustline changes with expected values
-// 			validateTrustlineChange(suite, sc, secondaryAccount, sc.GetReason())
-// 			// Asset should be TEST1
-// 			suite.Require().NotEmpty(sc.Limit, "limit should not be empty")
-
-// 		case *types.FlagsChange:
-// 			// Validate flags changes with expected values (specific flags from fixtures)
-// 			validateFlagsChange(suite, sc, primaryAccount, sc.GetReason())
-// 			// Flags should match fixture operations (AUTH_REQUIRED, AUTH_REVOCABLE, AUTH_CLAWBACK_ENABLED)
-// 			for _, flag := range sc.Flags {
-// 				suite.Require().Contains(expectedFlags, flag, "flag should be one of the expected auth flags")
-// 			}
-
-// 		case *types.BalanceAuthorizationChange:
-// 			// Validate balance authorization changes with expected values
-// 			validateBalanceAuthorizationChange(suite, sc, secondaryAccount, sc.GetReason())
-// 			suite.Require().NotEmpty(sc.Flags, "flags should not be empty")
-
-// 		case *types.SignerChange:
-// 			// Validate signer changes (signer address/weights, account)
-// 			validateSignerChange(suite, sc, sc.GetAccountID(), sc.GetReason())
-
-// 		case *types.SignerThresholdsChange:
-// 			// Validate signer thresholds changes (thresholds, account)
-// 			validateSignerThresholdsChange(suite, sc, sc.GetAccountID(), sc.GetReason())
-
-// 		case *types.AccountChange:
-// 			// Validate account changes (for fee debits)
-// 			suite.Require().NotEmpty(sc.TokenID, "token ID should not be empty")
-// 			suite.Require().NotEmpty(sc.Amount, "amount should not be empty")
-// 			account := sc.GetAccountID()
-// 			validAccounts := []string{primaryAccount, secondaryAccount}
-// 			suite.Require().Contains(validAccounts, account, "account should be Primary or Secondary")
-
-// 		default:
-// 			// Allow other state change types without specific validation
-// 			suite.Require().NotEmpty(sc.GetAccountID(), "account ID should not be empty")
-// 		}
-// 	}
-// }
-
-// func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating account merge operation data...")
-
-// 	// Find the account merge use case
-// 	useCase := findUseCase(suite, "Stellarclassic/accountMergeOp")
-// 	suite.Require().NotNil(useCase, "accountMergeOp use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
-
-// 	txHash := useCase.GetTransactionResult.Hash
-
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-// 	suite.validateAccountMergeOperations(ctx, txHash, int64(tx.LedgerNumber))
-// 	// suite.validateAccountMergeStateChanges(ctx, txHash, int64(tx.LedgerNumber), useCase)
-// }
-
-func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction operations")
-	suite.Require().NotNil(operations, "operations should not be nil")
-	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
-
-	operation := operations.Edges[0].Node
-	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeAccountMerge)
-	suite.Require().Equal(types.OperationTypeAccountMerge, operation.OperationType, "operation type should be ACCOUNT_MERGE")
-}
-
-// func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx context.Context, txHash string, ledgerNumber int64, useCase *infrastructure.UseCase) {
-// 	first := int32(10)
-// 	balanceCategory := "BALANCE"
-// 	accountCategory := "ACCOUNT"
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-
-// 	// Extract merged account address from transaction envelope (the account being merged)
-// 	var txEnv xdr.TransactionEnvelope
-// 	err := xdr.SafeUnmarshalBase64(useCase.SignedTransactionXDR, &txEnv)
-// 	suite.Require().NoError(err, "failed to unmarshal transaction envelope")
-
-// 	var mergedAccount string
-// 	if txEnv.Type == xdr.EnvelopeTypeEnvelopeTypeTx {
-// 		for _, op := range txEnv.V1.Tx.Operations {
-// 			if op.Body.Type == xdr.OperationTypeAccountMerge {
-// 				// For account merge, the source account is the one being merged
-// 				if op.SourceAccount != nil {
-// 					mergedAccount = op.SourceAccount.ToAccountId().Address()
-// 				}
-// 				break
-// 			}
-// 		}
-// 	}
-// 	suite.Require().NotEmpty(mergedAccount, "merged account should be found in operations")
-
-// 	// 1 DEBIT balance change for merged account
-// 	stateChanges, err := suite.testEnv.WBClient.GetAccountStateChanges(ctx, mergedAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get merged account balance state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 DEBIT balance change for merged account")
-// 	balanceChange := stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
-// 	validateStateChangeBase(suite, balanceChange, ledgerNumber)
-// 	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", mergedAccount, types.StateChangeReasonDebit)
-
-// 	// 1 CREDIT balance change for primary account
-// 	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, primaryAccount, &txHash, nil, &balanceCategory, nil, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get primary account balance state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 CREDIT balance change for primary account")
-// 	balanceChange = stateChanges.Edges[0].Node.(*types.StandardBalanceChange)
-// 	validateStateChangeBase(suite, balanceChange, ledgerNumber)
-// 	validateBalanceChange(suite, balanceChange, xlmContractAddress, "50000000", primaryAccount, types.StateChangeReasonCredit)
-
-// 	// 1 MERGE account change for merged account
-// 	stateChanges, err = suite.testEnv.WBClient.GetAccountStateChanges(ctx, mergedAccount, &txHash, nil, &accountCategory, nil, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get merged account state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 MERGE account change")
-// 	accountChange := stateChanges.Edges[0].Node.(*types.AccountChange)
-// 	validateStateChangeBase(suite, accountChange, ledgerNumber)
-// 	validateAccountChange(suite, accountChange, mergedAccount, types.StateChangeReasonMerge)
-
-// 	// Verify total count of state changes for this transaction
-// 	stateChanges, err = suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 total state changes")
-// }
-
-// func (suite *DataValidationTestSuite) TestInvokeContractOpSorobanAuthDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating invoke contract operation with Soroban auth data...")
-
-// 	// Find the invoke contract with Soroban auth use case
-// 	useCase := findUseCase(suite, "Soroban/invokeContractOp/SorobanAuth")
-// 	suite.Require().NotNil(useCase, "invokeContractOp/SorobanAuth use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
-
-// 	txHash := useCase.GetTransactionResult.Hash
-
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-
-// 	// Validate operations (1 operation)
-// 	suite.validateInvokeContractOperations(ctx, txHash, int64(tx.LedgerNumber))
-
-// 	// Validate state changes (3 total)
-// 	suite.validateInvokeContractStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-// }
-
-// func (suite *DataValidationTestSuite) validateInvokeContractOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
-
-// 	operation := operations.Edges[0].Node
-// 	validateOperationBase(suite, operation, ledgerNumber)
-// 	suite.Require().Equal(types.OperationTypeInvokeHostFunction, operation.OperationType, "operation type should be INVOKE_HOST_FUNCTION")
-// }
-
-// func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-// 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 state changes")
-
-// 	// Setup: Compute expected values from fixtures
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-
-// 	// Expected amount: "100000000" (10 XLM in stroops, from fixtures line 428)
-// 	expectedTransferAmount := "100000000"
-
-// 	// Expected account: Primary (self-transfer from Primary to Primary)
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-
-// 	// Verify expected state change counts by reason (fee debit + transfer debit + transfer credit)
-// 	assertStateChangeCounts(suite, stateChanges, map[types.StateChangeReason]int{
-// 		types.StateChangeReasonDebit:  2,
-// 		types.StateChangeReasonCredit: 1,
-// 	})
-
-// 	// Track if we've seen the expected transfer amount in either debit or credit
-// 	foundTransferDebit := false
-// 	foundTransferCredit := false
-// 	foundFeeDebit := false
-
-// 	// Validate each state change with specific field validations
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-
-// 		// All state changes should be StandardBalanceChange
-// 		balanceChange, ok := edge.Node.(*types.StandardBalanceChange)
-// 		suite.Require().True(ok, "state change should be StandardBalanceChange type")
-
-// 		// Validate balance change fields with expected values
-// 		suite.Require().Equal(xlmContractAddress, balanceChange.TokenID, "token ID should be XLM contract")
-// 		suite.Require().NotEmpty(balanceChange.Amount, "amount should not be empty")
-// 		suite.Require().Equal(primaryAccount, balanceChange.GetAccountID(), "account should be Primary")
-
-// 		// Track the different types of balance changes
-// 		if balanceChange.GetReason() == types.StateChangeReasonDebit {
-// 			if balanceChange.Amount == expectedTransferAmount {
-// 				foundTransferDebit = true
-// 			} else {
-// 				// This is the fee debit (smaller amount)
-// 				foundFeeDebit = true
-// 			}
-// 		} else if balanceChange.GetReason() == types.StateChangeReasonCredit {
-// 			suite.Require().Equal(expectedTransferAmount, balanceChange.Amount, "credit amount should match expected transfer amount")
-// 			foundTransferCredit = true
-// 		}
-// 	}
-
-// 	// Verify we found all expected balance changes
-// 	suite.Require().True(foundTransferDebit, "should have transfer debit")
-// 	suite.Require().True(foundTransferCredit, "should have transfer credit")
-// 	suite.Require().True(foundFeeDebit, "should have fee debit")
-// }
-
-// func (suite *DataValidationTestSuite) TestInvokeContractOpSourceAccountAuthDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating invoke contract operation with source account auth data...")
-
-// 	// Find the invoke contract with source account auth use case
-// 	useCase := findUseCase(suite, "Soroban/invokeContractOp/SourceAccountAuth")
-// 	suite.Require().NotNil(useCase, "invokeContractOp/SourceAccountAuth use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
-
-// 	txHash := useCase.GetTransactionResult.Hash
-
-// 	// Validate transaction
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-
-// 	// Validate operations (1 operation)
-// 	suite.validateInvokeContractOperations(ctx, txHash, int64(tx.LedgerNumber))
-
-// 	// Validate state changes (3 total)
-// 	suite.validateInvokeContractStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-// }
