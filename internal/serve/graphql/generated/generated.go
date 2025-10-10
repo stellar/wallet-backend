@@ -1944,7 +1944,7 @@ type SignerChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  signerAddress:              String
+  signerAddress:              String @goField(forceResolver: true)
   signerWeights:              String
 }
 
@@ -2010,8 +2010,8 @@ type ReservesChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  sponsoredAddress:         String   
-  sponsorAddress:           String
+  sponsoredAddress:         String @goField(forceResolver: true)
+  sponsorAddress:           String @goField(forceResolver: true)
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{

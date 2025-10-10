@@ -3,8 +3,9 @@ package integrationtests
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/base64"
+	"encoding/json"
+
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
@@ -123,7 +124,7 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 	suite.Require().Equal(expectedReason, mc.GetReason(), "reason mismatch")
 	suite.Require().NotEmpty(mc.KeyValue, "key value should not be empty")
 	suite.Require().Equal(expectedAccount, mc.GetAccountID(), "account ID mismatch")
-	
+
 	// Decode the key value
 	var result map[string]map[string]string
 	err := json.Unmarshal([]byte(mc.KeyValue), &result)
