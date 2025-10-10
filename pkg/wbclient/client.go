@@ -527,16 +527,35 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, first
 	return data.AccountByAddress.Operations, nil
 }
 
-func (c *Client) GetAccountStateChanges(ctx context.Context, address string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *string, reason *string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
 	paginationVars, err := buildPaginationVars(first, last, after, before)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
-	variables := mergeVariables(
-		map[string]interface{}{"address": address},
-		paginationVars,
-	)
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	// Build filter object if any filter parameters are provided
+	if transactionHash != nil || operationID != nil || category != nil || reason != nil {
+		filter := make(map[string]interface{})
+		if transactionHash != nil {
+			filter["transactionHash"] = *transactionHash
+		}
+		if operationID != nil {
+			filter["operationId"] = *operationID
+		}
+		if category != nil {
+			filter["category"] = *category
+		}
+		if reason != nil {
+			filter["reason"] = *reason
+		}
+		variables["filter"] = filter
+	}
+
+	variables = mergeVariables(variables, paginationVars)
 
 	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
 	if err != nil {

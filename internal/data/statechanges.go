@@ -18,47 +18,89 @@ type StateChangeModel struct {
 	MetricsService metrics.MetricsService
 }
 
-// BatchGetByAccountAddress gets the state changes that are associated with the given account addresses.
-func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// BatchGetByAccountAddress gets the state changes that are associated with the given account address.
+// Optional filters: txHash, operationID, category, and reason can be used to further filter results.
+func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "state_change_order")
 	var queryBuilder strings.Builder
+	args := []interface{}{accountAddress}
+	argIndex := 2
+
 	queryBuilder.WriteString(fmt.Sprintf(`
 		SELECT %s, to_id as "cursor.cursor_to_id", state_change_order as "cursor.cursor_state_change_order"
-		FROM state_changes 
+		FROM state_changes
 		WHERE account_id = $1
 	`, columns))
 
+	// Add transaction hash filter if provided
+	if txHash != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND tx_hash = $%d", argIndex))
+		args = append(args, *txHash)
+		argIndex++
+	}
+
+	// Add operation ID filter if provided
+	if operationID != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND operation_id = $%d", argIndex))
+		args = append(args, *operationID)
+		argIndex++
+	}
+
+	// Add category filter if provided
+	if category != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_category = $%d", argIndex))
+		args = append(args, *category)
+		argIndex++
+	}
+
+	// Add reason filter if provided
+	if reason != nil {
+		queryBuilder.WriteString(fmt.Sprintf(" AND state_change_reason = $%d", argIndex))
+		args = append(args, *reason)
+		argIndex++
+	}
+
+	// Add cursor-based pagination using parameterized queries
 	if cursor != nil {
 		if sortOrder == DESC {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id < %d OR (to_id = %d AND state_change_order < %d))
-			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+				AND (to_id < $%d OR (to_id = $%d AND state_change_order < $%d))
+			`, argIndex, argIndex, argIndex+1))
+			args = append(args, cursor.ToID, cursor.StateChangeOrder)
+			argIndex += 2
 		} else {
 			queryBuilder.WriteString(fmt.Sprintf(`
-				AND (to_id > %d OR (to_id = %d AND state_change_order > %d))
-			`, cursor.ToID, cursor.ToID, cursor.StateChangeOrder))
+				AND (to_id > $%d OR (to_id = $%d AND state_change_order > $%d))
+			`, argIndex, argIndex, argIndex+1))
+			args = append(args, cursor.ToID, cursor.StateChangeOrder)
+			argIndex += 2
 		}
 	}
 
+	// TODO: Extract the ordering code to separate function in utils and use everywhere
+	// Add ordering
 	if sortOrder == DESC {
 		queryBuilder.WriteString(" ORDER BY to_id DESC, state_change_order DESC")
 	} else {
 		queryBuilder.WriteString(" ORDER BY to_id ASC, state_change_order ASC")
 	}
 
+	// Add limit using parameterized query
 	if limit != nil && *limit > 0 {
-		queryBuilder.WriteString(fmt.Sprintf(" LIMIT %d", *limit))
+		queryBuilder.WriteString(fmt.Sprintf(" LIMIT $%d", argIndex))
+		args = append(args, *limit)
 	}
 
 	query := queryBuilder.String()
 
+	// For backward pagination, wrap query to reverse the final order
 	if sortOrder == DESC {
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY to_id ASC, state_change_order ASC`, query)
 	}
 
 	var stateChanges []*types.StateChangeWithCursor
 	start := time.Now()
-	err := m.DB.SelectContext(ctx, &stateChanges, query, accountAddress)
+	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {

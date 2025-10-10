@@ -77,13 +77,24 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 	// Create 2 state changes per operation (20 total: 2 per operation × 8 operations + 4 fee state changes)
 	stateChanges := make([]*types.StateChange, 0, 20)
 	creditReason := types.StateChangeReasonCredit
-	for _, op := range ops {
+	addReason := types.StateChangeReasonAdd
+	for i, op := range ops {
 		for scOrder := range 2 {
+			// Vary the categories and reasons for different operations
+			category := types.StateChangeCategoryBalance
+			reason := &creditReason
+
+			// Make some state changes use SIGNER category and ADD reason
+			if i%2 == 0 && scOrder == 1 {
+				category = types.StateChangeCategorySigner
+				reason = &addReason
+			}
+
 			stateChanges = append(stateChanges, &types.StateChange{
 				ToID:                op.ID,
 				StateChangeOrder:    int64(scOrder + 1),
-				StateChangeCategory: types.StateChangeCategoryBalance,
-				StateChangeReason:   &creditReason,
+				StateChangeCategory: category,
+				StateChangeReason:   reason,
 				TxHash:              op.TxHash,
 				OperationID:         op.ID,
 				AccountID:           parentAccount.StellarAddress,
@@ -139,8 +150,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 
 		for _, sc := range stateChanges {
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
+				`INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, tx_hash, operation_id, account_id, ledger_created_at, ledger_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				sc.ToID, sc.StateChangeOrder, sc.StateChangeCategory, sc.StateChangeReason, sc.TxHash, sc.OperationID, sc.AccountID, sc.LedgerCreatedAt, sc.LedgerNumber)
 			require.NoError(t, err)
 		}
 		return nil

@@ -215,7 +215,7 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address1
-	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC)
+	stateChanges, err := m.BatchGetByAccountAddress(ctx, address1, nil, nil, nil, nil, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 2)
 	for _, sc := range stateChanges {
@@ -223,12 +223,244 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	}
 
 	// Test BatchGetByAccount for address2
-	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, "", nil, nil, ASC)
+	stateChanges, err = m.BatchGetByAccountAddress(ctx, address2, nil, nil, nil, nil, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 1)
 	for _, sc := range stateChanges {
 		assert.Equal(t, address2, sc.AccountID)
 	}
+}
+
+func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create test account
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+	require.NoError(t, err)
+
+	// Create test transactions
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
+		VALUES
+			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
+			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
+			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
+	`, now)
+	require.NoError(t, err)
+
+	// Create test state changes with different operation IDs, transaction hashes, categories, and reasons
+	_, err = dbConnectionPool.ExecContext(ctx, `
+		INSERT INTO state_changes (to_id, state_change_order, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
+		VALUES
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123, 'tx1'),
+			(2, 1, 'BALANCE', 'DEBIT', $1, 2, $2, 456, 'tx2'),
+			(3, 1, 'SIGNER', 'ADD', $1, 3, $2, 789, 'tx3'),
+			(4, 1, 'BALANCE', 'DEBIT', $1, 4, $2, 123, 'tx1'),
+			(5, 1, 'SIGNER', 'ADD', $1, 5, $2, 999, 'tx2')
+	`, now, address)
+	require.NoError(t, err)
+
+	t.Run("filter by transaction hash only", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		txHash := "tx1"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter by operation ID only", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		operationID := int64(123)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, &operationID, nil, nil, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		txHash := "tx1"
+		operationID := int64(123)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, nil, nil, "", nil, nil, ASC)
+		require.NoError(t, err)
+		// Should get only state changes that match BOTH filters
+		assert.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter by category only", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		category := "BALANCE"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, nil, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 3)
+		for _, sc := range stateChanges {
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter by reason only", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		reason := "ADD"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, &reason, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter by both category and reason", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		category := "SIGNER"
+		reason := "ADD"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, nil, nil, &category, &reason, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
+			assert.Equal(t, types.StateChangeReasonAdd, *sc.StateChangeReason)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		txHash := "tx1"
+		operationID := int64(123)
+		category := "BALANCE"
+		reason := "CREDIT"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, &operationID, &category, &reason, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 1)
+		for _, sc := range stateChanges {
+			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, int64(123), sc.OperationID)
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
+			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
+			assert.Equal(t, address, sc.AccountID)
+		}
+	})
+
+	t.Run("filter with no matching results", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		txHash := "nonexistent"
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
+	})
+
+	t.Run("filter with pagination", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &StateChangeModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		txHash := "tx1"
+		limit := int32(1)
+		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
+		require.NoError(t, err)
+		assert.Len(t, stateChanges, 1)
+		assert.Equal(t, "tx1", stateChanges[0].TxHash)
+	})
 }
 
 func TestStateChangeModel_GetAll(t *testing.T) {

@@ -287,11 +287,12 @@ func buildAccountOperationsQuery(fields []string) string {
 }
 
 // buildAccountStateChangesQuery builds the GraphQL query for fetching an account's state changes with pagination
+// Supports optional filtering by transaction hash and/or operation ID
 func buildAccountStateChangesQuery() string {
 	return fmt.Sprintf(`
-		query AccountStateChanges($address: String!, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountStateChanges($address: String!, $filter: AccountStateChangeFilterInput, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				stateChanges(first: $first, after: $after, last: $last, before: $before) {
+				stateChanges(filter: $filter, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
