@@ -305,7 +305,6 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 
 	var stateChange types.StateChange
 
-	log.Debugf("processor: processing trustline effect: %s, address: %s, limit: %s", effect.TypeString, effect.Address, effect.Details["limit"])
 	//exhaustive:ignore
 	switch effectType {
 	case effects.EffectTrustlineCreated:
@@ -324,6 +323,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
+		log.Debugf("processor: processing trustline effect: %s, address: %s, old limit: %s", effect.TypeString, effect.Address, strconv.FormatInt(int64(prevTrustline.Limit), 10))
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
