@@ -292,8 +292,8 @@ func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.Tr
 }
 
 // Limit is the resolver for the limit field.
-func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error) {
-	return r.resolveRequiredJSONBField(obj.TrustlineLimit)
+func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.TrustlineLimit)
 }
 
 // AccountChange returns graphql1.AccountChangeResolver implementation.
