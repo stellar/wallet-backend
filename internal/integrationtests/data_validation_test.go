@@ -161,9 +161,11 @@ func validateSignerChange(suite *DataValidationTestSuite, sc *types.SignerChange
 	suite.Require().Equal(types.StateChangeCategorySigner, sc.GetType(), "should be SIGNER type")
 	suite.Require().Equal(expectedReason, sc.GetReason(), "reason mismatch")
 	suite.Require().Equal(expectedAccount, sc.GetAccountID(), "account ID mismatch")
+	suite.Require().NotNil(sc.SignerAddress, "signer address should not be nil")
 	suite.Require().Equal(expectedSignerAddress, *sc.SignerAddress, "signer address mismatch")
 
 	// Decode the key value
+	suite.Require().NotNil(sc.SignerWeights, "signer weights should not be nil")
 	var result map[string]int32
 	err := json.Unmarshal([]byte(*sc.SignerWeights), &result)
 	suite.Require().NoError(err, "failed to unmarshal signer weights", sc.SignerWeights)
