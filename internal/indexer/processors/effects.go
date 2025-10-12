@@ -25,6 +25,10 @@ const (
 	medThresholdIndex       = 2
 	highThresholdIndex      = 3
 	AuthorizedFlagName      = "authorized"
+	AuthorizedRequiredFlagName = "auth_required"
+	AuthorizedRevocableFlagName = "auth_revocable"
+	AuthorizedImmutableFlagName = "auth_immutable"
+	AuthorizedClawbackEnabledFlagName = "auth_clawback_enabled"
 	ClawbackEnabledFlagName = "clawback_enabled"
 )
 
@@ -493,6 +497,18 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 		}
 		if flag == "clawback_enabled_flag" {
 			flagName = ClawbackEnabledFlagName
+		}
+		if flag == "auth_required_flag" {
+			flagName = AuthorizedRequiredFlagName
+		}
+		if flag == "auth_revocable_flag" {
+			flagName = AuthorizedRevocableFlagName
+		}
+		if flag == "auth_immutable_flag" {
+			flagName = AuthorizedImmutableFlagName
+		}
+		if flag == "auth_clawback_enabled_flag" {
+			flagName = AuthorizedClawbackEnabledFlagName
 		}
 		if value, ok := effect.Details[flag]; ok {
 			if value == true {

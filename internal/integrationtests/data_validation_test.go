@@ -767,7 +767,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredStateChanges(ctx conte
 	suite.Require().Len(flagsSetPrimary.Edges, 1, "should have exactly 1 FLAGS/SET change for primary")
 	suite.Require().Len(flagsClearPrimary.Edges, 1, "should have exactly 1 FLAGS/CLEAR change for primary")
 
-	expectedFlags := []string{"auth_required_flag", "auth_revocable_flag", "auth_clawback_enabled_flag"}
+	expectedFlags := []string{"auth_required", "auth_revocable", "auth_clawback_enabled"}
 	flagsSetChange := flagsSetPrimary.Edges[0].Node.(*types.FlagsChange)
 	validateStateChangeBase(suite, flagsSetChange, ledgerNumber)
 	validateFlagsChange(suite, flagsSetChange, primaryAccount, types.StateChangeReasonSet, expectedFlags)
