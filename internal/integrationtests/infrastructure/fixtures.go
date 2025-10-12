@@ -53,9 +53,6 @@ import (
 // &txnbuild.CreateClaimableBalance{},
 // &txnbuild.ClaimClaimableBalance{},
 // &txnbuild.RevokeSponsorship{},
-// --- Soroban:
-// &txnbuild.ExtendFootprintTtl{},
-// &txnbuild.RestoreFootprint{},
 
 type Fixtures struct {
 	NetworkPassphrase     string
@@ -243,15 +240,15 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 // prepareAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
 func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate ~18 state changes:
-		- 3 FLAGS/SET changes for setting auth flags (auth_required, auth_revocable, auth_clawback_enabled)
-		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
-		- 1 BALANCE_AUTHORIZATION/SET change for setting AUTHORIZED flag on trustline
+		Should generate 11 state changes:
+		- 1 FLAGS/SET changes for setting auth flags (auth_required_flag, auth_revocable_flag, auth_clawback_enabled_flag)
+		- 1 BALANCE_AUHTORIZATION/SET change for the trustline for TEST1 for the secondary account
+		- 1 TRUSTLINE/ADD change for the trustline for TEST1 for the secondary account
 		- 3 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
 		- 1 BALANCE_AUTHORIZATION/CLEAR change for clearing AUTHORIZED flag on trustline
 		- 2 changes for clawback (1 BALANCE/BURN for Primary as issuer, 1 BALANCE/DEBIT from Secondary)
 		- 1 TRUSTLINE/REMOVE change for removing trustline
-		- 3 FLAGS/CLEAR changes for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+		- 1 FLAGS/CLEAR changes for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
 	*/
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -336,10 +333,14 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 // prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 3 state changes:
-		- 1 BALANCE/DEBIT change for transaction fee
-		- 1 ACCOUNT/MERGE change for the merged account (includes implicit debit of all balance)
-		- 1 BALANCE/CREDIT change for the destination account receiving the merged balance
+		Should generate 5 state changes:
+		- 1 ACCOUNT/MERGE change for the destination account (PrimaryAccountKP) receiving the merge
+		  Note: The source account (SponsoredNewAccountKP) is deleted by Stellar, so we track the destination's state change
+		- 1 BALANCE/CREDIT change for the destination account (PrimaryAccountKP) receiving the merged balance
+		- 1 BALANCE/DEBIT change for the source account (SponsoredNewAccountKP) transferring its balance before deletion
+		- 2 RESERVES/UNSPONSOR changes for unwinding the sponsorship relationship:
+		  - 1 for the sponsored account (SponsoredNewAccountKP) losing its sponsor
+		  - 1 for the sponsor account (PrimaryAccountKP) no longer sponsoring
 	*/
 	op := &txnbuild.AccountMerge{
 		SourceAccount: f.SponsoredNewAccountKP.Address(),
@@ -634,40 +635,40 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	// // AuthRequiredOps
-	// authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing auth required operations: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "authRequiredOps",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
+	// AuthRequiredOps
+	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing auth required operations: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "authRequiredOps",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
 
-	// // AccountMergeOp
-	// accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing account merge operation: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "accountMergeOp",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            txSigners,
-	// 		DelayTime:            6 * time.Second,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
+	// AccountMergeOp
+	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
+	if err != nil {
+		return nil, fmt.Errorf("preparing account merge operation: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "accountMergeOp",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			DelayTime:            6 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
 
 	// // InvokeContractOp w/ SorobanAuth
 	// invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
