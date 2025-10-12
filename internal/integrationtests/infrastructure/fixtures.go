@@ -365,7 +365,6 @@ func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) 
 func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP *keypair.Full) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	/*
 		Should generate 3 state changes:
-		- 1 BALANCE/DEBIT change for transaction fee
 		- 2 BALANCE changes for the XLM transfer (1 BALANCE/DEBIT from source, 1 BALANCE/CREDIT to destination)
 		Note: Even self-transfers (Primary to Primary) generate both debit and credit state changes
 	*/
@@ -670,22 +669,22 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	// // InvokeContractOp w/ SorobanAuth
-	// invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "invokeContractOp/SorobanAuth",
-	// 		category:             categorySoroban,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-	// 	})
-	// }
+	// InvokeContractOp w/ SorobanAuth
+	invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "invokeContractOp/SorobanAuth",
+			category:             categorySoroban,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+		})
+	}
 
 	// // InvokeContractOp w/ SourceAccountAuth
 	// invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
