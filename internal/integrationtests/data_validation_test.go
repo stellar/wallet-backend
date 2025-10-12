@@ -645,8 +645,6 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 		suite.Require().Equal(secondaryAccount, bc.GetAccountID(), "DEBIT account should be Secondary")
 		suite.Require().NotEmpty(bc.Amount, "DEBIT amount should not be empty")
 	}
-
-	log.Ctx(ctx).Info("🎉 Custom assets state changes validation complete!")
 }
 
 func (suite *DataValidationTestSuite) TestAuthRequiredOpsDataValidation() {
@@ -847,13 +845,10 @@ func (suite *DataValidationTestSuite) validateAuthRequiredStateChanges(ctx conte
 	totalDebit := sumAmounts(suite, balanceDebit, test1ContractAddress)
 	suite.Require().Equal(totalCredit, totalDebit, "Secondary account: CREDIT should equal DEBIT for TEST1")
 	suite.Require().Equal(int64(10000000000), totalCredit, "CREDIT should be 10000000000")
-
-	log.Ctx(ctx).Info("🎉 Auth-required operations state changes validation complete!")
 }
 
 func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
 	ctx := context.Background()
-	log.Ctx(ctx).Info("🔍 Validating account merge operation data...")
 
 	// Find the account merge use case
 	useCase := findUseCase(suite, "Stellarclassic/accountMergeOp")
@@ -898,13 +893,8 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		str := fmt.Sprintf("%+v\n", edge.Node)
-		fmt.Println(str)
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
-	fmt.Println("PrimaryAccountKP", suite.testEnv.PrimaryAccountKP.Address())
-	fmt.Println("SecondaryAccountKP", suite.testEnv.SecondaryAccountKP.Address())
-	fmt.Println("xlmContractAddress", xlmContractAddress)
 
 	// Fetch state changes in parallel
 	accountMergeQueries := []stateChangeQuery{
@@ -961,6 +951,4 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	sponsorReservesChange := sponsorReservesUnsponsorChanges.Edges[0].Node.(*types.ReservesChange)
 	validateStateChangeBase(suite, sponsorReservesChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoringAccount(suite, sponsorReservesChange, primaryAccount, types.StateChangeReasonUnsponsor, sponsoredNewAccount)
-
-	log.Ctx(ctx).Info("🎉 Account merge operation: all 5 state changes validated successfully!")
 }
