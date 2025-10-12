@@ -957,14 +957,20 @@ func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating invoke-contract operations data...")
 
 	// Find the auth-required use case
-	useCase := findUseCase(suite, "Soroban/invokeContractOp/SorobanAuth")
-	suite.Require().NotNil(useCase, "invokeContractOp/SorobanAuth use case not found")
-	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+	useCases := []string{
+		"Soroban/invokeContractOp/SorobanAuth",
+		"Soroban/invokeContractOp/SourceAccountAuth",
+	}
+	for _, useCaseName := range useCases {
+		useCase := findUseCase(suite, useCaseName)
+		suite.Require().NotNil(useCase, fmt.Sprintf("%s use case not found", useCaseName))
+		suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-	txHash := useCase.GetTransactionResult.Hash
-	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateInvokeContractOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateInvokeContractStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+		txHash := useCase.GetTransactionResult.Hash
+		tx := validateTransactionBase(suite, ctx, txHash)
+		suite.validateInvokeContractOperations(ctx, txHash, int64(tx.LedgerNumber))
+		suite.validateInvokeContractStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+	}
 }
 
 func (suite *DataValidationTestSuite) validateInvokeContractOperations(ctx context.Context, txHash string, ledgerNumber int64) {

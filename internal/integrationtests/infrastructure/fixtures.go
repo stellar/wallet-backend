@@ -686,22 +686,22 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	// // InvokeContractOp w/ SourceAccountAuth
-	// invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "invokeContractOp/SourceAccountAuth",
-	// 		category:             categorySoroban,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-	// 	})
-	// }
+	// InvokeContractOp w/ SourceAccountAuth
+	invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
+	if err != nil {
+		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "invokeContractOp/SourceAccountAuth",
+			category:             categorySoroban,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+		})
+	}
 
 	return useCases, nil
 }
