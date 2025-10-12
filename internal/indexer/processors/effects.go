@@ -21,15 +21,15 @@ import (
 
 const (
 	// Threshold array indices for accessing account thresholds
-	lowThresholdIndex       = 1
-	medThresholdIndex       = 2
-	highThresholdIndex      = 3
-	AuthorizedFlagName      = "authorized"
-	AuthorizedRequiredFlagName = "auth_required"
-	AuthorizedRevocableFlagName = "auth_revocable"
-	AuthorizedImmutableFlagName = "auth_immutable"
+	lowThresholdIndex                 = 1
+	medThresholdIndex                 = 2
+	highThresholdIndex                = 3
+	AuthorizedFlagName                = "authorized"
+	AuthorizedRequiredFlagName        = "auth_required"
+	AuthorizedRevocableFlagName       = "auth_revocable"
+	AuthorizedImmutableFlagName       = "auth_immutable"
 	AuthorizedClawbackEnabledFlagName = "auth_clawback_enabled"
-	ClawbackEnabledFlagName = "clawback_enabled"
+	ClawbackEnabledFlagName           = "clawback_enabled"
 )
 
 var (
