@@ -992,7 +992,7 @@ func (suite *DataValidationTestSuite) validateInvokeContractOperations(ctx conte
 
 func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(15)
-	
+
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	balanceCategory := "BALANCE"
@@ -1015,14 +1015,14 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 		{name: "balanceDebit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
 	}
 	balanceResults := suite.fetchStateChangesInParallel(ctx, balanceQueries, &first)
-	
+
 	balanceCreditChanges := balanceResults["balanceCredit"]
 	balanceDebitChanges := balanceResults["balanceDebit"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(balanceCreditChanges, "BALANCE/CREDIT changes should not be nil")
 	suite.Require().NotNil(balanceDebitChanges, "BALANCE/DEBIT changes should not be nil")
-	
+
 	// Validate BALANCE/CREDIT change
 	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
 	balanceCreditChange := balanceCreditChanges.Edges[0].Node.(*types.StandardBalanceChange)
