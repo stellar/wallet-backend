@@ -389,6 +389,7 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		}
 
 		// Determine default authorization flags for the new trustline
+		log.Debugf("processor: %s: issuer flags: %+v", p.Name(), issuerFlags)
 		defaultFlags = p.determineDefaultTrustlineFlags(issuerFlags)
 	}
 
