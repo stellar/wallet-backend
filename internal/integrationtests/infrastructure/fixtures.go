@@ -335,7 +335,7 @@ func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.F
 		- 1 TRUSTLINE/ADD change for TEST3 asset on Secondary account
 		- 1 BALANCE_AUTHORIZATION/SET change for Secondary trustline authorization
 		- 2 BALANCE/MINT changes (one for each claimable balance created)
-		- 3 RESERVES/SPONSOR changes for sponsorship relationships
+		- 4 RESERVES/SPONSOR changes for sponsorship relationships
 		Note: Trustline and auth flags remain active for subsequent claim/clawback operations
 	*/
 	customAsset := txnbuild.CreditAsset{
@@ -447,17 +447,60 @@ func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, 
 	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
 }
 
+// PrepareClaimAndClawbackUseCases creates use cases for claiming and clawing back claimable balances
+// using the actual balance IDs from the confirmed createClaimableBalance transaction.
+func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balanceIDToBeClawbacked string) ([]*UseCase, error) {
+	useCases := []*UseCase{}
+	timeoutSeconds := int64(timeout.Seconds())
+
+	// ClaimClaimableBalanceOp
+	claimOpXDR, claimSigners, err := f.prepareClaimClaimableBalanceOp(balanceIDToBeClaimed)
+	if err != nil {
+		return nil, fmt.Errorf("preparing claim claimable balance operation: %w", err)
+	}
+	txXDR, err := f.buildTransactionXDR([]string{claimOpXDR}, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for claimClaimableBalanceOp: %w", err)
+	}
+	useCases = append(useCases, &UseCase{
+		name:                 "claimClaimableBalanceOp",
+		category:             categoryStellarClassic,
+		TxSigners:            claimSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	})
+
+	// ClawbackClaimableBalanceOp
+	clawbackOpXDR, clawbackSigners, err := f.prepareClawbackClaimableBalanceOp(balanceIDToBeClawbacked)
+	if err != nil {
+		return nil, fmt.Errorf("preparing clawback claimable balance operation: %w", err)
+	}
+	txXDR, err = f.buildTransactionXDR([]string{clawbackOpXDR}, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for clawbackClaimableBalanceOp: %w", err)
+	}
+	useCases = append(useCases, &UseCase{
+		name:                 "clawbackClaimableBalanceOp",
+		category:             categoryStellarClassic,
+		TxSigners:            clawbackSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	})
+
+	return useCases, nil
+}
+
 // prepareLiquidityPoolOps creates liquidity pool operations.
+// Currently commented out pending further testing.
+/*
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
-	/*
-		Should generate ~8+ state changes:
-		- 1 TRUSTLINE/ADD change for liquidity pool shares trustline on Primary account
-		- Multiple BALANCE/DEBIT changes when depositing assets into the pool
-		- 1 BALANCE/CREDIT change when receiving liquidity pool shares
-		- 1 BALANCE/DEBIT change when redeeming liquidity pool shares
-		- Multiple BALANCE/CREDIT changes when withdrawing assets from the pool
-		- 1 TRUSTLINE/REMOVE change for liquidity pool shares trustline
-	*/
+	// Should generate ~8+ state changes:
+	// - 1 TRUSTLINE/ADD change for liquidity pool shares trustline on Primary account
+	// - Multiple BALANCE/DEBIT changes when depositing assets into the pool
+	// - 1 BALANCE/CREDIT change when receiving liquidity pool shares
+	// - 1 BALANCE/DEBIT change when redeeming liquidity pool shares
+	// - Multiple BALANCE/CREDIT changes when withdrawing assets from the pool
+	// - 1 TRUSTLINE/REMOVE change for liquidity pool shares trustline
 	xlmAsset := txnbuild.NativeAsset{}
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -526,16 +569,17 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
 }
+*/
 
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
+// Currently commented out pending further testing.
+/*
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
-	/*
-		Should generate ~6+ state changes:
-		- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-		- 2 RESERVES/SPONSOR changes for establishing sponsorship (1 for sponsored account, 1 for sponsoring account)
-		- 2 RESERVES/UNSPONSOR changes for revoking sponsorship (1 for sponsored account, 1 for sponsoring account)
-		- 1 METADATA/DATA_ENTRY change for removing the data entry
-	*/
+	// Should generate ~6+ state changes:
+	// - 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
+	// - 2 RESERVES/SPONSOR changes for establishing sponsorship (1 for sponsored account, 1 for sponsoring account)
+	// - 2 RESERVES/UNSPONSOR changes for revoking sponsorship (1 for sponsored account, 1 for sponsoring account)
+	// - 1 METADATA/DATA_ENTRY change for removing the data entry
 	operations := []txnbuild.Operation{
 		// Primary begins sponsoring future reserves for Secondary
 		&txnbuild.BeginSponsoringFutureReserves{
@@ -580,6 +624,7 @@ func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full],
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
 }
+*/
 
 // prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) {
@@ -911,11 +956,9 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing create claimable balance operations: %w", err)
 	}
-	var claimableBalanceTxXDR string
 	if txXDR, txErr := f.buildTransactionXDR(createClaimableBalanceOps, timeoutSeconds); txErr != nil {
 		return nil, fmt.Errorf("building transaction XDR for createClaimableBalanceOps: %w", txErr)
 	} else {
-		claimableBalanceTxXDR = txXDR
 		useCases = append(useCases, &UseCase{
 			name:                 "createClaimableBalanceOps",
 			category:             categoryStellarClassic,
@@ -1013,63 +1056,13 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	// 	})
 	// }
 
-	// Extract balance ID from the claimable balance transaction for dependent operations
-	var balanceIDToBeClaimed, balanceIDToBeClawbacked string
-	if parsedTx, parseErr := txnbuild.TransactionFromXDR(claimableBalanceTxXDR); parseErr != nil {
-		return nil, fmt.Errorf("parsing claimable balance transaction XDR: %w", parseErr)
-	} else if tx, ok := parsedTx.Transaction(); !ok {
-		return nil, fmt.Errorf("expected Transaction, got FeeBumpTransaction")
-	} else {
-		// CreateClaimableBalance is the 4th operation (index 3) in prepareCreateClaimableBalanceOps
-		balanceIDHex, idErr := tx.ClaimableBalanceID(3)
-		if idErr != nil {
-			return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
-		}
-		balanceIDToBeClaimed = balanceIDHex
-
-		// CreateClaimableBalance is the 5th operation (index 4) in prepareCreateClaimableBalanceOps
-		balanceIDHex, idErr = tx.ClaimableBalanceID(4)
-		if idErr != nil {
-			return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
-		}
-		balanceIDToBeClawbacked = balanceIDHex
-	}
-
-	// ClaimClaimableBalanceOp
-	if claimOpXDR, claimSigners, claimErr := f.prepareClaimClaimableBalanceOp(balanceIDToBeClaimed); claimErr != nil {
-		return nil, fmt.Errorf("preparing claim claimable balance operation: %w", claimErr)
-	} else if txXDR, txErr := f.buildTransactionXDR([]string{claimOpXDR}, timeoutSeconds); txErr != nil {
-		return nil, fmt.Errorf("building transaction XDR for claimClaimableBalanceOp: %w", txErr)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "claimClaimableBalanceOp",
-			category:             categoryStellarClassic,
-			TxSigners:            claimSigners,
-			DelayTime:            5 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
-
-	// ClawbackClaimableBalanceOp
-	if clawbackOpXDR, clawbackSigners, clawbackErr := f.prepareClawbackClaimableBalanceOp(balanceIDToBeClawbacked); clawbackErr != nil {
-		return nil, fmt.Errorf("preparing clawback claimable balance operation: %w", clawbackErr)
-	} else if txXDR, txErr := f.buildTransactionXDR([]string{clawbackOpXDR}, timeoutSeconds); txErr != nil {
-		return nil, fmt.Errorf("building transaction XDR for clawbackClaimableBalanceOp: %w", txErr)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "clawbackClaimableBalanceOp",
-			category:             categoryStellarClassic,
-			TxSigners:            clawbackSigners,
-			DelayTime:            5 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
-
 	return useCases, nil
 }
 
 // buildTransactionXDR builds a complete transaction XDR from operation XDR strings
 func (f *Fixtures) buildTransactionXDR(operationXDRs []string, timeoutSeconds int64) (string, error) {
+	_ = timeoutSeconds // Reserved for future use; currently using NewInfiniteTimeout()
+
 	// Convert operation XDR strings to txnbuild operations
 	operations := make([]txnbuild.Operation, len(operationXDRs))
 	for i, opXDRStr := range operationXDRs {

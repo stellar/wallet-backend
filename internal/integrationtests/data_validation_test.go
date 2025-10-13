@@ -45,17 +45,6 @@ func (suite *DataValidationTestSuite) getAssetContractAddress(asset xdr.Asset) s
 	return strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 }
 
-// findUseCase finds a use case by name from the test environment
-func findUseCase(suite *DataValidationTestSuite, useCaseName string) *infrastructure.UseCase {
-	for _, uc := range suite.testEnv.UseCases {
-		name := uc.Name()
-		if name == useCaseName {
-			return uc
-		}
-	}
-	return nil
-}
-
 // stateChangeQuery defines a query for fetching state changes
 type stateChangeQuery struct {
 	name     string
@@ -274,7 +263,7 @@ func (suite *DataValidationTestSuite) TestPaymentOperationDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating payment operation data...")
 
 	// Find the payment use case
-	paymentUseCase := findUseCase(suite, "Stellarclassic/paymentOp")
+	paymentUseCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/paymentOp")
 	suite.Require().NotNil(paymentUseCase, "paymentOp use case not found")
 	suite.Require().NotEmpty(paymentUseCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -344,7 +333,7 @@ func (suite *DataValidationTestSuite) TestSponsoredAccountCreationDataValidation
 	log.Ctx(ctx).Info("🔍 Validating sponsored account creation operations data...")
 
 	// Find the sponsored account creation use case
-	useCase := findUseCase(suite, "Stellarclassic/sponsoredAccountCreationOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/sponsoredAccountCreationOps")
 	suite.Require().NotNil(useCase, "sponsoredAccountCreationOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -470,7 +459,7 @@ func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating custom assets operations data...")
 
 	// Find the custom assets use case
-	useCase := findUseCase(suite, "Stellarclassic/customAssetsOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/customAssetsOps")
 	suite.Require().NotNil(useCase, "customAssetsOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -653,7 +642,7 @@ func (suite *DataValidationTestSuite) TestAuthRequiredOpsDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating auth-required operations data...")
 
 	// Find the auth-required use case
-	useCase := findUseCase(suite, "Stellarclassic/authRequiredOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/authRequiredOps")
 	suite.Require().NotNil(useCase, "authRequiredOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -850,7 +839,7 @@ func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
 	ctx := context.Background()
 
 	// Find the account merge use case
-	useCase := findUseCase(suite, "Stellarclassic/accountMergeOp")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/accountMergeOp")
 	suite.Require().NotNil(useCase, "accountMergeOp use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -962,7 +951,7 @@ func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {
 		"Soroban/invokeContractOp/SourceAccountAuth",
 	}
 	for _, useCaseName := range useCases {
-		useCase := findUseCase(suite, useCaseName)
+		useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, useCaseName)
 		suite.Require().NotNil(useCase, fmt.Sprintf("%s use case not found", useCaseName))
 		suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -1036,22 +1025,22 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	validateBalanceChange(suite, balanceDebitChange, xlmContractAddress, "100000000", primaryAccount, types.StateChangeReasonDebit)
 }
 
-func (suite *DataValidationTestSuite) TestClaimableBalanceOpsDataValidation() {
+func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {
 	ctx := context.Background()
 	log.Ctx(ctx).Info("🔍 Validating claimable balance operations data...")
 
 	// Find the claimable balance use case
-	useCase := findUseCase(suite, "Stellarclassic/createClaimableBalanceOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/createClaimableBalanceOps")
 	suite.Require().NotNil(useCase, "createClaimableBalanceOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
 	txHash := useCase.GetTransactionResult.Hash
 	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+	suite.validateCreateClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
+	suite.validateCreateClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
 }
 
-func (suite *DataValidationTestSuite) validateClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+func (suite *DataValidationTestSuite) validateCreateClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction operations")
@@ -1072,7 +1061,7 @@ func (suite *DataValidationTestSuite) validateClaimableBalanceOperations(ctx con
 	}
 }
 
-func (suite *DataValidationTestSuite) validateClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(20)
 
 	// Setup: Compute expected values from fixtures
@@ -1086,6 +1075,8 @@ func (suite *DataValidationTestSuite) validateClaimableBalanceStateChanges(ctx c
 	trustlineCategory := "TRUSTLINE"
 	balanceAuthCategory := "BALANCE_AUTHORIZATION"
 	balanceCategory := "BALANCE"
+	reservesCategory := "RESERVES"
+	sponsorReason := string(types.StateChangeReasonSponsor)
 	setReason := string(types.StateChangeReasonSet)
 	addReason := string(types.StateChangeReasonAdd)
 	mintReason := string(types.StateChangeReasonMint)
@@ -1111,6 +1102,8 @@ func (suite *DataValidationTestSuite) validateClaimableBalanceStateChanges(ctx c
 		{name: "trustlineAdd", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
 		{name: "balanceAuthSet", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
 		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
+		{name: "reservesSponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
+		{name: "reservesSponsorForSponsored", account: secondaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
 	}
 	claimableBalanceResults := suite.fetchStateChangesInParallel(ctx, claimableBalanceQueries, &first)
 
@@ -1119,12 +1112,16 @@ func (suite *DataValidationTestSuite) validateClaimableBalanceStateChanges(ctx c
 	trustlineAdd := claimableBalanceResults["trustlineAdd"]
 	balanceAuthSet := claimableBalanceResults["balanceAuthSet"]
 	balanceMint := claimableBalanceResults["balanceMint"]
+	reservesSponsorForSponsor := claimableBalanceResults["reservesSponsorForSponsor"]
+	reservesSponsorForSponsored := claimableBalanceResults["reservesSponsorForSponsored"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(flagsSetPrimary, "FLAGS/SET for primary should not be nil")
 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
 	suite.Require().NotNil(balanceAuthSet, "BALANCE_AUTHORIZATION/SET should not be nil")
 	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
+	suite.Require().NotNil(reservesSponsorForSponsor, "RESERVES/SPONSOR for sponsor should not be nil")
+	suite.Require().NotNil(reservesSponsorForSponsored, "RESERVES/SPONSOR for sponsored should not be nil")
 
 	// 3. FLAGS STATE CHANGES VALIDATION FOR PRIMARY ACCOUNT
 	suite.Require().Len(flagsSetPrimary.Edges, 1, "should have exactly 1 FLAGS/SET change for primary")
@@ -1159,7 +1156,7 @@ func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() 
 	log.Ctx(ctx).Info("🔍 Validating claim claimable balance operation data...")
 
 	// Find the claim claimable balance use case
-	useCase := findUseCase(suite, "Stellarclassic/claimClaimableBalanceOp")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/claimClaimableBalanceOp")
 	suite.Require().NotNil(useCase, "claimClaimableBalanceOp use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -1225,7 +1222,7 @@ func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation
 	log.Ctx(ctx).Info("🔍 Validating clawback claimable balance operation data...")
 
 	// Find the clawback claimable balance use case
-	useCase := findUseCase(suite, "Stellarclassic/clawbackClaimableBalanceOp")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/clawbackClaimableBalanceOp")
 	suite.Require().NotNil(useCase, "clawbackClaimableBalanceOp use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -1292,7 +1289,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 // 	log.Ctx(ctx).Info("🔍 Validating liquidity pool operations data...")
 
 // 	// Find the liquidity pool use case
-// 	useCase := findUseCase(suite, "Stellarclassic/liquidityPoolOps")
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/liquidityPoolOps")
 // 	suite.Require().NotNil(useCase, "liquidityPoolOps use case not found")
 // 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -1394,7 +1391,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 // 	log.Ctx(ctx).Info("🔍 Validating revoke sponsorship operations data...")
 
 // 	// Find the revoke sponsorship use case
-// 	useCase := findUseCase(suite, "Stellarclassic/revokeSponsorshipOps")
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/revokeSponsorshipOps")
 // 	suite.Require().NotNil(useCase, "revokeSponsorshipOps use case not found")
 // 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
