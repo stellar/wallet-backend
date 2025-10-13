@@ -35,7 +35,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TearDownSuite() {
 	}
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions() {
+func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildSignAndSubmitTransactions() {
 	ctx := context.Background()
 
 	// Build transactions in parallel
@@ -62,14 +62,13 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions()
 
 			log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", uc.Name(), builtTxResponse)
 
-			txStr, err := txString(uc.BuiltTransactionXDR)
+			_, err = txString(uc.BuiltTransactionXDR)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("failed to build transaction string for %s: %w", uc.Name(), err))
 				mu.Unlock()
 				return
 			}
-			log.Ctx(ctx).Debugf("[%s] builtTransactionXDR: %s", uc.Name(), txStr)
 		})
 	}
 
@@ -77,19 +76,22 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions()
 	suite.Require().NoError(err)
 	suite.Require().Empty(errs)
 
-	suite.assertBuildTransactionResult(suite.testEnv.UseCases)
+	suite.assertBuildTransactionResult()
 
 	// Sign transactions in parallel
 	log.Ctx(ctx).Info("===> 2️⃣ [Local] Signing transactions...")
-	err = suite.signTransactions(ctx, suite.testEnv.UseCases)
-	suite.Require().NoError(err, "failed to sign transactions")
+	suite.signTransactions(ctx)
+
+	// Create fee bump transactions in parallel
+	log.Ctx(ctx).Info("===> 3️⃣ [WalletBackend] Creating fee bump transactions...")
+	suite.createFeeBumpTransactions(ctx)
+
+	// Submit transactions in parallel
+	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Submitting transactions...")
+	suite.submitTransactions(ctx)
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestCreateFeeBumpTransactions() {
-	ctx := context.Background()
-
-	log.Ctx(ctx).Info("===> 3️⃣ [WalletBackend] Creating fee bump transactions...")
-
+func (suite *BuildAndSubmitTransactionsTestSuite) createFeeBumpTransactions(ctx context.Context) {
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
@@ -129,9 +131,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestCreateFeeBumpTransactions(
 	suite.Require().Empty(errs)
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactions() {
-	ctx := context.Background()
-
+func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context.Context) {
 	// Wait for RPC to be healthy
 	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Waiting for RPC service to become healthy...")
 	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil); err != nil {
@@ -191,12 +191,12 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactio
 	suite.Require().Empty(errs)
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context, useCases []*infrastructure.UseCase) error {
+func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context) {
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
 
-	for _, useCase := range useCases {
+	for _, useCase := range suite.testEnv.UseCases {
 		uc := useCase
 		group.Submit(func() {
 			tx, err := parseTxXDR(uc.BuiltTransactionXDR)
@@ -238,22 +238,16 @@ func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.C
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		return err
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("signing transactions: %w", errs[0])
-	}
-
-	return nil
+	err := group.Wait()
+	suite.Require().NoError(err)
+	suite.Require().Empty(errs)
 }
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
-func (suite *BuildAndSubmitTransactionsTestSuite) assertBuildTransactionResult(useCases []*infrastructure.UseCase) {
+func (suite *BuildAndSubmitTransactionsTestSuite) assertBuildTransactionResult() {
 	// Note: We can't easily access the channel account store from here in the containerized environment,
 	// so we'll just verify that the transactions were built successfully
-	for _, useCase := range useCases {
+	for _, useCase := range suite.testEnv.UseCases {
 		// Parse the transaction from the XDR
 		builtTx, err := parseTxXDR(useCase.BuiltTransactionXDR)
 		suite.Require().NoError(err, "[%s] failed to parse transaction from XDR %s", useCase.Name(), useCase.BuiltTransactionXDR)

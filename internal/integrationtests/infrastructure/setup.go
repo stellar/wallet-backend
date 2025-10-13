@@ -741,7 +741,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
+			"./wallet-backend channel-account ensure 10 && ./wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
@@ -756,7 +756,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
 			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
-			"NUMBER_CHANNEL_ACCOUNTS":                 "7",
+			"NUMBER_CHANNEL_ACCOUNTS":                 "10",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
 		},

@@ -42,17 +42,14 @@ import (
 // &txnbuild.SetOptions{},
 // &txnbuild.Clawback{},
 // &txnbuild.SetTrustLineFlags{},
-// --- Soroban:
-// &txnbuild.InvokeHostFunction{},
-
-// Missing
-// --- Classic:
-// &txnbuild.ClawbackClaimableBalance{},
+// &txnbuild.CreateClaimableBalance{},
 // &txnbuild.LiquidityPoolDeposit{},
 // &txnbuild.LiquidityPoolWithdraw{},
-// &txnbuild.CreateClaimableBalance{},
-// &txnbuild.ClaimClaimableBalance{},
 // &txnbuild.RevokeSponsorship{},
+// &txnbuild.ClaimClaimableBalance{},
+// &txnbuild.ClawbackClaimableBalance{},
+// --- Soroban:
+// &txnbuild.InvokeHostFunction{},
 
 type Fixtures struct {
 	NetworkPassphrase     string
@@ -319,6 +316,276 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 				txnbuild.AuthClawbackEnabled,
 			},
 			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
+// prepareClaimableBalanceOps creates claimable balance operations.
+func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~15+ state changes:
+		- 2 FLAGS changes (1 SET for auth flags, 1 CLEAR for auth flags) on Primary account
+		- 2 TRUSTLINE changes (1 ADD, 1 REMOVE) for TEST3 asset on Secondary account
+		- 3 BALANCE_AUTHORIZATION changes (1 SET for Secondary trustline, 1 SET for clawback authorization, 1 CLEAR after clawback)
+		- Multiple BALANCE changes for TEST3 asset (MINT, CREDIT, DEBIT, BURN) across create, claim, and clawback operations
+		- Claimable balance lifecycle state changes
+	*/
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST3",
+	}
+
+	operations := []txnbuild.Operation{
+		// Prepare Primary account as issuer with auth and clawback capabilities
+		&txnbuild.SetOptions{
+			SetFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Secondary account creates trustline for TEST3
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Primary authorizes the trustline
+		&txnbuild.SetTrustLineFlags{
+			Trustor: f.SecondaryAccountKP.Address(),
+			Asset:   customAsset,
+			SetFlags: []txnbuild.TrustLineFlag{
+				txnbuild.TrustLineAuthorized,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Primary creates a claimable balance for Secondary with unconditional predicate
+		&txnbuild.CreateClaimableBalance{
+			Amount: "1",
+			Asset:  customAsset,
+			Destinations: []txnbuild.Claimant{
+				txnbuild.NewClaimant(f.SecondaryAccountKP.Address(), nil),
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Primary creates another claimable balance for Secondary with unconditional predicate
+		&txnbuild.CreateClaimableBalance{
+			Amount: "1",
+			Asset:  customAsset,
+			Destinations: []txnbuild.Claimant{
+				txnbuild.NewClaimant(f.SecondaryAccountKP.Address(), nil),
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Remove trustline
+		&txnbuild.ChangeTrust{
+			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+			Limit:         "0",
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Clear auth flags on Primary account
+		&txnbuild.SetOptions{
+			ClearFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
+}
+
+// prepareClaimClaimableBalanceOp creates a claim claimable balance operation.
+func (f *Fixtures) prepareClaimClaimableBalanceOp(balanceID string) (string, *Set[*keypair.Full], error) {
+	/*
+		Should generate state changes for claiming a claimable balance:
+		- BALANCE/CREDIT change for the claiming account receiving the balance
+		- Claimable balance entry removal
+	*/
+	op := &txnbuild.ClaimClaimableBalance{
+		BalanceID:     balanceID,
+		SourceAccount: f.SecondaryAccountKP.Address(),
+	}
+
+	opXDR, err := op.BuildXDR()
+	if err != nil {
+		return "", nil, fmt.Errorf("building claim claimable balance operation XDR: %w", err)
+	}
+	b64OpXDR, err := utils.OperationXDRToBase64(opXDR)
+	if err != nil {
+		return "", nil, fmt.Errorf("encoding claim claimable balance operation XDR to base64: %w", err)
+	}
+
+	return b64OpXDR, NewSet(f.SecondaryAccountKP), nil
+}
+
+// prepareClawbackClaimableBalanceOp creates a clawback claimable balance operation.
+func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, *Set[*keypair.Full], error) {
+	/*
+		Should generate state changes for clawing back a claimable balance:
+		- BALANCE/DEBIT or BURN for the claimable balance being clawed back
+		- Claimable balance entry removal
+	*/
+	op := &txnbuild.ClawbackClaimableBalance{
+		BalanceID:     balanceID,
+		SourceAccount: f.PrimaryAccountKP.Address(),
+	}
+
+	opXDR, err := op.BuildXDR()
+	if err != nil {
+		return "", nil, fmt.Errorf("building clawback claimable balance operation XDR: %w", err)
+	}
+	b64OpXDR, err := utils.OperationXDRToBase64(opXDR)
+	if err != nil {
+		return "", nil, fmt.Errorf("encoding clawback claimable balance operation XDR to base64: %w", err)
+	}
+
+	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
+}
+
+// prepareLiquidityPoolOps creates liquidity pool operations.
+func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~8+ state changes:
+		- 1 TRUSTLINE/ADD change for liquidity pool shares trustline on Primary account
+		- Multiple BALANCE/DEBIT changes when depositing assets into the pool
+		- 1 BALANCE/CREDIT change when receiving liquidity pool shares
+		- 1 BALANCE/DEBIT change when redeeming liquidity pool shares
+		- Multiple BALANCE/CREDIT changes when withdrawing assets from the pool
+		- 1 TRUSTLINE/REMOVE change for liquidity pool shares trustline
+	*/
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST2",
+	}
+
+	// Create liquidity pool ID for XLM:TEST2 pair
+	poolID, err := txnbuild.NewLiquidityPoolId(xlmAsset, customAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating liquidity pool ID: %w", err)
+	}
+
+	// Create ChangeTrustAsset for the liquidity pool
+	poolAsset := txnbuild.LiquidityPoolShareChangeTrustAsset{
+		LiquidityPoolParameters: txnbuild.LiquidityPoolParameters{
+			AssetA: xlmAsset,
+			AssetB: customAsset,
+			Fee:    txnbuild.LiquidityPoolFeeV18,
+		},
+	}
+
+	operations := []txnbuild.Operation{
+		// Primary account establishes trustline to the liquidity pool
+		&txnbuild.ChangeTrust{
+			Line:          poolAsset,
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Primary deposits into the liquidity pool
+		&txnbuild.LiquidityPoolDeposit{
+			LiquidityPoolID: poolID,
+			MaxAmountA:      "100", // 100 XLM
+			MaxAmountB:      "100", // 100 TEST2
+			MinPrice: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1),
+			},
+			MaxPrice: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Primary withdraws from the liquidity pool
+		&txnbuild.LiquidityPoolWithdraw{
+			LiquidityPoolID: poolID,
+			Amount:          "50", // Withdraw 50% of pool shares
+			MinAmountA:      "1",
+			MinAmountB:      "1",
+			SourceAccount:   f.PrimaryAccountKP.Address(),
+		},
+
+		// Remove trustline to the liquidity pool
+		&txnbuild.ChangeTrust{
+			Line:          poolAsset,
+			Limit:         "0",
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
+}
+
+// prepareRevokeSponsorshipOps creates revoke sponsorship operations.
+func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~6+ state changes:
+		- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
+		- 2 RESERVES/SPONSOR changes for establishing sponsorship (1 for sponsored account, 1 for sponsoring account)
+		- 2 RESERVES/UNSPONSOR changes for revoking sponsorship (1 for sponsored account, 1 for sponsoring account)
+		- 1 METADATA/DATA_ENTRY change for removing the data entry
+	*/
+	operations := []txnbuild.Operation{
+		// Primary begins sponsoring future reserves for Secondary
+		&txnbuild.BeginSponsoringFutureReserves{
+			SponsoredID:   f.SecondaryAccountKP.Address(),
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Secondary creates a data entry (which will be sponsored)
+		&txnbuild.ManageData{
+			Name:          "sponsored_data",
+			Value:         []byte("test_value"),
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Secondary ends the sponsorship
+		&txnbuild.EndSponsoringFutureReserves{
+			SourceAccount: f.SecondaryAccountKP.Address(),
+		},
+
+		// Primary revokes sponsorship of the data entry
+		&txnbuild.RevokeSponsorship{
+			SponsorshipType: txnbuild.RevokeSponsorshipTypeData,
+			Data: &txnbuild.DataID{
+				Account:  f.SecondaryAccountKP.Address(),
+				DataName: "sponsored_data",
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+
+		// Clean up: Remove the data entry
+		&txnbuild.ManageData{
+			Name:          "sponsored_data",
+			Value:         nil, // nil value removes the entry
+			SourceAccount: f.SecondaryAccountKP.Address(),
 		},
 	}
 
@@ -651,6 +918,74 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
+	// ClaimableBalanceOps
+	createClaimableBalanceOps, txSigners, err := f.prepareCreateClaimableBalanceOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing create claimable balance operations: %w", err)
+	}
+	// var claimableBalanceTxXDR string
+	if txXDR, txErr := f.buildTransactionXDR(createClaimableBalanceOps, timeoutSeconds); txErr != nil {
+		return nil, fmt.Errorf("building transaction XDR for createClaimableBalanceOps: %w", txErr)
+	} else {
+		// claimableBalanceTxXDR = txXDR
+		useCases = append(useCases, &UseCase{
+			name:                 "createClaimableBalanceOps",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
+
+	// // Extract balance ID from the claimable balance transaction for dependent operations
+	// var balanceIDToBeClaimed, balanceIDToBeClawbacked string
+	// if parsedTx, parseErr := txnbuild.TransactionFromXDR(claimableBalanceTxXDR); parseErr != nil {
+	// 	return nil, fmt.Errorf("parsing claimable balance transaction XDR: %w", parseErr)
+	// } else if tx, ok := parsedTx.Transaction(); !ok {
+	// 	return nil, fmt.Errorf("expected Transaction, got FeeBumpTransaction")
+	// } else {
+	// 	// CreateClaimableBalance is the 4th operation (index 3) in prepareCreateClaimableBalanceOps
+	// 	balanceIDHex, idErr := tx.ClaimableBalanceID(3)
+	// 	if idErr != nil {
+	// 		return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
+	// 	}
+	// 	balanceIDToBeClaimed = balanceIDHex
+
+	// 	// CreateClaimableBalance is the 5th operation (index 4) in prepareCreateClaimableBalanceOps
+	// 	balanceIDHex, idErr = tx.ClaimableBalanceID(4)
+	// 	if idErr != nil {
+	// 		return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
+	// 	}
+	// 	balanceIDToBeClawbacked = balanceIDHex
+	// }
+
+	// // ClaimClaimableBalanceOp - depends on ClaimableBalanceOps
+	// if claimOpXDR, claimSigners, claimErr := f.prepareClaimClaimableBalanceOp(balanceIDToBeClaimed); claimErr != nil {
+	// 	return nil, fmt.Errorf("preparing claim claimable balance operation: %w", claimErr)
+	// } else if txXDR, txErr := f.buildTransactionXDR([]string{claimOpXDR}, timeoutSeconds); txErr != nil {
+	// 	return nil, fmt.Errorf("building transaction XDR for claimClaimableBalanceOp: %w", txErr)
+	// } else {
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "claimClaimableBalanceOp",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            claimSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
+
+	// // ClawbackClaimableBalanceOp - depends on ClaimableBalanceOps
+	// if clawbackOpXDR, clawbackSigners, clawbackErr := f.prepareClawbackClaimableBalanceOp(balanceIDToBeClawbacked); clawbackErr != nil {
+	// 	return nil, fmt.Errorf("preparing clawback claimable balance operation: %w", clawbackErr)
+	// } else if txXDR, txErr := f.buildTransactionXDR([]string{clawbackOpXDR}, timeoutSeconds); txErr != nil {
+	// 	return nil, fmt.Errorf("building transaction XDR for clawbackClaimableBalanceOp: %w", txErr)
+	// } else {
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "clawbackClaimableBalanceOp",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            clawbackSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
+
 	// AccountMergeOp
 	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
 	if err != nil {
@@ -702,6 +1037,40 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
+
+	// LiquidityPoolOps
+	// liquidityPoolOps, txSigners, err := f.prepareLiquidityPoolOps()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR(liquidityPoolOps, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for liquidityPoolOps: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "liquidityPoolOps",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
+
+	// RevokeSponsorshipOps
+	// revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("preparing revoke sponsorship operations: %w", err)
+	// } else {
+	// 	txXDR, txErr := f.buildTransactionXDR(revokeSponsorshipOps, timeoutSeconds)
+	// 	if txErr != nil {
+	// 		return nil, fmt.Errorf("building transaction XDR for revokeSponsorshipOps: %w", txErr)
+	// 	}
+	// 	useCases = append(useCases, &UseCase{
+	// 		name:                 "revokeSponsorshipOps",
+	// 		category:             categoryStellarClassic,
+	// 		TxSigners:            txSigners,
+	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	// 	})
+	// }
 
 	return useCases, nil
 }
