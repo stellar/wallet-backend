@@ -330,12 +330,13 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 // prepareClaimableBalanceOps creates claimable balance operations.
 func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate ~15+ state changes:
-		- 2 FLAGS changes (1 SET for auth flags, 1 CLEAR for auth flags) on Primary account
-		- 2 TRUSTLINE changes (1 ADD, 1 REMOVE) for TEST3 asset on Secondary account
-		- 3 BALANCE_AUTHORIZATION changes (1 SET for Secondary trustline, 1 SET for clawback authorization, 1 CLEAR after clawback)
-		- Multiple BALANCE changes for TEST3 asset (MINT, CREDIT, DEBIT, BURN) across create, claim, and clawback operations
-		- Claimable balance lifecycle state changes
+		Should generate 8 state changes:
+		- 1 FLAGS/SET change for auth flags (auth_required, auth_revocable, auth_clawback_enabled) on Primary account
+		- 1 TRUSTLINE/ADD change for TEST3 asset on Secondary account
+		- 1 BALANCE_AUTHORIZATION/SET change for Secondary trustline authorization
+		- 2 BALANCE/MINT changes (one for each claimable balance created)
+		- 3 RESERVES/SPONSOR changes for sponsorship relationships
+		Note: Trustline and auth flags remain active for subsequent claim/clawback operations
 	*/
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -385,23 +386,6 @@ func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.F
 			Asset:  customAsset,
 			Destinations: []txnbuild.Claimant{
 				txnbuild.NewClaimant(f.SecondaryAccountKP.Address(), nil),
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
-		// Remove trustline
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			Limit:         "0",
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
-
-		// Clear auth flags on Primary account
-		&txnbuild.SetOptions{
-			ClearFlags: []txnbuild.AccountFlag{
-				txnbuild.AuthRequired,
-				txnbuild.AuthRevocable,
-				txnbuild.AuthClawbackEnabled,
 			},
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
@@ -825,7 +809,7 @@ type category string
 const (
 	categoryStellarClassic category      = "STELLAR_CLASSIC"
 	categorySoroban        category      = "SOROBAN"
-	timeout                time.Duration = 45 * time.Second
+	timeout                time.Duration = 120 * time.Second
 )
 
 type UseCase struct {
@@ -863,6 +847,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "paymentOp",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
@@ -880,6 +865,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "sponsoredAccountCreationOps",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
@@ -897,6 +883,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "customAssetsOps",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
@@ -914,6 +901,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "authRequiredOps",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
@@ -923,68 +911,19 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("preparing create claimable balance operations: %w", err)
 	}
-	// var claimableBalanceTxXDR string
+	var claimableBalanceTxXDR string
 	if txXDR, txErr := f.buildTransactionXDR(createClaimableBalanceOps, timeoutSeconds); txErr != nil {
 		return nil, fmt.Errorf("building transaction XDR for createClaimableBalanceOps: %w", txErr)
 	} else {
-		// claimableBalanceTxXDR = txXDR
+		claimableBalanceTxXDR = txXDR
 		useCases = append(useCases, &UseCase{
 			name:                 "createClaimableBalanceOps",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
-
-	// // Extract balance ID from the claimable balance transaction for dependent operations
-	// var balanceIDToBeClaimed, balanceIDToBeClawbacked string
-	// if parsedTx, parseErr := txnbuild.TransactionFromXDR(claimableBalanceTxXDR); parseErr != nil {
-	// 	return nil, fmt.Errorf("parsing claimable balance transaction XDR: %w", parseErr)
-	// } else if tx, ok := parsedTx.Transaction(); !ok {
-	// 	return nil, fmt.Errorf("expected Transaction, got FeeBumpTransaction")
-	// } else {
-	// 	// CreateClaimableBalance is the 4th operation (index 3) in prepareCreateClaimableBalanceOps
-	// 	balanceIDHex, idErr := tx.ClaimableBalanceID(3)
-	// 	if idErr != nil {
-	// 		return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
-	// 	}
-	// 	balanceIDToBeClaimed = balanceIDHex
-
-	// 	// CreateClaimableBalance is the 5th operation (index 4) in prepareCreateClaimableBalanceOps
-	// 	balanceIDHex, idErr = tx.ClaimableBalanceID(4)
-	// 	if idErr != nil {
-	// 		return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
-	// 	}
-	// 	balanceIDToBeClawbacked = balanceIDHex
-	// }
-
-	// // ClaimClaimableBalanceOp - depends on ClaimableBalanceOps
-	// if claimOpXDR, claimSigners, claimErr := f.prepareClaimClaimableBalanceOp(balanceIDToBeClaimed); claimErr != nil {
-	// 	return nil, fmt.Errorf("preparing claim claimable balance operation: %w", claimErr)
-	// } else if txXDR, txErr := f.buildTransactionXDR([]string{claimOpXDR}, timeoutSeconds); txErr != nil {
-	// 	return nil, fmt.Errorf("building transaction XDR for claimClaimableBalanceOp: %w", txErr)
-	// } else {
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "claimClaimableBalanceOp",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            claimSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
-
-	// // ClawbackClaimableBalanceOp - depends on ClaimableBalanceOps
-	// if clawbackOpXDR, clawbackSigners, clawbackErr := f.prepareClawbackClaimableBalanceOp(balanceIDToBeClawbacked); clawbackErr != nil {
-	// 	return nil, fmt.Errorf("preparing clawback claimable balance operation: %w", clawbackErr)
-	// } else if txXDR, txErr := f.buildTransactionXDR([]string{clawbackOpXDR}, timeoutSeconds); txErr != nil {
-	// 	return nil, fmt.Errorf("building transaction XDR for clawbackClaimableBalanceOp: %w", txErr)
-	// } else {
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "clawbackClaimableBalanceOp",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            clawbackSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
 
 	// AccountMergeOp
 	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
@@ -999,7 +938,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "accountMergeOp",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
-			DelayTime:            6 * time.Second,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}
@@ -1017,6 +956,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "invokeContractOp/SorobanAuth",
 			category:             categorySoroban,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
@@ -1034,6 +974,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "invokeContractOp/SourceAccountAuth",
 			category:             categorySoroban,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
@@ -1072,6 +1013,58 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	// 	})
 	// }
 
+	// Extract balance ID from the claimable balance transaction for dependent operations
+	var balanceIDToBeClaimed, balanceIDToBeClawbacked string
+	if parsedTx, parseErr := txnbuild.TransactionFromXDR(claimableBalanceTxXDR); parseErr != nil {
+		return nil, fmt.Errorf("parsing claimable balance transaction XDR: %w", parseErr)
+	} else if tx, ok := parsedTx.Transaction(); !ok {
+		return nil, fmt.Errorf("expected Transaction, got FeeBumpTransaction")
+	} else {
+		// CreateClaimableBalance is the 4th operation (index 3) in prepareCreateClaimableBalanceOps
+		balanceIDHex, idErr := tx.ClaimableBalanceID(3)
+		if idErr != nil {
+			return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
+		}
+		balanceIDToBeClaimed = balanceIDHex
+
+		// CreateClaimableBalance is the 5th operation (index 4) in prepareCreateClaimableBalanceOps
+		balanceIDHex, idErr = tx.ClaimableBalanceID(4)
+		if idErr != nil {
+			return nil, fmt.Errorf("extracting claimable balance ID: %w", idErr)
+		}
+		balanceIDToBeClawbacked = balanceIDHex
+	}
+
+	// ClaimClaimableBalanceOp
+	if claimOpXDR, claimSigners, claimErr := f.prepareClaimClaimableBalanceOp(balanceIDToBeClaimed); claimErr != nil {
+		return nil, fmt.Errorf("preparing claim claimable balance operation: %w", claimErr)
+	} else if txXDR, txErr := f.buildTransactionXDR([]string{claimOpXDR}, timeoutSeconds); txErr != nil {
+		return nil, fmt.Errorf("building transaction XDR for claimClaimableBalanceOp: %w", txErr)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "claimClaimableBalanceOp",
+			category:             categoryStellarClassic,
+			TxSigners:            claimSigners,
+			DelayTime:            5 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
+
+	// ClawbackClaimableBalanceOp
+	if clawbackOpXDR, clawbackSigners, clawbackErr := f.prepareClawbackClaimableBalanceOp(balanceIDToBeClawbacked); clawbackErr != nil {
+		return nil, fmt.Errorf("preparing clawback claimable balance operation: %w", clawbackErr)
+	} else if txXDR, txErr := f.buildTransactionXDR([]string{clawbackOpXDR}, timeoutSeconds); txErr != nil {
+		return nil, fmt.Errorf("building transaction XDR for clawbackClaimableBalanceOp: %w", txErr)
+	} else {
+		useCases = append(useCases, &UseCase{
+			name:                 "clawbackClaimableBalanceOp",
+			category:             categoryStellarClassic,
+			TxSigners:            clawbackSigners,
+			DelayTime:            5 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
+
 	return useCases, nil
 }
 
@@ -1101,7 +1094,7 @@ func (f *Fixtures) buildTransactionXDR(operationXDRs []string, timeoutSeconds in
 		Operations:    operations,
 		BaseFee:       txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(timeoutSeconds),
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
 		},
 		IncrementSequenceNum: true,
 	})

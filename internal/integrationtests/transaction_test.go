@@ -10,6 +10,7 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/support/log"
 	"github.com/stretchr/testify/suite"
+	set "github.com/deckarep/golang-set/v2"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
@@ -132,6 +133,19 @@ func (suite *BuildAndSubmitTransactionsTestSuite) createFeeBumpTransactions(ctx 
 }
 
 func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context.Context) {
+	submitTransaction := func(useCase *infrastructure.UseCase) {
+		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.FeeBumpedTransactionXDR)
+		if useCase.DelayTime > 0 {
+			log.Ctx(ctx).Infof("⏳ %s delaying for %s", useCase.Name(), useCase.DelayTime)
+			time.Sleep(useCase.DelayTime)
+		}
+		res, sendErr := suite.testEnv.RPCService.SendTransaction(useCase.FeeBumpedTransactionXDR)
+		suite.Require().NoError(sendErr, "failed to send transaction for %s", useCase.Name())
+		useCase.SendTransactionResult = res
+		log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
+		suite.Require().Equal(entities.PendingStatus, res.Status, "%s's transaction with hash %s failed with status %s, errorResultXdr=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR)
+	}
+
 	// Wait for RPC to be healthy
 	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Waiting for RPC service to become healthy...")
 	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil); err != nil {
@@ -139,20 +153,13 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	}
 
 	// Submit transactions sequentially (due to delay requirements)
+	useCasesToSkip := set.NewSet("Stellarclassic/clawbackClaimableBalanceOp", "Stellarclassic/claimClaimableBalanceOp")
 	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Submitting transactions...")
 	for _, useCase := range suite.testEnv.UseCases {
-		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.FeeBumpedTransactionXDR)
-
-		if useCase.DelayTime > 0 {
-			log.Ctx(ctx).Infof("⏳ %s delaying for %s", useCase.Name(), useCase.DelayTime)
-			time.Sleep(useCase.DelayTime)
+		if useCasesToSkip.Contains(useCase.Name()) {
+			continue
 		}
-
-		res, sendErr := suite.testEnv.RPCService.SendTransaction(useCase.FeeBumpedTransactionXDR)
-		suite.Require().NoError(sendErr, "failed to send transaction for %s", useCase.Name())
-		useCase.SendTransactionResult = res
-		log.Ctx(ctx).Debugf("✅ %s's submission result: %+v", useCase.Name(), res)
-		suite.Require().Equal(entities.PendingStatus, res.Status, "%s's transaction with hash %s failed with status %s, errorResultXdr=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR)
+		submitTransaction(useCase)
 	}
 
 	// Wait for confirmations in parallel
@@ -161,8 +168,12 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
+	var failedUseCases []*entities.RPCGetTransactionResult
 
 	for _, useCase := range suite.testEnv.UseCases {
+		if useCasesToSkip.Contains(useCase.Name()) {
+			continue
+		}
 		uc := useCase
 		group.Submit(func() {
 			txResult, confirmErr := infrastructure.WaitForTransactionConfirmation(ctx, suite.testEnv.RPCService, uc.SendTransactionResult.Hash)
@@ -180,15 +191,36 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 			log.Ctx(ctx).Info(infrastructure.RenderResult(uc))
 
 			// Assert transaction succeeded
-			suite.Require().Equal(entities.SuccessStatus, uc.GetTransactionResult.Status,
-				"transaction for %s failed with status %s", uc.Name(), uc.GetTransactionResult.Status)
+			if txResult.Status == entities.FailedStatus {
+				mu.Lock()
+				failedUseCases = append(failedUseCases, &txResult)
+				mu.Unlock()
+			}
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		suite.Require().NoError(err)
-	}
+	err := group.Wait()
+	suite.Require().NoError(err)
 	suite.Require().Empty(errs)
+	suite.Require().Empty(failedUseCases)
+
+	// After all transactions are submitted, we will submit the clawback and claim claimable balance transactions
+	log.Ctx(ctx).Info("===> 7️⃣ [RPC] Submitting clawback and claim claimable balance transactions...")
+	for _, useCase := range suite.testEnv.UseCases {
+		if useCasesToSkip.Contains(useCase.Name()) {
+			submitTransaction(useCase)
+		}
+	}
+	log.Ctx(ctx).Info("===> 8️⃣ [RPC] Waiting for clawback and claim claimable balance transaction confirmation...")
+	for _, useCase := range suite.testEnv.UseCases {
+		if useCasesToSkip.Contains(useCase.Name()) {
+			txResult, confirmErr := infrastructure.WaitForTransactionConfirmation(ctx, suite.testEnv.RPCService, useCase.SendTransactionResult.Hash)
+			suite.Require().NoError(confirmErr, "failed to wait for transaction confirmation for %s", useCase.Name())
+			useCase.GetTransactionResult = txResult
+			log.Ctx(ctx).Info(infrastructure.RenderResult(useCase))
+			suite.Require().Equal(entities.SuccessStatus, txResult.Status, "transaction for %s failed with status %s", useCase.Name(), txResult.Status)
+		}
+	}
 }
 
 func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context) {
