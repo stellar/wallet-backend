@@ -147,6 +147,12 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 		// Trustline flag effects: track changes to trustline authorization flags
 		case effects.EffectTrustlineFlagsUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryBalanceAuthorization)
+			// Note: The Stellar SDK sets effect.Address to the operation source (issuer),
+			// but the trustline flags are actually being set on the trustor's account.
+			// We need to extract the trustor address from effect.Details instead.
+			if trustorAddr, err := safeStringFromDetails(effect.Details, "trustor"); err == nil {
+				changeBuilder = changeBuilder.Clone().WithAccount(trustorAddr)
+			}
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		// Change trust effects
@@ -428,20 +434,17 @@ func (p *EffectsProcessor) getIssuerAccountFlags(issuerAddress string) (xdr.Acco
 func (p *EffectsProcessor) determineDefaultTrustlineFlags(issuerFlags xdr.AccountFlags) []string {
 	var flags []string
 
-	if issuerFlags.IsAuthRequired() {
-		flags = append(flags, "authorized_flag")
+	// Authorization state for new trustlines:
+	// - If issuer does NOT require authorization: trustline is AUTHORIZED by default
+	// - If issuer DOES require authorization: trustline is UNAUTHORIZED (no flags)
+	// - authorized_to_maintain_liabilities is NEVER set at creation time
+	if !issuerFlags.IsAuthRequired() {
+		flags = append(flags, "authorized")
 	}
 
+	// Clawback capability is independent of authorization state
 	if issuerFlags.IsAuthClawbackEnabled() {
-		flags = append(flags, "clawback_enabled_flag")
-	}
-
-	if issuerFlags.IsAuthRevocable() {
-		flags = append(flags, "auth_revocable_flag")
-	}
-
-	if issuerFlags.IsAuthImmutable() {
-		flags = append(flags, "auth_immutable_flag")
+		flags = append(flags, "clawback_enabled")
 	}
 
 	return flags
