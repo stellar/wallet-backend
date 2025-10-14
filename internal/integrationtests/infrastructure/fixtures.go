@@ -268,9 +268,10 @@ func (f *Fixtures) prepareAuthRequiredIssuerSetupOps() ([]string, *Set[*keypair.
 func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 9 state changes:
-		- 1 BALANCE_AUTHORIZATION/SET change for the trustline for TEST1 for the secondary account
 		- 1 TRUSTLINE/ADD change for the trustline for TEST1 for the secondary account
-		- 3 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
+		- 1 BALANCE_AUTHORIZATION/SET change with clawback_enabled flag (from trustline creation inheriting issuer's clawback flag)
+		- 1 BALANCE_AUTHORIZATION/SET change with authorized flag (from SetTrustLineFlags authorizing the trustline)
+		- 2 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary)
 		- 1 BALANCE_AUTHORIZATION/CLEAR change for clearing AUTHORIZED flag on trustline
 		- 2 changes for clawback (1 BALANCE/BURN for Primary as issuer, 1 BALANCE/DEBIT from Secondary)
 		- 1 TRUSTLINE/REMOVE change for removing trustline

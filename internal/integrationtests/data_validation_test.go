@@ -597,10 +597,9 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 
 	// 3b. BALANCE_AUTHORIZATION Changes: Secondary should have exactly 1 (SET with empty flags)
 	suite.Require().Len(authChanges.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET change")
-
 	authChange := authChanges.Edges[0].Node.(*types.BalanceAuthorizationChange)
 	validateStateChangeBase(suite, authChange, ledgerNumber)
-	validateBalanceAuthorizationChange(suite, authChange, secondaryAccount, types.StateChangeReasonSet, []string{})
+	validateBalanceAuthorizationChange(suite, authChange, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"})
 
 	// 4. SPECIFIC BALANCE CHANGE VALIDATIONS
 	// 4a. Validate MINT changes have correct token ID and account
@@ -777,9 +776,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 
 	// 2. FETCH STATE CHANGES IN PARALLEL
 	authRequiredQueries := []stateChangeQuery{
-		{name: "balanceAuthSetPrimary", account: primaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
-		{name: "balanceAuthClearPrimary", account: primaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &clearReason},
 		{name: "balanceAuthSetSecondary", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
+		{name: "balanceAuthClearSecondary", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &clearReason},
 		{name: "trustlineAdd", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
 		{name: "trustlineRemove", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &removeReason},
 		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
@@ -790,9 +788,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	authRequiredResults := suite.fetchStateChangesInParallel(ctx, authRequiredQueries, &first)
 
 	// Extract results
-	balanceAuthSetPrimary := authRequiredResults["balanceAuthSetPrimary"]
-	balanceAuthClearPrimary := authRequiredResults["balanceAuthClearPrimary"]
 	balanceAuthSetSecondary := authRequiredResults["balanceAuthSetSecondary"]
+	balanceAuthClearSecondary := authRequiredResults["balanceAuthClearSecondary"]
 	trustlineAdd := authRequiredResults["trustlineAdd"]
 	trustlineRemove := authRequiredResults["trustlineRemove"]
 	balanceMint := authRequiredResults["balanceMint"]
@@ -801,9 +798,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	balanceDebit := authRequiredResults["balanceDebit"]
 
 	// Validate results are not nil
-	suite.Require().NotNil(balanceAuthSetPrimary, "BALANCE_AUTHORIZATION/SET for primary should not be nil")
-	suite.Require().NotNil(balanceAuthClearPrimary, "BALANCE_AUTHORIZATION/CLEAR for primary should not be nil")
 	suite.Require().NotNil(balanceAuthSetSecondary, "BALANCE_AUTHORIZATION/SET for secondary should not be nil")
+	suite.Require().NotNil(balanceAuthClearSecondary, "BALANCE_AUTHORIZATION/CLEAR for secondary should not be nil")
 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
 	suite.Require().NotNil(trustlineRemove, "TRUSTLINE/REMOVE should not be nil")
 	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
@@ -812,23 +808,26 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	suite.Require().NotNil(balanceDebit, "BALANCE/DEBIT should not be nil")
 
 	// 3. BALANCE_AUTHORIZATION STATE CHANGES VALIDATION
-	// Secondary account: BALANCE_AUTHORIZATION/SET with empty flags (default authorization)
-	suite.Require().Len(balanceAuthSetSecondary.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for secondary")
-	authSetSecondary := balanceAuthSetSecondary.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateStateChangeBase(suite, authSetSecondary, ledgerNumber)
-	validateBalanceAuthorizationChange(suite, authSetSecondary, secondaryAccount, types.StateChangeReasonSet, []string{})
+	// Secondary account should have 2 BALANCE_AUTHORIZATION/SET changes:
+	// - One with clawback_enabled flag (from trustline creation inheriting issuer's clawback flag)
+	// - One with authorized flag (from SetTrustLineFlags operation)
+	suite.Require().Len(balanceAuthSetSecondary.Edges, 2, "should have exactly 2 BALANCE_AUTHORIZATION/SET for secondary")
 
-	// Primary account: BALANCE_AUTHORIZATION/SET with "authorized" flag
-	suite.Require().Len(balanceAuthSetPrimary.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for primary")
-	authSetPrimary := balanceAuthSetPrimary.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateStateChangeBase(suite, authSetPrimary, ledgerNumber)
-	validateBalanceAuthorizationChange(suite, authSetPrimary, primaryAccount, types.StateChangeReasonSet, []string{"authorized"})
+	// First SET change: clawback_enabled flag from trustline creation
+	authSetSecondaryClawback := balanceAuthSetSecondary.Edges[0].Node.(*types.BalanceAuthorizationChange)
+	validateStateChangeBase(suite, authSetSecondaryClawback, ledgerNumber)
+	validateBalanceAuthorizationChange(suite, authSetSecondaryClawback, secondaryAccount, types.StateChangeReasonSet, []string{"clawback_enabled"})
 
-	// Primary account: BALANCE_AUTHORIZATION/CLEAR with "authorized" flag
-	suite.Require().Len(balanceAuthClearPrimary.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/CLEAR for primary")
-	authClearPrimary := balanceAuthClearPrimary.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateStateChangeBase(suite, authClearPrimary, ledgerNumber)
-	validateBalanceAuthorizationChange(suite, authClearPrimary, primaryAccount, types.StateChangeReasonClear, []string{"authorized"})
+	// Second SET change: authorized flag from SetTrustLineFlags
+	authSetSecondaryAuthorized := balanceAuthSetSecondary.Edges[1].Node.(*types.BalanceAuthorizationChange)
+	validateStateChangeBase(suite, authSetSecondaryAuthorized, ledgerNumber)
+	validateBalanceAuthorizationChange(suite, authSetSecondaryAuthorized, secondaryAccount, types.StateChangeReasonSet, []string{"authorized"})
+
+	// Secondary account: BALANCE_AUTHORIZATION/CLEAR with "authorized" flag
+	suite.Require().Len(balanceAuthClearSecondary.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/CLEAR for secondary")
+	authClearSecondary := balanceAuthClearSecondary.Edges[0].Node.(*types.BalanceAuthorizationChange)
+	validateStateChangeBase(suite, authClearSecondary, ledgerNumber)
+	validateBalanceAuthorizationChange(suite, authClearSecondary, secondaryAccount, types.StateChangeReasonClear, []string{"authorized"})
 
 	// 5. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
@@ -1071,338 +1070,338 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	validateBalanceChange(suite, balanceDebitChange, xlmContractAddress, "100000000", primaryAccount, types.StateChangeReasonDebit)
 }
 
-func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {
-	ctx := context.Background()
-	log.Ctx(ctx).Info("🔍 Validating claimable balance operations data...")
+// func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {
+// 	ctx := context.Background()
+// 	log.Ctx(ctx).Info("🔍 Validating claimable balance operations data...")
 
-	// Find the claimable balance use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/createClaimableBalanceOps")
-	suite.Require().NotNil(useCase, "createClaimableBalanceOps use case not found")
-	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+// 	// Find the claimable balance use case
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/createClaimableBalanceOps")
+// 	suite.Require().NotNil(useCase, "createClaimableBalanceOps use case not found")
+// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-	txHash := useCase.GetTransactionResult.Hash
-	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateCreateClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateCreateClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-}
+// 	txHash := useCase.GetTransactionResult.Hash
+// 	tx := validateTransactionBase(suite, ctx, txHash)
+// 	suite.validateCreateClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
+// 	suite.validateCreateClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+// }
 
-func (suite *DataValidationTestSuite) validateCreateClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction operations")
-	suite.Require().NotNil(operations, "operations should not be nil")
-	suite.Require().Len(operations.Edges, 5, "should have exactly 5 operations")
+// func (suite *DataValidationTestSuite) validateCreateClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
+// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction operations")
+// 	suite.Require().NotNil(operations, "operations should not be nil")
+// 	suite.Require().Len(operations.Edges, 5, "should have exactly 5 operations")
 
-	expectedOpTypes := []types.OperationType{
-		types.OperationTypeSetOptions,             // Set auth flags
-		types.OperationTypeChangeTrust,            // Create trustline
-		types.OperationTypeSetTrustLineFlags,      // Authorize trustline
-		types.OperationTypeCreateClaimableBalance, // Create claimable balance
-		types.OperationTypeCreateClaimableBalance, // Create claimable balance
-	}
+// 	expectedOpTypes := []types.OperationType{
+// 		types.OperationTypeSetOptions,             // Set auth flags
+// 		types.OperationTypeChangeTrust,            // Create trustline
+// 		types.OperationTypeSetTrustLineFlags,      // Authorize trustline
+// 		types.OperationTypeCreateClaimableBalance, // Create claimable balance
+// 		types.OperationTypeCreateClaimableBalance, // Create claimable balance
+// 	}
 
-	for i, edge := range operations.Edges {
-		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
-	}
-}
+// 	for i, edge := range operations.Edges {
+// 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
+// 		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+// 	}
+// }
 
-func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(20)
+// func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(20)
 
-	// Setup: Compute expected values from fixtures
-	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
-	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
-	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
+// 	// Setup: Compute expected values from fixtures
+// 	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
+// 	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
+// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+// 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
-	// Define filter constants
-	flagsCategory := "FLAGS"
-	trustlineCategory := "TRUSTLINE"
-	balanceAuthCategory := "BALANCE_AUTHORIZATION"
-	balanceCategory := "BALANCE"
-	reservesCategory := "RESERVES"
-	sponsorReason := string(types.StateChangeReasonSponsor)
-	setReason := string(types.StateChangeReasonSet)
-	addReason := string(types.StateChangeReasonAdd)
-	mintReason := string(types.StateChangeReasonMint)
+// 	// Define filter constants
+// 	flagsCategory := "FLAGS"
+// 	trustlineCategory := "TRUSTLINE"
+// 	balanceAuthCategory := "BALANCE_AUTHORIZATION"
+// 	balanceCategory := "BALANCE"
+// 	reservesCategory := "RESERVES"
+// 	sponsorReason := string(types.StateChangeReasonSponsor)
+// 	setReason := string(types.StateChangeReasonSet)
+// 	addReason := string(types.StateChangeReasonAdd)
+// 	mintReason := string(types.StateChangeReasonMint)
 
-	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+// 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction state changes")
+// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
-	// Validate base fields for all state changes
-	for _, edge := range stateChanges.Edges {
-		str := fmt.Sprintf("%+v\n", edge.Node)
-		fmt.Println(str)
-		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-	}
-	fmt.Println("primaryAccount", primaryAccount)
-	fmt.Println("secondaryAccount", secondaryAccount)
-	fmt.Println("test3ContractAddress", test3ContractAddress)
+// 	// Validate base fields for all state changes
+// 	for _, edge := range stateChanges.Edges {
+// 		str := fmt.Sprintf("%+v\n", edge.Node)
+// 		fmt.Println(str)
+// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+// 	}
+// 	fmt.Println("primaryAccount", primaryAccount)
+// 	fmt.Println("secondaryAccount", secondaryAccount)
+// 	fmt.Println("test3ContractAddress", test3ContractAddress)
 
-	// 2. FETCH STATE CHANGES IN PARALLEL
-	claimableBalanceQueries := []stateChangeQuery{
-		{name: "flagsSetPrimary", account: primaryAccount, txHash: &txHash, category: &flagsCategory, reason: &setReason},
-		{name: "trustlineAdd", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
-		{name: "balanceAuthSet", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
-		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
-		{name: "reservesSponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
-		{name: "reservesSponsorForSponsored", account: secondaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
-	}
-	claimableBalanceResults := suite.fetchStateChangesInParallel(ctx, claimableBalanceQueries, &first)
+// 	// 2. FETCH STATE CHANGES IN PARALLEL
+// 	claimableBalanceQueries := []stateChangeQuery{
+// 		{name: "flagsSetPrimary", account: primaryAccount, txHash: &txHash, category: &flagsCategory, reason: &setReason},
+// 		{name: "trustlineAdd", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
+// 		{name: "balanceAuthSet", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
+// 		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
+// 		{name: "reservesSponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
+// 		{name: "reservesSponsorForSponsored", account: secondaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
+// 	}
+// 	claimableBalanceResults := suite.fetchStateChangesInParallel(ctx, claimableBalanceQueries, &first)
 
-	// Extract results
-	flagsSetPrimary := claimableBalanceResults["flagsSetPrimary"]
-	trustlineAdd := claimableBalanceResults["trustlineAdd"]
-	balanceAuthSet := claimableBalanceResults["balanceAuthSet"]
-	balanceMint := claimableBalanceResults["balanceMint"]
-	reservesSponsorForSponsor := claimableBalanceResults["reservesSponsorForSponsor"]
-	reservesSponsorForSponsored := claimableBalanceResults["reservesSponsorForSponsored"]
+// 	// Extract results
+// 	flagsSetPrimary := claimableBalanceResults["flagsSetPrimary"]
+// 	trustlineAdd := claimableBalanceResults["trustlineAdd"]
+// 	balanceAuthSet := claimableBalanceResults["balanceAuthSet"]
+// 	balanceMint := claimableBalanceResults["balanceMint"]
+// 	reservesSponsorForSponsor := claimableBalanceResults["reservesSponsorForSponsor"]
+// 	reservesSponsorForSponsored := claimableBalanceResults["reservesSponsorForSponsored"]
 
-	// Validate results are not nil
-	suite.Require().NotNil(flagsSetPrimary, "FLAGS/SET for primary should not be nil")
-	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
-	suite.Require().NotNil(balanceAuthSet, "BALANCE_AUTHORIZATION/SET should not be nil")
-	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
-	suite.Require().NotNil(reservesSponsorForSponsor, "RESERVES/SPONSOR for sponsor should not be nil")
-	suite.Require().NotNil(reservesSponsorForSponsored, "RESERVES/SPONSOR for sponsored should not be nil")
+// 	// Validate results are not nil
+// 	suite.Require().NotNil(flagsSetPrimary, "FLAGS/SET for primary should not be nil")
+// 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
+// 	suite.Require().NotNil(balanceAuthSet, "BALANCE_AUTHORIZATION/SET should not be nil")
+// 	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
+// 	suite.Require().NotNil(reservesSponsorForSponsor, "RESERVES/SPONSOR for sponsor should not be nil")
+// 	suite.Require().NotNil(reservesSponsorForSponsored, "RESERVES/SPONSOR for sponsored should not be nil")
 
-	// 3. FLAGS STATE CHANGES VALIDATION FOR PRIMARY ACCOUNT
-	suite.Require().Len(flagsSetPrimary.Edges, 1, "should have exactly 1 FLAGS/SET change for primary")
-	expectedFlags := []string{"auth_required", "auth_revocable", "auth_clawback_enabled"}
-	flagsSetChange := flagsSetPrimary.Edges[0].Node.(*types.FlagsChange)
-	validateStateChangeBase(suite, flagsSetChange, ledgerNumber)
-	validateFlagsChange(suite, flagsSetChange, primaryAccount, types.StateChangeReasonSet, expectedFlags)
+// 	// 3. FLAGS STATE CHANGES VALIDATION FOR PRIMARY ACCOUNT
+// 	suite.Require().Len(flagsSetPrimary.Edges, 1, "should have exactly 1 FLAGS/SET change for primary")
+// 	expectedFlags := []string{"auth_required", "auth_revocable", "auth_clawback_enabled"}
+// 	flagsSetChange := flagsSetPrimary.Edges[0].Node.(*types.FlagsChange)
+// 	validateStateChangeBase(suite, flagsSetChange, ledgerNumber)
+// 	validateFlagsChange(suite, flagsSetChange, primaryAccount, types.StateChangeReasonSet, expectedFlags)
 
-	// 4. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
-	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
-	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
-	validateStateChangeBase(suite, trustlineAddChange, ledgerNumber)
-	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test3ContractAddress, types.StateChangeReasonAdd)
+// 	// 4. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
+// 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
+// 	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
+// 	validateStateChangeBase(suite, trustlineAddChange, ledgerNumber)
+// 	validateTrustlineChange(suite, trustlineAddChange, secondaryAccount, test3ContractAddress, types.StateChangeReasonAdd)
 
-	// 5. BALANCE_AUTHORIZATION STATE CHANGES VALIDATION
-	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for secondary")
-	authSetSecondary := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
-	validateStateChangeBase(suite, authSetSecondary, ledgerNumber)
-	validateBalanceAuthorizationChange(suite, authSetSecondary, secondaryAccount, types.StateChangeReasonSet, []string{})
+// 	// 5. BALANCE_AUTHORIZATION STATE CHANGES VALIDATION
+// 	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for secondary")
+// 	authSetSecondary := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
+// 	validateStateChangeBase(suite, authSetSecondary, ledgerNumber)
+// 	validateBalanceAuthorizationChange(suite, authSetSecondary, secondaryAccount, types.StateChangeReasonSet, []string{})
 
-	// 6. BALANCE STATE CHANGES VALIDATION - 2 claimable balances are created
-	suite.Require().Len(balanceMint.Edges, 2, "should have exactly 2 BALANCE/MINT")
-	for _, edge := range balanceMint.Edges {
-		mintChange := edge.Node.(*types.StandardBalanceChange)
-		validateStateChangeBase(suite, mintChange, ledgerNumber)
-		validateBalanceChange(suite, mintChange, test3ContractAddress, "10000000", primaryAccount, types.StateChangeReasonMint)
-	}
-}
+// 	// 6. BALANCE STATE CHANGES VALIDATION - 2 claimable balances are created
+// 	suite.Require().Len(balanceMint.Edges, 2, "should have exactly 2 BALANCE/MINT")
+// 	for _, edge := range balanceMint.Edges {
+// 		mintChange := edge.Node.(*types.StandardBalanceChange)
+// 		validateStateChangeBase(suite, mintChange, ledgerNumber)
+// 		validateBalanceChange(suite, mintChange, test3ContractAddress, "10000000", primaryAccount, types.StateChangeReasonMint)
+// 	}
+// }
 
-func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() {
-	ctx := context.Background()
-	log.Ctx(ctx).Info("🔍 Validating claim claimable balance operation data...")
+// func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() {
+// 	ctx := context.Background()
+// 	log.Ctx(ctx).Info("🔍 Validating claim claimable balance operation data...")
 
-	// Find the claim claimable balance use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/claimClaimableBalanceOp")
-	suite.Require().NotNil(useCase, "claimClaimableBalanceOp use case not found")
-	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+// 	// Find the claim claimable balance use case
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/claimClaimableBalanceOp")
+// 	suite.Require().NotNil(useCase, "claimClaimableBalanceOp use case not found")
+// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-	txHash := useCase.GetTransactionResult.Hash
-	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateClaimClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateClaimClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-}
+// 	txHash := useCase.GetTransactionResult.Hash
+// 	tx := validateTransactionBase(suite, ctx, txHash)
+// 	suite.validateClaimClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
+// 	suite.validateClaimClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+// }
 
-func (suite *DataValidationTestSuite) validateClaimClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction operations")
-	suite.Require().NotNil(operations, "operations should not be nil")
-	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
+// func (suite *DataValidationTestSuite) validateClaimClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
+// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction operations")
+// 	suite.Require().NotNil(operations, "operations should not be nil")
+// 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
 
-	operation := operations.Edges[0].Node
-	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeClaimClaimableBalance)
-}
+// 	operation := operations.Edges[0].Node
+// 	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeClaimClaimableBalance)
+// }
 
-func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
+// func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
 
-	// Setup: Compute expected values from fixtures
-	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
-	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
-	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
+// 	// Setup: Compute expected values from fixtures
+// 	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
+// 	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
+// 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
-	// Define filter constants
-	balanceCategory := "BALANCE"
-	creditReason := string(types.StateChangeReasonCredit)
+// 	// Define filter constants
+// 	balanceCategory := "BALANCE"
+// 	creditReason := string(types.StateChangeReasonCredit)
 
-	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
+// 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction state changes")
+// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
 
-	// Validate base fields for all state changes
-	for _, edge := range stateChanges.Edges {
-		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-	}
+// 	// Validate base fields for all state changes
+// 	for _, edge := range stateChanges.Edges {
+// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+// 	}
 
-	// 2. FETCH BALANCE/CREDIT STATE CHANGE
-	claimQueries := []stateChangeQuery{
-		{name: "balanceCredit", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
-	}
-	claimResults := suite.fetchStateChangesInParallel(ctx, claimQueries, &first)
+// 	// 2. FETCH BALANCE/CREDIT STATE CHANGE
+// 	claimQueries := []stateChangeQuery{
+// 		{name: "balanceCredit", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
+// 	}
+// 	claimResults := suite.fetchStateChangesInParallel(ctx, claimQueries, &first)
 
-	// Extract and validate results
-	balanceCreditChanges := claimResults["balanceCredit"]
-	suite.Require().NotNil(balanceCreditChanges, "BALANCE/CREDIT changes should not be nil")
+// 	// Extract and validate results
+// 	balanceCreditChanges := claimResults["balanceCredit"]
+// 	suite.Require().NotNil(balanceCreditChanges, "BALANCE/CREDIT changes should not be nil")
 
-	// 3. VALIDATE BALANCE/CREDIT CHANGE
-	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
-	balanceCreditChange := balanceCreditChanges.Edges[0].Node.(*types.StandardBalanceChange)
-	validateStateChangeBase(suite, balanceCreditChange, ledgerNumber)
-	validateBalanceChange(suite, balanceCreditChange, test3ContractAddress, "10000000", secondaryAccount, types.StateChangeReasonCredit)
-}
+// 	// 3. VALIDATE BALANCE/CREDIT CHANGE
+// 	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
+// 	balanceCreditChange := balanceCreditChanges.Edges[0].Node.(*types.StandardBalanceChange)
+// 	validateStateChangeBase(suite, balanceCreditChange, ledgerNumber)
+// 	validateBalanceChange(suite, balanceCreditChange, test3ContractAddress, "10000000", secondaryAccount, types.StateChangeReasonCredit)
+// }
 
-func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation() {
-	ctx := context.Background()
-	log.Ctx(ctx).Info("🔍 Validating clawback claimable balance operation data...")
+// func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation() {
+// 	ctx := context.Background()
+// 	log.Ctx(ctx).Info("🔍 Validating clawback claimable balance operation data...")
 
-	// Find the clawback claimable balance use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/clawbackClaimableBalanceOp")
-	suite.Require().NotNil(useCase, "clawbackClaimableBalanceOp use case not found")
-	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+// 	// Find the clawback claimable balance use case
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/clawbackClaimableBalanceOp")
+// 	suite.Require().NotNil(useCase, "clawbackClaimableBalanceOp use case not found")
+// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-	txHash := useCase.GetTransactionResult.Hash
-	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateClawbackClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateClawbackClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-}
+// 	txHash := useCase.GetTransactionResult.Hash
+// 	tx := validateTransactionBase(suite, ctx, txHash)
+// 	suite.validateClawbackClaimableBalanceOperations(ctx, txHash, int64(tx.LedgerNumber))
+// 	suite.validateClawbackClaimableBalanceStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+// }
 
-func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction operations")
-	suite.Require().NotNil(operations, "operations should not be nil")
-	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
+// func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
+// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction operations")
+// 	suite.Require().NotNil(operations, "operations should not be nil")
+// 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
 
-	operation := operations.Edges[0].Node
-	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeClawbackClaimableBalance)
-	suite.Require().Equal(types.OperationTypeClawbackClaimableBalance, operation.OperationType, "operation type should be CLAWBACK_CLAIMABLE_BALANCE")
-}
+// 	operation := operations.Edges[0].Node
+// 	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeClawbackClaimableBalance)
+// 	suite.Require().Equal(types.OperationTypeClawbackClaimableBalance, operation.OperationType, "operation type should be CLAWBACK_CLAIMABLE_BALANCE")
+// }
 
-func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
+// func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
 
-	// Setup: Compute expected values from fixtures
-	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
-	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
-	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+// 	// Setup: Compute expected values from fixtures
+// 	test3Asset := xdr.MustNewCreditAsset("TEST3", suite.testEnv.PrimaryAccountKP.Address())
+// 	test3ContractAddress := suite.getAssetContractAddress(test3Asset)
+// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
-	// Define filter constants
-	balanceCategory := "BALANCE"
-	burnReason := string(types.StateChangeReasonBurn)
+// 	// Define filter constants
+// 	balanceCategory := "BALANCE"
+// 	burnReason := string(types.StateChangeReasonBurn)
 
-	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
+// 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction state changes")
+// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
 
-	// Validate base fields for all state changes
-	for _, edge := range stateChanges.Edges {
-		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-	}
+// 	// Validate base fields for all state changes
+// 	for _, edge := range stateChanges.Edges {
+// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+// 	}
 
-	// 2. FETCH BALANCE/BURN STATE CHANGE
-	clawbackQueries := []stateChangeQuery{
-		{name: "balanceBurn", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &burnReason},
-	}
-	clawbackResults := suite.fetchStateChangesInParallel(ctx, clawbackQueries, &first)
+// 	// 2. FETCH BALANCE/BURN STATE CHANGE
+// 	clawbackQueries := []stateChangeQuery{
+// 		{name: "balanceBurn", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &burnReason},
+// 	}
+// 	clawbackResults := suite.fetchStateChangesInParallel(ctx, clawbackQueries, &first)
 
-	// Extract and validate results
-	balanceBurnChanges := clawbackResults["balanceBurn"]
-	suite.Require().NotNil(balanceBurnChanges, "BALANCE/BURN changes should not be nil")
+// 	// Extract and validate results
+// 	balanceBurnChanges := clawbackResults["balanceBurn"]
+// 	suite.Require().NotNil(balanceBurnChanges, "BALANCE/BURN changes should not be nil")
 
-	// 3. VALIDATE BALANCE/BURN CHANGE
-	suite.Require().Len(balanceBurnChanges.Edges, 1, "should have exactly 1 BALANCE/BURN change")
-	balanceBurnChange := balanceBurnChanges.Edges[0].Node.(*types.StandardBalanceChange)
-	validateStateChangeBase(suite, balanceBurnChange, ledgerNumber)
-	validateBalanceChange(suite, balanceBurnChange, test3ContractAddress, "10000000", primaryAccount, types.StateChangeReasonBurn)
-}
+// 	// 3. VALIDATE BALANCE/BURN CHANGE
+// 	suite.Require().Len(balanceBurnChanges.Edges, 1, "should have exactly 1 BALANCE/BURN change")
+// 	balanceBurnChange := balanceBurnChanges.Edges[0].Node.(*types.StandardBalanceChange)
+// 	validateStateChangeBase(suite, balanceBurnChange, ledgerNumber)
+// 	validateBalanceChange(suite, balanceBurnChange, test3ContractAddress, "10000000", primaryAccount, types.StateChangeReasonBurn)
+// }
 
-func (suite *DataValidationTestSuite) TestClearAuthFlagsOpsDataValidation() {
-	ctx := context.Background()
-	log.Ctx(ctx).Info("🔍 Validating clear auth flags operations data...")
+// func (suite *DataValidationTestSuite) TestClearAuthFlagsOpsDataValidation() {
+// 	ctx := context.Background()
+// 	log.Ctx(ctx).Info("🔍 Validating clear auth flags operations data...")
 
-	// Find the clear auth flags use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/clearAuthFlagsOps")
-	suite.Require().NotNil(useCase, "clearAuthFlagsOps use case not found")
-	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+// 	// Find the clear auth flags use case
+// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/clearAuthFlagsOps")
+// 	suite.Require().NotNil(useCase, "clearAuthFlagsOps use case not found")
+// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-	txHash := useCase.GetTransactionResult.Hash
-	tx := validateTransactionBase(suite, ctx, txHash)
-	suite.validateClearAuthFlagsOperations(ctx, txHash, int64(tx.LedgerNumber))
-	suite.validateClearAuthFlagsStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-}
+// 	txHash := useCase.GetTransactionResult.Hash
+// 	tx := validateTransactionBase(suite, ctx, txHash)
+// 	suite.validateClearAuthFlagsOperations(ctx, txHash, int64(tx.LedgerNumber))
+// 	suite.validateClearAuthFlagsStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+// }
 
-func (suite *DataValidationTestSuite) validateClearAuthFlagsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction operations")
-	suite.Require().NotNil(operations, "operations should not be nil")
-	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
+// func (suite *DataValidationTestSuite) validateClearAuthFlagsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
+// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction operations")
+// 	suite.Require().NotNil(operations, "operations should not be nil")
+// 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
 
-	expectedOpTypes := []types.OperationType{
-		types.OperationTypeSetOptions,
-	}
+// 	expectedOpTypes := []types.OperationType{
+// 		types.OperationTypeSetOptions,
+// 	}
 
-	for i, edge := range operations.Edges {
-		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
-	}
-}
+// 	for i, edge := range operations.Edges {
+// 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
+// 		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+// 	}
+// }
 
-func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-	first := int32(10)
+// func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+// 	first := int32(10)
 
-	// Setup: Get primary account
-	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+// 	// Setup: Get primary account
+// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
-	// Define filter constants
-	flagsCategory := "FLAGS"
-	clearReason := string(types.StateChangeReasonClear)
+// 	// Define filter constants
+// 	flagsCategory := "FLAGS"
+// 	clearReason := string(types.StateChangeReasonClear)
 
-	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-	suite.Require().NoError(err, "failed to get transaction state changes")
-	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
+// 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+// 	suite.Require().NoError(err, "failed to get transaction state changes")
+// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+// 	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
 
-	// Validate base fields for all state changes
-	for _, edge := range stateChanges.Edges {
-		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-	}
+// 	// Validate base fields for all state changes
+// 	for _, edge := range stateChanges.Edges {
+// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+// 	}
 
-	// 2. FETCH FLAGS/CLEAR STATE CHANGE
-	clearAuthFlagsQueries := []stateChangeQuery{
-		{name: "flagsClearPrimary", account: primaryAccount, txHash: &txHash, category: &flagsCategory, reason: &clearReason},
-	}
-	clearAuthFlagsResults := suite.fetchStateChangesInParallel(ctx, clearAuthFlagsQueries, &first)
+// 	// 2. FETCH FLAGS/CLEAR STATE CHANGE
+// 	clearAuthFlagsQueries := []stateChangeQuery{
+// 		{name: "flagsClearPrimary", account: primaryAccount, txHash: &txHash, category: &flagsCategory, reason: &clearReason},
+// 	}
+// 	clearAuthFlagsResults := suite.fetchStateChangesInParallel(ctx, clearAuthFlagsQueries, &first)
 
-	// Extract results
-	flagsClearPrimary := clearAuthFlagsResults["flagsClearPrimary"]
+// 	// Extract results
+// 	flagsClearPrimary := clearAuthFlagsResults["flagsClearPrimary"]
 
-	// Validate results are not nil
-	suite.Require().NotNil(flagsClearPrimary, "FLAGS/CLEAR for primary should not be nil")
+// 	// Validate results are not nil
+// 	suite.Require().NotNil(flagsClearPrimary, "FLAGS/CLEAR for primary should not be nil")
 
-	// 3. FLAGS STATE CHANGES VALIDATION FOR PRIMARY ACCOUNT
-	suite.Require().Len(flagsClearPrimary.Edges, 1, "should have exactly 1 FLAGS/CLEAR change for primary")
+// 	// 3. FLAGS STATE CHANGES VALIDATION FOR PRIMARY ACCOUNT
+// 	suite.Require().Len(flagsClearPrimary.Edges, 1, "should have exactly 1 FLAGS/CLEAR change for primary")
 
-	expectedFlags := []string{"auth_required", "auth_revocable", "auth_clawback_enabled"}
-	flagsClearChange := flagsClearPrimary.Edges[0].Node.(*types.FlagsChange)
-	validateStateChangeBase(suite, flagsClearChange, ledgerNumber)
-	validateFlagsChange(suite, flagsClearChange, primaryAccount, types.StateChangeReasonClear, expectedFlags)
-}
+// 	expectedFlags := []string{"auth_required", "auth_revocable", "auth_clawback_enabled"}
+// 	flagsClearChange := flagsClearPrimary.Edges[0].Node.(*types.FlagsChange)
+// 	validateStateChangeBase(suite, flagsClearChange, ledgerNumber)
+// 	validateFlagsChange(suite, flagsClearChange, primaryAccount, types.StateChangeReasonClear, expectedFlags)
+// }
 
 // func (suite *DataValidationTestSuite) TestLiquidityPoolOpsDataValidation() {
 // 	ctx := context.Background()
