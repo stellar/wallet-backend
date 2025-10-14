@@ -268,7 +268,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		}
 
 		switch effectType {
-		case effects.EffectAccountSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
+		case effects.EffectAccountSponsorshipRemoved, effects.EffectTrustlineSponsorshipRemoved:
 			// Generate 2 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for sponsoring account
@@ -296,7 +296,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 		}
 
 		switch effectType {
-		case effects.EffectAccountSponsorshipCreated, effects.EffectTrustlineSponsorshipCreated:
+		case effects.EffectAccountSponsorshipUpdated, effects.EffectTrustlineSponsorshipUpdated:
 			// Generate 4 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for new sponsoring account
