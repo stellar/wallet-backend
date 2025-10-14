@@ -207,7 +207,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	log.Ctx(ctx).Infof("✅ Extracted balance IDs: [0]=%s, [1]=%s", balanceIDs[0], balanceIDs[1])
 
 	// PHASE E: Create claim/clawback use cases with real balance IDs
-	log.Ctx(ctx).Info("===> 8️⃣ [WalletBackend] Creating claim and clawback use cases with real balance IDs...")
+	log.Ctx(ctx).Info("===> 8️⃣ [WalletBackend] Creating claim, clawback, and clear auth flags use cases with real balance IDs...")
 	fixtures := &infrastructure.Fixtures{
 		NetworkPassphrase:     suite.testEnv.NetworkPassphrase,
 		PrimaryAccountKP:      suite.testEnv.PrimaryAccountKP,
@@ -219,11 +219,11 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 		balanceIDs[0], // first balance to claim
 		balanceIDs[1], // second balance to clawback
 	)
-	suite.Require().NoError(err, "failed to prepare claim and clawback use cases")
-	suite.Require().Len(claimAndClawbackUseCases, 2)
+	suite.Require().NoError(err, "failed to prepare claim, clawback, and clear auth flags use cases")
+	suite.Require().Len(claimAndClawbackUseCases, 3)
 
 	// PHASE F: Build transactions for claim/clawback
-	log.Ctx(ctx).Info("===> 9️⃣ [WalletBackend] Building claim and clawback transactions...")
+	log.Ctx(ctx).Info("===> 9️⃣ [WalletBackend] Building claim, clawback, and clear auth flags transactions...")
 	group = suite.pool.NewGroupContext(ctx)
 	errs = []error{}
 	for _, useCase := range claimAndClawbackUseCases {
@@ -246,21 +246,21 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	suite.Require().Empty(errs)
 
 	// PHASE G: Sign transactions (reuse existing function)
-	log.Ctx(ctx).Info("===> 🔟 [Local] Signing claim and clawback transactions...")
+	log.Ctx(ctx).Info("===> 🔟 [Local] Signing claim, clawback, and clear auth flags transactions...")
 	suite.signTransactions(ctx, claimAndClawbackUseCases)
 
 	// PHASE H: Create fee bump transactions (reuse existing function)
-	log.Ctx(ctx).Info("===> 1️⃣1️⃣ [WalletBackend] Creating fee bump for claim and clawback transactions...")
+	log.Ctx(ctx).Info("===> 1️⃣1️⃣ [WalletBackend] Creating fee bump for claim, clawback, and clear auth flags transactions...")
 	suite.createFeeBumpTransactions(ctx, claimAndClawbackUseCases)
 
 	// PHASE I: Submit claim/clawback transactions
-	log.Ctx(ctx).Info("===> 1️⃣2️⃣ [RPC] Submitting claim and clawback transactions...")
+	log.Ctx(ctx).Info("===> 1️⃣2️⃣ [RPC] Submitting claim, clawback, and clear auth flags transactions...")
 	for _, uc := range claimAndClawbackUseCases {
 		submitTransaction(uc)
 	}
 
 	// PHASE J: Wait for claim/clawback confirmations
-	log.Ctx(ctx).Info("===> 1️⃣3️⃣ [RPC] Waiting for claim and clawback transaction confirmation...")
+	log.Ctx(ctx).Info("===> 1️⃣3️⃣ [RPC] Waiting for claim, clawback, and clear auth flags transaction confirmation...")
 	for _, uc := range claimAndClawbackUseCases {
 		txResult, confirmErr := infrastructure.WaitForTransactionConfirmation(ctx, suite.testEnv.RPCService, uc.SendTransactionResult.Hash)
 		suite.Require().NoError(confirmErr, "failed to wait for transaction confirmation for %s", uc.Name())

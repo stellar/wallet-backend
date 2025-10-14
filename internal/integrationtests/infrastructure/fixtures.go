@@ -234,24 +234,14 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
 }
 
-// prepareAuthRequiredOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
-func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], error) {
+// prepareAuthRequiredIssuerSetupOps sets up the Primary account as a SEP-8 auth required issuer.
+// This must be executed in a separate transaction before prepareAuthRequiredAssetOps to ensure
+// the issuer's flags are persisted and queryable when the trustline is created.
+func (f *Fixtures) prepareAuthRequiredIssuerSetupOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 11 state changes:
-		- 1 FLAGS/SET changes for setting auth flags (auth_required_flag, auth_revocable_flag, auth_clawback_enabled_flag)
-		- 1 BALANCE_AUHTORIZATION/SET change for the trustline for TEST1 for the secondary account
-		- 1 TRUSTLINE/ADD change for the trustline for TEST1 for the secondary account
-		- 3 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
-		- 1 BALANCE_AUTHORIZATION/CLEAR change for clearing AUTHORIZED flag on trustline
-		- 2 changes for clawback (1 BALANCE/BURN for Primary as issuer, 1 BALANCE/DEBIT from Secondary)
-		- 1 TRUSTLINE/REMOVE change for removing trustline
-		- 1 FLAGS/CLEAR changes for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+		Should generate 1 state change:
+		- 1 FLAGS/SET change for setting auth flags (auth_required_flag, auth_revocable_flag, auth_clawback_enabled_flag)
 	*/
-	customAsset := txnbuild.CreditAsset{
-		Issuer: f.PrimaryAccountKP.Address(),
-		Code:   "TEST1",
-	}
-
 	operations := []txnbuild.Operation{
 		// Prepare Primary account to be a SEP-8 auth required issuer
 		&txnbuild.SetOptions{
@@ -262,14 +252,42 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 			},
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
+	}
 
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
+}
+
+// prepareAuthRequiredAssetOps creates a flow to mint and then clawback SEP-8 auth required customAsset funds.
+// This should be executed after prepareAuthRequiredIssuerSetupOps to ensure the issuer's auth flags are
+// already set and queryable.
+func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 9 state changes:
+		- 1 BALANCE_AUTHORIZATION/SET change for the trustline for TEST1 for the secondary account
+		- 1 TRUSTLINE/ADD change for the trustline for TEST1 for the secondary account
+		- 3 changes for TEST1 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
+		- 1 BALANCE_AUTHORIZATION/CLEAR change for clearing AUTHORIZED flag on trustline
+		- 2 changes for clawback (1 BALANCE/BURN for Primary as issuer, 1 BALANCE/DEBIT from Secondary)
+		- 1 TRUSTLINE/REMOVE change for removing trustline
+	*/
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST1",
+	}
+
+	operations := []txnbuild.Operation{
 		// The Secondary account creates a trustline for customAsset.
 		&txnbuild.ChangeTrust{
 			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
 			SourceAccount: f.SecondaryAccountKP.Address(),
 		},
 
-		// Sandwitch authorization to mint customAsset funds from the Primary account to the Secondary account.
+		// Sandwich authorization to mint customAsset funds from the Primary account to the Secondary account.
 		&txnbuild.SetTrustLineFlags{
 			Trustor: f.SecondaryAccountKP.Address(),
 			Asset:   customAsset,
@@ -307,16 +325,6 @@ func (f *Fixtures) preparedAuthRequiredOps() ([]string, *Set[*keypair.Full], err
 			SourceAccount: f.SecondaryAccountKP.Address(),
 			Limit:         "0",
 		},
-
-		// The Primary account stops being a SEP-8 auth required issuer.
-		&txnbuild.SetOptions{
-			ClearFlags: []txnbuild.AccountFlag{
-				txnbuild.AuthRequired,
-				txnbuild.AuthRevocable,
-				txnbuild.AuthClawbackEnabled,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
 	}
 
 	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
@@ -344,16 +352,6 @@ func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.F
 	}
 
 	operations := []txnbuild.Operation{
-		// Prepare Primary account as issuer with auth and clawback capabilities
-		&txnbuild.SetOptions{
-			SetFlags: []txnbuild.AccountFlag{
-				txnbuild.AuthRequired,
-				txnbuild.AuthRevocable,
-				txnbuild.AuthClawbackEnabled,
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
-		},
-
 		// Secondary account creates trustline for TEST3
 		&txnbuild.ChangeTrust{
 			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
@@ -447,6 +445,32 @@ func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, 
 	return b64OpXDR, NewSet(f.PrimaryAccountKP), nil
 }
 
+// prepareClearAuthFlagsOps creates operations to clear all auth flags from the Primary account.
+// This should be executed after all operations that require auth flags are completed.
+func (f *Fixtures) prepareClearAuthFlagsOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate 1 state change:
+		- 1 FLAGS/CLEAR change for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+	*/
+	operations := []txnbuild.Operation{
+		&txnbuild.SetOptions{
+			ClearFlags: []txnbuild.AccountFlag{
+				txnbuild.AuthRequired,
+				txnbuild.AuthRevocable,
+				txnbuild.AuthClawbackEnabled,
+			},
+			SourceAccount: f.PrimaryAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
+}
+
 // PrepareClaimAndClawbackUseCases creates use cases for claiming and clawing back claimable balances
 // using the actual balance IDs from the confirmed createClaimableBalance transaction.
 func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balanceIDToBeClawbacked string) ([]*UseCase, error) {
@@ -483,6 +507,23 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 		name:                 "clawbackClaimableBalanceOp",
 		category:             categoryStellarClassic,
 		TxSigners:            clawbackSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	})
+
+	// ClearAuthFlagsOps
+	clearAuthFlagsOps, clearAuthFlagsSigners, err := f.prepareClearAuthFlagsOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing clear auth flags operations: %w", err)
+	}
+	txXDR, err = f.buildTransactionXDR(clearAuthFlagsOps, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for clearAuthFlagsOps: %w", err)
+	}
+	useCases = append(useCases, &UseCase{
+		name:                 "clearAuthFlagsOps",
+		category:             categoryStellarClassic,
+		TxSigners:            clearAuthFlagsSigners,
 		DelayTime:            2 * time.Second,
 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 	})
@@ -933,23 +974,40 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	// AuthRequiredOps
-	authRequiredOps, txSigners, err := f.preparedAuthRequiredOps()
+	// AuthRequiredIssuerSetupOps - Transaction 1: Set up issuer with auth flags
+	authRequiredIssuerSetupOps, txSigners, err := f.prepareAuthRequiredIssuerSetupOps()
 	if err != nil {
-		return nil, fmt.Errorf("preparing auth required operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(authRequiredOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for authRequiredOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "authRequiredOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
+		return nil, fmt.Errorf("preparing auth required issuer setup operations: %w", err)
 	}
+	txXDR, txErr := f.buildTransactionXDR(authRequiredIssuerSetupOps, timeoutSeconds)
+	if txErr != nil {
+		return nil, fmt.Errorf("building transaction XDR for authRequiredIssuerSetupOps: %w", txErr)
+	}
+	useCases = append(useCases, &UseCase{
+		name:                 "authRequiredIssuerSetupOps",
+		category:             categoryStellarClassic,
+		TxSigners:            txSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	})
+
+	// AuthRequiredAssetOps - Transaction 2: Perform trustline and payment operations
+	// This must execute after the issuer setup to ensure flags are persisted
+	authRequiredAssetOps, txSigners, err := f.prepareAuthRequiredAssetOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing auth required asset operations: %w", err)
+	}
+	txXDR, txErr = f.buildTransactionXDR(authRequiredAssetOps, timeoutSeconds)
+	if txErr != nil {
+		return nil, fmt.Errorf("building transaction XDR for authRequiredAssetOps: %w", txErr)
+	}
+	useCases = append(useCases, &UseCase{
+		name:                 "authRequiredAssetOps",
+		category:             categoryStellarClassic,
+		TxSigners:            txSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	})
 
 	// ClaimableBalanceOps
 	createClaimableBalanceOps, txSigners, err := f.prepareCreateClaimableBalanceOps()
