@@ -339,13 +339,12 @@ func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full],
 // prepareClaimableBalanceOps creates claimable balance operations.
 func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 8 state changes:
-		- 1 FLAGS/SET change for auth flags (auth_required, auth_revocable, auth_clawback_enabled) on Primary account
-		- 1 TRUSTLINE/ADD change for TEST3 asset on Secondary account
-		- 1 BALANCE_AUTHORIZATION/SET change for Secondary trustline authorization
-		- 2 BALANCE/MINT changes (one for each claimable balance created)
-		- 4 RESERVES/SPONSOR changes for sponsorship relationships
-		Note: Trustline and auth flags remain active for subsequent claim/clawback operations
+		Should generate 7 state changes:
+		- 1 BALANCE_AUTHORIZATION/SET (clawback_enabled)                                                                                                     │ │
+		- 1 TRUSTLINE/ADD                                                                                                                                    │ │
+		- 1 BALANCE_AUTHORIZATION/SET (authorized)                                                                                                           │ │
+		- 2 BALANCE/MINT (one per CB)                                                                                                                        │ │
+		- 2 RESERVES/SPONSOR for primary account (one per CB, sponsor's view only)
 	*/
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
