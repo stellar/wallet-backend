@@ -224,7 +224,7 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	isAccountSponsorship := effectType == effects.EffectAccountSponsorshipCreated ||
 		effectType == effects.EffectAccountSponsorshipUpdated ||
 		effectType == effects.EffectAccountSponsorshipRemoved
-	
+
 	// Extract keyValue for non-account sponsorships, nil for account sponsorships
 	var keyValue map[string]any
 	if !isAccountSponsorship {
@@ -257,7 +257,6 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, "", keyValue),
 			)
 		}
-		
 
 	// Removed cases: when sponsorship relationships are terminated
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
@@ -326,8 +325,8 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 // pass entity-specific details in keyValue.
 func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsoredAccountID string, keyValue map[string]any) types.StateChange {
 	builder = builder.
-	WithReason(reason).
-	WithAccount(accountID)
+		WithReason(reason).
+		WithAccount(accountID)
 	if sponsoredAccountID != "" {
 		builder = builder.WithSponsoredAccountID(sponsoredAccountID)
 	}
@@ -343,9 +342,9 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.
 // pass entity-specific details in keyValue.
 func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, accountID string, sponsor string, keyValue map[string]any) types.StateChange {
 	builder = builder.
-	WithReason(reason).
-	WithAccount(accountID).
-	WithSponsor(sponsor)
+		WithReason(reason).
+		WithAccount(accountID).
+		WithSponsor(sponsor)
 	if len(keyValue) > 0 {
 		builder = builder.WithKeyValue(keyValue)
 	}

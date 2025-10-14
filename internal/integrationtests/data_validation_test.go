@@ -184,8 +184,9 @@ func validateMetadataChange(suite *DataValidationTestSuite, mc *types.MetadataCh
 }
 
 // validateReservesChange validates a reserves state change
-func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string, 
-	expectedReason types.StateChangeReason, expectedSponsorAddress string, expectedKey string, expectedValue string) {
+func validateReservesSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, rc *types.ReservesChange, expectedAccount string,
+	expectedReason types.StateChangeReason, expectedSponsorAddress string, expectedKey string, expectedValue string,
+) {
 	suite.Require().NotNil(rc, "reserves sponsorship change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryReserves, rc.GetType(), "should be RESERVES type")
 	suite.Require().Equal(expectedReason, rc.GetReason(), "reason mismatch")
@@ -1018,7 +1019,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	sponsoredReservesChange := sponsoredReservesUnsponsorChanges.Edges[0].Node.(*types.ReservesChange)
 	validateStateChangeBase(suite, sponsoredReservesChange, ledgerNumber)
 	validateReservesSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, sponsoredNewAccount, types.StateChangeReasonUnsponsor, primaryAccount, "", "")
-	
+
 	// Validate BALANCE/DEBIT change
 	suite.Require().Len(balanceDebitChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT change")
 	balanceDebitChange := balanceDebitChanges.Edges[0].Node.(*types.StandardBalanceChange)
