@@ -1166,7 +1166,15 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	for _, edge := range stateChanges.Edges {
 		if edge.Node.GetType() == "RESERVES" {
 			keyValue := edge.Node.(*types.ReservesChange).KeyValue
-			str := fmt.Sprintf("%+v\n %s\n", edge.Node, *keyValue)
+			sponsorAddress := ""
+			sponsoredAddress := ""
+			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
+				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
+			}
+			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
+				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
+			}
+			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
 			fmt.Println(str)
 		} else {
 			str := fmt.Sprintf("%+v\n", edge.Node)
