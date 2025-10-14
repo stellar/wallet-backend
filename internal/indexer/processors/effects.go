@@ -29,6 +29,7 @@ const (
 	AuthorizedImmutableFlagName       = "auth_immutable"
 	AuthorizedClawbackEnabledFlagName = "auth_clawback_enabled"
 	ClawbackEnabledFlagName           = "clawback_enabled"
+	AuthorizedToMaintainLiabilitiesFlagName = "authorized_to_maintain_liabilities"
 )
 
 var (
@@ -569,15 +570,15 @@ func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) 
 	var flagStrings []string
 
 	if flags.IsAuthorized() {
-		flagStrings = append(flagStrings, "authorized")
+		flagStrings = append(flagStrings, AuthorizedFlagName)
 	}
 
 	if flags.IsAuthorizedToMaintainLiabilitiesFlag() {
-		flagStrings = append(flagStrings, "authorized_to_maintain_liabilities")
+		flagStrings = append(flagStrings, AuthorizedToMaintainLiabilitiesFlagName)
 	}
 
 	if flags.IsClawbackEnabledFlag() {
-		flagStrings = append(flagStrings, "clawback_enabled")
+		flagStrings = append(flagStrings, ClawbackEnabledFlagName)
 	}
 
 	return flagStrings
@@ -628,6 +629,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 
 	for _, flag := range flags {
 		flagName := flag
+		// We dont want to use the "_flag" suffix for the flag names
 		if flag == "authorized_flag" {
 			flagName = AuthorizedFlagName
 		}
