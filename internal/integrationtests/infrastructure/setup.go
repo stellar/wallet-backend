@@ -304,8 +304,6 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 
 // deployNativeAssetSAC deploys the Stellar Asset Contract for the native asset (XLM)
 func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.T) {
-	log.Ctx(ctx).Info("Deploying native asset SAC...")
-
 	// Create the InvokeHostFunction operation to deploy the native asset contract
 	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
 	deployOp := &txnbuild.InvokeHostFunction{
