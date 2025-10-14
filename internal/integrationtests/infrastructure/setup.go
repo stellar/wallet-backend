@@ -920,15 +920,15 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 
 // TestEnvironment holds all initialized services and clients for integration tests
 type TestEnvironment struct {
-	WBClient              *wbclient.Client
-	RPCService            services.RPCService
-	PrimaryAccountKP      *keypair.Full
-	SecondaryAccountKP    *keypair.Full
-	SponsoredNewAccountKP *keypair.Full
-	ClaimBalanceID       string
-	ClawbackBalanceID    string
-	NetworkPassphrase     string
-	UseCases              []*UseCase
+	WBClient                 *wbclient.Client
+	RPCService               services.RPCService
+	PrimaryAccountKP         *keypair.Full
+	SecondaryAccountKP       *keypair.Full
+	SponsoredNewAccountKP    *keypair.Full
+	ClaimBalanceID           string
+	ClawbackBalanceID        string
+	NetworkPassphrase        string
+	UseCases                 []*UseCase
 	ClaimAndClawbackUseCases []*UseCase
 }
 

@@ -210,9 +210,11 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 
 // processSponsorshipEffect handles sponsorship-related effects and creates appropriate state changes.
 // Sponsorship in Stellar allows one account to pay the base reserves for another account's ledger entries.
-// For account sponsorships, this creates state changes for both the sponsor and sponsored account.
-// For other sponsorships (data, trustline, claimable balance, signer), this creates a single state change
-// for the sponsoring account with keyValue containing relevant entity details.
+// This creates TWO state changes for all sponsorship types:
+// 1. State change for the sponsoring account (with SponsoredAccountID set to effect.Address)
+// 2. State change for the sponsored account (effect.Address, with SponsorAccountID set)
+// For non-account sponsorships (trustline, data, claimable balance, signer), both state changes
+// include keyValue containing entity-specific details (asset, data_name, balance_id, signer).
 func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectType, effect effects.EffectOutput, baseBuilder *StateChangeBuilder) ([]types.StateChange, error) {
 	baseBuilder = baseBuilder.WithCategory(types.StateChangeCategoryReserves)
 
@@ -222,6 +224,12 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 	isAccountSponsorship := effectType == effects.EffectAccountSponsorshipCreated ||
 		effectType == effects.EffectAccountSponsorshipUpdated ||
 		effectType == effects.EffectAccountSponsorshipRemoved
+	
+	// Extract keyValue for non-account sponsorships, nil for account sponsorships
+	var keyValue map[string]any
+	if !isAccountSponsorship {
+		keyValue = p.extractSponsorshipKeyValue(effectType, effect.Details)
+	}
 
 	// Handle different sponsorship effect types and create appropriate state changes
 	//exhaustive:ignore
@@ -234,19 +242,13 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 			return nil, fmt.Errorf("extracting sponsor from sponsorship created effect: %w", err)
 		}
 
-		if isAccountSponsorship {
-			// Account sponsorship: generate 2 state changes
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(sponsor), effect.Address),
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor),
-			)
-		} else {
-			// Non-account sponsorship: generate 1 state change with keyValue
-			keyValue := p.extractSponsorshipKeyValue(effectType, effect.Details)
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccountWithKeyValue(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(sponsor), keyValue),
-			)
-		}
+		// Generate 2 state changes for all sponsorship types
+		sponsorChanges = append(sponsorChanges,
+			// State change for sponsoring account
+			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(sponsor), effect.Address, keyValue),
+			// State change for sponsored account (effect.Address)
+			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), sponsor, keyValue),
+		)
 
 	// Removed cases: when sponsorship relationships are terminated
 	case effects.EffectAccountSponsorshipRemoved, effects.EffectClaimableBalanceSponsorshipRemoved,
@@ -256,19 +258,13 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship removed effect: %w", err)
 		}
 
-		if isAccountSponsorship {
-			// Account sponsorship: generate 2 state changes
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), effect.Address),
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor),
-			)
-		} else {
-			// Non-account sponsorship: generate 1 state change with keyValue
-			keyValue := p.extractSponsorshipKeyValue(effectType, effect.Details)
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccountWithKeyValue(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), keyValue),
-			)
-		}
+		// Generate 2 state changes for all sponsorship types
+		sponsorChanges = append(sponsorChanges,
+			// State change for former sponsoring account
+			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), effect.Address, keyValue),
+			// State change for sponsored account (effect.Address)
+			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, keyValue),
+		)
 
 	// Updated cases: when sponsorship relationships are transferred from one sponsor to another
 	case effects.EffectAccountSponsorshipUpdated, effects.EffectClaimableBalanceSponsorshipUpdated,
@@ -282,52 +278,44 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 			return nil, fmt.Errorf("extracting former sponsor from sponsorship updated effect: %w", err)
 		}
 
-		if isAccountSponsorship {
-			// Account sponsorship: generate 4 state changes
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(newSponsor), effect.Address),
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), effect.Address),
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor),
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor),
-			)
-		} else {
-			// Non-account sponsorship: generate 2 state changes with keyValue
-			keyValue := p.extractSponsorshipKeyValue(effectType, effect.Details)
-			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccountWithKeyValue(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(newSponsor), keyValue),
-				p.createSponsorChangeForSponsoringAccountWithKeyValue(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), keyValue),
-			)
-		}
+		// Generate 4 state changes for all sponsorship types
+		sponsorChanges = append(sponsorChanges,
+			// State change for new sponsoring account
+			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone().WithAccount(newSponsor), effect.Address, keyValue),
+			// State change for former sponsoring account
+			p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone().WithAccount(formerSponsor), effect.Address, keyValue),
+			// State change for sponsored account with new sponsor
+			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), newSponsor, keyValue),
+			// State change for sponsored account with former sponsor
+			p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, keyValue),
+		)
 	}
 
 	return sponsorChanges, nil
 }
 
 // createSponsorChangeForSponsoringAccount creates a state change for the sponsoring account in a sponsorship relationship.
-// This tracks when an account starts, stops, or changes its sponsorship of another account's reserves.
-func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, sponsoredAccountID string) types.StateChange {
-	return builder.
-		WithReason(reason).
-		WithSponsoredAccountID(sponsoredAccountID).
-		Build()
+// This tracks when an account starts, stops, or changes its sponsorship of another account's or entity's reserves.
+// For account sponsorships, pass nil keyValue. For non-account sponsorships (trustline, data, claimable balance, signer),
+// pass entity-specific details in keyValue.
+func (p *EffectsProcessor) createSponsorChangeForSponsoringAccount(reason types.StateChangeReason, builder *StateChangeBuilder, sponsoredAccountID string, keyValue map[string]any) types.StateChange {
+	builder = builder.WithReason(reason).WithSponsoredAccountID(sponsoredAccountID)
+	if len(keyValue) > 0 {
+		builder = builder.WithKeyValue(keyValue)
+	}
+	return builder.Build()
 }
 
 // createSponsorChangeForSponsoredAccount creates a state change for the sponsored account in a sponsorship relationship.
-// This tracks when an account starts, stops, or changes its sponsorship of another account's reserves.
-func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string) types.StateChange {
-	return builder.
-		WithReason(reason).
-		WithSponsor(sponsor).
-		Build()
-}
-
-// createSponsorChangeForSponsoringAccountWithKeyValue creates a state change for the sponsoring account with keyValue details.
-// This is used for non-account sponsorships (data, trustline, claimable balance, signer) to track the sponsored entity details.
-func (p *EffectsProcessor) createSponsorChangeForSponsoringAccountWithKeyValue(reason types.StateChangeReason, builder *StateChangeBuilder, keyValue map[string]any) types.StateChange {
-	return builder.
-		WithReason(reason).
-		WithKeyValue(keyValue).
-		Build()
+// This tracks when an account's account or entity reserves start, stop, or change sponsorship.
+// For account sponsorships, pass nil keyValue. For non-account sponsorships (trustline, data, claimable balance, signer),
+// pass entity-specific details in keyValue.
+func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.StateChangeReason, builder *StateChangeBuilder, sponsor string, keyValue map[string]any) types.StateChange {
+	builder = builder.WithReason(reason).WithSponsor(sponsor)
+	if len(keyValue) > 0 {
+		builder = builder.WithKeyValue(keyValue)
+	}
+	return builder.Build()
 }
 
 // extractSponsorshipKeyValue extracts entity-specific details from sponsorship effect details.
