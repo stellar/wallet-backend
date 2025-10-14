@@ -16,7 +16,6 @@ import (
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -166,9 +165,9 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			stateChanges = append(stateChanges, trustlineChange)
 
 			// Generate balance authorization state change for new trustline.
-			// We will extract the default authorization flags from the asset issuer's account.
+			// We will extract the authorization flags directly from the trustline entry in the changes.
 			if effectType == effects.EffectTrustlineCreated {
-				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect)
+				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect, changes)
 				if err != nil {
 					log.Debugf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 					continue
@@ -347,8 +346,8 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 }
 
 // generateBalanceAuthorizationForNewTrustline generates balance authorization state changes
-// for newly created trustlines based on the asset issuer's account flags
-func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput) (types.StateChange, error) {
+// for newly created trustlines by reading the trustline flags directly from transaction changes
+func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, changes []ingest.Change) (types.StateChange, error) {
 	// Skip native assets as they don't have authorization
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
@@ -382,15 +381,15 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		}
 		baseBuilder = baseBuilder.WithToken(assetContractID)
 
-		// Get issuer account flags via RPC
-		issuerFlags, err := p.getIssuerAccountFlags(assetIssuer)
+		// Extract trustline flags directly from the transaction changes
+		trustlineFlags, err := p.getTrustlineFlagsFromChanges(effect.Address, assetCode, assetIssuer, changes)
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("getting issuer account flags: %w", err)
+			return types.StateChange{}, fmt.Errorf("getting trustline flags from changes: %w", err)
 		}
 
-		// Determine default authorization flags for the new trustline
-		log.Debugf("processor: %s: issuer flags: %+v", p.Name(), issuerFlags)
-		defaultFlags = p.determineDefaultTrustlineFlags(issuerFlags)
+		// Map XDR trustline flags to our internal flag representation
+		log.Debugf("processor: %s: trustline flags: %+v", p.Name(), trustlineFlags)
+		defaultFlags = p.mapTrustlineFlagsToStrings(trustlineFlags)
 	}
 
 	// Generate state changes for each flag that should be set
@@ -401,54 +400,82 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		Build(), nil
 }
 
-// getIssuerAccountFlags retrieves the account flags for the asset issuer via RPC
-func (p *EffectsProcessor) getIssuerAccountFlags(issuerAddress string) (xdr.AccountFlags, error) {
-	// Create account ledger key
-	keyXdr, err := utils.GetAccountLedgerKey(issuerAddress)
-	if err != nil {
-		return 0, fmt.Errorf("creating account ledger key: %w", err)
+// getTrustlineFlagsFromChanges extracts the trustline flags from transaction changes
+func (p *EffectsProcessor) getTrustlineFlagsFromChanges(trustorAddress, assetCode, assetIssuer string, changes []ingest.Change) (xdr.TrustLineFlags, error) {
+	// Search through changes to find the trustline entry for this specific asset and trustor
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeTrustline {
+			continue
+		}
+
+		// Prefer Post state if available (most recent), otherwise use Pre
+		var trustlineEntry xdr.TrustLineEntry
+		if change.Post != nil {
+			trustlineEntry = change.Post.Data.MustTrustLine()
+		} else if change.Pre != nil {
+			trustlineEntry = change.Pre.Data.MustTrustLine()
+		} else {
+			continue
+		}
+
+		// Match the trustline by trustor address
+		if trustlineEntry.AccountId.Address() != trustorAddress {
+			continue
+		}
+
+		// Match the trustline by asset
+		asset := trustlineEntry.Asset
+
+		var entryAssetCode, entryAssetIssuer string
+		//exhaustive:ignore
+		switch asset.Type {
+		case xdr.AssetTypeAssetTypeNative:
+			continue
+		case xdr.AssetTypeAssetTypeCreditAlphanum4:
+			alphaNum4 := asset.MustAlphaNum4()
+			assetCodeBytes := alphaNum4.AssetCode[:]
+			entryAssetCode = string(assetCodeBytes)
+			entryAssetIssuer = alphaNum4.Issuer.Address()
+		case xdr.AssetTypeAssetTypeCreditAlphanum12:
+			alphaNum12 := asset.MustAlphaNum12()
+			assetCodeBytes := alphaNum12.AssetCode[:]
+			entryAssetCode = string(assetCodeBytes)
+			entryAssetIssuer = alphaNum12.Issuer.Address()
+		}
+
+		// Remove null bytes from asset code
+		for i, c := range entryAssetCode {
+			if c == 0 {
+				entryAssetCode = entryAssetCode[:i]
+				break
+			}
+		}
+
+		if entryAssetCode == assetCode && entryAssetIssuer == assetIssuer {
+			return xdr.TrustLineFlags(trustlineEntry.Flags), nil
+		}
 	}
 
-	// Get ledger entry via RPC
-	result, err := p.ledgerEntryProvider.GetLedgerEntries([]string{keyXdr})
-	if err != nil {
-		return 0, fmt.Errorf("getting ledger entry for issuer account: %w", err)
-	}
-
-	if len(result.Entries) == 0 {
-		return 0, fmt.Errorf("issuer account not found: %s", issuerAddress)
-	}
-
-	// Parse the account entry
-	var ledgerEntryData xdr.LedgerEntryData
-	err = xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &ledgerEntryData)
-	if err != nil {
-		return 0, fmt.Errorf("decoding issuer account entry: %w", err)
-	}
-
-	accountEntry := ledgerEntryData.MustAccount()
-	return xdr.AccountFlags(accountEntry.Flags), nil
+	return 0, fmt.Errorf("trustline not found in changes for trustor: %s, asset: %s:%s", trustorAddress, assetCode, assetIssuer)
 }
 
-// determineDefaultTrustlineFlags determines what authorization flags should be set by default
-// for a new trustline based on the asset issuer's account flags
-func (p *EffectsProcessor) determineDefaultTrustlineFlags(issuerFlags xdr.AccountFlags) []string {
-	var flags []string
+// mapTrustlineFlagsToStrings converts XDR trustline flags to our internal string representation
+func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) []string {
+	var flagStrings []string
 
-	// Authorization state for new trustlines:
-	// - If issuer does NOT require authorization: trustline is AUTHORIZED by default
-	// - If issuer DOES require authorization: trustline is UNAUTHORIZED (no flags)
-	// - authorized_to_maintain_liabilities is NEVER set at creation time
-	if !issuerFlags.IsAuthRequired() {
-		flags = append(flags, "authorized")
+	if flags.IsAuthorized() {
+		flagStrings = append(flagStrings, "authorized")
 	}
 
-	// Clawback capability is independent of authorization state
-	if issuerFlags.IsAuthClawbackEnabled() {
-		flags = append(flags, "clawback_enabled")
+	if flags.IsAuthorizedToMaintainLiabilitiesFlag() {
+		flagStrings = append(flagStrings, "authorized_to_maintain_liabilities")
 	}
 
-	return flags
+	if flags.IsClawbackEnabledFlag() {
+		flagStrings = append(flagStrings, "clawback_enabled")
+	}
+
+	return flagStrings
 }
 
 // parseKeyValue extracts specified key-value pairs from effect details.
