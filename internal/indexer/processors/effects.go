@@ -272,14 +272,14 @@ func (p *EffectsProcessor) processSponsorshipEffect(effectType effects.EffectTyp
 			// Generate 2 state changes for all sponsorship types
 			sponsorChanges = append(sponsorChanges,
 				// State change for sponsoring account
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), formerSponsor, effect.Address, keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, effect.Address, keyValue),
 				// State change for sponsored account (effect.Address)
-				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), effect.Address, formerSponsor, keyValue),
+				p.createSponsorChangeForSponsoredAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), effect.Address, formerSponsor, keyValue),
 			)
 		// Except the account sponsorship and trustline sponsorship, we don't have a sponsored account for the other types of sponsorships
 		default:
 			sponsorChanges = append(sponsorChanges,
-				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonSponsor, baseBuilder.Clone(), formerSponsor, "", keyValue),
+				p.createSponsorChangeForSponsoringAccount(types.StateChangeReasonUnsponsor, baseBuilder.Clone(), formerSponsor, "", keyValue),
 			)
 		}
 

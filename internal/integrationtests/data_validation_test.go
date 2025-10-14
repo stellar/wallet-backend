@@ -950,30 +950,30 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	// suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
+	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		if edge.Node.GetType() == "RESERVES" {
-			keyValue := edge.Node.(*types.ReservesChange).KeyValue
-			sponsorAddress := ""
-			sponsoredAddress := ""
-			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
-				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
-			}
-			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
-				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
-			}
-			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
-			fmt.Println(str)
-		} else {
-			str := fmt.Sprintf("%+v\n", edge.Node)
-			fmt.Println(str)
-		}
+		// if edge.Node.GetType() == "RESERVES" {
+		// 	keyValue := edge.Node.(*types.ReservesChange).KeyValue
+		// 	sponsorAddress := ""
+		// 	sponsoredAddress := ""
+		// 	if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
+		// 		sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
+		// 	}
+		// 	if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
+		// 		sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
+		// 	}
+		// 	str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
+		// 	fmt.Println(str)
+		// } else {
+		// 	str := fmt.Sprintf("%+v\n", edge.Node)
+		// 	fmt.Println(str)
+		// }
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
-	fmt.Println("primaryAccount", primaryAccount)
-	fmt.Println("sponsoredNewAccount", sponsoredNewAccount)
-	fmt.Println("xlmContractAddress", xlmContractAddress)
+	// fmt.Println("primaryAccount", primaryAccount)
+	// fmt.Println("sponsoredNewAccount", sponsoredNewAccount)
+	// fmt.Println("xlmContractAddress", xlmContractAddress)
 
 	// Fetch state changes in parallel
 	accountMergeQueries := []stateChangeQuery{
@@ -1183,27 +1183,8 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		if edge.Node.GetType() == "RESERVES" {
-			keyValue := edge.Node.(*types.ReservesChange).KeyValue
-			sponsorAddress := ""
-			sponsoredAddress := ""
-			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
-				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
-			}
-			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
-				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
-			}
-			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
-			fmt.Println(str)
-		} else {
-			str := fmt.Sprintf("%+v\n", edge.Node)
-			fmt.Println(str)
-		}
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
-	// fmt.Println("primaryAccount", primaryAccount)
-	// fmt.Println("secondaryAccount", secondaryAccount)
-	// fmt.Println("test3ContractAddress", test3ContractAddress)
 
 	// 2. FETCH STATE CHANGES IN PARALLEL
 	claimableBalanceQueries := []stateChangeQuery{
@@ -1314,19 +1295,27 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		// if edge.Node.GetType() == "RESERVES" {
-		// 	keyValue := edge.Node.(*types.ReservesChange).KeyValue
-		// 	str := fmt.Sprintf("%+v\n %s\n", edge.Node, *keyValue)
-		// 	fmt.Println(str)
-		// } else {
-		// 	str := fmt.Sprintf("%+v\n", edge.Node)
-		// 	fmt.Println(str)
-		// }
+		if edge.Node.GetType() == "RESERVES" {
+			keyValue := edge.Node.(*types.ReservesChange).KeyValue
+			sponsorAddress := ""
+			sponsoredAddress := ""
+			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
+				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
+			}
+			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
+				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
+			}
+			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
+			fmt.Println(str)
+		} else {
+			str := fmt.Sprintf("%+v\n", edge.Node)
+			fmt.Println(str)
+		}
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
-	// fmt.Println("primaryAccount", primaryAccount)
-	// fmt.Println("secondaryAccount", secondaryAccount)
-	// fmt.Println("test3ContractAddress", test3ContractAddress)
+	fmt.Println("primaryAccount", primaryAccount)
+	fmt.Println("secondaryAccount", secondaryAccount)
+	fmt.Println("test3ContractAddress", test3ContractAddress)
 
 	// 2. FETCH BALANCE/CREDIT STATE CHANGE
 	claimQueries := []stateChangeQuery{
