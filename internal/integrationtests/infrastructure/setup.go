@@ -929,6 +929,7 @@ type TestEnvironment struct {
 	ClawbackBalanceID    string
 	NetworkPassphrase     string
 	UseCases              []*UseCase
+	ClaimAndClawbackUseCases []*UseCase
 }
 
 func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {

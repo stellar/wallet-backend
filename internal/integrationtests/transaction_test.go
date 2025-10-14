@@ -223,6 +223,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	)
 	suite.Require().NoError(err, "failed to prepare claim, clawback, and clear auth flags use cases")
 	suite.Require().Len(claimAndClawbackUseCases, 3)
+	suite.testEnv.ClaimAndClawbackUseCases = claimAndClawbackUseCases
 
 	// PHASE F: Build transactions for claim/clawback
 	log.Ctx(ctx).Info("===> 9️⃣ [WalletBackend] Building claim, clawback, and clear auth flags transactions...")
