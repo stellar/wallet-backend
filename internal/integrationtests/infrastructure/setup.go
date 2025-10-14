@@ -925,6 +925,8 @@ type TestEnvironment struct {
 	PrimaryAccountKP      *keypair.Full
 	SecondaryAccountKP    *keypair.Full
 	SponsoredNewAccountKP *keypair.Full
+	ClaimBalanceID       string
+	ClawbackBalanceID    string
 	NetworkPassphrase     string
 	UseCases              []*UseCase
 }

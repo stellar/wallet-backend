@@ -203,6 +203,8 @@ func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context
 	balanceIDs, err := infrastructure.ExtractClaimableBalanceIDsFromMeta(createCBUseCase.GetTransactionResult.ResultMetaXDR)
 	suite.Require().NoError(err, "failed to extract claimable balance IDs")
 	suite.Require().Len(balanceIDs, 2, "expected 2 claimable balance IDs")
+	suite.testEnv.ClaimBalanceID = balanceIDs[0]
+	suite.testEnv.ClawbackBalanceID = balanceIDs[1]
 
 	log.Ctx(ctx).Infof("✅ Extracted balance IDs: [0]=%s, [1]=%s", balanceIDs[0], balanceIDs[1])
 

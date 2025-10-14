@@ -59,7 +59,7 @@ func TestIntegrationTests(t *testing.T) {
 
 	// Wait for ingest service to process all transactions
 	log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
