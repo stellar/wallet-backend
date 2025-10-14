@@ -71,6 +71,7 @@ const (
 		... on ReservesChange {
 			sponsoredAddress
 			sponsorAddress
+			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
 			flags

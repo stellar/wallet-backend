@@ -171,6 +171,11 @@ func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.
 	return r.resolveNullableString(obj.SponsorAccountID), nil
 }
 
+// KeyValue is the resolver for the keyValue field.
+func (r *reservesChangeResolver) KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.KeyValue)
+}
+
 // Type is the resolver for the type field.
 func (r *signerChangeResolver) Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil

@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
-
 	"github.com/stellar/go/network"
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
@@ -15,18 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
-
-type mockLedgerEntryProvider struct {
-	mock.Mock
-}
-
-func (m *mockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
-	args := m.Called(keys)
-	return args.Get(0).(entities.RPCGetLedgerEntriesResult), args.Error(1)
-}
 
 func TestEffects_ProcessTransaction(t *testing.T) {
 	t.Run("SetOption", func(t *testing.T) {
@@ -456,5 +444,4 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String)
 	})
-
 }

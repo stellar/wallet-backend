@@ -108,6 +108,7 @@ type ReservesChange struct {
 	BaseStateChangeFields
 	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
 	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
+	KeyValue         *string `json:"reservesKeyValue,omitempty"`
 }
 
 // BalanceAuthorizationChange represents a balance authorization state change

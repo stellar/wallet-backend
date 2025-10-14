@@ -123,6 +123,7 @@ type ReservesChange implements BaseStateChange{
 
   sponsoredAddress:         String @goField(forceResolver: true)
   sponsorAddress:           String @goField(forceResolver: true)
+  keyValue:                 String
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{

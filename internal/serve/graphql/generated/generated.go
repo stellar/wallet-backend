@@ -186,6 +186,7 @@ type ComplexityRoot struct {
 	ReservesChange struct {
 		Account          func(childComplexity int) int
 		IngestedAt       func(childComplexity int) int
+		KeyValue         func(childComplexity int) int
 		LedgerCreatedAt  func(childComplexity int) int
 		LedgerNumber     func(childComplexity int) int
 		Operation        func(childComplexity int) int
@@ -352,6 +353,7 @@ type ReservesChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error)
 	SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 	SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
+	KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 }
 type SignerChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error)
@@ -1039,6 +1041,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ReservesChange.IngestedAt(childComplexity), true
+
+	case "ReservesChange.keyValue":
+		if e.complexity.ReservesChange.KeyValue == nil {
+			break
+		}
+
+		return e.complexity.ReservesChange.KeyValue(childComplexity), true
 
 	case "ReservesChange.ledgerCreatedAt":
 		if e.complexity.ReservesChange.LedgerCreatedAt == nil {
@@ -2033,6 +2042,7 @@ type ReservesChange implements BaseStateChange{
 
   sponsoredAddress:         String @goField(forceResolver: true)
   sponsorAddress:           String @goField(forceResolver: true)
+  keyValue:                 String
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{
@@ -7558,6 +7568,47 @@ func (ec *executionContext) _ReservesChange_sponsorAddress(ctx context.Context, 
 }
 
 func (ec *executionContext) fieldContext_ReservesChange_sponsorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReservesChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReservesChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_keyValue(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.ReservesChange().KeyValue(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ReservesChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "ReservesChange",
 		Field:      field,
@@ -14802,6 +14853,39 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 					}
 				}()
 				res = ec._ReservesChange_sponsorAddress(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "keyValue":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ReservesChange_keyValue(ctx, field, obj)
 				return res
 			}
 
