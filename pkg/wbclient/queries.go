@@ -45,7 +45,7 @@ const (
 			address
 		}
 		... on StandardBalanceChange {
-			tokenId
+			standardBalanceTokenId
 			amount
 		}
 		... on AccountChange {
@@ -65,7 +65,7 @@ const (
 			flags
 		}
 		... on TrustlineChange {
-			tokenId
+			trustlineTokenId
 			limit
 			trustlineKeyValue: keyValue
 		}
@@ -75,6 +75,7 @@ const (
 			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
+			balanceAuthTokenId
 			flags
 			balanceAuthKeyValue: keyValue
 		}

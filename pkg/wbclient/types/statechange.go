@@ -61,7 +61,7 @@ func (b BaseStateChangeFields) GetAccountID() string {
 // StandardBalanceChange represents a standard balance state change
 type StandardBalanceChange struct {
 	BaseStateChangeFields
-	TokenID string `json:"tokenId"`
+	TokenID string `json:"standardBalanceTokenId"`
 	Amount  string `json:"amount"`
 }
 
@@ -99,7 +99,7 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
-	TokenID  *string `json:"tokenId,omitempty"`
+	TokenID  *string `json:"trustlineTokenId,omitempty"`
 	Limit    *string `json:"limit,omitempty"`
 	KeyValue *string `json:"trustlineKeyValue,omitempty"`
 }
@@ -115,7 +115,7 @@ type ReservesChange struct {
 // BalanceAuthorizationChange represents a balance authorization state change
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
-	TokenID  *string  `json:"tokenId,omitempty"`
+	TokenID  *string  `json:"balanceAuthTokenId,omitempty"`
 	Flags    []string `json:"flags"`
 	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
 }
