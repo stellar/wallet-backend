@@ -588,7 +588,7 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 		// Primary withdraws from the liquidity pool
 		&txnbuild.LiquidityPoolWithdraw{
 			LiquidityPoolID: poolID,
-			Amount:          "50", // Withdraw 50% of pool shares
+			Amount:          "100", // Withdraw all pool shares
 			MinAmountA:      "1",
 			MinAmountB:      "1",
 			SourceAccount:   f.PrimaryAccountKP.Address(),

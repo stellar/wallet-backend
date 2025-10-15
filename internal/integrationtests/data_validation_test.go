@@ -1463,7 +1463,7 @@ func (suite *DataValidationTestSuite) TestLiquidityPoolOpsDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating liquidity pool operations data...")
 
 	// Find the liquidity pool use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/liquidityPoolOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/liquidityPoolOps")
 	suite.Require().NotNil(useCase, "liquidityPoolOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
@@ -1509,22 +1509,8 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		if edge.Node.GetType() == "RESERVES" {
-			keyValue := edge.Node.(*types.ReservesChange).KeyValue
-			sponsorAddress := ""
-			sponsoredAddress := ""
-			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
-				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
-			}
-			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
-				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
-			}
-			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
-			fmt.Println(str)
-		} else {
-			str := fmt.Sprintf("%+v\n", edge.Node)
-			fmt.Println(str)
-		}
+		str := fmt.Sprintf("%+v\n", edge.Node)
+		fmt.Println(str)
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
 	fmt.Println("primaryAccount", primaryAccount)
