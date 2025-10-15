@@ -954,22 +954,6 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		// if edge.Node.GetType() == "RESERVES" {
-		// 	keyValue := edge.Node.(*types.ReservesChange).KeyValue
-		// 	sponsorAddress := ""
-		// 	sponsoredAddress := ""
-		// 	if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
-		// 		sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
-		// 	}
-		// 	if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
-		// 		sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
-		// 	}
-		// 	str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
-		// 	fmt.Println(str)
-		// } else {
-		// 	str := fmt.Sprintf("%+v\n", edge.Node)
-		// 	fmt.Println(str)
-		// }
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
 	// fmt.Println("primaryAccount", primaryAccount)
@@ -1474,107 +1458,126 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx con
 	validateFlagsChange(suite, flagsClearChange, primaryAccount, types.StateChangeReasonClear, expectedFlags)
 }
 
-// func (suite *DataValidationTestSuite) TestLiquidityPoolOpsDataValidation() {
-// 	ctx := context.Background()
-// 	log.Ctx(ctx).Info("🔍 Validating liquidity pool operations data...")
+func (suite *DataValidationTestSuite) TestLiquidityPoolOpsDataValidation() {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("🔍 Validating liquidity pool operations data...")
 
-// 	// Find the liquidity pool use case
-// 	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/liquidityPoolOps")
-// 	suite.Require().NotNil(useCase, "liquidityPoolOps use case not found")
-// 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+	// Find the liquidity pool use case
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/liquidityPoolOps")
+	suite.Require().NotNil(useCase, "liquidityPoolOps use case not found")
+	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 
-// 	txHash := useCase.GetTransactionResult.Hash
-// 	tx := validateTransactionBase(suite, ctx, txHash)
-// 	suite.validateLiquidityPoolOperations(ctx, txHash, int64(tx.LedgerNumber))
-// 	suite.validateLiquidityPoolStateChanges(ctx, txHash, int64(tx.LedgerNumber))
-// }
+	txHash := useCase.GetTransactionResult.Hash
+	tx := validateTransactionBase(suite, ctx, txHash)
+	suite.validateLiquidityPoolOperations(ctx, txHash, int64(tx.LedgerNumber))
+	suite.validateLiquidityPoolStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+}
 
-// func (suite *DataValidationTestSuite) validateLiquidityPoolOperations(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(10)
-// 	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction operations")
-// 	suite.Require().NotNil(operations, "operations should not be nil")
-// 	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
+func (suite *DataValidationTestSuite) validateLiquidityPoolOperations(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(10)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction operations")
+	suite.Require().NotNil(operations, "operations should not be nil")
+	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
 
-// 	expectedOpTypes := []types.OperationType{
-// 		types.OperationTypeChangeTrust,           // Create trustline to pool
-// 		types.OperationTypeLiquidityPoolDeposit,  // Deposit into pool
-// 		types.OperationTypeLiquidityPoolWithdraw, // Withdraw from pool
-// 		types.OperationTypeChangeTrust,           // Remove trustline to pool
-// 	}
+	expectedOpTypes := []types.OperationType{
+		types.OperationTypeChangeTrust,           // Create trustline to pool
+		types.OperationTypeLiquidityPoolDeposit,  // Deposit into pool
+		types.OperationTypeLiquidityPoolWithdraw, // Withdraw from pool
+		types.OperationTypeChangeTrust,           // Remove trustline to pool
+	}
 
-// 	for i, edge := range operations.Edges {
-// 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-// 		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
-// 	}
-// }
+	for i, edge := range operations.Edges {
+		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+	}
+}
 
-// func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
-// 	first := int32(30)
+func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
+	first := int32(30)
 
-// 	// Setup: Compute expected values from fixtures
-// 	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
-// 	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
-// 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
-// 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
+	// Setup: Compute expected values from fixtures
+	test2Asset := xdr.MustNewCreditAsset("TEST2", suite.testEnv.PrimaryAccountKP.Address())
+	test2ContractAddress := suite.getAssetContractAddress(test2Asset)
+	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
+	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
-// 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-// 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
-// 	suite.Require().NoError(err, "failed to get transaction state changes")
-// 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+	// 1. TOTAL STATE CHANGE COUNT VALIDATION
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
-// 	// Validate base fields for all state changes
-// 	for _, edge := range stateChanges.Edges {
-// 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
-// 	}
+	// Validate base fields for all state changes
+	for _, edge := range stateChanges.Edges {
+		if edge.Node.GetType() == "RESERVES" {
+			keyValue := edge.Node.(*types.ReservesChange).KeyValue
+			sponsorAddress := ""
+			sponsoredAddress := ""
+			if edge.Node.(*types.ReservesChange).SponsorAddress != nil {
+				sponsorAddress = *edge.Node.(*types.ReservesChange).SponsorAddress
+			}
+			if edge.Node.(*types.ReservesChange).SponsoredAddress != nil {
+				sponsoredAddress = *edge.Node.(*types.ReservesChange).SponsoredAddress
+			}
+			str := fmt.Sprintf("%+v\n keyValue: %s\n sponsorAddress: %s\n sponsoredAddress: %s\n", edge.Node, *keyValue, sponsorAddress, sponsoredAddress)
+			fmt.Println(str)
+		} else {
+			str := fmt.Sprintf("%+v\n", edge.Node)
+			fmt.Println(str)
+		}
+		validateStateChangeBase(suite, edge.Node, ledgerNumber)
+	}
+	fmt.Println("primaryAccount", primaryAccount)
+	fmt.Println("test2ContractAddress", test2ContractAddress)
+	fmt.Println("xlmContractAddress", xlmContractAddress)
 
-// 	// 2. VALIDATE PRESENCE OF KEY STATE CHANGE CATEGORIES
-// 	balanceCategory := "BALANCE"
-// 	trustlineCategory := "TRUSTLINE"
-// 	addReason := string(types.StateChangeReasonAdd)
-// 	removeReason := string(types.StateChangeReasonRemove)
+	// 2. VALIDATE PRESENCE OF KEY STATE CHANGE CATEGORIES
+	balanceCategory := "BALANCE"
+	trustlineCategory := "TRUSTLINE"
+	addReason := string(types.StateChangeReasonAdd)
+	removeReason := string(types.StateChangeReasonRemove)
 
-// 	// Fetch state changes for validation
-// 	lpQueries := []stateChangeQuery{
-// 		{name: "trustlineAdd", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
-// 		{name: "trustlineRemove", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &removeReason},
-// 		{name: "balanceChanges", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
-// 	}
-// 	lpResults := suite.fetchStateChangesInParallel(ctx, lpQueries, &first)
+	// Fetch state changes for validation
+	lpQueries := []stateChangeQuery{
+		{name: "trustlineAdd", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
+		{name: "trustlineRemove", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &removeReason},
+		{name: "balanceChanges", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+	}
+	lpResults := suite.fetchStateChangesInParallel(ctx, lpQueries, &first)
 
-// 	// Extract results
-// 	trustlineAdd := lpResults["trustlineAdd"]
-// 	trustlineRemove := lpResults["trustlineRemove"]
-// 	balanceChanges := lpResults["balanceChanges"]
+	// Extract results
+	trustlineAdd := lpResults["trustlineAdd"]
+	trustlineRemove := lpResults["trustlineRemove"]
+	balanceChanges := lpResults["balanceChanges"]
 
-// 	// Validate results are not nil
-// 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
-// 	suite.Require().NotNil(trustlineRemove, "TRUSTLINE/REMOVE should not be nil")
-// 	suite.Require().NotNil(balanceChanges, "BALANCE changes should not be nil")
+	// Validate results are not nil
+	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
+	suite.Require().NotNil(trustlineRemove, "TRUSTLINE/REMOVE should not be nil")
+	suite.Require().NotNil(balanceChanges, "BALANCE changes should not be nil")
 
-// 	// 3. TRUSTLINE VALIDATION
-// 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD for liquidity pool")
-// 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE for liquidity pool")
+	// 3. TRUSTLINE VALIDATION
+	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD for liquidity pool")
+	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE for liquidity pool")
 
-// 	// 4. BALANCE CHANGES VALIDATION
-// 	// Should have multiple balance changes for deposits and withdrawals of both assets
-// 	suite.Require().NotEmpty(balanceChanges.Edges, "should have balance changes")
+	// 4. BALANCE CHANGES VALIDATION
+	// Should have multiple balance changes for deposits and withdrawals of both assets
+	suite.Require().NotEmpty(balanceChanges.Edges, "should have balance changes")
 
-// 	// Verify we have changes for both TEST2 and XLM
-// 	foundTest2 := false
-// 	foundXLM := false
-// 	for _, edge := range balanceChanges.Edges {
-// 		bc := edge.Node.(*types.StandardBalanceChange)
-// 		if bc.TokenID == test2ContractAddress {
-// 			foundTest2 = true
-// 		}
-// 		if bc.TokenID == xlmContractAddress {
-// 			foundXLM = true
-// 		}
-// 	}
-// 	suite.Require().True(foundTest2, "should have TEST2 balance changes")
-// 	suite.Require().True(foundXLM, "should have XLM balance changes")
-// }
+	// Verify we have changes for both TEST2 and XLM
+	foundTest2 := false
+	foundXLM := false
+	for _, edge := range balanceChanges.Edges {
+		bc := edge.Node.(*types.StandardBalanceChange)
+		if bc.TokenID == test2ContractAddress {
+			foundTest2 = true
+		}
+		if bc.TokenID == xlmContractAddress {
+			foundXLM = true
+		}
+	}
+	suite.Require().True(foundTest2, "should have TEST2 balance changes")
+	suite.Require().True(foundXLM, "should have XLM balance changes")
+}
 
 // func (suite *DataValidationTestSuite) TestRevokeSponsorshipOpsDataValidation() {
 // 	ctx := context.Background()

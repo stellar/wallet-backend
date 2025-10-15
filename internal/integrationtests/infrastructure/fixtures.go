@@ -533,7 +533,6 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 
 // prepareLiquidityPoolOps creates liquidity pool operations.
 // Currently commented out pending further testing.
-/*
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
 	// Should generate ~8+ state changes:
 	// - 1 TRUSTLINE/ADD change for liquidity pool shares trustline on Primary account
@@ -610,7 +609,6 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
 }
-*/
 
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
 // Currently commented out pending further testing.
@@ -1081,21 +1079,21 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// LiquidityPoolOps
-	// liquidityPoolOps, txSigners, err := f.prepareLiquidityPoolOps()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR(liquidityPoolOps, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for liquidityPoolOps: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "liquidityPoolOps",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
+	liquidityPoolOps, txSigners, err := f.prepareLiquidityPoolOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR(liquidityPoolOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for liquidityPoolOps: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "liquidityPoolOps",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
 
 	// RevokeSponsorshipOps
 	// revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
