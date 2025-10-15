@@ -271,6 +271,7 @@ type ComplexityRoot struct {
 	TrustlineChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
+		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Limit           func(childComplexity int) int
@@ -398,6 +399,7 @@ type TrustlineChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error)
 	TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error)
 	Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
+	KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
 }
 
 type executableSchema struct {
@@ -1458,6 +1460,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineChange.IngestedAt(childComplexity), true
 
+	case "TrustlineChange.keyValue":
+		if e.complexity.TrustlineChange.KeyValue == nil {
+			break
+		}
+
+		return e.complexity.TrustlineChange.KeyValue(childComplexity), true
+
 	case "TrustlineChange.ledgerCreatedAt":
 		if e.complexity.TrustlineChange.LedgerCreatedAt == nil {
 			break
@@ -2028,6 +2037,7 @@ type TrustlineChange implements BaseStateChange {
 
   tokenId:                    String! @goField(forceResolver: true)
   limit:                      String @goField(forceResolver: true)
+  keyValue:                   String
 }
 
 type ReservesChange implements BaseStateChange{
@@ -10396,6 +10406,47 @@ func (ec *executionContext) fieldContext_TrustlineChange_limit(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _TrustlineChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_keyValue(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.TrustlineChange().KeyValue(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) ___Directive_name(ctx context.Context, field graphql.CollectedField, obj *introspection.Directive) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext___Directive_name(ctx, field)
 	if err != nil {
@@ -16368,6 +16419,39 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 					}
 				}()
 				res = ec._TrustlineChange_limit(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "keyValue":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TrustlineChange_keyValue(ctx, field, obj)
 				return res
 			}
 

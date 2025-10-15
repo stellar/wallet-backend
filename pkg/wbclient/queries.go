@@ -67,6 +67,7 @@ const (
 		... on TrustlineChange {
 			tokenId
 			limit
+			trustlineKeyValue: keyValue
 		}
 		... on ReservesChange {
 			sponsoredAddress

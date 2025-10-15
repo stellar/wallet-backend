@@ -311,6 +311,11 @@ func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.Trustlin
 	return r.resolveJSONBField(obj.TrustlineLimit)
 }
 
+// KeyValue is the resolver for the keyValue field.
+func (r *trustlineChangeResolver) KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.KeyValue)
+}
+
 // AccountChange returns graphql1.AccountChangeResolver implementation.
 func (r *Resolver) AccountChange() graphql1.AccountChangeResolver { return &accountChangeResolver{r} }
 
