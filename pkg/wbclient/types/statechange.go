@@ -99,7 +99,7 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
-	TokenID  string  `json:"tokenId"`
+	TokenID  *string `json:"tokenId,omitempty"`
 	Limit    *string `json:"limit,omitempty"`
 	KeyValue *string `json:"trustlineKeyValue,omitempty"`
 }
@@ -115,6 +115,7 @@ type ReservesChange struct {
 // BalanceAuthorizationChange represents a balance authorization state change
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
+	TokenID  *string  `json:"tokenId,omitempty"`
 	Flags    []string `json:"flags"`
 	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
 }

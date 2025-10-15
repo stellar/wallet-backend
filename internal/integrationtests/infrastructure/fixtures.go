@@ -534,13 +534,18 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 // prepareLiquidityPoolOps creates liquidity pool operations.
 // Currently commented out pending further testing.
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
-	// Should generate ~8+ state changes:
-	// - 1 TRUSTLINE/ADD change for liquidity pool shares trustline on Primary account
-	// - Multiple BALANCE/DEBIT changes when depositing assets into the pool
-	// - 1 BALANCE/CREDIT change when receiving liquidity pool shares
-	// - 1 BALANCE/DEBIT change when redeeming liquidity pool shares
-	// - Multiple BALANCE/CREDIT changes when withdrawing assets from the pool
-	// - 1 TRUSTLINE/REMOVE change for liquidity pool shares trustline
+	// Should generate 7 state changes:
+	// 1. BALANCE_AUTHORIZATION/SET - LP trustline authorization (empty flags, no tokenId, has liquidity_pool_id in keyValue)
+	//    Note: LPs don't support authorization semantics, so flags array is empty
+	// 2. TRUSTLINE/ADD - Create LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, has limit)
+	// 3. BALANCE/DEBIT - XLM deposited into pool (has tokenId = XLM contract address, amount = 1000000000)
+	// 4. BALANCE/MINT - TEST2 minted to LP (Primary is issuer, has tokenId = TEST2 contract address, amount = 1000000000)
+	// 5. BALANCE/BURN - TEST2 burned from LP back to issuer (has tokenId = TEST2 contract address, amount = 1000000000)
+	// 6. BALANCE/CREDIT - XLM withdrawn from pool (has tokenId = XLM contract address, amount = 1000000000)
+	// 7. TRUSTLINE/REMOVE - Remove LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, no limit)
+	//
+	// Note: LP share movements are tracked via trustline balance changes in the ledger, not as explicit token transfer events.
+	// The token_transfer processor doesn't generate separate BALANCE state changes for LP share movements.
 	xlmAsset := txnbuild.NativeAsset{}
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -1091,6 +1096,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			name:                 "liquidityPoolOps",
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
+			DelayTime:            2 * time.Second,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
 		})
 	}

@@ -956,9 +956,6 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
-	// fmt.Println("primaryAccount", primaryAccount)
-	// fmt.Println("sponsoredNewAccount", sponsoredNewAccount)
-	// fmt.Println("xlmContractAddress", xlmContractAddress)
 
 	// Fetch state changes in parallel
 	accountMergeQueries := []stateChangeQuery{
@@ -1509,8 +1506,28 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		str := fmt.Sprintf("%+v\n", edge.Node)
-		fmt.Println(str)
+		if edge.Node.GetType() == "TRUSTLINE" {
+			keyValue := edge.Node.(*types.TrustlineChange).KeyValue
+			if keyValue != nil {
+				str := fmt.Sprintf("%+v\n keyValue: %s\n", edge.Node, *keyValue)
+				fmt.Println(str)
+			} else {
+				str := fmt.Sprintf("%+v\n", edge.Node)
+				fmt.Println(str)
+			}
+		} else if edge.Node.GetType() == "BALANCE_AUTHORIZATION" {
+			keyValue := edge.Node.(*types.BalanceAuthorizationChange).KeyValue
+			if keyValue != nil {
+				str := fmt.Sprintf("%+v\n keyValue: %s\n", edge.Node, *keyValue)
+				fmt.Println(str)
+			} else {
+				str := fmt.Sprintf("%+v\n", edge.Node)
+				fmt.Println(str)
+			}
+		} else {
+			str := fmt.Sprintf("%+v\n", edge.Node)
+			fmt.Println(str)
+		}
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
 	fmt.Println("primaryAccount", primaryAccount)
@@ -1520,49 +1537,123 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	// 2. VALIDATE PRESENCE OF KEY STATE CHANGE CATEGORIES
 	balanceCategory := "BALANCE"
 	trustlineCategory := "TRUSTLINE"
+	balanceAuthCategory := "BALANCE_AUTHORIZATION"
 	addReason := string(types.StateChangeReasonAdd)
 	removeReason := string(types.StateChangeReasonRemove)
+	setReason := string(types.StateChangeReasonSet)
+	debitReason := string(types.StateChangeReasonDebit)
+	creditReason := string(types.StateChangeReasonCredit)
+	mintReason := string(types.StateChangeReasonMint)
+	burnReason := string(types.StateChangeReasonBurn)
 
 	// Fetch state changes for validation
 	lpQueries := []stateChangeQuery{
 		{name: "trustlineAdd", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
 		{name: "trustlineRemove", account: primaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &removeReason},
-		{name: "balanceChanges", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
+		{name: "balanceAuthSet", account: primaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
+		{name: "balanceDebit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
+		{name: "balanceCredit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
+		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
+		{name: "balanceBurn", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &burnReason},
 	}
 	lpResults := suite.fetchStateChangesInParallel(ctx, lpQueries, &first)
 
 	// Extract results
 	trustlineAdd := lpResults["trustlineAdd"]
 	trustlineRemove := lpResults["trustlineRemove"]
-	balanceChanges := lpResults["balanceChanges"]
+	balanceAuthSet := lpResults["balanceAuthSet"]
+	balanceDebit := lpResults["balanceDebit"]
+	balanceCredit := lpResults["balanceCredit"]
+	balanceMint := lpResults["balanceMint"]
+	balanceBurn := lpResults["balanceBurn"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
 	suite.Require().NotNil(trustlineRemove, "TRUSTLINE/REMOVE should not be nil")
-	suite.Require().NotNil(balanceChanges, "BALANCE changes should not be nil")
+	suite.Require().NotNil(balanceAuthSet, "BALANCE_AUTHORIZATION/SET should not be nil")
+	suite.Require().NotNil(balanceDebit, "BALANCE/DEBIT should not be nil")
+	suite.Require().NotNil(balanceCredit, "BALANCE/CREDIT should not be nil")
+	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
+	suite.Require().NotNil(balanceBurn, "BALANCE/BURN should not be nil")
 
-	// 3. TRUSTLINE VALIDATION
+	// 3. BALANCE_AUTHORIZATION VALIDATION
+	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags and null tokenId
+	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for liquidity pool")
+	balanceAuth := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
+	validateStateChangeBase(suite, balanceAuth, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonSet, balanceAuth.GetReason(), "should be SET reason")
+	suite.Require().Equal(primaryAccount, balanceAuth.GetAccountID(), "account ID mismatch")
+	suite.Require().Empty(balanceAuth.Flags, "LP authorization flags should be empty (LPs don't support auth)")
+	suite.Require().Nil(balanceAuth.TokenID, "LP authorization should have nil tokenId")
+	suite.Require().NotNil(balanceAuth.KeyValue, "LP authorization should have keyValue (pool ID)")
+
+	// 4. TRUSTLINE VALIDATION
+	// LP trustlines should have null tokenId and pool ID in keyValue
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD for liquidity pool")
+	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineChange)
+	validateStateChangeBase(suite, trustlineAddChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonAdd, trustlineAddChange.GetReason(), "should be ADD reason")
+	suite.Require().Equal(primaryAccount, trustlineAddChange.GetAccountID(), "account ID mismatch")
+	suite.Require().Nil(trustlineAddChange.TokenID, "LP trustline should have nil tokenId")
+	suite.Require().NotNil(trustlineAddChange.KeyValue, "LP trustline should have keyValue (pool ID)")
+	suite.Require().NotNil(trustlineAddChange.Limit, "LP trustline ADD should have limit")
+
 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE for liquidity pool")
+	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineChange)
+	validateStateChangeBase(suite, trustlineRemoveChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonRemove, trustlineRemoveChange.GetReason(), "should be REMOVE reason")
+	suite.Require().Equal(primaryAccount, trustlineRemoveChange.GetAccountID(), "account ID mismatch")
+	suite.Require().Nil(trustlineRemoveChange.TokenID, "LP trustline should have nil tokenId")
+	suite.Require().NotNil(trustlineRemoveChange.KeyValue, "LP trustline should have keyValue (pool ID)")
+	suite.Require().Nil(trustlineRemoveChange.Limit, "LP trustline REMOVE should have nil limit")
 
-	// 4. BALANCE CHANGES VALIDATION
-	// Should have multiple balance changes for deposits and withdrawals of both assets
-	suite.Require().NotEmpty(balanceChanges.Edges, "should have balance changes")
+	// 5. BALANCE CHANGES VALIDATION
+	// DEBIT: XLM deposited into pool (amount = 1000000000)
+	suite.Require().Len(balanceDebit.Edges, 1, "should have exactly 1 BALANCE/DEBIT")
+	debitChange := balanceDebit.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, debitChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonDebit, debitChange.GetReason(), "should be DEBIT reason")
+	suite.Require().Equal(primaryAccount, debitChange.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(xlmContractAddress, debitChange.TokenID, "should be XLM contract address")
+	suite.Require().Equal("1000000000", debitChange.Amount, "XLM debit amount should be 1000000000")
 
-	// Verify we have changes for both TEST2 and XLM
-	foundTest2 := false
-	foundXLM := false
-	for _, edge := range balanceChanges.Edges {
-		bc := edge.Node.(*types.StandardBalanceChange)
-		if bc.TokenID == test2ContractAddress {
-			foundTest2 = true
-		}
-		if bc.TokenID == xlmContractAddress {
-			foundXLM = true
-		}
-	}
-	suite.Require().True(foundTest2, "should have TEST2 balance changes")
-	suite.Require().True(foundXLM, "should have XLM balance changes")
+	// CREDIT: XLM withdrawn from pool (amount = 1000000000)
+	suite.Require().Len(balanceCredit.Edges, 1, "should have exactly 1 BALANCE/CREDIT")
+	creditChange := balanceCredit.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, creditChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonCredit, creditChange.GetReason(), "should be CREDIT reason")
+	suite.Require().Equal(primaryAccount, creditChange.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(xlmContractAddress, creditChange.TokenID, "should be XLM contract address")
+	suite.Require().Equal("1000000000", creditChange.Amount, "XLM credit amount should be 1000000000")
+
+	// MINT: TEST2 minted to LP (amount = 1000000000)
+	suite.Require().Len(balanceMint.Edges, 1, "should have exactly 1 BALANCE/MINT")
+	mintChange := balanceMint.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, mintChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonMint, mintChange.GetReason(), "should be MINT reason")
+	suite.Require().Equal(primaryAccount, mintChange.GetAccountID(), "account ID mismatch (Primary is issuer)")
+	suite.Require().Equal(test2ContractAddress, mintChange.TokenID, "should be TEST2 contract address")
+	suite.Require().Equal("1000000000", mintChange.Amount, "TEST2 mint amount should be 1000000000")
+
+	// BURN: TEST2 burned from LP back to issuer (amount = 1000000000)
+	suite.Require().Len(balanceBurn.Edges, 1, "should have exactly 1 BALANCE/BURN")
+	burnChange := balanceBurn.Edges[0].Node.(*types.StandardBalanceChange)
+	validateStateChangeBase(suite, burnChange, ledgerNumber)
+	suite.Require().Equal(types.StateChangeReasonBurn, burnChange.GetReason(), "should be BURN reason")
+	suite.Require().Equal(primaryAccount, burnChange.GetAccountID(), "account ID mismatch")
+	suite.Require().Equal(test2ContractAddress, burnChange.TokenID, "should be TEST2 contract address")
+	suite.Require().Equal("1000000000", burnChange.Amount, "TEST2 burn amount should be 1000000000")
+
+	// 6. VERIFY TOTAL STATE CHANGE COUNT
+	// According to the plan: 7 state changes total
+	// 1. BALANCE_AUTHORIZATION/SET (empty flags, null tokenId)
+	// 2. TRUSTLINE/ADD (null tokenId, has limit)
+	// 3. BALANCE/DEBIT (XLM)
+	// 4. BALANCE/MINT (TEST2)
+	// 5. BALANCE/BURN (TEST2)
+	// 6. BALANCE/CREDIT (XLM)
+	// 7. TRUSTLINE/REMOVE (null tokenId, no limit)
+	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 state changes for liquidity pool operations")
 }
 
 // func (suite *DataValidationTestSuite) TestRevokeSponsorshipOpsDataValidation() {
