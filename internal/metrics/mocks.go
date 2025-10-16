@@ -81,6 +81,22 @@ func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 	m.Called(queryType, table)
 }
 
+func (m *MockMetricsService) IncDBQueryError(queryType, table, errorType string) {
+	m.Called(queryType, table, errorType)
+}
+
+func (m *MockMetricsService) IncDBTransaction(status string) {
+	m.Called(status)
+}
+
+func (m *MockMetricsService) ObserveDBTransactionDuration(status string, duration float64) {
+	m.Called(status, duration)
+}
+
+func (m *MockMetricsService) ObserveDBBatchSize(operation, table string, size int) {
+	m.Called(operation, table, size)
+}
+
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.Called(expiredSeconds)
 }

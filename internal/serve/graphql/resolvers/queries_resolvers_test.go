@@ -17,6 +17,7 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("IncDBQueryError", "SELECT", "transactions", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -217,6 +218,7 @@ func TestQueryResolver_Account(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
+	mockMetricsService.On("IncDBQueryError", "SELECT", "accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -417,6 +419,7 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	mockMetricsService.On("IncDBQueryError", "SELECT", "operations", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{

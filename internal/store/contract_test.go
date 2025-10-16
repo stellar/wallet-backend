@@ -31,10 +31,12 @@ func TestContractStore_UpsertWithTx(t *testing.T) {
 
 	t.Run("successfully inserts a new contract in DB and cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -71,8 +73,10 @@ func TestContractStore_UpsertWithTx(t *testing.T) {
 
 	t.Run("updates an existing contract in the DB and cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(3)
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(3)
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Times(2).Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return().Once()
@@ -127,10 +131,12 @@ func TestContractStore_Name(t *testing.T) {
 
 	t.Run("success - from cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -157,8 +163,10 @@ func TestContractStore_Name(t *testing.T) {
 
 	t.Run("not found in cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -193,10 +201,12 @@ func TestContractStore_Symbol(t *testing.T) {
 
 	t.Run("success - from cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -223,8 +233,10 @@ func TestContractStore_Symbol(t *testing.T) {
 
 	t.Run("not found in cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -259,10 +271,12 @@ func TestContractStore_Exists(t *testing.T) {
 
 	t.Run("exists in cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Twice() // GetAll + UpsertWithTx
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Twice()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
 		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Once()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", "no_rows").Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -287,6 +301,7 @@ func TestContractStore_Exists(t *testing.T) {
 
 	t.Run("does not exist in cache", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Once() // GetAll only
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
@@ -305,6 +320,7 @@ func TestContractStore_Exists(t *testing.T) {
 
 	t.Run("cache expiration triggers refresh workflow", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return().Times(3) // GetAll + 2 UpsertWithTx
 		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return().Times(3)
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Once()
@@ -378,6 +394,7 @@ func TestContractStore_MultipleContracts(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 	// This test calls UpsertWithTx 3 times + 1 GetAll + 3 GetByID calls to verify = 7 total SELECT operations
 	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(3)
 	mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Times(3)
@@ -447,6 +464,7 @@ func TestContractStore_CachePopulationOnInit(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 	// This test inserts 2 contracts directly to DB and then creates store
 	// 2 INSERT calls + 1 GetAll call during store initialization
 	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Twice()
@@ -516,6 +534,7 @@ func TestContractStore_ConcurrentAccess(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 	// This test has lots of concurrent operations, we need to be generous with expectations
 	// 1 GetAll + 3 initial inserts + 10 writers * 50 operations each = 504 total SELECT operations
 	mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(3)

@@ -56,6 +56,7 @@ func TestAccountRegister(t *testing.T) {
 		mockMetricsService.On("IncActiveAccount").Return().Once()
 		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Times(2)
 		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(1)
+		mockMetricsService.On("IncDBQueryError", "INSERT", "accounts", mock.Anything).Return().Times(1)
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
