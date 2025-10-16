@@ -656,6 +656,7 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBBatchSize", "SELECT", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
 			mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Times(tc.expectMetricCalls)
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -730,6 +731,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "state_changes", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
@@ -749,7 +751,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1),
 			('tx3', 3, 'env3', 'res3', 'meta3', 3, $1)
@@ -759,7 +761,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
+		VALUES
 			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
 			(2, 1, 'debit', $1, 2, $2, 456, 'tx2'),
 			(3, 1, 'credit', $1, 3, $2, 123, 'tx3')

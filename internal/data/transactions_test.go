@@ -108,9 +108,14 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 
 			// Create fresh mock for each test case
 			mockMetricsService := metrics.NewMockMetricsService()
+			// The implementation always loops through both tables and calls ObserveDBQueryDuration for each
 			mockMetricsService.
 				On("ObserveDBQueryDuration", "INSERT", "transactions", mock.Anything).Return().Once().
-				On("ObserveDBQueryDuration", "INSERT", "transactions_accounts", mock.Anything).Return().Once().
+				On("ObserveDBQueryDuration", "INSERT", "transactions_accounts", mock.Anything).Return().Once()
+			// ObserveDBBatchSize is only called for transactions table (not transactions_accounts)
+			mockMetricsService.On("ObserveDBBatchSize", "INSERT", "transactions", mock.Anything).Return().Once()
+			// IncDBQuery is called for both tables on success
+			mockMetricsService.
 				On("IncDBQuery", "INSERT", "transactions").Return().Once().
 				On("IncDBQuery", "INSERT", "transactions_accounts").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
@@ -318,6 +323,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
@@ -332,7 +338,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
 			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
 			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
@@ -342,7 +348,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	// Create test operations
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO operations (id, tx_hash, operation_type, operation_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			(1, 'tx1', 'payment', 'xdr1', 1, $1),
 			(2, 'tx2', 'create_account', 'xdr2', 2, $1),
 			(3, 'tx1', 'payment', 'xdr3', 3, $1)
@@ -373,6 +379,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
@@ -392,7 +399,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
 			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
 			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
@@ -402,7 +409,7 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	// Create test state changes
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
+		VALUES
 			(1, 1, 'credit', $1, 1, $2, 1, 'tx1'),
 			(2, 1, 'debit', $1, 2, $2, 2, 'tx2'),
 			(3, 1, 'credit', $1, 3, $2, 3, 'tx1')

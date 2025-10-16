@@ -156,6 +156,7 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
 	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
