@@ -153,6 +153,13 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 			if trustorAddr, err := safeStringFromDetails(effect.Details, "trustor"); err == nil {
 				changeBuilder = changeBuilder.Clone().WithAccount(trustorAddr)
 			}
+			// Build the asset contract ID from the trustline effect
+			_, _, assetContractID, err := p.buildAssetContractIDFromTrustlineEffect(&effect)
+			if err != nil {
+				log.Debugf("processor: %s: failed to build asset contract ID from trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
+			}
+			changeBuilder = changeBuilder.WithToken(assetContractID)
 			stateChanges = append(stateChanges, p.parseFlags(trustlineFlags, changeBuilder, &effect)...)
 
 		// Change trust effects
@@ -473,17 +480,9 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 			"liquidity_pool_id": poolID,
 		})
 	} else {
-		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		assetCode, assetIssuer, assetContractID, err := p.buildAssetContractIDFromTrustlineEffect(effect)
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
-		}
-		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
-		if err != nil {
-			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
-		}
-		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
-		if err != nil {
-			return types.StateChange{}, fmt.Errorf("getting asset contract ID: %w", err)
+			return types.StateChange{}, fmt.Errorf("building asset contract ID from trustline effect: %w", err)
 		}
 		baseBuilder = baseBuilder.WithToken(assetContractID)
 
@@ -504,6 +503,26 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		WithReason(types.StateChangeReasonSet).
 		WithFlags(defaultFlags).
 		Build(), nil
+}
+
+func (p *EffectsProcessor) buildAssetContractIDFromTrustlineEffect(effect *effects.EffectOutput) (string, string, string, error) {
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
+	if err != nil {
+		return "", "", "", fmt.Errorf("extracting asset type from effect details: %w", err)
+	}
+	assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+	if err != nil {
+		return "", "", "", fmt.Errorf("extracting asset code from effect details: %w", err)
+	}
+	assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+	if err != nil {
+		return "", "", "", fmt.Errorf("extracting asset issuer from effect details: %w", err)
+	}
+	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+	if err != nil {
+		return "", "", "", fmt.Errorf("getting asset contract ID: %w", err)
+	}
+	return assetCode, assetIssuer, assetContractID, nil
 }
 
 // getTrustlineFlagsFromChanges extracts the trustline flags from transaction changes
