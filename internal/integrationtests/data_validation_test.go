@@ -265,8 +265,9 @@ func validateTrustlineChange(suite *DataValidationTestSuite, tc *types.Trustline
 }
 
 // validateBalanceAuthorizationChange validates a balance authorization state change
-func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string, 
-	expectedReason types.StateChangeReason, expectedFlags []string, expectedTokenID, expectedKey, expectedValue string) {
+func validateBalanceAuthorizationChange(suite *DataValidationTestSuite, bac *types.BalanceAuthorizationChange, expectedAccount string,
+	expectedReason types.StateChangeReason, expectedFlags []string, expectedTokenID, expectedKey, expectedValue string,
+) {
 	suite.Require().NotNil(bac, "balance authorization change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryBalanceAuthorization, bac.GetType(), "should be BALANCE_AUTHORIZATION type")
 	suite.Require().Equal(expectedReason, bac.GetReason(), "reason mismatch")
@@ -1567,15 +1568,11 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	suite.Require().NotNil(balanceBurn, "BALANCE/BURN should not be nil")
 
 	// 3. BALANCE_AUTHORIZATION VALIDATION
-	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags and null tokenId
+	// LP trustline should have exactly 1 BALANCE_AUTHORIZATION/SET with empty flags, null tokenId and pool ID in keyValue
 	suite.Require().Len(balanceAuthSet.Edges, 1, "should have exactly 1 BALANCE_AUTHORIZATION/SET for liquidity pool")
 	balanceAuth := balanceAuthSet.Edges[0].Node.(*types.BalanceAuthorizationChange)
 	validateStateChangeBase(suite, balanceAuth, ledgerNumber)
-	suite.Require().Equal(types.StateChangeReasonSet, balanceAuth.GetReason(), "should be SET reason")
-	suite.Require().Equal(primaryAccount, balanceAuth.GetAccountID(), "account ID mismatch")
-	suite.Require().Empty(balanceAuth.Flags, "LP authorization flags should be empty (LPs don't support auth)")
-	suite.Require().Nil(balanceAuth.TokenID, "LP authorization should have nil tokenId")
-	suite.Require().NotNil(balanceAuth.KeyValue, "LP authorization should have keyValue (pool ID)")
+	validateBalanceAuthorizationChange(suite, balanceAuth, primaryAccount, types.StateChangeReasonSet, []string{}, "", "liquidity_pool_id", suite.testEnv.LiquidityPoolID)
 
 	// 4. TRUSTLINE VALIDATION
 	// LP trustlines should have null tokenId and pool ID in keyValue
@@ -1620,7 +1617,7 @@ func (suite *DataValidationTestSuite) TestRevokeSponsorshipOpsDataValidation() {
 	log.Ctx(ctx).Info("🔍 Validating revoke sponsorship operations data...")
 
 	// Find the revoke sponsorship use case
-	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases,"Stellarclassic/revokeSponsorshipOps")
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/revokeSponsorshipOps")
 	suite.Require().NotNil(useCase, "revokeSponsorshipOps use case not found")
 	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
 

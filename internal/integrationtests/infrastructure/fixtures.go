@@ -16,6 +16,7 @@ import (
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"golang.org/x/text/cases"
+	operations "github.com/stellar/go/processors/operation"
 	"golang.org/x/text/language"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -56,7 +57,18 @@ type Fixtures struct {
 	PrimaryAccountKP      *keypair.Full
 	SecondaryAccountKP    *keypair.Full
 	SponsoredNewAccountKP *keypair.Full
+	LiquidityPoolID       string
 	RPCService            services.RPCService
+}
+
+func NewFixtures(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) (*Fixtures, error) {
+	return &Fixtures{
+		NetworkPassphrase:     networkPassphrase,
+		PrimaryAccountKP:      primaryAccountKP,
+		SecondaryAccountKP:    secondaryAccountKP,
+		SponsoredNewAccountKP: sponsoredNewAccountKP,
+		RPCService:            rpcService,
+	}, nil
 }
 
 // preparePaymentOp creates a payment operation.
@@ -449,8 +461,8 @@ func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, 
 // This should be executed after all operations that require auth flags are completed.
 func (f *Fixtures) prepareClearAuthFlagsOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-	Should generate 1 state change:
-		- 1 FLAGS/CLEAR change for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
+		Should generate 1 state change:
+			- 1 FLAGS/CLEAR change for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
 	*/
 	operations := []txnbuild.Operation{
 		&txnbuild.SetOptions{
@@ -535,15 +547,15 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 // Currently commented out pending further testing.
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-	Should generate 7 state changes:
-		1. BALANCE_AUTHORIZATION/SET - LP trustline authorization (empty flags, no tokenId, has liquidity_pool_id in keyValue)
-		Note: LPs don't support authorization semantics, so flags array is empty
-		2. TRUSTLINE/ADD - Create LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, has limit)
-		3. BALANCE/DEBIT - XLM deposited into pool (has tokenId = XLM contract address, amount = 1000000000)
-		4. BALANCE/MINT - TEST2 minted to LP (Primary is issuer, has tokenId = TEST2 contract address, amount = 1000000000)
-		5. BALANCE/BURN - TEST2 burned from LP back to issuer (has tokenId = TEST2 contract address, amount = 1000000000)
-		6. BALANCE/CREDIT - XLM withdrawn from pool (has tokenId = XLM contract address, amount = 1000000000)
-		7. TRUSTLINE/REMOVE - Remove LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, no limit)
+		Should generate 7 state changes:
+			1. BALANCE_AUTHORIZATION/SET - LP trustline authorization (empty flags, no tokenId, has liquidity_pool_id in keyValue)
+			Note: LPs don't support authorization semantics, so flags array is empty
+			2. TRUSTLINE/ADD - Create LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, has limit)
+			3. BALANCE/DEBIT - XLM deposited into pool (has tokenId = XLM contract address, amount = 1000000000)
+			4. BALANCE/MINT - TEST2 minted to LP (Primary is issuer, has tokenId = TEST2 contract address, amount = 1000000000)
+			5. BALANCE/BURN - TEST2 burned from LP back to issuer (has tokenId = TEST2 contract address, amount = 1000000000)
+			6. BALANCE/CREDIT - XLM withdrawn from pool (has tokenId = XLM contract address, amount = 1000000000)
+			7. TRUSTLINE/REMOVE - Remove LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, no limit)
 	*/
 	xlmAsset := txnbuild.NativeAsset{}
 	customAsset := txnbuild.CreditAsset{
@@ -556,6 +568,12 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating liquidity pool ID: %w", err)
 	}
+	poolIDXDR, err := poolID.ToXDR()
+	if err != nil {
+		return nil, nil, fmt.Errorf("converting liquidity pool ID to XDR: %w", err)
+	}
+	poolIDStrkey := operations.PoolIDToString(poolIDXDR)
+	f.LiquidityPoolID = poolIDStrkey
 
 	// Create ChangeTrustAsset for the liquidity pool
 	poolAsset := txnbuild.LiquidityPoolShareChangeTrustAsset{
@@ -618,11 +636,11 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 // Currently commented out pending further testing.
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-	Should generate 4 state changes:
-		- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-		- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsored account)
-		- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsored account)
-		- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
+		Should generate 4 state changes:
+			- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
+			- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsored account)
+			- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsored account)
+			- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
 	*/
 	operations := []txnbuild.Operation{
 		// Primary begins sponsoring future reserves for Secondary

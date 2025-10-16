@@ -925,20 +925,10 @@ type TestEnvironment struct {
 	SponsoredNewAccountKP    *keypair.Full
 	ClaimBalanceID           string
 	ClawbackBalanceID        string
+	LiquidityPoolID          string
 	NetworkPassphrase        string
 	UseCases                 []*UseCase
 	ClaimAndClawbackUseCases []*UseCase
-}
-
-func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
-	fixtures := Fixtures{
-		NetworkPassphrase:     networkPassphrase,
-		PrimaryAccountKP:      primaryAccountKP,
-		SecondaryAccountKP:    secondaryAccountKP,
-		SponsoredNewAccountKP: sponsoredNewAccountKP,
-		RPCService:            rpcService,
-	}
-	return fixtures.PrepareUseCases(ctx)
 }
 
 // createWalletBackendClient initializes the wallet-backend client
@@ -1018,7 +1008,11 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	sponsoredNewAccountKP := containers.GetSponsoredNewAccountKeyPair(ctx)
 
 	// Prepare use cases
-	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
+	fixtures, err := NewFixtures(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
+	if err != nil {
+		return nil, err
+	}
+	useCases, err := fixtures.PrepareUseCases(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1033,5 +1027,6 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		UseCases:              useCases,
 		NetworkPassphrase:     networkPassphrase,
+		LiquidityPoolID:       fixtures.LiquidityPoolID,
 	}, nil
 }
