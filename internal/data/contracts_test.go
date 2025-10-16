@@ -113,9 +113,8 @@ func TestContractModel_GetByID(t *testing.T) {
 
 	t.Run("returns error when contract not found", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{

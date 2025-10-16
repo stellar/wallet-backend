@@ -131,6 +131,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
 				On("ObserveDBQueryDuration", "INSERT", "state_changes", mock.Anything).Return().Once().
+				On("ObserveDBBatchSize", "INSERT", "state_changes", mock.Anything).Return().Once().
 				On("IncDBQuery", "INSERT", "state_changes").Return().Once()
 
 			m := &StateChangeModel{

@@ -137,6 +137,7 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 			mockMetricsService.
 				On("ObserveDBQueryDuration", "INSERT", "operations", mock.Anything).Return().Once().
 				On("ObserveDBQueryDuration", "INSERT", "operations_accounts", mock.Anything).Return().Once().
+				On("ObserveDBBatchSize", "INSERT", "operations", mock.Anything).Return().Once().
 				On("IncDBQuery", "INSERT", "operations").Return().Once().
 				On("IncDBQuery", "INSERT", "operations_accounts").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
@@ -374,6 +375,7 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBBatchSize", "SELECT", "operations", mock.Anything).Return().Times(tc.expectMetricCalls)
 			mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return().Times(tc.expectMetricCalls)
 			defer mockMetricsService.AssertExpectations(t)
 
@@ -598,6 +600,7 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "operations", mock.Anything).Return()
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
