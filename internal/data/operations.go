@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type OperationModel struct {
@@ -28,7 +29,7 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operation by id: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -68,7 +69,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operations: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -117,7 +118,7 @@ func (m *OperationModel) BatchGetByTxHashes(ctx context.Context, txHashes []stri
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("SELECT", "operations", len(txHashes))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operations by tx hashes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -165,7 +166,7 @@ func (m *OperationModel) BatchGetByTxHash(ctx context.Context, txHash string, co
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated operations by tx hash: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -195,7 +196,7 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operations by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -228,7 +229,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "operations", duration)
 	m.MetricsService.ObserveDBBatchSize("SELECT", "operations", len(scOrders))
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "operations", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "operations", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting operations by state change IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "operations")
@@ -338,7 +339,7 @@ func (m *OperationModel) BatchInsert(
 	}
 	if err != nil {
 		for _, dbTableName := range []string{"operations", "operations_accounts"} {
-			m.MetricsService.IncDBQueryError("INSERT", dbTableName, GetDBErrorType(err))
+			m.MetricsService.IncDBQueryError("INSERT", dbTableName, utils.GetDBErrorType(err))
 		}
 		return nil, fmt.Errorf("batch inserting operations and operations_accounts: %w", err)
 	}

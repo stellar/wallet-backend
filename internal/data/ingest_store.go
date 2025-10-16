@@ -9,6 +9,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type IngestStoreModel struct {
@@ -28,7 +29,7 @@ func (m *IngestStoreModel) GetLatestLedgerSynced(ctx context.Context, cursorName
 		return 0, nil
 	}
 	if err != nil {
-		m.MetricsService.IncDBQueryError("SELECT", "ingest_store", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("SELECT", "ingest_store", utils.GetDBErrorType(err))
 		return 0, fmt.Errorf("getting latest ledger synced for cursor %s: %w", cursorName, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "ingest_store")
@@ -46,7 +47,7 @@ func (m *IngestStoreModel) UpdateLatestLedgerSynced(ctx context.Context, cursorN
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "ingest_store", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("INSERT", "ingest_store", GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("INSERT", "ingest_store", utils.GetDBErrorType(err))
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "ingest_store")
