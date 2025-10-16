@@ -28,6 +28,7 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "transactions", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
@@ -68,6 +69,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "transactions", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting transactions: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
@@ -97,6 +99,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "transactions", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting transactions by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
@@ -117,7 +120,9 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 	err := m.DB.SelectContext(ctx, &transactions, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "transactions", len(operationIDs))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "transactions", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting transactions by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
@@ -147,7 +152,9 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	err := m.DB.SelectContext(ctx, &transactions, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "transactions", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "transactions", len(scOrders))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "transactions", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting transactions by state change IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "transactions")
@@ -251,11 +258,17 @@ func (m *TransactionModel) BatchInsert(
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
 		m.MetricsService.ObserveDBQueryDuration("INSERT", dbTableName, duration)
+		if dbTableName == "transactions" {
+			m.MetricsService.ObserveDBBatchSize("INSERT", dbTableName, len(txs))
+		}
 		if err == nil {
 			m.MetricsService.IncDBQuery("INSERT", dbTableName)
 		}
 	}
 	if err != nil {
+		for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
+			m.MetricsService.IncDBQueryError("INSERT", dbTableName, GetDBErrorType(err))
+		}
 		return nil, fmt.Errorf("batch inserting transactions and transactions_accounts: %w", err)
 	}
 

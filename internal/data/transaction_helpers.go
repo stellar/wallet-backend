@@ -1,0 +1,108 @@
+package data
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/lib/pq"
+
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
+)
+
+// RunInTransactionWithMetrics runs the given atomic function in an atomic database transaction with metrics tracking.
+func RunInTransactionWithMetrics(ctx context.Context, dbConnectionPool db.ConnectionPool, metricsService metrics.MetricsService, opts *sql.TxOptions, atomicFunction func(dbTx db.Transaction) error) error {
+	start := time.Now()
+
+	err := db.RunInTransaction(ctx, dbConnectionPool, opts, atomicFunction)
+
+	duration := time.Since(start).Seconds()
+	if err != nil {
+		metricsService.IncDBTransaction("rollback")
+		metricsService.ObserveDBTransactionDuration("rollback", duration)
+	} else {
+		metricsService.IncDBTransaction("commit")
+		metricsService.ObserveDBTransactionDuration("commit", duration)
+	}
+
+	return err
+}
+
+// RunInTransactionWithResultAndMetrics runs the given atomic function in an atomic database transaction
+// with metrics tracking and returns a result.
+func RunInTransactionWithResultAndMetrics[T any](ctx context.Context, dbConnectionPool db.ConnectionPool, metricsService metrics.MetricsService, opts *sql.TxOptions, atomicFunction func(dbTx db.Transaction) (T, error)) (T, error) {
+	start := time.Now()
+
+	result, err := db.RunInTransactionWithResult(ctx, dbConnectionPool, opts, atomicFunction)
+
+	duration := time.Since(start).Seconds()
+	if err != nil {
+		metricsService.IncDBTransaction("rollback")
+		metricsService.ObserveDBTransactionDuration("rollback", duration)
+		return result, fmt.Errorf("transaction failed: %w", err)
+	}
+
+	metricsService.IncDBTransaction("commit")
+	metricsService.ObserveDBTransactionDuration("commit", duration)
+
+	return result, nil
+}
+
+// GetDBErrorType categorizes database errors into types for metrics
+func GetDBErrorType(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	// Check for standard SQL errors
+	if errors.Is(err, sql.ErrNoRows) {
+		return "no_rows"
+	}
+	if errors.Is(err, sql.ErrConnDone) {
+		return "connection_closed"
+	}
+	if errors.Is(err, sql.ErrTxDone) {
+		return "transaction_done"
+	}
+
+	// Check for PostgreSQL errors
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		switch pqErr.Code {
+		case "23505": // unique_violation
+			return "unique_violation"
+		case "23503": // foreign_key_violation
+			return "foreign_key_violation"
+		case "23502": // not_null_violation
+			return "not_null_violation"
+		case "23514": // check_violation
+			return "check_violation"
+		case "40001": // serialization_failure
+			return "serialization_failure"
+		case "40P01": // deadlock_detected
+			return "deadlock"
+		case "57014": // query_canceled
+			return "query_canceled"
+		case "57P01": // admin_shutdown
+			return "admin_shutdown"
+		case "08000", "08003", "08006": // connection errors
+			return "connection_error"
+		default:
+			return "postgres_error"
+		}
+	}
+
+	// Check for context errors
+	if errors.Is(err, context.Canceled) {
+		return "context_canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "context_deadline_exceeded"
+	}
+
+	return "unknown"
+}
+

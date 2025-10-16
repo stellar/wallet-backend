@@ -38,6 +38,7 @@ func (m *AccountModel) Get(ctx context.Context, address string) (*types.Account,
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting account %s: %w", address, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
@@ -49,12 +50,13 @@ func (m *AccountModel) GetAll(ctx context.Context) ([]string, error) {
 	start := time.Now()
 	accounts := []string{}
 	err := m.DB.SelectContext(ctx, &accounts, query)
-	m.MetricsService.IncDBQuery("SELECT", "accounts")
-	if err != nil {
-		return nil, fmt.Errorf("getting all accounts: %w", err)
-	}
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
+		return nil, fmt.Errorf("getting all accounts: %w", err)
+	}
+	m.MetricsService.IncDBQuery("SELECT", "accounts")
 	return accounts, nil
 }
 
@@ -65,6 +67,7 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "accounts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("INSERT", "accounts", GetDBErrorType(err))
 		if isDuplicateError(err) {
 			return ErrAccountAlreadyExists
 		}
@@ -81,12 +84,14 @@ func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("DELETE", "accounts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("DELETE", "accounts", GetDBErrorType(err))
 		return fmt.Errorf("deleting address %s: %w", address, err)
 	}
 
 	// Check if any rows were affected to determine if account existed
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		m.MetricsService.IncDBQueryError("DELETE", "accounts", GetDBErrorType(err))
 		return fmt.Errorf("checking rows affected for address %s: %w", address, err)
 	}
 	if rowsAffected == 0 {
@@ -109,7 +114,9 @@ func (m *AccountModel) BatchGetByIDs(ctx context.Context, accountIDs []string) (
 	err := m.DB.SelectContext(ctx, &existingAccounts, query, pq.Array(accountIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "accounts", len(accountIDs))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return nil, fmt.Errorf("batch getting accounts by IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
@@ -133,6 +140,7 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return false, fmt.Errorf("checking if account %s is fee bump eligible: %w", address, err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
@@ -143,17 +151,19 @@ func (m *AccountModel) IsAccountFeeBumpEligible(ctx context.Context, address str
 func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string, columns string) ([]*types.AccountWithTxHash, error) {
 	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
 	query := fmt.Sprintf(`
-		SELECT %s, transactions_accounts.tx_hash 
-		FROM transactions_accounts 
-		INNER JOIN accounts 
-		ON transactions_accounts.account_id = accounts.stellar_address 
+		SELECT %s, transactions_accounts.tx_hash
+		FROM transactions_accounts
+		INNER JOIN accounts
+		ON transactions_accounts.account_id = accounts.stellar_address
 		WHERE transactions_accounts.tx_hash = ANY($1)`, columns)
 	var accounts []*types.AccountWithTxHash
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "accounts", len(txHashes))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by transaction hashes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
@@ -164,17 +174,19 @@ func (m *AccountModel) BatchGetByTxHashes(ctx context.Context, txHashes []string
 func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.AccountWithOperationID, error) {
 	columns = prepareColumnsWithID(columns, types.Account{}, "accounts", "stellar_address")
 	query := fmt.Sprintf(`
-		SELECT %s, operations_accounts.operation_id 
-		FROM operations_accounts 
-		INNER JOIN accounts 
-		ON operations_accounts.account_id = accounts.stellar_address 
+		SELECT %s, operations_accounts.operation_id
+		FROM operations_accounts
+		INNER JOIN accounts
+		ON operations_accounts.account_id = accounts.stellar_address
 		WHERE operations_accounts.operation_id = ANY($1)`, columns)
 	var accounts []*types.AccountWithOperationID
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &accounts, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "accounts", len(operationIDs))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")
@@ -205,7 +217,9 @@ func (m *AccountModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []i
 	err := m.DB.SelectContext(ctx, &accountsWithStateChanges, query)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "accounts", len(scOrders))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "accounts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting accounts by state change IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "accounts")

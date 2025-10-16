@@ -26,11 +26,13 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 	start := time.Now()
 	contract := &Contract{}
 	err := m.DB.GetContext(ctx, contract, "SELECT * FROM token_contracts WHERE id = $1", contractID)
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "token_contracts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting contract by ID %s: %w", contractID, err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
 	return contract, nil
 }
 
@@ -41,11 +43,13 @@ func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract 
 		VALUES (:id, :name, :symbol)
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "token_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("INSERT", "token_contracts")
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("INSERT", "token_contracts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("INSERT", "token_contracts", GetDBErrorType(err))
 		return fmt.Errorf("inserting contract %s: %w", contract.ID, err)
 	}
+	m.MetricsService.IncDBQuery("INSERT", "token_contracts")
 	return nil
 }
 
@@ -57,11 +61,13 @@ func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract 
 		WHERE id = :id
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
-	m.MetricsService.ObserveDBQueryDuration("UPDATE", "token_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("UPDATE", "token_contracts")
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("UPDATE", "token_contracts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("UPDATE", "token_contracts", GetDBErrorType(err))
 		return fmt.Errorf("updating contract %s: %w", contract.ID, err)
 	}
+	m.MetricsService.IncDBQuery("UPDATE", "token_contracts")
 	return nil
 }
 
@@ -69,10 +75,12 @@ func (m *ContractModel) GetAll(ctx context.Context) ([]*Contract, error) {
 	start := time.Now()
 	contracts := []*Contract{}
 	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM token_contracts")
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", time.Since(start).Seconds())
-	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("SELECT", "token_contracts", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "token_contracts", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting all contracts: %w", err)
 	}
+	m.MetricsService.IncDBQuery("SELECT", "token_contracts")
 	return contracts, nil
 }

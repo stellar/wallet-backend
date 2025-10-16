@@ -104,6 +104,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by account address: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
@@ -152,6 +153,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting all state changes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
@@ -322,7 +324,9 @@ func (m *StateChangeModel) BatchInsert(
 	)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("INSERT", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("INSERT", "state_changes", len(stateChanges))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("INSERT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("batch inserting state changes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "state_changes")
@@ -378,6 +382,7 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by tx hash: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
@@ -424,7 +429,9 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "state_changes", len(txHashes))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by transaction hashes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
@@ -479,6 +486,7 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
@@ -523,7 +531,9 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("SELECT", "state_changes", len(operationIDs))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("SELECT", "state_changes", GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
 	}
 	m.MetricsService.IncDBQuery("SELECT", "state_changes")
