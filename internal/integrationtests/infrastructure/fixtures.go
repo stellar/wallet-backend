@@ -449,7 +449,7 @@ func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, 
 // This should be executed after all operations that require auth flags are completed.
 func (f *Fixtures) prepareClearAuthFlagsOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 1 state change:
+	Should generate 1 state change:
 		- 1 FLAGS/CLEAR change for clearing auth flags (auth_required, auth_revocable, auth_clawback_enabled)
 	*/
 	operations := []txnbuild.Operation{
@@ -534,18 +534,17 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 // prepareLiquidityPoolOps creates liquidity pool operations.
 // Currently commented out pending further testing.
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
-	// Should generate 7 state changes:
-	// 1. BALANCE_AUTHORIZATION/SET - LP trustline authorization (empty flags, no tokenId, has liquidity_pool_id in keyValue)
-	//    Note: LPs don't support authorization semantics, so flags array is empty
-	// 2. TRUSTLINE/ADD - Create LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, has limit)
-	// 3. BALANCE/DEBIT - XLM deposited into pool (has tokenId = XLM contract address, amount = 1000000000)
-	// 4. BALANCE/MINT - TEST2 minted to LP (Primary is issuer, has tokenId = TEST2 contract address, amount = 1000000000)
-	// 5. BALANCE/BURN - TEST2 burned from LP back to issuer (has tokenId = TEST2 contract address, amount = 1000000000)
-	// 6. BALANCE/CREDIT - XLM withdrawn from pool (has tokenId = XLM contract address, amount = 1000000000)
-	// 7. TRUSTLINE/REMOVE - Remove LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, no limit)
-	//
-	// Note: LP share movements are tracked via trustline balance changes in the ledger, not as explicit token transfer events.
-	// The token_transfer processor doesn't generate separate BALANCE state changes for LP share movements.
+	/*
+	Should generate 7 state changes:
+		1. BALANCE_AUTHORIZATION/SET - LP trustline authorization (empty flags, no tokenId, has liquidity_pool_id in keyValue)
+		Note: LPs don't support authorization semantics, so flags array is empty
+		2. TRUSTLINE/ADD - Create LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, has limit)
+		3. BALANCE/DEBIT - XLM deposited into pool (has tokenId = XLM contract address, amount = 1000000000)
+		4. BALANCE/MINT - TEST2 minted to LP (Primary is issuer, has tokenId = TEST2 contract address, amount = 1000000000)
+		5. BALANCE/BURN - TEST2 burned from LP back to issuer (has tokenId = TEST2 contract address, amount = 1000000000)
+		6. BALANCE/CREDIT - XLM withdrawn from pool (has tokenId = XLM contract address, amount = 1000000000)
+		7. TRUSTLINE/REMOVE - Remove LP shares trustline (no tokenId, has liquidity_pool_id in keyValue, no limit)
+	*/
 	xlmAsset := txnbuild.NativeAsset{}
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -617,13 +616,14 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
 // Currently commented out pending further testing.
-/*
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
-	// Should generate ~6+ state changes:
-	// - 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-	// - 2 RESERVES/SPONSOR changes for establishing sponsorship (1 for sponsored account, 1 for sponsoring account)
-	// - 2 RESERVES/UNSPONSOR changes for revoking sponsorship (1 for sponsored account, 1 for sponsoring account)
-	// - 1 METADATA/DATA_ENTRY change for removing the data entry
+	/*
+	Should generate 4 state changes:
+		- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
+		- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsored account)
+		- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsored account)
+		- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
+	*/
 	operations := []txnbuild.Operation{
 		// Primary begins sponsoring future reserves for Secondary
 		&txnbuild.BeginSponsoringFutureReserves{
@@ -668,7 +668,6 @@ func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full],
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP, f.SecondaryAccountKP), nil
 }
-*/
 
 // prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) {
@@ -1102,21 +1101,21 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 	}
 
 	// RevokeSponsorshipOps
-	// revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("preparing revoke sponsorship operations: %w", err)
-	// } else {
-	// 	txXDR, txErr := f.buildTransactionXDR(revokeSponsorshipOps, timeoutSeconds)
-	// 	if txErr != nil {
-	// 		return nil, fmt.Errorf("building transaction XDR for revokeSponsorshipOps: %w", txErr)
-	// 	}
-	// 	useCases = append(useCases, &UseCase{
-	// 		name:                 "revokeSponsorshipOps",
-	// 		category:             categoryStellarClassic,
-	// 		TxSigners:            txSigners,
-	// 		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	// 	})
-	// }
+	revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing revoke sponsorship operations: %w", err)
+	} else {
+		txXDR, txErr := f.buildTransactionXDR(revokeSponsorshipOps, timeoutSeconds)
+		if txErr != nil {
+			return nil, fmt.Errorf("building transaction XDR for revokeSponsorshipOps: %w", txErr)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "revokeSponsorshipOps",
+			category:             categoryStellarClassic,
+			TxSigners:            txSigners,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
 
 	return useCases, nil
 }
