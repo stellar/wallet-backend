@@ -12,11 +12,11 @@ import (
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
+	operations "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 	"golang.org/x/text/cases"
-	operations "github.com/stellar/go/processors/operation"
 	"golang.org/x/text/language"
 
 	"github.com/stellar/wallet-backend/internal/entities"
