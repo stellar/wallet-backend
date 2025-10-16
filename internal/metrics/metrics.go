@@ -59,12 +59,12 @@ type metricsService struct {
 	requestsDuration *prometheus.SummaryVec
 
 	// DB Query Metrics
-	dbQueryDuration  *prometheus.SummaryVec
-	dbQueriesTotal   *prometheus.CounterVec
-	dbQueryErrors    *prometheus.CounterVec
-	dbTransactions   *prometheus.CounterVec
-	dbTxnDuration    *prometheus.SummaryVec
-	dbBatchSize      *prometheus.HistogramVec
+	dbQueryDuration *prometheus.SummaryVec
+	dbQueriesTotal  *prometheus.CounterVec
+	dbQueryErrors   *prometheus.CounterVec
+	dbTransactions  *prometheus.CounterVec
+	dbTxnDuration   *prometheus.SummaryVec
+	dbBatchSize     *prometheus.HistogramVec
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
