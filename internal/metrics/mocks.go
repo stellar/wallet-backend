@@ -65,6 +65,22 @@ func (m *MockMetricsService) SetRPCLatestLedger(ledger int64) {
 	m.Called(ledger)
 }
 
+func (m *MockMetricsService) IncRPCMethodCalls(method string) {
+	m.Called(method)
+}
+
+func (m *MockMetricsService) ObserveRPCMethodDuration(method string, duration float64) {
+	m.Called(method, duration)
+}
+
+func (m *MockMetricsService) IncRPCMethodErrors(method, errorType string) {
+	m.Called(method, errorType)
+}
+
+func (m *MockMetricsService) ObserveRPCResponseSize(method string, sizeBytes int) {
+	m.Called(method, sizeBytes)
+}
+
 func (m *MockMetricsService) IncNumRequests(endpoint, method string, statusCode int) {
 	m.Called(endpoint, method, statusCode)
 }

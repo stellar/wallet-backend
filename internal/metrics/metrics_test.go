@@ -403,3 +403,212 @@ func TestPoolMetrics(t *testing.T) {
 		pool.StopAndWait()
 	})
 }
+
+func TestRPCMethodMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("RPC method calls counter", func(t *testing.T) {
+		method := "GetTransaction"
+
+		ms.IncRPCMethodCalls(method)
+		ms.IncRPCMethodCalls(method)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_calls_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(2), metric.GetCounter().GetValue())
+				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
+			}
+		}
+		assert.True(t, found, "rpc_method_calls_total metric not found")
+	})
+
+	t.Run("RPC method duration", func(t *testing.T) {
+		method := "SendTransaction"
+
+		ms.ObserveRPCMethodDuration(method, 0.25)
+		ms.ObserveRPCMethodDuration(method, 0.35)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_duration_seconds" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(2), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 0.6, metric.GetSummary().GetSampleSum())
+				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
+			}
+		}
+		assert.True(t, found, "rpc_method_duration_seconds metric not found")
+	})
+
+	t.Run("RPC method errors by type", func(t *testing.T) {
+		method := "GetLedgers"
+		errorType := "json_unmarshal_error"
+
+		ms.IncRPCMethodErrors(method, errorType)
+		ms.IncRPCMethodErrors(method, "rpc_error")
+		ms.IncRPCMethodErrors(method, errorType)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		unmarshalErrors := 0
+		rpcErrors := 0
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_errors_total" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					assert.Equal(t, method, labels["method"])
+
+					if labels["error_type"] == "json_unmarshal_error" {
+						unmarshalErrors = int(metric.GetCounter().GetValue())
+					} else if labels["error_type"] == "rpc_error" {
+						rpcErrors = int(metric.GetCounter().GetValue())
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "rpc_method_errors_total metric not found")
+		assert.Equal(t, 2, unmarshalErrors, "Expected 2 json_unmarshal_error")
+		assert.Equal(t, 1, rpcErrors, "Expected 1 rpc_error")
+	})
+
+	t.Run("RPC response size", func(t *testing.T) {
+		method := "GetTransactions"
+
+		ms.ObserveRPCResponseSize(method, 1024)
+		ms.ObserveRPCResponseSize(method, 2048)
+		ms.ObserveRPCResponseSize(method, 512)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_response_size_bytes" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(3), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, float64(3584), metric.GetSummary().GetSampleSum())
+				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
+			}
+		}
+		assert.True(t, found, "rpc_response_size_bytes metric not found")
+	})
+
+	t.Run("All RPC method metrics together", func(t *testing.T) {
+		method := "SimulateTransaction"
+
+		// Simulate a complete RPC method execution
+		ms.IncRPCMethodCalls(method)
+		ms.ObserveRPCMethodDuration(method, 0.15)
+		ms.ObserveRPCResponseSize(method, 4096)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		foundCalls := false
+		foundDuration := false
+		foundSize := false
+
+		for _, mf := range metricFamilies {
+			switch mf.GetName() {
+			case "rpc_method_calls_total":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["method"] == method {
+						foundCalls = true
+						assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+					}
+				}
+			case "rpc_method_duration_seconds":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["method"] == method {
+						foundDuration = true
+						assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+					}
+				}
+			case "rpc_response_size_bytes":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["method"] == method {
+						foundSize = true
+						assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+					}
+				}
+			}
+		}
+
+		assert.True(t, foundCalls, "Method calls metric not found for "+method)
+		assert.True(t, foundDuration, "Method duration metric not found for "+method)
+		assert.True(t, foundSize, "Response size metric not found for "+method)
+	})
+
+	t.Run("Multiple methods tracked independently", func(t *testing.T) {
+		// Create a new metrics service to avoid interference from previous tests
+		msNew := NewMetricsService(db)
+		methods := []string{"GetHealth", "GetLedgerEntries", "GetAccountLedgerSequence"}
+
+		for i, method := range methods {
+			msNew.IncRPCMethodCalls(method)
+			msNew.ObserveRPCMethodDuration(method, float64(i+1)*0.1)
+		}
+
+		metricFamilies, err := msNew.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		methodsFound := make(map[string]bool)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_calls_total" {
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					method := labels["method"]
+					for _, m := range methods {
+						if method == m {
+							methodsFound[m] = true
+							assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+						}
+					}
+				}
+			}
+		}
+
+		for _, method := range methods {
+			assert.True(t, methodsFound[method], "Method "+method+" not tracked")
+		}
+	})
+}

@@ -23,6 +23,11 @@ type MetricsService interface {
 	IncRPCEndpointSuccess(endpoint string)
 	SetRPCServiceHealth(healthy bool)
 	SetRPCLatestLedger(ledger int64)
+	// New RPC method-level metrics
+	IncRPCMethodCalls(method string)
+	ObserveRPCMethodDuration(method string, duration float64)
+	IncRPCMethodErrors(method, errorType string)
+	ObserveRPCResponseSize(method string, sizeBytes int)
 	IncNumRequests(endpoint, method string, statusCode int)
 	ObserveRequestDuration(endpoint, method string, duration float64)
 	ObserveDBQueryDuration(queryType, table string, duration float64)
@@ -42,13 +47,19 @@ type metricsService struct {
 	// Account Metrics
 	activeAccounts prometheus.Gauge
 
-	// RPC Service Metrics
+	// RPC Service Metrics (transport-level)
 	rpcRequestsTotal     *prometheus.CounterVec
 	rpcRequestsDuration  *prometheus.SummaryVec
 	rpcEndpointFailures  *prometheus.CounterVec
 	rpcEndpointSuccesses *prometheus.CounterVec
 	rpcServiceHealth     prometheus.Gauge
 	rpcLatestLedger      prometheus.Gauge
+
+	// RPC Method Metrics (application-level)
+	rpcMethodCallsTotal  *prometheus.CounterVec
+	rpcMethodDuration    *prometheus.SummaryVec
+	rpcMethodErrorsTotal *prometheus.CounterVec
+	rpcResponseSizeBytes *prometheus.SummaryVec
 
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
@@ -136,6 +147,38 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 	)
 
+	// RPC Method Metrics (application-level)
+	m.rpcMethodCallsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_method_calls_total",
+			Help: "Total number of RPC method calls at the application level",
+		},
+		[]string{"method"},
+	)
+	m.rpcMethodDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "rpc_method_duration_seconds",
+			Help:       "Duration of RPC method execution including parsing and validation",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"method"},
+	)
+	m.rpcMethodErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_method_errors_total",
+			Help: "Total number of RPC method errors by error type",
+		},
+		[]string{"method", "error_type"},
+	)
+	m.rpcResponseSizeBytes = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "rpc_response_size_bytes",
+			Help:       "Size of RPC responses in bytes",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"method"},
+	)
+
 	// HTTP Request Metrics
 	m.numRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -196,6 +239,10 @@ func (m *metricsService) registerMetrics() {
 		m.rpcEndpointSuccesses,
 		m.rpcServiceHealth,
 		m.rpcLatestLedger,
+		m.rpcMethodCallsTotal,
+		m.rpcMethodDuration,
+		m.rpcMethodErrorsTotal,
+		m.rpcResponseSizeBytes,
 		m.numRequestsTotal,
 		m.requestsDuration,
 		m.dbQueryDuration,
@@ -335,6 +382,23 @@ func (m *metricsService) SetRPCServiceHealth(healthy bool) {
 
 func (m *metricsService) SetRPCLatestLedger(ledger int64) {
 	m.rpcLatestLedger.Set(float64(ledger))
+}
+
+// RPC Method Metrics (application-level)
+func (m *metricsService) IncRPCMethodCalls(method string) {
+	m.rpcMethodCallsTotal.WithLabelValues(method).Inc()
+}
+
+func (m *metricsService) ObserveRPCMethodDuration(method string, duration float64) {
+	m.rpcMethodDuration.WithLabelValues(method).Observe(duration)
+}
+
+func (m *metricsService) IncRPCMethodErrors(method, errorType string) {
+	m.rpcMethodErrorsTotal.WithLabelValues(method, errorType).Inc()
+}
+
+func (m *metricsService) ObserveRPCResponseSize(method string, sizeBytes int) {
+	m.rpcResponseSizeBytes.WithLabelValues(method).Observe(float64(sizeBytes))
 }
 
 // HTTP Request Metrics
