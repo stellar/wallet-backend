@@ -307,7 +307,7 @@ func TestContractStore_Exists(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "token_contracts", mock.Anything).Return().Once() // GetAll only
-		mockMetricsService.On("IncDBQuery", "GetByID", "token_contracts").Return().Once()
+		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
