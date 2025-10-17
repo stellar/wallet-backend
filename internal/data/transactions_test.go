@@ -110,14 +110,14 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
 			// The implementation always loops through both tables and calls ObserveDBQueryDuration for each
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "INSERT", "transactions", mock.Anything).Return().Once().
-				On("ObserveDBQueryDuration", "INSERT", "transactions_accounts", mock.Anything).Return().Once()
+				On("ObserveDBQueryDuration", "BatchInsert", "transactions", mock.Anything).Return().Once().
+				On("ObserveDBQueryDuration", "BatchInsert", "transactions_accounts", mock.Anything).Return().Once()
 			// ObserveDBBatchSize is only called for transactions table (not transactions_accounts)
-			mockMetricsService.On("ObserveDBBatchSize", "INSERT", "transactions", mock.Anything).Return().Once()
+			mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "transactions", mock.Anything).Return().Once()
 			// IncDBQuery is called for both tables on success
 			mockMetricsService.
-				On("IncDBQuery", "INSERT", "transactions").Return().Once().
-				On("IncDBQuery", "INSERT", "transactions_accounts").Return().Once()
+				On("IncDBQuery", "BatchInsert", "transactions").Return().Once().
+				On("IncDBQuery", "BatchInsert", "transactions_accounts").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &TransactionModel{
@@ -184,8 +184,8 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetByHash", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetByHash", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &TransactionModel{
@@ -220,8 +220,8 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetAll", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &TransactionModel{
@@ -235,7 +235,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
 			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
 			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
@@ -267,8 +267,8 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &TransactionModel{
@@ -288,7 +288,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	// Create test transactions
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'envelope1', 'result1', 'meta1', 1, $1),
 			('tx2', 2, 'envelope2', 'result2', 'meta2', 2, $1),
 			('tx3', 3, 'envelope3', 'result3', 'meta3', 3, $1)
@@ -298,7 +298,7 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	// Create test transactions_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions_accounts (tx_hash, account_id)
-		VALUES 
+		VALUES
 			('tx1', $1),
 			('tx2', $1),
 			('tx3', $2)
@@ -322,9 +322,9 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &TransactionModel{
@@ -378,9 +378,9 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &TransactionModel{

@@ -130,9 +130,9 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "INSERT", "state_changes", mock.Anything).Return().Once().
-				On("ObserveDBBatchSize", "INSERT", "state_changes", mock.Anything).Return().Once().
-				On("IncDBQuery", "INSERT", "state_changes").Return().Once()
+				On("ObserveDBQueryDuration", "BatchInsert", "state_changes", mock.Anything).Return().Once().
+				On("ObserveDBBatchSize", "BatchInsert", "state_changes", mock.Anything).Return().Once().
+				On("IncDBQuery", "BatchInsert", "state_changes").Return().Once()
 
 			m := &StateChangeModel{
 				DB:             dbConnectionPool,
@@ -206,8 +206,8 @@ func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	require.NoError(t, err)
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Times(2)
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Times(2)
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Times(2)
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Times(2)
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &StateChangeModel{
@@ -271,8 +271,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by transaction hash only", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -292,8 +292,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by operation ID only", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -313,8 +313,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by both transaction hash and operation ID", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -337,8 +337,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by category only", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -358,8 +358,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by reason only", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -379,8 +379,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter by both category and reason", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -402,8 +402,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter with all filters - txHash, operationID, category, reason", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -429,8 +429,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter with no matching results", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -446,8 +446,8 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 
 	t.Run("filter with pagination", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &StateChangeModel{
@@ -472,8 +472,8 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetAll", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &StateChangeModel{
@@ -655,9 +655,9 @@ func TestStateChangeModel_BatchGetByTxHashes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("ObserveDBBatchSize", "SELECT", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
-			mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHashes", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("ObserveDBBatchSize", "BatchGetByTxHashes", "state_changes", mock.Anything).Return().Times(tc.expectMetricCalls)
+			mockMetricsService.On("IncDBQuery", "BatchGetByTxHashes", "state_changes").Return().Times(tc.expectMetricCalls)
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &StateChangeModel{
@@ -730,9 +730,9 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &StateChangeModel{
@@ -791,8 +791,8 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	m := &StateChangeModel{
@@ -811,7 +811,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	// Create test transactions first
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO transactions (hash, to_id, envelope_xdr, result_xdr, meta_xdr, ledger_number, ledger_created_at)
-		VALUES 
+		VALUES
 			('tx1', 1, 'env1', 'res1', 'meta1', 1, $1),
 			('tx2', 2, 'env2', 'res2', 'meta2', 2, $1)
 	`, now)
@@ -820,7 +820,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 	// Create test state changes for tx1
 	_, err = dbConnectionPool.ExecContext(ctx, `
 		INSERT INTO state_changes (to_id, state_change_order, state_change_category, ledger_created_at, ledger_number, account_id, operation_id, tx_hash)
-		VALUES 
+		VALUES
 			(1, 1, 'credit', $1, 1, $2, 123, 'tx1'),
 			(2, 1, 'debit', $1, 2, $2, 124, 'tx1'),
 			(3, 1, 'credit', $1, 3, $2, 125, 'tx1'),

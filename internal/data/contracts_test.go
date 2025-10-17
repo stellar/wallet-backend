@@ -29,10 +29,10 @@ func TestContractModel_Insert(t *testing.T) {
 	t.Run("returns success for new contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByID", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -65,8 +65,8 @@ func TestContractModel_Insert(t *testing.T) {
 	t.Run("returns error for duplicate contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -113,8 +113,8 @@ func TestContractModel_GetByID(t *testing.T) {
 
 	t.Run("returns error when contract not found", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", "SELECT", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQueryError", "GetByID", "token_contracts", mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -149,14 +149,14 @@ func TestContractModel_Update(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		// Expectations for Insert
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
 		// Expectations for Update
-		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Update", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Update", "token_contracts").Return()
 		// Expectations for GetByID
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByID", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -202,8 +202,8 @@ func TestContractModel_Update(t *testing.T) {
 	t.Run("returns no error for non-existent contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "UPDATE", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "UPDATE", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Update", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Update", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -245,8 +245,8 @@ func TestContractModel_GetAll(t *testing.T) {
 	t.Run("returns empty slice when no contracts exist", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -266,11 +266,11 @@ func TestContractModel_GetAll(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		// Expectations for Insert operations
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "token_contracts", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "token_contracts").Return().Times(2)
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return().Times(2)
 		// Expectations for GetAll
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "SELECT", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
