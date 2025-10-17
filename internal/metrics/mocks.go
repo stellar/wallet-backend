@@ -84,3 +84,28 @@ func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.Called(expiredSeconds)
 }
+
+// Ingestion Phase Metrics
+func (m *MockMetricsService) ObserveIngestionPhaseDuration(phase string, duration float64) {
+	m.Called(phase, duration)
+}
+
+func (m *MockMetricsService) IncIngestionLedgersProcessed(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) IncIngestionTransactionsProcessed(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) ObserveIngestionBatchSize(size int) {
+	m.Called(size)
+}
+
+func (m *MockMetricsService) ObserveIngestionParticipantsCount(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) ObserveIngestionExistingAccountsCount(count int) {
+	m.Called(count)
+}
