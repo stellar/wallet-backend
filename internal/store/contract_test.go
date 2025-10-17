@@ -169,7 +169,7 @@ func TestContractStore_Name(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "token_contracts", mock.Anything).Return().Once() // GetAll only
-		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return().Once(), "token_contracts", "no_rows").Return().Maybe()
+		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts", mock.Anything).Return().Once().Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -239,7 +239,7 @@ func TestContractStore_Symbol(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "token_contracts", mock.Anything).Return().Once() // GetAll only
-		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return().Once(), "token_contracts", "no_rows").Return().Maybe()
+		mockMetricsService.On("IncDBQuery", "GetAll", "token_contracts").Return().Once().Return().Maybe()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
