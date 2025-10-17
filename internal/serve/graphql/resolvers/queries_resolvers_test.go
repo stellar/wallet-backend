@@ -15,9 +15,9 @@ import (
 
 func TestQueryResolver_TransactionByHash(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "transactions", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetByHash", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetByHash", "transactions").Return()
+	mockMetricsService.On("IncDBQueryError", "GetByHash", "transactions", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -63,8 +63,8 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 
 func TestQueryResolver_Transactions(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetAll", "transactions").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -216,9 +216,9 @@ func TestQueryResolver_Transactions(t *testing.T) {
 
 func TestQueryResolver_Account(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "Get", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "Get", "accounts").Return()
+	mockMetricsService.On("IncDBQueryError", "Get", "accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -253,8 +253,8 @@ func TestQueryResolver_Account(t *testing.T) {
 
 func TestQueryResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetAll", "operations").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -417,9 +417,9 @@ func TestQueryResolver_Operations(t *testing.T) {
 
 func TestQueryResolver_OperationByID(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "operations", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetByID", "operations").Return()
+	mockMetricsService.On("IncDBQueryError", "GetByID", "operations", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{
@@ -471,8 +471,8 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 
 func TestQueryResolver_StateChanges(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "GetAll", "state_changes").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &queryResolver{

@@ -44,8 +44,8 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("account_not_eligible_for_transaction_fee_bump", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
@@ -75,10 +75,10 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_fee_exceeds_maximum_base_fee_for_sponsoring", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
@@ -111,10 +111,10 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 	t.Run("transaction_should_have_at_least_one_signature", func(t *testing.T) {
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		err := models.Account.Insert(ctx, accountToSponsor.Address())
@@ -148,10 +148,10 @@ func TestFeeBumpServiceWrapTransaction(t *testing.T) {
 		distributionAccount := keypair.MustRandom()
 		accountToSponsor := keypair.MustRandom()
 
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "IsAccountFeeBumpEligible", "accounts", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncDBQuery", "IsAccountFeeBumpEligible", "accounts").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		err := models.Account.Insert(ctx, accountToSponsor.Address())

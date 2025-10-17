@@ -125,9 +125,9 @@ func TestStateChangeResolver_JSONFields(t *testing.T) {
 
 func TestStateChangeResolver_Account(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{
@@ -183,9 +183,9 @@ func TestStateChangeResolver_Account(t *testing.T) {
 
 func TestStateChangeResolver_Operation(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "operations", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{
@@ -241,9 +241,9 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 
 func TestStateChangeResolver_Transaction(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByStateChangeIDs", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByStateChangeIDs", "transactions", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &standardBalanceChangeResolver{&Resolver{

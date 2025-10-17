@@ -19,10 +19,10 @@ import (
 
 func TestOperationResolver_Transaction(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "transactions", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "transactions", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "transactions", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "transactions", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &operationResolver{&Resolver{
@@ -69,10 +69,10 @@ func TestOperationResolver_Transaction(t *testing.T) {
 
 func TestOperationResolver_Accounts(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "accounts", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationIDs", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationIDs", "accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationIDs", "accounts", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &operationResolver{&Resolver{
@@ -119,14 +119,14 @@ func TestOperationResolver_Accounts(t *testing.T) {
 
 func TestOperationResolver_StateChanges(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "state_changes", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "state_changes", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQuery", "BatchGetByOperationID", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByOperationID", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByOperationID", "state_changes", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQueryError", "BatchGetByOperationID", "state_changes", mock.Anything).Return().Maybe()
 	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return().Maybe()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return().Maybe()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "operations", mock.Anything).Return().Maybe()
-	mockMetricsService.On("IncDBQueryError", "SELECT", "operations", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBQueryDuration", "GetAll", "operations", mock.Anything).Return().Maybe()
+	mockMetricsService.On("ObserveDBBatchSize", "GetAll", "operations", mock.Anything).Return().Maybe()
+	mockMetricsService.On("IncDBQueryError", "GetAll", "operations", mock.Anything).Return().Maybe()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &operationResolver{&Resolver{

@@ -20,8 +20,8 @@ import (
 
 func TestTransactionResolver_Operations(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
@@ -154,9 +154,9 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 func TestTransactionResolver_Accounts(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "accounts").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "accounts", mock.Anything).Return()
-	mockMetricsService.On("ObserveDBBatchSize", "SELECT", "accounts", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByTxHashes", "accounts").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHashes", "accounts", mock.Anything).Return()
+	mockMetricsService.On("ObserveDBBatchSize", "BatchGetByTxHashes", "accounts", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{
@@ -203,8 +203,8 @@ func TestTransactionResolver_Accounts(t *testing.T) {
 
 func TestTransactionResolver_StateChanges(t *testing.T) {
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByTxHash", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByTxHash", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &transactionResolver{&Resolver{

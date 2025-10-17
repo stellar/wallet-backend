@@ -28,8 +28,8 @@ func TestAccountRegister(t *testing.T) {
 	t.Run("successful registration", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncActiveAccount").Return().Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -54,9 +54,9 @@ func TestAccountRegister(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		// First registration succeeds
 		mockMetricsService.On("IncActiveAccount").Return().Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "INSERT", "accounts", mock.Anything).Return().Times(2)
-		mockMetricsService.On("IncDBQuery", "INSERT", "accounts").Return().Times(1)
-		mockMetricsService.On("IncDBQueryError", "INSERT", "accounts", mock.Anything).Return().Times(1)
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "accounts", mock.Anything).Return().Times(2)
+		mockMetricsService.On("IncDBQuery", "Insert", "accounts").Return().Times(1)
+		mockMetricsService.On("IncDBQueryError", "Insert", "accounts", mock.Anything).Return().Times(1)
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -111,8 +111,8 @@ func TestAccountDeregister(t *testing.T) {
 	t.Run("successful deregistration", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("DecActiveAccount").Return().Once()
-		mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
-		mockMetricsService.On("IncDBQuery", "DELETE", "accounts").Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Delete", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("IncDBQuery", "Delete", "accounts").Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -122,7 +122,7 @@ func TestAccountDeregister(t *testing.T) {
 
 		ctx := context.Background()
 		address := keypair.MustRandom().Address()
-		result, err := dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", address)
+		result, err := dbConnectionPool.ExecContext(ctx, "Insert INTO accounts (stellar_address) VALUES ($1)", address)
 		require.NoError(t, err)
 		rowAffected, err := result.RowsAffected()
 		require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestAccountDeregister(t *testing.T) {
 
 	t.Run("deregister non-existent account fails", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "DELETE", "accounts", mock.Anything).Return().Once()
+		mockMetricsService.On("ObserveDBQueryDuration", "Delete", "accounts", mock.Anything).Return().Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
