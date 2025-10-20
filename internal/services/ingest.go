@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"hash/fnv"
 	"io"
 	"os"
@@ -595,6 +596,22 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	})
 	if dbTxErr != nil {
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
+	}
+
+	// Insert trustline changes in the ascending order of operation IDs
+	trustlineChanges := indexerBuffer.GetTrustlineChanges()
+	if len(trustlineChanges) > 0 {
+		sort.Slice(trustlineChanges, func(i, j int) bool {
+			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+		})
+		for _, trustlineChange := range trustlineChanges {
+			switch trustlineChange.Operation {
+			case types.TrustlineOpAdd:
+				m.trustlinesService.AddTrustline(ctx, trustlineChange.AccountID, trustlineChange.Asset)
+			case types.TrustlineOpRemove:
+				m.trustlinesService.RemoveTrustline(ctx, trustlineChange.AccountID, trustlineChange.Asset)
+			}
+		}
 	}
 
 	return nil

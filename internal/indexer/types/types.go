@@ -56,6 +56,20 @@ type AccountWithOperationID struct {
 	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
 }
 
+type TrustlineChange struct {
+	AccountID string
+	Asset     string
+	OperationID int64
+	Operation TrustlineOpType
+}
+
+type TrustlineOpType string
+
+const (
+	TrustlineOpAdd TrustlineOpType = "ADD"
+	TrustlineOpRemove TrustlineOpType = "REMOVE"
+)
+
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`

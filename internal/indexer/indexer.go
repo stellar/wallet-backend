@@ -28,7 +28,13 @@ type IndexerBufferInterface interface {
 	GetTransactions() []types.Transaction
 	GetOperations() []types.Operation
 	GetStateChanges() []types.StateChange
+	GetTrustlineChanges() []types.TrustlineChange
+	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	MergeBuffer(other IndexerBufferInterface)
+}
+
+type TrustlineChangeProcessorInterface interface {
+	GetTrustlineChanges(ctx context.Context) []types.TrustlineChange
 }
 
 type TokenTransferProcessorInterface interface {
@@ -56,6 +62,7 @@ type PrecomputedTransactionData struct {
 	TxParticipants  set.Set[string]
 	OpsParticipants map[int64]processors.OperationParticipants
 	StateChanges    []types.StateChange
+	TrustlineChanges []types.TrustlineChange
 	AllParticipants set.Set[string] // Union of all participants for this transaction
 }
 
@@ -63,18 +70,21 @@ type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
+	trustlineChangeProcessor TrustlineChangeProcessorInterface
 	pool                   pond.Pool
 }
 
 func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider, pool pond.Pool) *Indexer {
+	effectsProcessor := processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider)
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
 		processors: []OperationProcessorInterface{
-			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
+			effectsProcessor,
 			processors.NewContractDeployProcessor(networkPassphrase),
 			contract_processors.NewSACEventsProcessor(networkPassphrase),
 		},
+		trustlineChangeProcessor: effectsProcessor,
 		pool: pool,
 	}
 }
@@ -133,6 +143,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			for _, stateChange := range stateChanges {
 				txData.AllParticipants.Add(stateChange.AccountID)
 			}
+			txData.TrustlineChanges = i.trustlineChangeProcessor.GetTrustlineChanges(ctx)
 
 			// Add to collection
 			precomputedData[index] = txData
@@ -220,6 +231,11 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 			}
 			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
+	}
+
+	// Insert trustline changes
+	for _, trustlineChange := range precomputedData.TrustlineChanges {
+		buffer.PushTrustlineChange(trustlineChange)
 	}
 
 	// Sort state changes and set order for this transaction

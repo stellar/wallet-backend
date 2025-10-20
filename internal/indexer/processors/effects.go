@@ -63,6 +63,7 @@ var (
 type EffectsProcessor struct {
 	networkPassphrase   string
 	ledgerEntryProvider LedgerEntryProvider // Provider for ledger entry data to avoid import cycles
+	trustlineChanges    []types.TrustlineChange
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
@@ -70,6 +71,7 @@ func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEnt
 	return &EffectsProcessor{
 		networkPassphrase:   networkPassphrase,
 		ledgerEntryProvider: ledgerEntryProvider,
+		trustlineChanges:    make([]types.TrustlineChange, 0),
 	}
 }
 
@@ -148,7 +150,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 		// Change trust effects
 		case effects.EffectTrustlineCreated, effects.EffectTrustlineRemoved, effects.EffectTrustlineUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
-			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
+			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes, opWrapper.ID())
 			if err != nil {
 				log.Debugf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
@@ -197,6 +199,10 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 	}
 
 	return stateChanges, nil
+}
+
+func (p *EffectsProcessor) GetTrustlineChanges(ctx context.Context) []types.TrustlineChange {
+	return p.trustlineChanges
 }
 
 // processSponsorshipEffect handles sponsorship-related effects and creates appropriate state changes.
@@ -274,7 +280,8 @@ func (p *EffectsProcessor) createSponsorChangeForSponsoredAccount(reason types.S
 		Build()
 }
 
-func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change, operationID int64) (types.StateChange, error) {
+	var assetCode, assetIssuer string
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
@@ -288,11 +295,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 			"liquidity_pool_id": poolID,
 		})
 	} else {
-		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
 		}
-		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		assetIssuer, err = safeStringFromDetails(effect.Details, "asset_issuer")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
 		}
@@ -316,10 +323,21 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 				},
 			},
 		).Build()
+		p.trustlineChanges = append(p.trustlineChanges, types.TrustlineChange{
+			AccountID: effect.Address,
+			OperationID: operationID,
+			Operation: types.TrustlineOpAdd,
+			Asset: fmt.Sprintf("%s:%s", assetCode, assetIssuer),
+		})
 
 	case effects.EffectTrustlineRemoved:
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
-
+		p.trustlineChanges = append(p.trustlineChanges, types.TrustlineChange{
+			AccountID: effect.Address,
+			OperationID: operationID,
+			Operation: types.TrustlineOpRemove,
+			Asset: fmt.Sprintf("%s:%s", assetCode, assetIssuer),
+		})
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()

@@ -24,6 +24,8 @@ const (
 type TrustlinesService interface {
 	PopulateTrustlines(ctx context.Context) error
 	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
+	AddTrustline(ctx context.Context, accountAddress string, asset string) error
+	RemoveTrustline(ctx context.Context, accountAddress string, asset string) error
 	GetTrustlines(ctx context.Context, accountAddress string) ([]string, error)
 	HasTrustline(ctx context.Context, accountAddress string, asset string) (bool, error)
 	RemoveTrustlines(ctx context.Context, accountAddress string, assets []string) error
@@ -66,6 +68,23 @@ func (s *trustlinesService) AddTrustlines(ctx context.Context, accountAddress st
 	return nil
 }
 
+// AddTrustline adds a trustline for an account to Redis.
+func (s *trustlinesService) AddTrustline(ctx context.Context, accountAddress string, asset string) error {
+	key := s.trustlinesPrefix + accountAddress
+	if err := s.redisStore.SAdd(ctx, key, asset); err != nil {
+		return fmt.Errorf("adding trustline for account %s: %w", accountAddress, err)
+	}
+	return nil
+}
+
+// RemoveTrustline removes a trustline for an account from Redis.
+func (s *trustlinesService) RemoveTrustline(ctx context.Context, accountAddress string, asset string) error {
+	key := s.trustlinesPrefix + accountAddress
+	if err := s.redisStore.SRem(ctx, key, asset); err != nil {
+		return fmt.Errorf("removing trustline for account %s: %w", accountAddress, err)
+	}
+	return nil
+}
 // GetTrustlines retrieves all trustlines for an account from Redis.
 func (s *trustlinesService) GetTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
 	key := s.trustlinesPrefix + accountAddress
