@@ -479,9 +479,10 @@ func TestRPCMethodMetrics(t *testing.T) {
 
 					assert.Equal(t, method, labels["method"])
 
-					if labels["error_type"] == "json_unmarshal_error" {
+					switch labels["error_type"] {
+					case "json_unmarshal_error":
 						unmarshalErrors = int(metric.GetCounter().GetValue())
-					} else if labels["error_type"] == "rpc_error" {
+					case "rpc_error":
 						rpcErrors = int(metric.GetCounter().GetValue())
 					}
 				}
