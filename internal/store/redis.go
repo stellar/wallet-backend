@@ -14,17 +14,8 @@ type RedisStore struct {
 }
 
 // NewRedisStore creates a new Redis store with the given connection parameters.
-// Uses defaults of localhost:6379 if host is empty or port is 0.
 func NewRedisStore(host string, port int, password string) *RedisStore {
-	if host == "" {
-		host = "localhost"
-	}
-	if port == 0 {
-		port = 6379
-	}
-
 	addr := fmt.Sprintf("%s:%d", host, port)
-
 	return &RedisStore{
 		client: redis.NewClient(&redis.Options{
 			Addr:     addr,
