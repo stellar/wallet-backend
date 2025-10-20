@@ -57,6 +57,7 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	models            *data.Models
 	ledgerCursorName  string
+	trustlinesCursorName string
 	advisoryLockID    int
 	appTracker        apptracker.AppTracker
 	rpcService        RPCService
@@ -73,6 +74,7 @@ type ingestService struct {
 func NewIngestService(
 	models *data.Models,
 	ledgerCursorName string,
+	trustlinesCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
@@ -110,6 +112,7 @@ func NewIngestService(
 	return &ingestService{
 		models:            models,
 		ledgerCursorName:  ledgerCursorName,
+		trustlinesCursorName: trustlinesCursorName,
 		advisoryLockID:    generateAdvisoryLockID(network),
 		appTracker:        appTracker,
 		rpcService:        rpcService,
@@ -209,14 +212,21 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
+		m.pool.Stop()
 	}()
 
 	// get latest ledger synced, to use as a cursor
+	var latestTrustlinesLedger uint32
 	if startLedger == 0 {
 		var err error
 		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
 			return fmt.Errorf("getting latest ledger synced: %w", err)
+		}
+
+		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.trustlinesCursorName)
+		if err != nil {
+			return fmt.Errorf("getting latest trustlines ledger synced: %w", err)
 		}
 	}
 
@@ -232,10 +242,12 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 
-	log.Ctx(ctx).Info("Populating trustlines")
-	err := m.trustlinesService.PopulateTrustlines(ctx)
-	if err != nil {
-		return fmt.Errorf("populating trustlines: %w", err)
+	if latestTrustlinesLedger == 0 {
+		log.Ctx(ctx).Info("Populating trustlines")
+		err := m.trustlinesService.PopulateTrustlines(ctx)
+		if err != nil {
+			return fmt.Errorf("populating trustlines: %w", err)
+		}
 	}
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
@@ -269,10 +281,19 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("processing ledger response: %w", err)
 		}
 
-		// update cursor
-		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-		if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", err)
+		// update cursors
+		db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
+				return fmt.Errorf("updating latest synced ledger: %w", err)
+			}
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, startLedger); err != nil {
+				return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())

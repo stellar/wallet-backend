@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
+
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
@@ -125,14 +128,13 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("reading checkpoint changes: %w", err)
 		}
-		entries++
 
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
 			trustlineEntry := change.Post.Data.MustTrustLine()
 			accountAddress := trustlineEntry.AccountId.Address()
 			asset := trustlineEntry.Asset
-			if asset.Type == xdr.AssetTypeAssetTypePoolShare{
+			if asset.Type == xdr.AssetTypeAssetTypePoolShare {
 				continue
 			}
 			var assetType, assetCode, assetIssuer string
@@ -140,6 +142,7 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
+			entries++
 			assetStr := fmt.Sprintf("%s:%s", assetCode, assetIssuer)
 			trustlines[accountAddress] = append(trustlines[accountAddress], assetStr)
 		default:
@@ -148,12 +151,36 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 	}
 	fmt.Printf("Processed %d entries in %v minutes\n", entries, time.Since(startTime).Minutes())
 
-	// Store trustlines in Redis
+	// Store trustlines in Redis using parallel worker pool
+	pool := pond.NewPool(100, pond.WithQueueSize(1000))
+	defer pool.Stop()
+
+	group := pool.NewGroupContext(ctx)
+	var errs []error
+	errMu := sync.Mutex{}
+
+	startTime = time.Now()
 	for accountAddress, assets := range trustlines {
-		if err := s.AddTrustlines(ctx, accountAddress, assets); err != nil {
-			return fmt.Errorf("storing trustlines for account %s: %w", accountAddress, err)
-		}
+		// Capture loop variables for goroutine
+		accAddr := accountAddress
+		accAssets := assets
+		group.Submit(func() {
+			if err := s.AddTrustlines(ctx, accAddr, accAssets); err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("storing trustlines for account %s: %w", accAddr, err))
+				errMu.Unlock()
+			}
+		})
 	}
+
+	if err := group.Wait(); err != nil {
+		return fmt.Errorf("waiting for trustlines storage: %w", err)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("storing trustlines: %w", errors.Join(errs...))
+	}
+
+	fmt.Printf("Stored trustlines in Redis in %v minutes\n", time.Since(startTime).Minutes())
 
 	return nil
 }

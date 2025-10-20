@@ -42,6 +42,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:        "trustlines-cursor-name",
+			Usage:       "Name of last synced trustlines ledger cursor, used to keep track of the last trustlines ledger ingested by the service.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.TrustlinesCursorName,
+			FlagDefault: "live_trustlines_ingest_cursor",
+			Required:    true,
+		},
+		{
 			Name:        "redis-host",
 			Usage:       "Redis host for caching",
 			OptType:     types.String,

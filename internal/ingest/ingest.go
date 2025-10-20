@@ -32,6 +32,7 @@ type Configs struct {
 	DatabaseURL       string
 	ServerPort        int
 	LedgerCursorName  string
+	TrustlinesCursorName string
 	StartLedger       int
 	EndLedger         int
 	LogLevel          logrus.Level
@@ -93,7 +94,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, trustlinesService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.TrustlinesCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, trustlinesService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
