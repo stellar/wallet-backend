@@ -41,6 +41,9 @@ type Configs struct {
 	NetworkPassphrase string
 	GetLedgersLimit   int
 	AdminPort         int
+	RedisHost         string
+	RedisPort         int
+	RedisPassword     string
 }
 
 func Ingest(cfg Configs) error {
@@ -82,6 +85,13 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating contract store: %w", err)
 	}
+
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
+	_, err = services.NewTrustlinesService(cfg.NetworkPassphrase, redisStore)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating trustlines service: %w", err)
+	}
+	// TODO: Pass trustlinesService to IngestService once integration is ready
 
 	ingestService, err := services.NewIngestService(
 		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)

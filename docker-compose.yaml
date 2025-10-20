@@ -42,6 +42,20 @@ services:
       wait
       "
 
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+
   stellar-rpc-mainnet:
     container_name: stellar-rpc-mainnet
     image: stellar/stellar-rpc:23.0.1
@@ -205,6 +219,8 @@ services:
         condition: service_completed_successfully
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     entrypoint: ""
     command:
       - sh
@@ -233,6 +249,9 @@ services:
       GET_LEDGERS_LIMIT: 150
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       # ADMIN_PORT: 9094  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
 
   ingest-mainnet:
@@ -247,6 +266,8 @@ services:
       wallet-backend:
         condition: service_completed_successfully
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     entrypoint: ""
     command:
@@ -275,7 +296,12 @@ services:
       GET_LEDGERS_LIMIT: 20
       TRACKER_DSN: ${TRACKER_DSN}
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       # ADMIN_PORT: 9095  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
 volumes:
   postgres-db:
+    driver: local
+  redis-data:
     driver: local

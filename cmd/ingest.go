@@ -41,6 +41,30 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "live_ingest_cursor",
 			Required:    true,
 		},
+		{
+			Name:        "redis-host",
+			Usage:       "Redis host for caching",
+			OptType:     types.String,
+			ConfigKey:   &cfg.RedisHost,
+			FlagDefault: "localhost",
+			Required:    false,
+		},
+		{
+			Name:        "redis-port",
+			Usage:       "Redis port for caching",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.RedisPort,
+			FlagDefault: 6379,
+			Required:    false,
+		},
+		{
+			Name:        "redis-password",
+			Usage:       "Redis password for caching",
+			OptType:     types.String,
+			ConfigKey:   &cfg.RedisPassword,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
