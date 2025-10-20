@@ -63,6 +63,7 @@ type ingestService struct {
 	chAccStore        store.ChannelAccountStore
 	contractStore     cache.TokenContractStore
 	metricsService    metrics.MetricsService
+	trustlinesService TrustlinesService
 	networkPassphrase string
 	getLedgersLimit   int
 	ledgerIndexer     *indexer.Indexer
@@ -77,6 +78,7 @@ func NewIngestService(
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
+	trustlinesService TrustlinesService,
 	getLedgersLimit int,
 	network string,
 ) (*ingestService, error) {
@@ -114,6 +116,7 @@ func NewIngestService(
 		chAccStore:        chAccStore,
 		contractStore:     contractStore,
 		metricsService:    metricsService,
+		trustlinesService: trustlinesService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
 		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0)),
@@ -228,6 +231,12 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
+
+	log.Ctx(ctx).Info("Populating trustlines")
+	err := m.trustlinesService.PopulateTrustlines(ctx)
+	if err != nil {
+		return fmt.Errorf("populating trustlines: %w", err)
+	}
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {

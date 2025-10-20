@@ -87,14 +87,13 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
-	_, err = services.NewTrustlinesService(cfg.NetworkPassphrase, redisStore)
+	trustlinesService, err := services.NewTrustlinesService(cfg.NetworkPassphrase, redisStore)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating trustlines service: %w", err)
 	}
-	// TODO: Pass trustlinesService to IngestService once integration is ready
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, trustlinesService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
