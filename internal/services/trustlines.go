@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
+	"time"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
@@ -115,6 +115,8 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 
 	// trustlines is a map of account address to a list of asset codes
 	trustlines := make(map[string][]string, 0)
+	entries := 0
+	startTime := time.Now()
 	for {
 		change, err := reader.Read()
 		if errors.Is(err, io.EOF) {
@@ -123,11 +125,16 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("reading checkpoint changes: %w", err)
 		}
+		entries++
 
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
 			trustlineEntry := change.Post.Data.MustTrustLine()
 			accountAddress := trustlineEntry.AccountId.Address()
+			asset := trustlineEntry.Asset
+			if asset.Type == xdr.AssetTypeAssetTypePoolShare{
+				continue
+			}
 			var assetType, assetCode, assetIssuer string
 			err = trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer)
 			if err != nil {
@@ -139,6 +146,7 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 			continue
 		}
 	}
+	fmt.Printf("Processed %d entries in %v minutes\n", entries, time.Since(startTime).Minutes())
 
 	// Store trustlines in Redis
 	for accountAddress, assets := range trustlines {
