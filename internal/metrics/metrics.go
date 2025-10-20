@@ -69,12 +69,12 @@ type metricsService struct {
 	signatureVerificationExpired *prometheus.CounterVec
 
 	// Ingestion Phase Metrics
-	ingestionPhaseDuration      *prometheus.SummaryVec
-	ingestionLedgersProcessed   prometheus.Counter
-	ingestionTransactionsTotal  prometheus.Counter
-	ingestionBatchSize          prometheus.Histogram
-	ingestionParticipantsCount  prometheus.Histogram
-	ingestionExistingAccounts   prometheus.Histogram
+	ingestionPhaseDuration     *prometheus.SummaryVec
+	ingestionLedgersProcessed  prometheus.Counter
+	ingestionTransactionsTotal prometheus.Counter
+	ingestionBatchSize         prometheus.Histogram
+	ingestionParticipantsCount prometheus.Histogram
+	ingestionExistingAccounts  prometheus.Histogram
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
