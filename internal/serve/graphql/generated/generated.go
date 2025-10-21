@@ -47,7 +47,6 @@ type ResolverRoot interface {
 	FlagsChange() FlagsChangeResolver
 	MetadataChange() MetadataChangeResolver
 	Mutation() MutationResolver
-	NativeBalance() NativeBalanceResolver
 	Operation() OperationResolver
 	Query() QueryResolver
 	ReservesChange() ReservesChangeResolver
@@ -55,7 +54,6 @@ type ResolverRoot interface {
 	SignerThresholdsChange() SignerThresholdsChangeResolver
 	StandardBalanceChange() StandardBalanceChangeResolver
 	Transaction() TransactionResolver
-	TrustlineBalance() TrustlineBalanceResolver
 	TrustlineChange() TrustlineChangeResolver
 }
 
@@ -144,7 +142,6 @@ type ComplexityRoot struct {
 	}
 
 	NativeBalance struct {
-		Account func(childComplexity int) int
 		Balance func(childComplexity int) int
 		TokenID func(childComplexity int) int
 	}
@@ -278,11 +275,17 @@ type ComplexityRoot struct {
 	}
 
 	TrustlineBalance struct {
-		Account func(childComplexity int) int
-		Balance func(childComplexity int) int
-		Code    func(childComplexity int) int
-		Issuer  func(childComplexity int) int
-		TokenID func(childComplexity int) int
+		Balance                           func(childComplexity int) int
+		BuyingLiabilities                 func(childComplexity int) int
+		Code                              func(childComplexity int) int
+		IsAuthorized                      func(childComplexity int) int
+		IsAuthorizedToMaintainLiabilities func(childComplexity int) int
+		Issuer                            func(childComplexity int) int
+		LastModifiedLedger                func(childComplexity int) int
+		Limit                             func(childComplexity int) int
+		SellingLiabilities                func(childComplexity int) int
+		TokenID                           func(childComplexity int) int
+		Type                              func(childComplexity int) int
 	}
 
 	TrustlineChange struct {
@@ -348,9 +351,6 @@ type MutationResolver interface {
 	BuildTransaction(ctx context.Context, input BuildTransactionInput) (*BuildTransactionPayload, error)
 	CreateFeeBumpTransaction(ctx context.Context, input CreateFeeBumpTransactionInput) (*CreateFeeBumpTransactionPayload, error)
 }
-type NativeBalanceResolver interface {
-	Account(ctx context.Context, obj *NativeBalance) (*types.Account, error)
-}
 type OperationResolver interface {
 	Transaction(ctx context.Context, obj *types.Operation) (*types.Transaction, error)
 	Accounts(ctx context.Context, obj *types.Operation) ([]*types.Account, error)
@@ -408,9 +408,6 @@ type TransactionResolver interface {
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
-}
-type TrustlineBalanceResolver interface {
-	Account(ctx context.Context, obj *TrustlineBalance) (*types.Account, error)
 }
 type TrustlineChangeResolver interface {
 	Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error)
@@ -846,13 +843,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.RegisterAccount(childComplexity, args["input"].(RegisterAccountInput)), true
-
-	case "NativeBalance.account":
-		if e.complexity.NativeBalance.Account == nil {
-			break
-		}
-
-		return e.complexity.NativeBalance.Account(childComplexity), true
 
 	case "NativeBalance.balance":
 		if e.complexity.NativeBalance.Balance == nil {
@@ -1499,19 +1489,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TransactionEdge.Node(childComplexity), true
 
-	case "TrustlineBalance.account":
-		if e.complexity.TrustlineBalance.Account == nil {
-			break
-		}
-
-		return e.complexity.TrustlineBalance.Account(childComplexity), true
-
 	case "TrustlineBalance.balance":
 		if e.complexity.TrustlineBalance.Balance == nil {
 			break
 		}
 
 		return e.complexity.TrustlineBalance.Balance(childComplexity), true
+
+	case "TrustlineBalance.buyingLiabilities":
+		if e.complexity.TrustlineBalance.BuyingLiabilities == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.BuyingLiabilities(childComplexity), true
 
 	case "TrustlineBalance.code":
 		if e.complexity.TrustlineBalance.Code == nil {
@@ -1520,6 +1510,20 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineBalance.Code(childComplexity), true
 
+	case "TrustlineBalance.isAuthorized":
+		if e.complexity.TrustlineBalance.IsAuthorized == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.IsAuthorized(childComplexity), true
+
+	case "TrustlineBalance.isAuthorizedToMaintainLiabilities":
+		if e.complexity.TrustlineBalance.IsAuthorizedToMaintainLiabilities == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.IsAuthorizedToMaintainLiabilities(childComplexity), true
+
 	case "TrustlineBalance.issuer":
 		if e.complexity.TrustlineBalance.Issuer == nil {
 			break
@@ -1527,12 +1531,40 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineBalance.Issuer(childComplexity), true
 
+	case "TrustlineBalance.lastModifiedLedger":
+		if e.complexity.TrustlineBalance.LastModifiedLedger == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.LastModifiedLedger(childComplexity), true
+
+	case "TrustlineBalance.limit":
+		if e.complexity.TrustlineBalance.Limit == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.Limit(childComplexity), true
+
+	case "TrustlineBalance.sellingLiabilities":
+		if e.complexity.TrustlineBalance.SellingLiabilities == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.SellingLiabilities(childComplexity), true
+
 	case "TrustlineBalance.tokenId":
 		if e.complexity.TrustlineBalance.TokenID == nil {
 			break
 		}
 
 		return e.complexity.TrustlineBalance.TokenID(childComplexity), true
+
+	case "TrustlineBalance.type":
+		if e.complexity.TrustlineBalance.Type == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.Type(childComplexity), true
 
 	case "TrustlineChange.account":
 		if e.complexity.TrustlineChange.Account == nil {
@@ -1732,24 +1764,28 @@ type Account{
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 }
 
 type NativeBalance implements Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 }
 
 type TrustlineBalance implements Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 
     code: String
     issuer: String
+    type: String!
+    limit: String!
+    buyingLiabilities: String!
+    sellingLiabilities: String!
+    lastModifiedLedger: Int!
+    isAuthorized: Boolean!
+    isAuthorizedToMaintainLiabilities: Boolean!
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -5841,60 +5877,6 @@ func (ec *executionContext) fieldContext_Mutation_createFeeBumpTransaction(ctx c
 	if fc.Args, err = ec.field_Mutation_createFeeBumpTransaction_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _NativeBalance_account(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_NativeBalance_account(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.NativeBalance().Account(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(*types.Account)
-	fc.Result = res
-	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_NativeBalance_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "NativeBalance",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "address":
-				return ec.fieldContext_Account_address(ctx, field)
-			case "transactions":
-				return ec.fieldContext_Account_transactions(ctx, field)
-			case "operations":
-				return ec.fieldContext_Account_operations(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Account_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
 	}
 	return fc, nil
 }
@@ -10240,60 +10222,6 @@ func (ec *executionContext) fieldContext_TransactionEdge_cursor(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineBalance_account(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineBalance_account(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.TrustlineBalance().Account(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(*types.Account)
-	fc.Result = res
-	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_TrustlineBalance_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "TrustlineBalance",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "address":
-				return ec.fieldContext_Account_address(ctx, field)
-			case "transactions":
-				return ec.fieldContext_Account_transactions(ctx, field)
-			case "operations":
-				return ec.fieldContext_Account_operations(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Account_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _TrustlineBalance_balance(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_TrustlineBalance_balance(ctx, field)
 	if err != nil {
@@ -10459,6 +10387,314 @@ func (ec *executionContext) fieldContext_TrustlineBalance_issuer(_ context.Conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_type(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_type(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Type, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_limit(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_limit(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Limit, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_buyingLiabilities(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_buyingLiabilities(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.BuyingLiabilities, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_buyingLiabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_sellingLiabilities(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_sellingLiabilities(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.SellingLiabilities, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_sellingLiabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_lastModifiedLedger(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_lastModifiedLedger(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.LastModifiedLedger, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(int32)
+	fc.Result = res
+	return ec.marshalNInt2int32(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_isAuthorized(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_isAuthorized(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IsAuthorized, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_isAuthorized(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_isAuthorizedToMaintainLiabilities(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_isAuthorizedToMaintainLiabilities(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.IsAuthorizedToMaintainLiabilities, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_isAuthorizedToMaintainLiabilities(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -14689,51 +14925,15 @@ func (ec *executionContext) _NativeBalance(ctx context.Context, sel ast.Selectio
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("NativeBalance")
-		case "account":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._NativeBalance_account(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "balance":
 			out.Values[i] = ec._NativeBalance_balance(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "tokenId":
 			out.Values[i] = ec._NativeBalance_tokenId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -16774,56 +16974,55 @@ func (ec *executionContext) _TrustlineBalance(ctx context.Context, sel ast.Selec
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("TrustlineBalance")
-		case "account":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._TrustlineBalance_account(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "balance":
 			out.Values[i] = ec._TrustlineBalance_balance(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "tokenId":
 			out.Values[i] = ec._TrustlineBalance_tokenId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "code":
 			out.Values[i] = ec._TrustlineBalance_code(ctx, field, obj)
 		case "issuer":
 			out.Values[i] = ec._TrustlineBalance_issuer(ctx, field, obj)
+		case "type":
+			out.Values[i] = ec._TrustlineBalance_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "limit":
+			out.Values[i] = ec._TrustlineBalance_limit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "buyingLiabilities":
+			out.Values[i] = ec._TrustlineBalance_buyingLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sellingLiabilities":
+			out.Values[i] = ec._TrustlineBalance_sellingLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastModifiedLedger":
+			out.Values[i] = ec._TrustlineBalance_lastModifiedLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isAuthorized":
+			out.Values[i] = ec._TrustlineBalance_isAuthorized(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isAuthorizedToMaintainLiabilities":
+			out.Values[i] = ec._TrustlineBalance_isAuthorizedToMaintainLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -17627,6 +17826,22 @@ func (ec *executionContext) marshalNDeregisterAccountPayload2ᚖgithubᚗcomᚋs
 		return graphql.Null
 	}
 	return ec._DeregisterAccountPayload(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNInt2int32(ctx context.Context, v any) (int32, error) {
+	res, err := graphql.UnmarshalInt32(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNInt2int32(ctx context.Context, sel ast.SelectionSet, v int32) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalInt32(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
 }
 
 func (ec *executionContext) unmarshalNInt642int64(ctx context.Context, v any) (int64, error) {

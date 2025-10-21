@@ -10,7 +10,6 @@ import (
 
 type Balance interface {
 	IsBalance()
-	GetAccount() *types.Account
 	GetBalance() string
 	GetTokenID() string
 }
@@ -72,15 +71,13 @@ type Mutation struct {
 }
 
 type NativeBalance struct {
-	Account *types.Account `json:"account"`
-	Balance string         `json:"balance"`
-	TokenID string         `json:"tokenId"`
+	Balance string `json:"balance"`
+	TokenID string `json:"tokenId"`
 }
 
-func (NativeBalance) IsBalance()                      {}
-func (this NativeBalance) GetAccount() *types.Account { return this.Account }
-func (this NativeBalance) GetBalance() string         { return this.Balance }
-func (this NativeBalance) GetTokenID() string         { return this.TokenID }
+func (NativeBalance) IsBalance()              {}
+func (this NativeBalance) GetBalance() string { return this.Balance }
+func (this NativeBalance) GetTokenID() string { return this.TokenID }
 
 type OperationConnection struct {
 	Edges    []*OperationEdge `json:"edges,omitempty"`
@@ -141,14 +138,19 @@ type TransactionEdge struct {
 }
 
 type TrustlineBalance struct {
-	Account *types.Account `json:"account"`
-	Balance string         `json:"balance"`
-	TokenID string         `json:"tokenId"`
-	Code    *string        `json:"code,omitempty"`
-	Issuer  *string        `json:"issuer,omitempty"`
+	Balance                           string  `json:"balance"`
+	TokenID                           string  `json:"tokenId"`
+	Code                              *string `json:"code,omitempty"`
+	Issuer                            *string `json:"issuer,omitempty"`
+	Type                              string  `json:"type"`
+	Limit                             string  `json:"limit"`
+	BuyingLiabilities                 string  `json:"buyingLiabilities"`
+	SellingLiabilities                string  `json:"sellingLiabilities"`
+	LastModifiedLedger                int32   `json:"lastModifiedLedger"`
+	IsAuthorized                      bool    `json:"isAuthorized"`
+	IsAuthorizedToMaintainLiabilities bool    `json:"isAuthorizedToMaintainLiabilities"`
 }
 
-func (TrustlineBalance) IsBalance()                      {}
-func (this TrustlineBalance) GetAccount() *types.Account { return this.Account }
-func (this TrustlineBalance) GetBalance() string         { return this.Balance }
-func (this TrustlineBalance) GetTokenID() string         { return this.TokenID }
+func (TrustlineBalance) IsBalance()              {}
+func (this TrustlineBalance) GetBalance() string { return this.Balance }
+func (this TrustlineBalance) GetTokenID() string { return this.TokenID }

@@ -1,20 +1,24 @@
 interface Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 }
 
 type NativeBalance implements Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 }
 
 type TrustlineBalance implements Balance {
-    account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
 
     code: String
     issuer: String
+    type: String!
+    limit: String!
+    buyingLiabilities: String!
+    sellingLiabilities: String!
+    lastModifiedLedger: Int!
+    isAuthorized: Boolean!
+    isAuthorizedToMaintainLiabilities: Boolean!
 }

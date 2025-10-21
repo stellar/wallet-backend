@@ -189,6 +189,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 
 		// Check the entry type to determine if it's an account or trustline
+		//exhaustive:ignore
 		switch ledgerEntryData.Type {
 		case xdr.LedgerEntryTypeAccount:
 			// Handle native XLM balance
@@ -204,9 +205,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
 			balances = append(balances, &graphql1.NativeBalance{
-				Account: &types.Account{
-					StellarAddress: address,
-				},
 				TokenID: tokenID,
 				Balance: balanceStr,
 			})
@@ -226,14 +224,36 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
+			// Extract limit
+			limitStr := amount.String(trustlineEntry.Limit)
+
+			// Extract liabilities (V1 extension)
+			var buyingLiabilities, sellingLiabilities string
+			if trustlineEntry.Ext.V == 1 && trustlineEntry.Ext.V1 != nil {
+				buyingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Buying)
+				sellingLiabilities = amount.String(trustlineEntry.Ext.V1.Liabilities.Selling)
+			} else {
+				buyingLiabilities = "0.0000000"
+				sellingLiabilities = "0.0000000"
+			}
+
+			// Extract authorization flags
+			flags := uint32(trustlineEntry.Flags)
+			isAuthorized := (flags & uint32(xdr.TrustLineFlagsAuthorizedFlag)) != 0
+			isAuthorizedToMaintainLiabilities := (flags & uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)) != 0
+
 			balances = append(balances, &graphql1.TrustlineBalance{
-				Account: &types.Account{
-					StellarAddress: address,
-				},
-				TokenID: tokenID,
-				Balance: balanceStr,
-				Code:    utils.PointOf(assetCode),
-				Issuer:  utils.PointOf(assetIssuer),
+				TokenID:                           tokenID,
+				Balance:                           balanceStr,
+				Code:                              utils.PointOf(assetCode),
+				Issuer:                            utils.PointOf(assetIssuer),
+				Type:                              assetType,
+				Limit:                             limitStr,
+				BuyingLiabilities:                 buyingLiabilities,
+				SellingLiabilities:                sellingLiabilities,
+				LastModifiedLedger:                int32(entry.LastModifiedLedger),
+				IsAuthorized:                      isAuthorized,
+				IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
 			})
 		}
 	}
