@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 	"github.com/stellar/go/support/log"
 )
@@ -26,11 +27,8 @@ type TrustlinesService interface {
 	GetCheckpointLedger() uint32
 	PopulateTrustlines(ctx context.Context) error
 	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
-	AddTrustline(ctx context.Context, accountAddress string, asset string) error
-	RemoveTrustline(ctx context.Context, accountAddress string, asset string) error
 	GetTrustlines(ctx context.Context, accountAddress string) ([]string, error)
-	HasTrustline(ctx context.Context, accountAddress string, asset string) (bool, error)
-	RemoveTrustlines(ctx context.Context, accountAddress string, assets []string) error
+	ProcessTrustlineChangesBatch(ctx context.Context, changes []types.TrustlineChange) error
 }
 
 var _ TrustlinesService = (*trustlinesService)(nil)
@@ -72,23 +70,6 @@ func (s *trustlinesService) AddTrustlines(ctx context.Context, accountAddress st
 	return nil
 }
 
-// AddTrustline adds a trustline for an account to Redis.
-func (s *trustlinesService) AddTrustline(ctx context.Context, accountAddress string, asset string) error {
-	key := s.trustlinesPrefix + accountAddress
-	if err := s.redisStore.SAdd(ctx, key, asset); err != nil {
-		return fmt.Errorf("adding trustline for account %s: %w", accountAddress, err)
-	}
-	return nil
-}
-
-// RemoveTrustline removes a trustline for an account from Redis.
-func (s *trustlinesService) RemoveTrustline(ctx context.Context, accountAddress string, asset string) error {
-	key := s.trustlinesPrefix + accountAddress
-	if err := s.redisStore.SRem(ctx, key, asset); err != nil {
-		return fmt.Errorf("removing trustline for account %s: %w", accountAddress, err)
-	}
-	return nil
-}
 // GetTrustlines retrieves all trustlines for an account from Redis.
 func (s *trustlinesService) GetTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
 	key := s.trustlinesPrefix + accountAddress
@@ -97,25 +78,6 @@ func (s *trustlinesService) GetTrustlines(ctx context.Context, accountAddress st
 		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
 	}
 	return trustlines, nil
-}
-
-// HasTrustline checks if an account has a specific trustline.
-func (s *trustlinesService) HasTrustline(ctx context.Context, accountAddress string, asset string) (bool, error) {
-	key := s.trustlinesPrefix + accountAddress
-	hasTrustline, err := s.redisStore.SIsMember(ctx, key, asset)
-	if err != nil {
-		return false, fmt.Errorf("checking trustline for account %s: %w", accountAddress, err)
-	}
-	return hasTrustline, nil
-}
-
-// RemoveTrustlines removes a list of trustlines from an account.
-func (s *trustlinesService) RemoveTrustlines(ctx context.Context, accountAddress string, assets []string) error {
-	key := s.trustlinesPrefix + accountAddress
-	if err := s.redisStore.SRem(ctx, key, assets...); err != nil {
-		return fmt.Errorf("removing trustline for account %s: %w", accountAddress, err)
-	}
-	return nil
 }
 
 func (s *trustlinesService) GetCheckpointLedger() uint32 {
@@ -210,6 +172,44 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 	}
 
 	fmt.Printf("Stored trustlines in Redis in %v minutes\n", time.Since(startTime).Minutes())
+
+	return nil
+}
+
+// ProcessTrustlineChangesBatch processes multiple trustline changes efficiently using Redis pipelining.
+// This reduces network round trips from N operations to 1, significantly improving performance
+// when processing large batches of trustline changes during ingestion.
+func (s *trustlinesService) ProcessTrustlineChangesBatch(ctx context.Context, changes []types.TrustlineChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
+	// Convert trustline changes to Redis pipeline operations
+	operations := make([]store.SetPipelineOperation, 0, len(changes))
+	for _, change := range changes {
+		key := s.trustlinesPrefix + change.AccountID
+		var op store.SetOperation
+
+		switch change.Operation {
+		case types.TrustlineOpAdd:
+			op = store.SetOpAdd
+		case types.TrustlineOpRemove:
+			op = store.SetOpRemove
+		default:
+			return fmt.Errorf("unsupported trustline operation: %s", change.Operation)
+		}
+
+		operations = append(operations, store.SetPipelineOperation{
+			Op:      op,
+			Key:     key,
+			Members: []string{change.Asset},
+		})
+	}
+
+	// Execute all operations in a single pipeline
+	if err := s.redisStore.ExecuteSetPipeline(ctx, operations); err != nil {
+		return fmt.Errorf("executing trustline changes pipeline: %w", err)
+	}
 
 	return nil
 }

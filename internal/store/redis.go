@@ -74,3 +74,46 @@ func (r *RedisStore) Exists(ctx context.Context, keys ...string) (int64, error) 
 	}
 	return count, nil
 }
+
+// SetOperation represents a single Redis set operation type.
+type SetOperation string
+
+const (
+	SetOpAdd    SetOperation = "SADD"
+	SetOpRemove SetOperation = "SREM"
+)
+
+// SetPipelineOperation represents a single set operation to be executed in a pipeline.
+type SetPipelineOperation struct {
+	Op      SetOperation
+	Key     string
+	Members []string
+}
+
+// ExecuteSetPipeline executes multiple set operations (SADD/SREM) in a single pipeline.
+// This reduces network round trips and improves performance when processing many operations.
+// Returns an error if any operation in the pipeline fails.
+func (r *RedisStore) ExecuteSetPipeline(ctx context.Context, operations []SetPipelineOperation) error {
+	if len(operations) == 0 {
+		return nil
+	}
+
+	pipe := r.client.Pipeline()
+	for _, op := range operations {
+		switch op.Op {
+		case SetOpAdd:
+			pipe.SAdd(ctx, op.Key, op.Members)
+		case SetOpRemove:
+			pipe.SRem(ctx, op.Key, op.Members)
+		default:
+			return fmt.Errorf("unsupported set operation: %s", op.Op)
+		}
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("executing set pipeline: %w", err)
+	}
+
+	return nil
+}
