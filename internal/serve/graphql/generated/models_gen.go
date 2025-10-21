@@ -71,6 +71,17 @@ type DeregisterAccountPayload struct {
 type Mutation struct {
 }
 
+type NativeBalance struct {
+	Account *types.Account `json:"account"`
+	Balance string         `json:"balance"`
+	TokenID string         `json:"tokenId"`
+}
+
+func (NativeBalance) IsBalance()                      {}
+func (this NativeBalance) GetAccount() *types.Account { return this.Account }
+func (this NativeBalance) GetBalance() string         { return this.Balance }
+func (this NativeBalance) GetTokenID() string         { return this.TokenID }
+
 type OperationConnection struct {
 	Edges    []*OperationEdge `json:"edges,omitempty"`
 	PageInfo *PageInfo        `json:"pageInfo"`

@@ -4,6 +4,12 @@ interface Balance {
     tokenId: String!
 }
 
+type NativeBalance implements Balance {
+    account: Account! @goField(forceResolver: true)
+    balance: String!
+    tokenId: String!
+}
+
 type TrustlineBalance implements Balance {
     account: Account! @goField(forceResolver: true)
     balance: String!

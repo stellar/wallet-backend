@@ -139,19 +139,23 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 
 // BalancesByAccountAddress is the resolver for the balancesByAccountAddress field.
 func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address string) ([]graphql1.Balance, error) {
+	// Build ledger keys: first the account key for native XLM balance
+	ledgerKeys := make([]string, 0)
+
+	// Add account ledger key for native XLM balance
+	accountKey, err := utils.GetAccountLedgerKey(address)
+	if err != nil {
+		return nil, fmt.Errorf("creating account ledger key: %w", err)
+	}
+	ledgerKeys = append(ledgerKeys, accountKey)
+
 	// Fetch the current trustlines for the account
 	trustlines, err := r.trustlinesService.GetTrustlines(ctx, address)
 	if err != nil {
 		return nil, fmt.Errorf("getting trustlines for account: %w", err)
 	}
 
-	// If no trustlines, return empty result
-	if len(trustlines) == 0 {
-		return nil, nil
-	}
-
 	// Build ledger keys for all trustlines
-	ledgerKeys := make([]string, 0, len(trustlines))
 	for _, trustline := range trustlines {
 		// Parse the trustline string (format: "ASSETCODE:ISSUER")
 		parts := strings.Split(trustline, ":")
@@ -181,33 +185,57 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		var ledgerEntryData xdr.LedgerEntryData
 		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
 		if err != nil {
-			return nil, fmt.Errorf("decoding trustline entry: %w", err)
+			return nil, fmt.Errorf("decoding ledger entry: %w", err)
 		}
 
-		trustlineEntry := ledgerEntryData.MustTrustLine()
+		// Check the entry type to determine if it's an account or trustline
+		switch ledgerEntryData.Type {
+		case xdr.LedgerEntryTypeAccount:
+			// Handle native XLM balance
+			accountEntry := ledgerEntryData.MustAccount()
+			balanceStr := amount.String(accountEntry.Balance)
 
-		// Convert balance from stroops to decimal string
-		balanceStr := amount.String(trustlineEntry.Balance)
+			// Get native asset contract ID
+			nativeAsset := xdr.MustNewNativeAsset()
+			contractID, err := nativeAsset.ContractID(r.rpcService.NetworkPassphrase())
+			if err != nil {
+				return nil, fmt.Errorf("getting contract ID for native asset: %w", err)
+			}
+			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
-		var assetType, assetCode, assetIssuer string
-		asset := trustlineEntry.Asset.ToAsset()
-		asset.Extract(&assetType, &assetCode, &assetIssuer)
+			balances = append(balances, &graphql1.NativeBalance{
+				Account: &types.Account{
+					StellarAddress: address,
+				},
+				TokenID: tokenID,
+				Balance: balanceStr,
+			})
 
-		contractID, err := asset.ContractID(r.rpcService.NetworkPassphrase())
-		if err != nil {
-			return nil, fmt.Errorf("getting contract ID for asset: %w", err)
+		case xdr.LedgerEntryTypeTrustline:
+			// Handle trustline balance
+			trustlineEntry := ledgerEntryData.MustTrustLine()
+			balanceStr := amount.String(trustlineEntry.Balance)
+
+			var assetType, assetCode, assetIssuer string
+			asset := trustlineEntry.Asset.ToAsset()
+			asset.Extract(&assetType, &assetCode, &assetIssuer)
+
+			contractID, err := asset.ContractID(r.rpcService.NetworkPassphrase())
+			if err != nil {
+				return nil, fmt.Errorf("getting contract ID for asset: %w", err)
+			}
+			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+			balances = append(balances, &graphql1.TrustlineBalance{
+				Account: &types.Account{
+					StellarAddress: address,
+				},
+				TokenID: tokenID,
+				Balance: balanceStr,
+				Code:    utils.PointOf(assetCode),
+				Issuer:  utils.PointOf(assetIssuer),
+			})
 		}
-		tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
-
-		balances = append(balances, &graphql1.TrustlineBalance{
-			Account: &types.Account{
-				StellarAddress: address,
-			},
-			TokenID: tokenID,
-			Balance: balanceStr,
-			Code:    utils.PointOf(assetCode),
-			Issuer:  utils.PointOf(assetIssuer),
-		})
 	}
 	return balances, nil
 }

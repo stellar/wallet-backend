@@ -6,19 +6,31 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 // Account is the resolver for the account field.
+func (r *nativeBalanceResolver) Account(ctx context.Context, obj *graphql1.NativeBalance) (*types.Account, error) {
+	panic(fmt.Errorf("not implemented: Account - account"))
+}
+
+// Account is the resolver for the account field.
 func (r *trustlineBalanceResolver) Account(ctx context.Context, obj *graphql1.TrustlineBalance) (*types.Account, error) {
 	return r.models.Account.Get(ctx, obj.Account.StellarAddress)
 }
+
+// NativeBalance returns graphql1.NativeBalanceResolver implementation.
+func (r *Resolver) NativeBalance() graphql1.NativeBalanceResolver { return &nativeBalanceResolver{r} }
 
 // TrustlineBalance returns graphql1.TrustlineBalanceResolver implementation.
 func (r *Resolver) TrustlineBalance() graphql1.TrustlineBalanceResolver {
 	return &trustlineBalanceResolver{r}
 }
 
-type trustlineBalanceResolver struct{ *Resolver }
+type (
+	nativeBalanceResolver    struct{ *Resolver }
+	trustlineBalanceResolver struct{ *Resolver }
+)

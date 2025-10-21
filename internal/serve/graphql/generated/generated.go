@@ -47,6 +47,7 @@ type ResolverRoot interface {
 	FlagsChange() FlagsChangeResolver
 	MetadataChange() MetadataChangeResolver
 	Mutation() MutationResolver
+	NativeBalance() NativeBalanceResolver
 	Operation() OperationResolver
 	Query() QueryResolver
 	ReservesChange() ReservesChangeResolver
@@ -140,6 +141,12 @@ type ComplexityRoot struct {
 		CreateFeeBumpTransaction func(childComplexity int, input CreateFeeBumpTransactionInput) int
 		DeregisterAccount        func(childComplexity int, input DeregisterAccountInput) int
 		RegisterAccount          func(childComplexity int, input RegisterAccountInput) int
+	}
+
+	NativeBalance struct {
+		Account func(childComplexity int) int
+		Balance func(childComplexity int) int
+		TokenID func(childComplexity int) int
 	}
 
 	Operation struct {
@@ -340,6 +347,9 @@ type MutationResolver interface {
 	DeregisterAccount(ctx context.Context, input DeregisterAccountInput) (*DeregisterAccountPayload, error)
 	BuildTransaction(ctx context.Context, input BuildTransactionInput) (*BuildTransactionPayload, error)
 	CreateFeeBumpTransaction(ctx context.Context, input CreateFeeBumpTransactionInput) (*CreateFeeBumpTransactionPayload, error)
+}
+type NativeBalanceResolver interface {
+	Account(ctx context.Context, obj *NativeBalance) (*types.Account, error)
 }
 type OperationResolver interface {
 	Transaction(ctx context.Context, obj *types.Operation) (*types.Transaction, error)
@@ -836,6 +846,27 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Mutation.RegisterAccount(childComplexity, args["input"].(RegisterAccountInput)), true
+
+	case "NativeBalance.account":
+		if e.complexity.NativeBalance.Account == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.Account(childComplexity), true
+
+	case "NativeBalance.balance":
+		if e.complexity.NativeBalance.Balance == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.Balance(childComplexity), true
+
+	case "NativeBalance.tokenId":
+		if e.complexity.NativeBalance.TokenID == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.TokenID(childComplexity), true
 
 	case "Operation.accounts":
 		if e.complexity.Operation.Accounts == nil {
@@ -1701,6 +1732,12 @@ type Account{
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
+    account: Account! @goField(forceResolver: true)
+    balance: String!
+    tokenId: String!
+}
+
+type NativeBalance implements Balance {
     account: Account! @goField(forceResolver: true)
     balance: String!
     tokenId: String!
@@ -5804,6 +5841,148 @@ func (ec *executionContext) fieldContext_Mutation_createFeeBumpTransaction(ctx c
 	if fc.Args, err = ec.field_Mutation_createFeeBumpTransaction_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_account(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_account(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.NativeBalance().Account(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*types.Account)
+	fc.Result = res
+	return ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_balance(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_balance(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Balance, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_balance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_tokenId(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_tokenId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TokenID, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
 	}
 	return fc, nil
 }
@@ -12921,6 +13100,13 @@ func (ec *executionContext) _Balance(ctx context.Context, sel ast.SelectionSet, 
 			return graphql.Null
 		}
 		return ec._TrustlineBalance(ctx, sel, obj)
+	case NativeBalance:
+		return ec._NativeBalance(ctx, sel, &obj)
+	case *NativeBalance:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._NativeBalance(ctx, sel, obj)
 	default:
 		panic(fmt.Errorf("unexpected type %T", obj))
 	}
@@ -14468,6 +14654,86 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var nativeBalanceImplementors = []string{"NativeBalance", "Balance"}
+
+func (ec *executionContext) _NativeBalance(ctx context.Context, sel ast.SelectionSet, obj *NativeBalance) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, nativeBalanceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("NativeBalance")
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._NativeBalance_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "balance":
+			out.Values[i] = ec._NativeBalance_balance(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "tokenId":
+			out.Values[i] = ec._NativeBalance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
