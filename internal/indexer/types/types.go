@@ -57,17 +57,17 @@ type AccountWithOperationID struct {
 }
 
 type TrustlineChange struct {
-	AccountID string
-	Asset     string
-	OperationID int64
+	AccountID    string
+	Asset        string
+	OperationID  int64
 	LedgerNumber uint32
-	Operation TrustlineOpType
+	Operation    TrustlineOpType
 }
 
 type TrustlineOpType string
 
 const (
-	TrustlineOpAdd TrustlineOpType = "ADD"
+	TrustlineOpAdd    TrustlineOpType = "ADD"
 	TrustlineOpRemove TrustlineOpType = "REMOVE"
 )
 

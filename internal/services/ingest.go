@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"hash/fnv"
 	"io"
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -56,20 +56,20 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models            *data.Models
-	ledgerCursorName  string
+	models               *data.Models
+	ledgerCursorName     string
 	trustlinesCursorName string
-	advisoryLockID    int
-	appTracker        apptracker.AppTracker
-	rpcService        RPCService
-	chAccStore        store.ChannelAccountStore
-	contractStore     cache.TokenContractStore
-	metricsService    metrics.MetricsService
-	trustlinesService TrustlinesService
-	networkPassphrase string
-	getLedgersLimit   int
-	ledgerIndexer     *indexer.Indexer
-	pool              pond.Pool
+	advisoryLockID       int
+	appTracker           apptracker.AppTracker
+	rpcService           RPCService
+	chAccStore           store.ChannelAccountStore
+	contractStore        cache.TokenContractStore
+	metricsService       metrics.MetricsService
+	trustlinesService    TrustlinesService
+	networkPassphrase    string
+	getLedgersLimit      int
+	ledgerIndexer        *indexer.Indexer
+	pool                 pond.Pool
 }
 
 func NewIngestService(
@@ -111,20 +111,20 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:            models,
-		ledgerCursorName:  ledgerCursorName,
+		models:               models,
+		ledgerCursorName:     ledgerCursorName,
 		trustlinesCursorName: trustlinesCursorName,
-		advisoryLockID:    generateAdvisoryLockID(network),
-		appTracker:        appTracker,
-		rpcService:        rpcService,
-		chAccStore:        chAccStore,
-		contractStore:     contractStore,
-		metricsService:    metricsService,
-		trustlinesService: trustlinesService,
-		networkPassphrase: rpcService.NetworkPassphrase(),
-		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0)),
-		pool:              pond.NewPool(0),
+		advisoryLockID:       generateAdvisoryLockID(network),
+		appTracker:           appTracker,
+		rpcService:           rpcService,
+		chAccStore:           chAccStore,
+		contractStore:        contractStore,
+		metricsService:       metricsService,
+		trustlinesService:    trustlinesService,
+		networkPassphrase:    rpcService.NetworkPassphrase(),
+		getLedgersLimit:      getLedgersLimit,
+		ledgerIndexer:        indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0)),
+		pool:                 pond.NewPool(0),
 	}, nil
 }
 
@@ -282,7 +282,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 
 		// update cursors
-		db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 			startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
 			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)

@@ -8,6 +8,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+type Balance interface {
+	IsBalance()
+	GetAccount() *types.Account
+	GetBalance() int32
+	GetTokenID() string
+}
+
 type BaseStateChange interface {
 	IsBaseStateChange()
 	GetType() types.StateChangeCategory
@@ -121,3 +128,16 @@ type TransactionEdge struct {
 	Node   *types.Transaction `json:"node,omitempty"`
 	Cursor string             `json:"cursor"`
 }
+
+type TrustlineBalance struct {
+	Account *types.Account `json:"account"`
+	Balance int32          `json:"balance"`
+	TokenID string         `json:"tokenID"`
+	Code    *string        `json:"code,omitempty"`
+	Issuer  *string        `json:"issuer,omitempty"`
+}
+
+func (TrustlineBalance) IsBalance()                      {}
+func (this TrustlineBalance) GetAccount() *types.Account { return this.Account }
+func (this TrustlineBalance) GetBalance() int32          { return this.Balance }
+func (this TrustlineBalance) GetTokenID() string         { return this.TokenID }

@@ -29,22 +29,22 @@ const (
 )
 
 type Configs struct {
-	DatabaseURL       string
-	ServerPort        int
-	LedgerCursorName  string
+	DatabaseURL          string
+	ServerPort           int
+	LedgerCursorName     string
 	TrustlinesCursorName string
-	StartLedger       int
-	EndLedger         int
-	LogLevel          logrus.Level
-	AppTracker        apptracker.AppTracker
-	RPCURL            string
-	Network           string
-	NetworkPassphrase string
-	GetLedgersLimit   int
-	AdminPort         int
-	RedisHost         string
-	RedisPort         int
-	RedisPassword     string
+	StartLedger          int
+	EndLedger            int
+	LogLevel             logrus.Level
+	AppTracker           apptracker.AppTracker
+	RPCURL               string
+	Network              string
+	NetworkPassphrase    string
+	GetLedgersLimit      int
+	AdminPort            int
+	RedisHost            string
+	RedisPort            int
+	RedisPassword        string
 }
 
 func Ingest(cfg Configs) error {

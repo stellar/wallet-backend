@@ -35,6 +35,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
+
+	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
 type Configs struct {
@@ -47,6 +49,11 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
+
+	// Redis
+	RedisHost     string
+	RedisPort     int
+	RedisPassword string
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -80,6 +87,7 @@ type handlerDeps struct {
 	MetricsService     metrics.MetricsService
 	TransactionService services.TransactionService
 	RPCService         services.RPCService
+	TrustlinesService  services.TrustlinesService
 	// GraphQL
 	GraphQLComplexityLimit int
 	// Error Tracker
@@ -152,6 +160,12 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
+	trustlinesService, err := services.NewTrustlinesService(cfg.NetworkPassphrase, redisStore)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating trustlines service: %w", err)
+	}
+
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
@@ -188,6 +202,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:         feeBumpService,
 		MetricsService:         metricsService,
 		RPCService:             rpcService,
+		TrustlinesService:      trustlinesService,
 		AppTracker:             cfg.AppTracker,
 		NetworkPassphrase:      cfg.NetworkPassphrase,
 		TransactionService:     txService,
@@ -231,7 +246,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.RPCService, deps.TrustlinesService)
 
 			config := generated.Config{
 				Resolvers: resolver,

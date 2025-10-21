@@ -54,12 +54,12 @@ type AccountModelInterface interface {
 // PrecomputedTransactionData holds all the data needed to process a transaction
 // without re-computing participants, operations participants, and state changes.
 type PrecomputedTransactionData struct {
-	Transaction     ingest.LedgerTransaction
-	TxParticipants  set.Set[string]
-	OpsParticipants map[int64]processors.OperationParticipants
-	StateChanges    []types.StateChange
+	Transaction      ingest.LedgerTransaction
+	TxParticipants   set.Set[string]
+	OpsParticipants  map[int64]processors.OperationParticipants
+	StateChanges     []types.StateChange
 	TrustlineChanges []types.TrustlineChange
-	AllParticipants set.Set[string] // Union of all participants for this transaction
+	AllParticipants  set.Set[string] // Union of all participants for this transaction
 }
 
 type Indexer struct {
@@ -142,11 +142,12 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 				switch stateChange.StateChangeCategory {
 				case types.StateChangeCategoryTrustline:
 					trustlineChange := types.TrustlineChange{
-						AccountID: stateChange.AccountID,
-						OperationID: stateChange.OperationID,
-						Asset: stateChange.TrustlineAsset,
+						AccountID:    stateChange.AccountID,
+						OperationID:  stateChange.OperationID,
+						Asset:        stateChange.TrustlineAsset,
 						LedgerNumber: tx.Ledger.LedgerSequence(),
 					}
+					//exhaustive:ignore
 					switch *stateChange.StateChangeReason {
 					case types.StateChangeReasonAdd:
 						trustlineChange.Operation = types.TrustlineOpAdd

@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // TransactionByHash is the resolver for the transactionByHash field.
@@ -130,6 +133,70 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 		Edges:    edges,
 		PageInfo: conn.PageInfo,
 	}, nil
+}
+
+// BalancesByAccountAddress is the resolver for the balancesByAccountAddress field.
+func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address string) ([]graphql1.Balance, error) {
+	// Fetch the current trustlines for the account
+	trustlines, err := r.trustlinesService.GetTrustlines(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("getting trustlines for account: %w", err)
+	}
+
+	// If no trustlines, return empty result
+	if len(trustlines) == 0 {
+		return nil, nil
+	}
+
+	// Build ledger keys for all trustlines
+	ledgerKeys := make([]string, 0, len(trustlines))
+	for _, trustline := range trustlines {
+		// Parse the trustline string (format: "ASSETCODE:ISSUER")
+		parts := strings.Split(trustline, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid trustline format: %s", trustline)
+		}
+		assetCode := parts[0]
+		assetIssuer := parts[1]
+
+		// Create ledger key for this trustline
+		ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
+		if keyErr != nil {
+			return nil, fmt.Errorf("creating ledger key for trustline %s: %w", trustline, keyErr)
+		}
+		ledgerKeys = append(ledgerKeys, ledgerKey)
+	}
+
+	// Call RPC to get ledger entries
+	result, err := r.rpcService.GetLedgerEntries(ledgerKeys)
+	if err != nil {
+		return nil, fmt.Errorf("getting ledger entries from RPC: %w", err)
+	}
+
+	var balances []graphql1.Balance
+	for _, entry := range result.Entries {
+		// Decode the DataXDR to get the ledger entry data
+		var ledgerEntryData xdr.LedgerEntryData
+		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
+		if err != nil {
+			return nil, fmt.Errorf("decoding trustline entry: %w", err)
+		}
+
+		trustlineEntry := ledgerEntryData.MustTrustLine()
+		balance := trustlineEntry.Balance
+		var assetType, assetCode, assetIssuer string
+		trustlineEntry.Asset.ToAsset().Extract(&assetType, &assetCode, &assetIssuer)
+
+		balances = append(balances, &graphql1.TrustlineBalance{
+			Account: &types.Account{
+				StellarAddress: address,
+			},
+			Balance: int32(balance),
+			Code:    utils.PointOf(assetCode),
+			Issuer:  utils.PointOf(assetIssuer),
+		})
+	}
+	return balances, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

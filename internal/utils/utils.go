@@ -62,6 +62,41 @@ func GetAccountLedgerKey(address string) (string, error) {
 	return keyXdr, nil
 }
 
+// GetTrustlineLedgerKey creates a base64-encoded XDR ledger key for a trustline.
+func GetTrustlineLedgerKey(accountAddress, assetCode, assetIssuer string) (string, error) {
+	// Decode the account address
+	decoded, err := strkey.Decode(strkey.VersionByteAccountID, accountAddress)
+	if err != nil {
+		return "", fmt.Errorf("decoding account address %q: %w", accountAddress, err)
+	}
+	var key xdr.Uint256
+	copy(key[:], decoded)
+	accountID := xdr.AccountId(xdr.PublicKey{
+		Type:    xdr.PublicKeyTypePublicKeyTypeEd25519,
+		Ed25519: &key,
+	})
+
+	// Create the asset
+	asset, err := xdr.NewCreditAsset(assetCode, assetIssuer)
+	if err != nil {
+		return "", fmt.Errorf("creating credit asset: %w", err)
+	}
+
+	// Create the ledger key
+	ledgerKey := &xdr.LedgerKey{}
+	err = ledgerKey.SetTrustline(accountID, asset.ToTrustLineAsset())
+	if err != nil {
+		return "", fmt.Errorf("setting trustline ledger key: %w", err)
+	}
+
+	// Marshal to base64
+	keyXdr, err := ledgerKey.MarshalBinaryBase64()
+	if err != nil {
+		return "", fmt.Errorf("marshalling ledger key: %w", err)
+	}
+	return keyXdr, nil
+}
+
 // DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.
 func DeferredClose(ctx context.Context, closer io.Closer, errMsg string) {
 	if err := closer.Close(); err != nil {

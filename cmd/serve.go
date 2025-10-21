@@ -92,6 +92,30 @@ func (c *serveCmd) Command() *cobra.Command {
 			FlagDefault: 15,
 			Required:    true,
 		},
+		{
+			Name:        "redis-host",
+			Usage:       "Redis host for caching",
+			OptType:     types.String,
+			ConfigKey:   &cfg.RedisHost,
+			FlagDefault: "localhost",
+			Required:    false,
+		},
+		{
+			Name:        "redis-port",
+			Usage:       "Redis port for caching",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.RedisPort,
+			FlagDefault: 6379,
+			Required:    false,
+		},
+		{
+			Name:        "redis-password",
+			Usage:       "Redis password for caching",
+			OptType:     types.String,
+			ConfigKey:   &cfg.RedisPassword,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	// Distribution Account Signature Client options

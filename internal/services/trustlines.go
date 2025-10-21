@@ -13,9 +13,10 @@ import (
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/xdr"
 
+	"github.com/stellar/go/support/log"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
-	"github.com/stellar/go/support/log"
 )
 
 const (
