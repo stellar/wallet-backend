@@ -33,10 +33,6 @@ type IndexerBufferInterface interface {
 	MergeBuffer(other IndexerBufferInterface)
 }
 
-type TrustlineChangeProcessorInterface interface {
-	GetTrustlineChanges(ctx context.Context) []types.TrustlineChange
-}
-
 type TokenTransferProcessorInterface interface {
 	ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error)
 }
@@ -70,21 +66,18 @@ type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
-	trustlineChangeProcessor TrustlineChangeProcessorInterface
 	pool                   pond.Pool
 }
 
 func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider, pool pond.Pool) *Indexer {
-	effectsProcessor := processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider)
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase),
 		processors: []OperationProcessorInterface{
-			effectsProcessor,
+			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider),
 			processors.NewContractDeployProcessor(networkPassphrase),
 			contract_processors.NewSACEventsProcessor(networkPassphrase),
 		},
-		trustlineChangeProcessor: effectsProcessor,
 		pool: pool,
 	}
 }
@@ -143,7 +136,31 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			for _, stateChange := range stateChanges {
 				txData.AllParticipants.Add(stateChange.AccountID)
 			}
-			txData.TrustlineChanges = i.trustlineChangeProcessor.GetTrustlineChanges(ctx)
+
+			trustlineChanges := []types.TrustlineChange{}
+			for _, stateChange := range stateChanges {
+				switch stateChange.StateChangeCategory {
+				case types.StateChangeCategoryTrustline:
+					trustlineChange := types.TrustlineChange{
+						AccountID: stateChange.AccountID,
+						OperationID: stateChange.OperationID,
+						Asset: stateChange.TrustlineAsset,
+						LedgerNumber: tx.Ledger.LedgerSequence(),
+					}
+					switch *stateChange.StateChangeReason {
+					case types.StateChangeReasonAdd:
+						trustlineChange.Operation = types.TrustlineOpAdd
+					case types.StateChangeReasonRemove:
+						trustlineChange.Operation = types.TrustlineOpRemove
+					case types.StateChangeReasonUpdate:
+						continue
+					}
+					trustlineChanges = append(trustlineChanges, trustlineChange)
+				default:
+					continue
+				}
+			}
+			txData.TrustlineChanges = trustlineChanges
 
 			// Add to collection
 			precomputedData[index] = txData

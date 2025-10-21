@@ -60,6 +60,7 @@ type TrustlineChange struct {
 	AccountID string
 	Asset     string
 	OperationID int64
+	LedgerNumber uint32
 	Operation TrustlineOpType
 }
 
@@ -297,6 +298,8 @@ type StateChange struct {
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
+	// code:issuer formatted asset string
+	TrustlineAsset string `json,omitempty:"-"`
 }
 
 type StateChangeWithCursor struct {

@@ -244,7 +244,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	defer signal.Stop(signalChan)
 
 	if latestTrustlinesLedger == 0 {
-		log.Ctx(ctx).Info("Populating trustlines")
 		err := m.trustlinesService.PopulateTrustlines(ctx)
 		if err != nil {
 			return fmt.Errorf("populating trustlines: %w", err)
@@ -604,7 +603,14 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		sort.Slice(trustlineChanges, func(i, j int) bool {
 			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 		})
+		insertedTrustlineChanges := 0
 		for _, trustlineChange := range trustlineChanges {
+			// This check is required since we initialize trustlines using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
+			// We will skip trustline changes as the wallet backend catches up to the tip. We only need to ingest trustline changes that are newer than the latest checkpoint ledger.
+			if trustlineChange.LedgerNumber <= m.trustlinesService.GetCheckpointLedger() {
+				continue
+			}
+			insertedTrustlineChanges++
 			switch trustlineChange.Operation {
 			case types.TrustlineOpAdd:
 				m.trustlinesService.AddTrustline(ctx, trustlineChange.AccountID, trustlineChange.Asset)
@@ -612,6 +618,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 				m.trustlinesService.RemoveTrustline(ctx, trustlineChange.AccountID, trustlineChange.Asset)
 			}
 		}
+		log.Ctx(ctx).Infof("✅ inserted %d trustline changes", insertedTrustlineChanges)
 	}
 
 	return nil

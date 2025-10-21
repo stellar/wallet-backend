@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/store"
+	"github.com/stellar/go/support/log"
 )
 
 const (
@@ -22,6 +23,7 @@ const (
 
 // TrustlinesService defines the interface for trustlines operations.
 type TrustlinesService interface {
+	GetCheckpointLedger() uint32
 	PopulateTrustlines(ctx context.Context) error
 	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
 	AddTrustline(ctx context.Context, accountAddress string, asset string) error
@@ -34,6 +36,7 @@ type TrustlinesService interface {
 var _ TrustlinesService = (*trustlinesService)(nil)
 
 type trustlinesService struct {
+	checkpointLedger uint32
 	archive          historyarchive.ArchiveInterface
 	redisStore       *store.RedisStore
 	trustlinesPrefix string
@@ -50,6 +53,7 @@ func NewTrustlinesService(networkPassphrase string, redisStore *store.RedisStore
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 	return &trustlinesService{
+		checkpointLedger: 0,
 		archive:          archive,
 		redisStore:       redisStore,
 		trustlinesPrefix: "trustlines:",
@@ -114,12 +118,18 @@ func (s *trustlinesService) RemoveTrustlines(ctx context.Context, accountAddress
 	return nil
 }
 
+func (s *trustlinesService) GetCheckpointLedger() uint32 {
+	return s.checkpointLedger
+}
+
 func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 	latestCheckpointLedger, err := s.getLatestCheckpointLedger()
 	if err != nil {
 		return err
 	}
 
+	log.Ctx(ctx).Infof("Populating trustlines from ledger %d", latestCheckpointLedger)
+	s.checkpointLedger = latestCheckpointLedger
 	reader, err := ingest.NewCheckpointChangeReader(
 		context.Background(),
 		s.archive,
