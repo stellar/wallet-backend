@@ -1496,7 +1496,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineBalance.Issuer(childComplexity), true
 
-	case "TrustlineBalance.tokenID":
+	case "TrustlineBalance.tokenId":
 		if e.complexity.TrustlineBalance.TokenID == nil {
 			break
 		}
@@ -1702,14 +1702,14 @@ type Account{
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
     account: Account! @goField(forceResolver: true)
-    balance: Int!
-    tokenID: String!
+    balance: String!
+    tokenId: String!
 }
 
 type TrustlineBalance implements Balance {
     account: Account! @goField(forceResolver: true)
-    balance: Int!
-    tokenID: String!
+    balance: String!
+    tokenId: String!
 
     code: String
     issuer: String
@@ -10141,9 +10141,9 @@ func (ec *executionContext) _TrustlineBalance_balance(ctx context.Context, field
 		}
 		return graphql.Null
 	}
-	res := resTmp.(int32)
+	res := resTmp.(string)
 	fc.Result = res
-	return ec.marshalNInt2int32(ctx, field.Selections, res)
+	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineBalance_balance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -10153,14 +10153,14 @@ func (ec *executionContext) fieldContext_TrustlineBalance_balance(_ context.Cont
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineBalance_tokenID(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_TrustlineBalance_tokenID(ctx, field)
+func (ec *executionContext) _TrustlineBalance_tokenId(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_tokenId(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -10190,7 +10190,7 @@ func (ec *executionContext) _TrustlineBalance_tokenID(ctx context.Context, field
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_TrustlineBalance_tokenID(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineBalance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "TrustlineBalance",
 		Field:      field,
@@ -16549,8 +16549,8 @@ func (ec *executionContext) _TrustlineBalance(ctx context.Context, sel ast.Selec
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "tokenID":
-			out.Values[i] = ec._TrustlineBalance_tokenID(ctx, field, obj)
+		case "tokenId":
+			out.Values[i] = ec._TrustlineBalance_tokenId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -17361,22 +17361,6 @@ func (ec *executionContext) marshalNDeregisterAccountPayload2ᚖgithubᚗcomᚋs
 		return graphql.Null
 	}
 	return ec._DeregisterAccountPayload(ctx, sel, v)
-}
-
-func (ec *executionContext) unmarshalNInt2int32(ctx context.Context, v any) (int32, error) {
-	res, err := graphql.UnmarshalInt32(v)
-	return res, graphql.ErrorOnPath(ctx, err)
-}
-
-func (ec *executionContext) marshalNInt2int32(ctx context.Context, sel ast.SelectionSet, v int32) graphql.Marshaler {
-	_ = sel
-	res := graphql.MarshalInt32(v)
-	if res == graphql.Null {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
-		}
-	}
-	return res
 }
 
 func (ec *executionContext) unmarshalNInt642int64(ctx context.Context, v any) (int64, error) {

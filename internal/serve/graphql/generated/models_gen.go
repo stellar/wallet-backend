@@ -11,7 +11,7 @@ import (
 type Balance interface {
 	IsBalance()
 	GetAccount() *types.Account
-	GetBalance() int32
+	GetBalance() string
 	GetTokenID() string
 }
 
@@ -131,13 +131,13 @@ type TransactionEdge struct {
 
 type TrustlineBalance struct {
 	Account *types.Account `json:"account"`
-	Balance int32          `json:"balance"`
-	TokenID string         `json:"tokenID"`
+	Balance string         `json:"balance"`
+	TokenID string         `json:"tokenId"`
 	Code    *string        `json:"code,omitempty"`
 	Issuer  *string        `json:"issuer,omitempty"`
 }
 
 func (TrustlineBalance) IsBalance()                      {}
 func (this TrustlineBalance) GetAccount() *types.Account { return this.Account }
-func (this TrustlineBalance) GetBalance() int32          { return this.Balance }
+func (this TrustlineBalance) GetBalance() string         { return this.Balance }
 func (this TrustlineBalance) GetTokenID() string         { return this.TokenID }

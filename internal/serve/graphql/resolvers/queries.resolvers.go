@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/stellar/go/amount"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -183,15 +185,26 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		}
 
 		trustlineEntry := ledgerEntryData.MustTrustLine()
-		balance := trustlineEntry.Balance
+
+		// Convert balance from stroops to decimal string
+		balanceStr := amount.String(trustlineEntry.Balance)
+
 		var assetType, assetCode, assetIssuer string
-		trustlineEntry.Asset.ToAsset().Extract(&assetType, &assetCode, &assetIssuer)
+		asset := trustlineEntry.Asset.ToAsset()
+		asset.Extract(&assetType, &assetCode, &assetIssuer)
+
+		contractID, err := asset.ContractID(r.rpcService.NetworkPassphrase())
+		if err != nil {
+			return nil, fmt.Errorf("getting contract ID for asset: %w", err)
+		}
+		tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
 		balances = append(balances, &graphql1.TrustlineBalance{
 			Account: &types.Account{
 				StellarAddress: address,
 			},
-			Balance: int32(balance),
+			TokenID: tokenID,
+			Balance: balanceStr,
 			Code:    utils.PointOf(assetCode),
 			Issuer:  utils.PointOf(assetIssuer),
 		})

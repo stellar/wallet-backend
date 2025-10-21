@@ -1,13 +1,13 @@
 interface Balance {
     account: Account! @goField(forceResolver: true)
-    balance: Int!
-    tokenID: String!
+    balance: String!
+    tokenId: String!
 }
 
 type TrustlineBalance implements Balance {
     account: Account! @goField(forceResolver: true)
-    balance: Int!
-    tokenID: String!
+    balance: String!
+    tokenId: String!
 
     code: String
     issuer: String
