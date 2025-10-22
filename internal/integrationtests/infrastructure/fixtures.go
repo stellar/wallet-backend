@@ -74,8 +74,7 @@ func NewFixtures(ctx context.Context, networkPassphrase string, primaryAccountKP
 // preparePaymentOp creates a payment operation.
 func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 3 state changes:
-		- 1 BALANCE/DEBIT change for wallet-backend's distribution account for the fee of the transaction
+		Should generate 2 state changes:
 		- 1 BALANCE/CREDIT change for secondary account for the amount of the payment
 		- 1 BALANCE/DEBIT change for primary account for the amount of the payment
 	*/
@@ -103,7 +102,7 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 // NOTE 2: one manageData operation is included here as a bonus.
 func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 8 state changes:
+		Should generate 7 state changes:
 		- 1 ACCOUNT/CREATE change for the new account
 		- 1 BALANCE/CREDIT change for the new account (amount is 5)
 		- 1 BALANCE/DEBIT change from primary account (amount is 5)
@@ -638,8 +637,8 @@ func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full],
 	/*
 		Should generate 4 state changes:
 			- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-			- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsored account)
-			- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsored account)
+			- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsoring account)
+			- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsoring account)
 			- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
 	*/
 	operations := []txnbuild.Operation{
