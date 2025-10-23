@@ -105,8 +105,6 @@ func (r *rpcService) GetTransaction(transactionHash string) (entities.RPCGetTran
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("sending getTransaction request: %w", err)
 	}
 
-	r.metricsService.ObserveRPCResponseSize("GetTransaction", len(resultBytes))
-
 	var result entities.RPCGetTransactionResult
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
@@ -142,8 +140,6 @@ func (r *rpcService) GetTransactions(startLedger int64, startCursor string, limi
 		return entities.RPCGetTransactionsResult{}, fmt.Errorf("sending getTransactions request: %w", err)
 	}
 
-	r.metricsService.ObserveRPCResponseSize("GetTransactions", len(resultBytes))
-
 	var result entities.RPCGetTransactionsResult
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
@@ -166,8 +162,6 @@ func (r *rpcService) GetHealth() (entities.RPCGetHealthResult, error) {
 		r.metricsService.IncRPCMethodErrors("GetHealth", "rpc_error")
 		return entities.RPCGetHealthResult{}, fmt.Errorf("sending getHealth request: %w", err)
 	}
-
-	r.metricsService.ObserveRPCResponseSize("GetHealth", len(resultBytes))
 
 	var result entities.RPCGetHealthResult
 	err = json.Unmarshal(resultBytes, &result)
@@ -200,8 +194,6 @@ func (r *rpcService) GetLedgers(startLedger uint32, limit uint32) (GetLedgersRes
 		return GetLedgersResponse{}, fmt.Errorf("sending getLedgers request: %w", err)
 	}
 
-	r.metricsService.ObserveRPCResponseSize("GetLedgers", len(resultBytes))
-
 	var result GetLedgersResponse
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
@@ -228,8 +220,6 @@ func (r *rpcService) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntri
 		return entities.RPCGetLedgerEntriesResult{}, fmt.Errorf("sending getLedgerEntries request: %w", err)
 	}
 
-	r.metricsService.ObserveRPCResponseSize("GetLedgerEntries", len(resultBytes))
-
 	var result entities.RPCGetLedgerEntriesResult
 	err = json.Unmarshal(resultBytes, &result)
 	if err != nil {
@@ -252,8 +242,6 @@ func (r *rpcService) SendTransaction(transactionXDR string) (entities.RPCSendTra
 		r.metricsService.IncRPCMethodErrors("SendTransaction", "rpc_error")
 		return entities.RPCSendTransactionResult{}, fmt.Errorf("sending sendTransaction request: %w", err)
 	}
-
-	r.metricsService.ObserveRPCResponseSize("SendTransaction", len(resultBytes))
 
 	var result entities.RPCSendTransactionResult
 	err = json.Unmarshal(resultBytes, &result)
@@ -278,8 +266,6 @@ func (r *rpcService) SimulateTransaction(transactionXDR string, resourceConfig e
 		r.metricsService.IncRPCMethodErrors("SimulateTransaction", "rpc_error")
 		return entities.RPCSimulateTransactionResult{}, fmt.Errorf("sending simulateTransaction request: %w", err)
 	}
-
-	r.metricsService.ObserveRPCResponseSize("SimulateTransaction", len(resultBytes))
 
 	var result entities.RPCSimulateTransactionResult
 	err = json.Unmarshal(resultBytes, &result)

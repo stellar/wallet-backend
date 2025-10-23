@@ -494,43 +494,18 @@ func TestRPCMethodMetrics(t *testing.T) {
 		assert.Equal(t, 1, rpcErrors, "Expected 1 rpc_error")
 	})
 
-	t.Run("RPC response size", func(t *testing.T) {
-		method := "GetTransactions"
-
-		ms.ObserveRPCResponseSize(method, 1024)
-		ms.ObserveRPCResponseSize(method, 2048)
-		ms.ObserveRPCResponseSize(method, 512)
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "rpc_response_size_bytes" {
-				found = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, uint64(3), metric.GetSummary().GetSampleCount())
-				assert.Equal(t, float64(3584), metric.GetSummary().GetSampleSum())
-				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
-			}
-		}
-		assert.True(t, found, "rpc_response_size_bytes metric not found")
-	})
-
 	t.Run("All RPC method metrics together", func(t *testing.T) {
 		method := "SimulateTransaction"
 
 		// Simulate a complete RPC method execution
 		ms.IncRPCMethodCalls(method)
 		ms.ObserveRPCMethodDuration(method, 0.15)
-		ms.ObserveRPCResponseSize(method, 4096)
 
 		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		foundCalls := false
 		foundDuration := false
-		foundSize := false
 
 		for _, mf := range metricFamilies {
 			switch mf.GetName() {
@@ -556,23 +531,11 @@ func TestRPCMethodMetrics(t *testing.T) {
 						assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
 					}
 				}
-			case "rpc_response_size_bytes":
-				for _, metric := range mf.GetMetric() {
-					labels := make(map[string]string)
-					for _, label := range metric.GetLabel() {
-						labels[label.GetName()] = label.GetValue()
-					}
-					if labels["method"] == method {
-						foundSize = true
-						assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
-					}
-				}
 			}
 		}
 
 		assert.True(t, foundCalls, "Method calls metric not found for "+method)
 		assert.True(t, foundDuration, "Method duration metric not found for "+method)
-		assert.True(t, foundSize, "Response size metric not found for "+method)
 	})
 
 	t.Run("Multiple methods tracked independently", func(t *testing.T) {

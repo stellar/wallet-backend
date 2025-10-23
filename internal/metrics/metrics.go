@@ -27,7 +27,6 @@ type MetricsService interface {
 	IncRPCMethodCalls(method string)
 	ObserveRPCMethodDuration(method string, duration float64)
 	IncRPCMethodErrors(method, errorType string)
-	ObserveRPCResponseSize(method string, sizeBytes int)
 	IncNumRequests(endpoint, method string, statusCode int)
 	ObserveRequestDuration(endpoint, method string, duration float64)
 	ObserveDBQueryDuration(queryType, table string, duration float64)
@@ -59,7 +58,6 @@ type metricsService struct {
 	rpcMethodCallsTotal  *prometheus.CounterVec
 	rpcMethodDuration    *prometheus.SummaryVec
 	rpcMethodErrorsTotal *prometheus.CounterVec
-	rpcResponseSizeBytes *prometheus.SummaryVec
 
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
@@ -170,14 +168,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"method", "error_type"},
 	)
-	m.rpcResponseSizeBytes = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "rpc_response_size_bytes",
-			Help:       "Size of RPC responses in bytes",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-		[]string{"method"},
-	)
 
 	// HTTP Request Metrics
 	m.numRequestsTotal = prometheus.NewCounterVec(
@@ -242,7 +232,6 @@ func (m *metricsService) registerMetrics() {
 		m.rpcMethodCallsTotal,
 		m.rpcMethodDuration,
 		m.rpcMethodErrorsTotal,
-		m.rpcResponseSizeBytes,
 		m.numRequestsTotal,
 		m.requestsDuration,
 		m.dbQueryDuration,
@@ -395,10 +384,6 @@ func (m *metricsService) ObserveRPCMethodDuration(method string, duration float6
 
 func (m *metricsService) IncRPCMethodErrors(method, errorType string) {
 	m.rpcMethodErrorsTotal.WithLabelValues(method, errorType).Inc()
-}
-
-func (m *metricsService) ObserveRPCResponseSize(method string, sizeBytes int) {
-	m.rpcResponseSizeBytes.WithLabelValues(method).Observe(float64(sizeBytes))
 }
 
 // HTTP Request Metrics

@@ -253,7 +253,6 @@ func TestSendTransaction(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "sendTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("ObserveRPCResponseSize", "SendTransaction", mock.AnythingOfType("int")).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		transactionXDR := "AAAAAgAAAABYJgX6SmA2tGVDv3GXfOWbkeL869ahE0e5DG9HnXQw/QAAAGQAAjpnAAAAAQAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAQAAAACxaDFEbbssZfrbRgFxTYIygITSQxsUpDmneN2gAZBEFQAAAAAAAAAABfXhAAAAAAAAAAAA"
@@ -463,7 +462,6 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 				On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
 			if tc.httpResponseErr == nil {
 				mMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
-				mMetricsService.On("ObserveRPCResponseSize", "SimulateTransaction", mock.AnythingOfType("int")).Once()
 			} else {
 				mMetricsService.On("IncRPCEndpointFailure", "simulateTransaction").Once()
 				mMetricsService.On("IncRPCMethodErrors", "SimulateTransaction", "rpc_error").Once()
@@ -527,7 +525,6 @@ func TestGetTransaction(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransaction", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("ObserveRPCResponseSize", "GetTransaction", mock.AnythingOfType("int")).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		transactionHash := "6bc97bddc21811c626839baf4ab574f4f9f7ddbebb44d286ae504396d4e752da"
@@ -649,7 +646,6 @@ func TestGetTransactions(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getTransactions").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransactions", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("ObserveRPCResponseSize", "GetTransactions", mock.AnythingOfType("int")).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		params := entities.RPCParams{StartLedger: 10, Pagination: entities.RPCPagination{Limit: 5}}
@@ -716,7 +712,6 @@ func TestSendGetHealth(t *testing.T) {
 		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
-		mockMetricsService.On("ObserveRPCResponseSize", "GetHealth", mock.AnythingOfType("int")).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		payload := map[string]interface{}{
@@ -785,8 +780,7 @@ func Test_rpcService_GetLedgers(t *testing.T) {
 			On("ObserveRPCMethodDuration", "GetLedgers", mock.AnythingOfType("float64")).Once().
 			On("IncRPCRequests", "getLedgers").Once().
 			On("IncRPCEndpointSuccess", "getLedgers").Once().
-			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once().
-			On("ObserveRPCResponseSize", "GetLedgers", mock.AnythingOfType("int")).Once()
+			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		payload := map[string]any{
@@ -897,7 +891,6 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
-	mockMetricsService.On("ObserveRPCResponseSize", "GetHealth", mock.AnythingOfType("int")).Once()
 	mockMetricsService.On("SetRPCServiceHealth", true).Once()
 	mockMetricsService.On("SetRPCLatestLedger", int64(100)).Once()
 	defer mockMetricsService.AssertExpectations(t)
@@ -1067,7 +1060,6 @@ func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
 	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
 	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Maybe()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
-	mockMetricsService.On("ObserveRPCResponseSize", "GetHealth", mock.AnythingOfType("int")).Maybe()
 	mockMetricsService.On("SetRPCServiceHealth", true).Maybe()
 	mockMetricsService.On("SetRPCLatestLedger", mock.AnythingOfType("int64")).Maybe()
 	defer mockMetricsService.AssertExpectations(t)
