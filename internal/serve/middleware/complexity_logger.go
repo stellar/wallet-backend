@@ -32,11 +32,9 @@ func (c *ComplexityLogger) ReportComplexity(ctx context.Context, operationName s
 		operationName = "<unnamed>"
 	}
 
-	// Log complexity for debugging (existing behavior)
 	logger.WithField("operation_name", operationName).
 		WithField("complexity", complexity).
 		Info("graphql query complexity")
 
-	// Record complexity to Prometheus metrics (new behavior)
 	c.metricsService.ObserveGraphQLComplexity(operationName, complexity)
 }

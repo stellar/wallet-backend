@@ -1,5 +1,3 @@
-// Package middleware provides HTTP middleware components for the wallet backend server.
-// This file implements GraphQL field-level metrics tracking.
 package middleware
 
 import (
@@ -35,33 +33,22 @@ func (m *GraphQLFieldMetrics) Middleware(ctx context.Context, next graphql.Resol
 		return next(ctx)
 	}
 
-	// Get operation context to extract operation name
 	oc := graphql.GetOperationContext(ctx)
 	operationName := "<unnamed>"
 	if oc != nil && oc.OperationName != "" {
 		operationName = oc.OperationName
 	}
 
-	// Get the field name
 	fieldName := fc.Field.Name
 
-	// Start timing the field resolution
 	startTime := time.Now()
-
-	// Execute the actual field resolver
 	res, err := next(ctx)
-
-	// Calculate duration
 	duration := time.Since(startTime).Seconds()
-
-	// Record duration metric
 	m.metricsService.ObserveGraphQLFieldDuration(operationName, fieldName, duration)
 
-	// Record success/failure count
 	success := err == nil
 	m.metricsService.IncGraphQLField(operationName, fieldName, success)
 
-	// If there was an error, track error type
 	if err != nil {
 		errorType := classifyGraphQLError(err)
 		m.metricsService.IncGraphQLError(operationName, errorType)
@@ -73,11 +60,9 @@ func (m *GraphQLFieldMetrics) Middleware(ctx context.Context, next graphql.Resol
 // classifyGraphQLError determines the error type from a GraphQL error.
 // It inspects error extensions and error structure to categorize the error.
 func classifyGraphQLError(err error) string {
-	// Check if it's a gqlerror.Error with extensions
 	var gqlErr *gqlerror.Error
 	if errors.As(err, &gqlErr) {
 		if gqlErr.Extensions != nil {
-			// Check for error code in extensions
 			if code, ok := gqlErr.Extensions["code"].(string); ok {
 				switch code {
 				case "GRAPHQL_VALIDATION_FAILED":
@@ -97,39 +82,7 @@ func classifyGraphQLError(err error) string {
 				}
 			}
 		}
-
-		// Check for common error message patterns
-		msg := gqlErr.Message
-		if msg != "" {
-			// Database errors
-			if containsAny(msg, []string{"database", "sql", "query failed"}) {
-				return "database_error"
-			}
-			// Validation errors
-			if containsAny(msg, []string{"invalid", "validation", "required"}) {
-				return "validation_error"
-			}
-			// Not found errors
-			if containsAny(msg, []string{"not found", "does not exist"}) {
-				return "not_found"
-			}
-		}
 	}
 
-	// Default to unknown error type
 	return "unknown"
-}
-
-// containsAny checks if a string contains any of the given substrings.
-func containsAny(s string, substrs []string) bool {
-	for _, substr := range substrs {
-		if len(s) >= len(substr) {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
