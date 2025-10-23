@@ -248,6 +248,8 @@ func TestSendTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "SendTransaction").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "SendTransaction", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "sendTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
@@ -296,9 +298,12 @@ func TestSendTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "SendTransaction").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "SendTransaction", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "sendTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointFailure", "sendTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "sendTransaction", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "SendTransaction", "rpc_error").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		mockHTTPClient.
@@ -451,12 +456,15 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 			// Mock Metrics
 			mMetricsService := metrics.NewMockMetricsService()
 			mMetricsService.
+				On("IncRPCMethodCalls", "SimulateTransaction").Once().
+				On("ObserveRPCMethodDuration", "SimulateTransaction", mock.AnythingOfType("float64")).Once().
 				On("IncRPCRequests", "simulateTransaction").Once().
 				On("ObserveRPCRequestDuration", "simulateTransaction", mock.AnythingOfType("float64")).Once()
 			if tc.httpResponseErr == nil {
 				mMetricsService.On("IncRPCEndpointSuccess", "simulateTransaction").Once()
 			} else {
 				mMetricsService.On("IncRPCEndpointFailure", "simulateTransaction").Once()
+				mMetricsService.On("IncRPCMethodErrors", "SimulateTransaction", "rpc_error").Once()
 			}
 
 			// Mock HTTP Client
@@ -512,6 +520,8 @@ func TestGetTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetTransaction").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetTransaction", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransaction", mock.AnythingOfType("float64")).Once()
@@ -575,9 +585,12 @@ func TestGetTransaction(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetTransaction").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetTransaction", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getTransaction").Once()
 		mockMetricsService.On("IncRPCEndpointFailure", "getTransaction").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransaction", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetTransaction", "rpc_error").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		mockHTTPClient.
@@ -607,9 +620,12 @@ func TestGetTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetTransactions").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetTransactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
 		mockMetricsService.On("IncRPCEndpointFailure", "getTransactions").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransactions", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetTransactions", "rpc_error").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		mockHTTPClient.
@@ -625,6 +641,8 @@ func TestGetTransactions(t *testing.T) {
 	})
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetTransactions").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetTransactions", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getTransactions").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getTransactions").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getTransactions", mock.AnythingOfType("float64")).Once()
@@ -689,6 +707,8 @@ func TestSendGetHealth(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 		mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
@@ -724,9 +744,12 @@ func TestSendGetHealth(t *testing.T) {
 	})
 
 	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Once()
 		mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 		mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Once()
 		mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetHealth", "rpc_error").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		mockHTTPClient.
@@ -753,6 +776,8 @@ func Test_rpcService_GetLedgers(t *testing.T) {
 	t.Run("🟢successful", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.
+			On("IncRPCMethodCalls", "GetLedgers").Once().
+			On("ObserveRPCMethodDuration", "GetLedgers", mock.AnythingOfType("float64")).Once().
 			On("IncRPCRequests", "getLedgers").Once().
 			On("IncRPCEndpointSuccess", "getLedgers").Once().
 			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once()
@@ -827,9 +852,12 @@ func Test_rpcService_GetLedgers(t *testing.T) {
 	t.Run("🔴rpc_request_fails", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.
+			On("IncRPCMethodCalls", "GetLedgers").Once().
+			On("ObserveRPCMethodDuration", "GetLedgers", mock.AnythingOfType("float64")).Once().
 			On("IncRPCRequests", "getLedgers").Once().
 			On("IncRPCEndpointFailure", "getLedgers").Once().
-			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once()
+			On("ObserveRPCRequestDuration", "getLedgers", mock.AnythingOfType("float64")).Once().
+			On("IncRPCMethodErrors", "GetLedgers", "rpc_error").Once()
 		defer mockMetricsService.AssertExpectations(t)
 
 		mockHTTPClient := utils.MockHTTPClient{}
@@ -858,6 +886,8 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Once()
+	mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Once()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
@@ -924,12 +954,18 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Once()
+	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Maybe()
+	mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Maybe()
 	mockMetricsService.On("IncRPCRequests", "getHealth").Once()
 	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
 	mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Once()
 	mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Maybe()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
+	mockMetricsService.On("IncRPCMethodErrors", "GetHealth", "rpc_error").Once()
+	mockMetricsService.On("IncRPCMethodErrors", "GetHealth", "rpc_error").Maybe()
 	mockMetricsService.On("SetRPCServiceHealth", false).Once()
 	mockMetricsService.On("SetRPCServiceHealth", false).Maybe()
 	defer mockMetricsService.AssertExpectations(t)
@@ -1019,6 +1055,8 @@ func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
 	rpcService.healthCheckTickInterval = 10 * time.Millisecond
 
 	// Mock metrics expectations
+	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Maybe()
+	mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Maybe()
 	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
 	mockMetricsService.On("IncRPCEndpointSuccess", "getHealth").Maybe()
 	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
