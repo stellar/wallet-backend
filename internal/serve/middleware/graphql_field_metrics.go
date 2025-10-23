@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
-	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/vektah/gqlparser/v2/gqlerror"
+
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // GraphQLFieldMetrics tracks metrics for individual GraphQL field resolvers.
