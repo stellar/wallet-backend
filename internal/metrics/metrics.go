@@ -77,11 +77,11 @@ type metricsService struct {
 	signatureVerificationExpired *prometheus.CounterVec
 
 	// State Change Metrics
-	stateChangeCreatedTotal            *prometheus.CounterVec
-	stateChangeProcessingDuration      *prometheus.SummaryVec
-	stateChangePersistenceDuration     prometheus.Summary
-	stateChangesPersistedTotal         prometheus.Counter
-	stateChangePersistenceErrorsTotal  *prometheus.CounterVec
+	stateChangeCreatedTotal           *prometheus.CounterVec
+	stateChangeProcessingDuration     *prometheus.SummaryVec
+	stateChangePersistenceDuration    prometheus.Summary
+	stateChangesPersistedTotal        prometheus.Counter
+	stateChangePersistenceErrorsTotal *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
