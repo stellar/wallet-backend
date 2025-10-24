@@ -13,11 +13,12 @@ import (
 
 // StateChangeBuilder provides a fluent interface for creating state changes
 type StateChangeBuilder struct {
-	base types.StateChange
+	base           types.StateChange
+	metricsService MetricsServiceInterface
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64) *StateChangeBuilder {
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash string, txID int64, metricsService MetricsServiceInterface) *StateChangeBuilder {
 	return &StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
@@ -26,6 +27,7 @@ func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txHash st
 			TxHash:          txHash,
 			TxID:            txID,
 		},
+		metricsService: metricsService,
 	}
 }
 
@@ -128,6 +130,12 @@ func (b *StateChangeBuilder) Build() types.StateChange {
 		b.base.ToID = b.base.TxID
 	}
 	b.base.SortKey = b.generateSortKey()
+
+	// Track state change creation metrics
+	if b.metricsService != nil {
+		b.metricsService.IncStateChangeCreated(string(b.base.StateChangeCategory))
+	}
+
 	return b.base
 }
 
@@ -178,6 +186,7 @@ func (b *StateChangeBuilder) generateSortKey() string {
 
 func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
 	return &StateChangeBuilder{
-		base: b.base,
+		base:           b.base,
+		metricsService: b.metricsService,
 	}
 }

@@ -146,7 +146,7 @@ func TestIndexer_NewIndexer(t *testing.T) {
 	mockLedgerEntryProvider := &MockLedgerEntryProvider{}
 	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider, pool)
+	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider, pool, nil)
 
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)

@@ -576,3 +576,162 @@ func TestRPCMethodMetrics(t *testing.T) {
 		}
 	})
 }
+
+func TestStateChangeMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("State change created counter", func(t *testing.T) {
+		category := "BALANCE"
+
+		ms.IncStateChangeCreated(category)
+		ms.IncStateChangeCreated(category)
+		ms.IncStateChangeCreated("SIGNER")
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		balanceCount := 0
+		signerCount := 0
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_change_created_total" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					switch labels["category"] {
+					case "BALANCE":
+						balanceCount = int(metric.GetCounter().GetValue())
+					case "SIGNER":
+						signerCount = int(metric.GetCounter().GetValue())
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "state_change_created_total metric not found")
+		assert.Equal(t, 2, balanceCount, "Expected 2 BALANCE state changes")
+		assert.Equal(t, 1, signerCount, "Expected 1 SIGNER state change")
+	})
+
+	t.Run("State change processing duration", func(t *testing.T) {
+		processor := "TokenTransferProcessor"
+
+		ms.ObserveStateChangeProcessingDuration(processor, 0.05)
+		ms.ObserveStateChangeProcessingDuration(processor, 0.10)
+		ms.ObserveStateChangeProcessingDuration("EffectsProcessor", 0.03)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		tokenProcessorCount := uint64(0)
+		tokenProcessorSum := 0.0
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_change_processing_duration_seconds" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					if labels["processor"] == processor {
+						tokenProcessorCount = metric.GetSummary().GetSampleCount()
+						tokenProcessorSum = metric.GetSummary().GetSampleSum()
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "state_change_processing_duration_seconds metric not found")
+		assert.Equal(t, uint64(2), tokenProcessorCount, "Expected 2 samples for TokenTransferProcessor")
+		assert.InDelta(t, 0.15, tokenProcessorSum, 0.001, "Expected sum of 0.15 seconds")
+	})
+
+	t.Run("State change persistence metrics", func(t *testing.T) {
+		ms.ObserveStateChangePersistenceDuration(0.25)
+		ms.IncStateChangesPersisted(50)
+		ms.IncStateChangePersistenceErrors("insert_error")
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		foundDuration := false
+		foundCount := false
+		foundErrors := false
+
+		for _, mf := range metricFamilies {
+			switch mf.GetName() {
+			case "state_change_persistence_duration_seconds":
+				foundDuration = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 0.25, metric.GetSummary().GetSampleSum())
+
+			case "state_changes_persisted_total":
+				foundCount = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(50), metric.GetCounter().GetValue())
+
+			case "state_change_persistence_errors_total":
+				foundErrors = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, "insert_error", labels["error_type"])
+			}
+		}
+
+		assert.True(t, foundDuration, "state_change_persistence_duration_seconds metric not found")
+		assert.True(t, foundCount, "state_changes_persisted_total metric not found")
+		assert.True(t, foundErrors, "state_change_persistence_errors_total metric not found")
+	})
+
+	t.Run("All state change categories tracked independently", func(t *testing.T) {
+		msNew := NewMetricsService(db)
+		categories := []string{"BALANCE", "ACCOUNT", "SIGNER", "SIGNATURE_THRESHOLD", "METADATA"}
+
+		for _, category := range categories {
+			msNew.IncStateChangeCreated(category)
+		}
+
+		metricFamilies, err := msNew.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		categoriesFound := make(map[string]bool)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_change_created_total" {
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					category := labels["category"]
+					for _, c := range categories {
+						if category == c {
+							categoriesFound[c] = true
+							assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+						}
+					}
+				}
+			}
+		}
+
+		for _, category := range categories {
+			assert.True(t, categoriesFound[category], "Category "+category+" not tracked")
+		}
+	})
+}

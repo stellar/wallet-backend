@@ -96,3 +96,23 @@ func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.Called(expiredSeconds)
 }
+
+func (m *MockMetricsService) IncStateChangeCreated(category string) {
+	m.Called(category)
+}
+
+func (m *MockMetricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
+	m.Called(processor, duration)
+}
+
+func (m *MockMetricsService) ObserveStateChangePersistenceDuration(duration float64) {
+	m.Called(duration)
+}
+
+func (m *MockMetricsService) IncStateChangesPersisted(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) IncStateChangePersistenceErrors(errorType string) {
+	m.Called(errorType)
+}

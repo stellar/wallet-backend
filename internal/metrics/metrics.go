@@ -32,6 +32,12 @@ type MetricsService interface {
 	ObserveDBQueryDuration(queryType, table string, duration float64)
 	IncDBQuery(queryType, table string)
 	IncSignatureVerificationExpired(expiredSeconds float64)
+	// State Change Metrics
+	IncStateChangeCreated(category string)
+	ObserveStateChangeProcessingDuration(processor string, duration float64)
+	ObserveStateChangePersistenceDuration(duration float64)
+	IncStateChangesPersisted(count int)
+	IncStateChangePersistenceErrors(errorType string)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -69,6 +75,13 @@ type metricsService struct {
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
+
+	// State Change Metrics
+	stateChangeCreatedTotal            *prometheus.CounterVec
+	stateChangeProcessingDuration      *prometheus.SummaryVec
+	stateChangePersistenceDuration     prometheus.Summary
+	stateChangesPersistedTotal         prometheus.Counter
+	stateChangePersistenceErrorsTotal  *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -212,6 +225,43 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		[]string{"expired_seconds"},
 	)
 
+	// State Change Metrics
+	m.stateChangeCreatedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "state_change_created_total",
+			Help: "Total number of state changes created by category",
+		},
+		[]string{"category"},
+	)
+	m.stateChangeProcessingDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "state_change_processing_duration_seconds",
+			Help:       "Duration of state change processing by processor type",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"processor"},
+	)
+	m.stateChangePersistenceDuration = prometheus.NewSummary(
+		prometheus.SummaryOpts{
+			Name:       "state_change_persistence_duration_seconds",
+			Help:       "Duration of state change batch persistence operations",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+	)
+	m.stateChangesPersistedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "state_changes_persisted_total",
+			Help: "Total number of state changes persisted to database",
+		},
+	)
+	m.stateChangePersistenceErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "state_change_persistence_errors_total",
+			Help: "Total number of state change persistence errors by error type",
+		},
+		[]string{"error_type"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -237,6 +287,11 @@ func (m *metricsService) registerMetrics() {
 		m.dbQueryDuration,
 		m.dbQueriesTotal,
 		m.signatureVerificationExpired,
+		m.stateChangeCreatedTotal,
+		m.stateChangeProcessingDuration,
+		m.stateChangePersistenceDuration,
+		m.stateChangesPersistedTotal,
+		m.stateChangePersistenceErrorsTotal,
 	)
 }
 
@@ -407,4 +462,25 @@ func (m *metricsService) IncDBQuery(queryType, table string) {
 // Signature Verification Metrics
 func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
+}
+
+// State Change Metrics
+func (m *metricsService) IncStateChangeCreated(category string) {
+	m.stateChangeCreatedTotal.WithLabelValues(category).Inc()
+}
+
+func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
+	m.stateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
+}
+
+func (m *metricsService) ObserveStateChangePersistenceDuration(duration float64) {
+	m.stateChangePersistenceDuration.Observe(duration)
+}
+
+func (m *metricsService) IncStateChangesPersisted(count int) {
+	m.stateChangesPersistedTotal.Add(float64(count))
+}
+
+func (m *metricsService) IncStateChangePersistenceErrors(errorType string) {
+	m.stateChangePersistenceErrorsTotal.WithLabelValues(errorType).Inc()
 }

@@ -50,7 +50,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -115,7 +115,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		transaction := createTx(setTrustlineFlagsOp, nil, nil, false)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -159,7 +159,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -199,7 +199,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -244,7 +244,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -283,7 +283,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -360,7 +360,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				},
 			},
 		}, nil)
-		processor := NewEffectsProcessor(networkPassphrase, &mockProvider)
+		processor := NewEffectsProcessor(networkPassphrase, &mockProvider, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -411,7 +411,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -454,7 +454,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		)
 		op, found := transaction.GetOperation(0)
 		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
+		processor := NewEffectsProcessor(networkPassphrase, nil, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
@@ -501,7 +501,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			fmt.Errorf("mock RPC error for testing error handling"),
 		)
 
-		processor := NewEffectsProcessor(networkPassphrase, &mockProvider)
+		processor := NewEffectsProcessor(networkPassphrase, &mockProvider, nil)
 		opWrapper := &operation_processor.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
