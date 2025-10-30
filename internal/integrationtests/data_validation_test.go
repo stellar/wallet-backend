@@ -345,7 +345,8 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -432,7 +433,8 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 total state changes")
 
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -573,7 +575,8 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -773,7 +776,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupStateChange
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -830,7 +834,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -982,7 +987,8 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1101,7 +1107,8 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 11 state changes")
 
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1194,7 +1201,8 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1305,7 +1313,8 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1386,7 +1395,8 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1467,7 +1477,8 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx con
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1542,7 +1553,8 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
@@ -1687,7 +1699,8 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
-		jsonBytes, _ := json.MarshalIndent(edge.Node, "", "  ")
+		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
+		suite.Require().NoError(err, "failed to marshal state change")
 		fmt.Printf("%s\n", string(jsonBytes))
 		validateStateChangeBase(suite, edge.Node, ledgerNumber)
 	}
