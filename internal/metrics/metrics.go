@@ -31,6 +31,10 @@ type MetricsService interface {
 	ObserveRequestDuration(endpoint, method string, duration float64)
 	ObserveDBQueryDuration(queryType, table string, duration float64)
 	IncDBQuery(queryType, table string)
+	IncDBQueryError(queryType, table, errorType string)
+	IncDBTransaction(status string)
+	ObserveDBTransactionDuration(status string, duration float64)
+	ObserveDBBatchSize(operation, table string, size int)
 	IncSignatureVerificationExpired(expiredSeconds float64)
 }
 
@@ -66,6 +70,10 @@ type metricsService struct {
 	// DB Query Metrics
 	dbQueryDuration *prometheus.SummaryVec
 	dbQueriesTotal  *prometheus.CounterVec
+	dbQueryErrors   *prometheus.CounterVec
+	dbTransactions  *prometheus.CounterVec
+	dbTxnDuration   *prometheus.SummaryVec
+	dbBatchSize     *prometheus.HistogramVec
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
@@ -202,6 +210,36 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"query_type", "table"},
 	)
+	m.dbQueryErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "db_query_errors_total",
+			Help: "Total number of database query errors",
+		},
+		[]string{"query_type", "table", "error_type"},
+	)
+	m.dbTransactions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "db_transactions_total",
+			Help: "Total number of database transactions",
+		},
+		[]string{"status"},
+	)
+	m.dbTxnDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "db_transaction_duration_seconds",
+			Help:       "Duration of database transactions",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"status"},
+	)
+	m.dbBatchSize = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "db_batch_operation_size",
+			Help:    "Size of batch database operations",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+		},
+		[]string{"operation", "table"},
+	)
 
 	// Signature Verification Metrics
 	m.signatureVerificationExpired = prometheus.NewCounterVec(
@@ -236,6 +274,10 @@ func (m *metricsService) registerMetrics() {
 		m.requestsDuration,
 		m.dbQueryDuration,
 		m.dbQueriesTotal,
+		m.dbQueryErrors,
+		m.dbTransactions,
+		m.dbTxnDuration,
+		m.dbBatchSize,
 		m.signatureVerificationExpired,
 	)
 }
@@ -402,6 +444,22 @@ func (m *metricsService) ObserveDBQueryDuration(queryType, table string, duratio
 
 func (m *metricsService) IncDBQuery(queryType, table string) {
 	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
+}
+
+func (m *metricsService) IncDBQueryError(queryType, table, errorType string) {
+	m.dbQueryErrors.WithLabelValues(queryType, table, errorType).Inc()
+}
+
+func (m *metricsService) IncDBTransaction(status string) {
+	m.dbTransactions.WithLabelValues(status).Inc()
+}
+
+func (m *metricsService) ObserveDBTransactionDuration(status string, duration float64) {
+	m.dbTxnDuration.WithLabelValues(status).Observe(duration)
+}
+
+func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
+	m.dbBatchSize.WithLabelValues(operation, table).Observe(float64(size))
 }
 
 // Signature Verification Metrics
