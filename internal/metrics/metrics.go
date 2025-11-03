@@ -34,7 +34,6 @@ type MetricsService interface {
 	IncIngestionTransactionsProcessed(count int)
 	ObserveIngestionBatchSize(size int)
 	ObserveIngestionParticipantsCount(count int)
-	ObserveIngestionExistingAccountsCount(count int)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -74,7 +73,6 @@ type metricsService struct {
 	ingestionTransactionsTotal prometheus.Counter
 	ingestionBatchSize         prometheus.Histogram
 	ingestionParticipantsCount prometheus.Histogram
-	ingestionExistingAccounts  prometheus.Histogram
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -229,13 +227,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
 		},
 	)
-	m.ingestionExistingAccounts = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "ingestion_existing_accounts_count",
-			Help:    "Number of existing accounts found per ingestion batch",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
-		},
-	)
 
 	m.registerMetrics()
 	return m
@@ -264,7 +255,6 @@ func (m *metricsService) registerMetrics() {
 		m.ingestionTransactionsTotal,
 		m.ingestionBatchSize,
 		m.ingestionParticipantsCount,
-		m.ingestionExistingAccounts,
 	)
 }
 
@@ -443,8 +433,4 @@ func (m *metricsService) ObserveIngestionBatchSize(size int) {
 
 func (m *metricsService) ObserveIngestionParticipantsCount(count int) {
 	m.ingestionParticipantsCount.Observe(float64(count))
-}
-
-func (m *metricsService) ObserveIngestionExistingAccountsCount(count int) {
-	m.ingestionExistingAccounts.Observe(float64(count))
 }

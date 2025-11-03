@@ -410,7 +410,6 @@ func (m *ingestService) fetchExistingAccountsForParticipants(ctx context.Context
 	phaseDuration := time.Since(phaseStart).Seconds()
 	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", phaseDuration)
 	m.metricsService.ObserveIngestionParticipantsCount(allParticipants.Cardinality())
-	m.metricsService.ObserveIngestionExistingAccountsCount(len(existingAccounts))
 	log.Ctx(ctx).Infof("🚧 Done fetching %d existing accounts from %d unique participants in %vs", len(existingAccounts), allParticipants.Cardinality(), phaseDuration)
 
 	return existingAccountsSet, nil

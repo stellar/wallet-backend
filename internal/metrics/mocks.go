@@ -105,7 +105,3 @@ func (m *MockMetricsService) ObserveIngestionBatchSize(size int) {
 func (m *MockMetricsService) ObserveIngestionParticipantsCount(count int) {
 	m.Called(count)
 }
-
-func (m *MockMetricsService) ObserveIngestionExistingAccountsCount(count int) {
-	m.Called(count)
-}

@@ -407,27 +407,6 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 		assert.True(t, found)
 	})
 
-	t.Run("ingestion existing accounts count histogram", func(t *testing.T) {
-		// Record various existing account counts
-		ms.ObserveIngestionExistingAccountsCount(2)
-		ms.ObserveIngestionExistingAccountsCount(50)
-		ms.ObserveIngestionExistingAccountsCount(200)
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "ingestion_existing_accounts_count" {
-				found = true
-				metric := mf.GetMetric()[0]
-				histogram := metric.GetHistogram()
-				assert.Equal(t, uint64(3), histogram.GetSampleCount())
-				assert.Equal(t, float64(252), histogram.GetSampleSum()) // 2 + 50 + 200 = 252
-			}
-		}
-		assert.True(t, found)
-	})
 }
 
 func TestPoolMetrics(t *testing.T) {
