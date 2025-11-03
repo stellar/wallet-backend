@@ -279,6 +279,188 @@ func TestDBMetrics(t *testing.T) {
 	assert.True(t, foundDuration, "Query duration metric not found")
 }
 
+func TestDBErrorMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+	queryType := "SELECT"
+	table := "accounts"
+	errorType := "no_rows"
+
+	ms.IncDBQueryError(queryType, table, errorType)
+
+	metricFamilies, err := ms.GetRegistry().Gather()
+	require.NoError(t, err)
+
+	found := false
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "db_query_errors_total" {
+			found = true
+			metric := mf.GetMetric()[0]
+			assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+			// Verify labels
+			labels := make(map[string]string)
+			for _, label := range metric.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			assert.Equal(t, queryType, labels["query_type"])
+			assert.Equal(t, table, labels["table"])
+			assert.Equal(t, errorType, labels["error_type"])
+		}
+	}
+
+	assert.True(t, found, "DB error metric not found")
+}
+
+func TestDBTransactionMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("transaction commit metrics", func(t *testing.T) {
+		ms.IncDBTransaction("commit")
+		ms.ObserveDBTransactionDuration("commit", 0.05)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		foundCounter := false
+		foundDuration := false
+
+		for _, mf := range metricFamilies {
+			switch mf.GetName() {
+			case "db_transactions_total":
+				foundCounter = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, "commit", labels["status"])
+			case "db_transaction_duration_seconds":
+				foundDuration = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 0.05, metric.GetSummary().GetSampleSum())
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, "commit", labels["status"])
+			}
+		}
+
+		assert.True(t, foundCounter, "Transaction counter not found")
+		assert.True(t, foundDuration, "Transaction duration not found")
+	})
+
+	t.Run("transaction rollback metrics", func(t *testing.T) {
+		ms.IncDBTransaction("rollback")
+		ms.ObserveDBTransactionDuration("rollback", 0.02)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "db_transactions_total" {
+				// Should have 2 metrics now (commit and rollback)
+				assert.GreaterOrEqual(t, len(mf.GetMetric()), 2)
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["status"] == "rollback" {
+						found = true
+						assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "Rollback metric not found")
+	})
+}
+
+func TestDBBatchSizeMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("batch insert size tracking", func(t *testing.T) {
+		operation := "INSERT"
+		table := "transactions"
+		batchSize := 100
+
+		ms.ObserveDBBatchSize(operation, table, batchSize)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "db_batch_operation_size" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount())
+				assert.Equal(t, float64(100), metric.GetHistogram().GetSampleSum())
+				// Verify labels
+				labels := make(map[string]string)
+				for _, label := range metric.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				assert.Equal(t, operation, labels["operation"])
+				assert.Equal(t, table, labels["table"])
+			}
+		}
+
+		assert.True(t, found, "Batch size metric not found")
+	})
+
+	t.Run("multiple batch sizes distribution", func(t *testing.T) {
+		operation := "SELECT"
+		table := "accounts"
+
+		// Record multiple batch operations of different sizes
+		ms.ObserveDBBatchSize(operation, table, 10)
+		ms.ObserveDBBatchSize(operation, table, 50)
+		ms.ObserveDBBatchSize(operation, table, 100)
+		ms.ObserveDBBatchSize(operation, table, 500)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "db_batch_operation_size" {
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["operation"] == operation && labels["table"] == table {
+						found = true
+						histogram := metric.GetHistogram()
+						assert.Equal(t, uint64(4), histogram.GetSampleCount())
+						assert.Equal(t, float64(660), histogram.GetSampleSum()) // 10+50+100+500
+
+						// Verify histogram buckets are populated
+						assert.NotNil(t, histogram.GetBucket())
+						assert.Greater(t, len(histogram.GetBucket()), 0)
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "Batch size distribution metric not found")
+	})
+}
+
 func TestIngestionPhaseMetrics(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
@@ -424,7 +606,6 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 		}
 		assert.True(t, found)
 	})
-
 }
 
 func TestPoolMetrics(t *testing.T) {
@@ -549,5 +730,178 @@ func TestPoolMetrics(t *testing.T) {
 		assert.Equal(t, float64(3), metricValues["tasks_completed"], "Expected 3 completed tasks (both successful and failed)")
 
 		pool.StopAndWait()
+	})
+}
+
+func TestRPCMethodMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("RPC method calls counter", func(t *testing.T) {
+		method := "GetTransaction"
+
+		ms.IncRPCMethodCalls(method)
+		ms.IncRPCMethodCalls(method)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_calls_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(2), metric.GetCounter().GetValue())
+				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
+			}
+		}
+		assert.True(t, found, "rpc_method_calls_total metric not found")
+	})
+
+	t.Run("RPC method duration", func(t *testing.T) {
+		method := "SendTransaction"
+
+		ms.ObserveRPCMethodDuration(method, 0.25)
+		ms.ObserveRPCMethodDuration(method, 0.35)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_duration_seconds" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, uint64(2), metric.GetSummary().GetSampleCount())
+				assert.Equal(t, 0.6, metric.GetSummary().GetSampleSum())
+				assert.Equal(t, method, metric.GetLabel()[0].GetValue())
+			}
+		}
+		assert.True(t, found, "rpc_method_duration_seconds metric not found")
+	})
+
+	t.Run("RPC method errors by type", func(t *testing.T) {
+		method := "GetLedgers"
+		errorType := "json_unmarshal_error"
+
+		ms.IncRPCMethodErrors(method, errorType)
+		ms.IncRPCMethodErrors(method, "rpc_error")
+		ms.IncRPCMethodErrors(method, errorType)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		unmarshalErrors := 0
+		rpcErrors := 0
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_errors_total" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					assert.Equal(t, method, labels["method"])
+
+					switch labels["error_type"] {
+					case "json_unmarshal_error":
+						unmarshalErrors = int(metric.GetCounter().GetValue())
+					case "rpc_error":
+						rpcErrors = int(metric.GetCounter().GetValue())
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "rpc_method_errors_total metric not found")
+		assert.Equal(t, 2, unmarshalErrors, "Expected 2 json_unmarshal_error")
+		assert.Equal(t, 1, rpcErrors, "Expected 1 rpc_error")
+	})
+
+	t.Run("All RPC method metrics together", func(t *testing.T) {
+		method := "SimulateTransaction"
+
+		// Simulate a complete RPC method execution
+		ms.IncRPCMethodCalls(method)
+		ms.ObserveRPCMethodDuration(method, 0.15)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		foundCalls := false
+		foundDuration := false
+
+		for _, mf := range metricFamilies {
+			switch mf.GetName() {
+			case "rpc_method_calls_total":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["method"] == method {
+						foundCalls = true
+						assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+					}
+				}
+			case "rpc_method_duration_seconds":
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["method"] == method {
+						foundDuration = true
+						assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+					}
+				}
+			}
+		}
+
+		assert.True(t, foundCalls, "Method calls metric not found for "+method)
+		assert.True(t, foundDuration, "Method duration metric not found for "+method)
+	})
+
+	t.Run("Multiple methods tracked independently", func(t *testing.T) {
+		// Create a new metrics service to avoid interference from previous tests
+		msNew := NewMetricsService(db)
+		methods := []string{"GetHealth", "GetLedgerEntries", "GetAccountLedgerSequence"}
+
+		for i, method := range methods {
+			msNew.IncRPCMethodCalls(method)
+			msNew.ObserveRPCMethodDuration(method, float64(i+1)*0.1)
+		}
+
+		metricFamilies, err := msNew.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		methodsFound := make(map[string]bool)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "rpc_method_calls_total" {
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					method := labels["method"]
+					for _, m := range methods {
+						if method == m {
+							methodsFound[m] = true
+							assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+						}
+					}
+				}
+			}
+		}
+
+		for _, method := range methods {
+			assert.True(t, methodsFound[method], "Method "+method+" not tracked")
+		}
 	})
 }

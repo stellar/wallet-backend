@@ -23,10 +23,18 @@ type MetricsService interface {
 	IncRPCEndpointSuccess(endpoint string)
 	SetRPCServiceHealth(healthy bool)
 	SetRPCLatestLedger(ledger int64)
+	// New RPC method-level metrics
+	IncRPCMethodCalls(method string)
+	ObserveRPCMethodDuration(method string, duration float64)
+	IncRPCMethodErrors(method, errorType string)
 	IncNumRequests(endpoint, method string, statusCode int)
 	ObserveRequestDuration(endpoint, method string, duration float64)
 	ObserveDBQueryDuration(queryType, table string, duration float64)
 	IncDBQuery(queryType, table string)
+	IncDBQueryError(queryType, table, errorType string)
+	IncDBTransaction(status string)
+	ObserveDBTransactionDuration(status string, duration float64)
+	ObserveDBBatchSize(operation, table string, size int)
 	IncSignatureVerificationExpired(expiredSeconds float64)
 	// Ingestion Phase Metrics
 	ObserveIngestionPhaseDuration(phase string, duration float64)
@@ -35,6 +43,11 @@ type MetricsService interface {
 	IncIngestionOperationsProcessed(count int)
 	ObserveIngestionBatchSize(size int)
 	ObserveIngestionParticipantsCount(count int)
+	// GraphQL Metrics
+	ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64)
+	IncGraphQLField(operationName, fieldName string, success bool)
+	ObserveGraphQLComplexity(operationName string, complexity int)
+	IncGraphQLError(operationName, errorType string)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -49,13 +62,18 @@ type metricsService struct {
 	// Account Metrics
 	activeAccounts prometheus.Gauge
 
-	// RPC Service Metrics
+	// RPC Service Metrics (transport-level)
 	rpcRequestsTotal     *prometheus.CounterVec
 	rpcRequestsDuration  *prometheus.SummaryVec
 	rpcEndpointFailures  *prometheus.CounterVec
 	rpcEndpointSuccesses *prometheus.CounterVec
 	rpcServiceHealth     prometheus.Gauge
 	rpcLatestLedger      prometheus.Gauge
+
+	// RPC Method Metrics (application-level)
+	rpcMethodCallsTotal  *prometheus.CounterVec
+	rpcMethodDuration    *prometheus.SummaryVec
+	rpcMethodErrorsTotal *prometheus.CounterVec
 
 	// HTTP Request Metrics
 	numRequestsTotal *prometheus.CounterVec
@@ -64,6 +82,10 @@ type metricsService struct {
 	// DB Query Metrics
 	dbQueryDuration *prometheus.SummaryVec
 	dbQueriesTotal  *prometheus.CounterVec
+	dbQueryErrors   *prometheus.CounterVec
+	dbTransactions  *prometheus.CounterVec
+	dbTxnDuration   *prometheus.SummaryVec
+	dbBatchSize     *prometheus.HistogramVec
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
@@ -75,6 +97,12 @@ type metricsService struct {
 	ingestionOperationsTotal   prometheus.Counter
 	ingestionBatchSize         prometheus.Histogram
 	ingestionParticipantsCount prometheus.Histogram
+
+	// GraphQL Metrics
+	graphqlFieldDuration *prometheus.SummaryVec
+	graphqlFieldsTotal   *prometheus.CounterVec
+	graphqlComplexity    *prometheus.SummaryVec
+	graphqlErrorsTotal   *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -151,6 +179,30 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 	)
 
+	// RPC Method Metrics (application-level)
+	m.rpcMethodCallsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_method_calls_total",
+			Help: "Total number of RPC method calls at the application level",
+		},
+		[]string{"method"},
+	)
+	m.rpcMethodDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "rpc_method_duration_seconds",
+			Help:       "Duration of RPC method execution including parsing and validation",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"method"},
+	)
+	m.rpcMethodErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rpc_method_errors_total",
+			Help: "Total number of RPC method errors by error type",
+		},
+		[]string{"method", "error_type"},
+	)
+
 	// HTTP Request Metrics
 	m.numRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -183,6 +235,36 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Help: "Total number of database queries",
 		},
 		[]string{"query_type", "table"},
+	)
+	m.dbQueryErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "db_query_errors_total",
+			Help: "Total number of database query errors",
+		},
+		[]string{"query_type", "table", "error_type"},
+	)
+	m.dbTransactions = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "db_transactions_total",
+			Help: "Total number of database transactions",
+		},
+		[]string{"status"},
+	)
+	m.dbTxnDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "db_transaction_duration_seconds",
+			Help:       "Duration of database transactions",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"status"},
+	)
+	m.dbBatchSize = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "db_batch_operation_size",
+			Help:    "Size of batch database operations",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+		},
+		[]string{"operation", "table"},
 	)
 
 	// Signature Verification Metrics
@@ -236,6 +318,38 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 	)
 
+	// GraphQL Metrics
+	m.graphqlFieldDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "graphql_field_duration_seconds",
+			Help:       "Duration of GraphQL field resolver execution",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"operation_name", "field_name"},
+	)
+	m.graphqlFieldsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "graphql_fields_total",
+			Help: "Total number of GraphQL field resolutions",
+		},
+		[]string{"operation_name", "field_name", "success"},
+	)
+	m.graphqlComplexity = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "graphql_complexity",
+			Help:       "GraphQL query complexity values",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"operation_name"},
+	)
+	m.graphqlErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "graphql_errors_total",
+			Help: "Total number of GraphQL errors",
+		},
+		[]string{"operation_name", "error_type"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -253,10 +367,17 @@ func (m *metricsService) registerMetrics() {
 		m.rpcEndpointSuccesses,
 		m.rpcServiceHealth,
 		m.rpcLatestLedger,
+		m.rpcMethodCallsTotal,
+		m.rpcMethodDuration,
+		m.rpcMethodErrorsTotal,
 		m.numRequestsTotal,
 		m.requestsDuration,
 		m.dbQueryDuration,
 		m.dbQueriesTotal,
+		m.dbQueryErrors,
+		m.dbTransactions,
+		m.dbTxnDuration,
+		m.dbBatchSize,
 		m.signatureVerificationExpired,
 		m.ingestionPhaseDuration,
 		m.ingestionLedgersProcessed,
@@ -264,6 +385,10 @@ func (m *metricsService) registerMetrics() {
 		m.ingestionOperationsTotal,
 		m.ingestionBatchSize,
 		m.ingestionParticipantsCount,
+		m.graphqlFieldDuration,
+		m.graphqlFieldsTotal,
+		m.graphqlComplexity,
+		m.graphqlErrorsTotal,
 	)
 }
 
@@ -400,6 +525,19 @@ func (m *metricsService) SetRPCLatestLedger(ledger int64) {
 	m.rpcLatestLedger.Set(float64(ledger))
 }
 
+// RPC Method Metrics (application-level)
+func (m *metricsService) IncRPCMethodCalls(method string) {
+	m.rpcMethodCallsTotal.WithLabelValues(method).Inc()
+}
+
+func (m *metricsService) ObserveRPCMethodDuration(method string, duration float64) {
+	m.rpcMethodDuration.WithLabelValues(method).Observe(duration)
+}
+
+func (m *metricsService) IncRPCMethodErrors(method, errorType string) {
+	m.rpcMethodErrorsTotal.WithLabelValues(method, errorType).Inc()
+}
+
 // HTTP Request Metrics
 func (m *metricsService) IncNumRequests(endpoint, method string, statusCode int) {
 	m.numRequestsTotal.WithLabelValues(endpoint, method, strconv.Itoa(statusCode)).Inc()
@@ -416,6 +554,22 @@ func (m *metricsService) ObserveDBQueryDuration(queryType, table string, duratio
 
 func (m *metricsService) IncDBQuery(queryType, table string) {
 	m.dbQueriesTotal.WithLabelValues(queryType, table).Inc()
+}
+
+func (m *metricsService) IncDBQueryError(queryType, table, errorType string) {
+	m.dbQueryErrors.WithLabelValues(queryType, table, errorType).Inc()
+}
+
+func (m *metricsService) IncDBTransaction(status string) {
+	m.dbTransactions.WithLabelValues(status).Inc()
+}
+
+func (m *metricsService) ObserveDBTransactionDuration(status string, duration float64) {
+	m.dbTxnDuration.WithLabelValues(status).Observe(duration)
+}
+
+func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
+	m.dbBatchSize.WithLabelValues(operation, table).Observe(float64(size))
 }
 
 // Signature Verification Metrics
@@ -446,4 +600,25 @@ func (m *metricsService) ObserveIngestionBatchSize(size int) {
 
 func (m *metricsService) ObserveIngestionParticipantsCount(count int) {
 	m.ingestionParticipantsCount.Observe(float64(count))
+}
+
+// GraphQL Metrics
+func (m *metricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
+	m.graphqlFieldDuration.WithLabelValues(operationName, fieldName).Observe(duration)
+}
+
+func (m *metricsService) IncGraphQLField(operationName, fieldName string, success bool) {
+	successStr := "true"
+	if !success {
+		successStr = "false"
+	}
+	m.graphqlFieldsTotal.WithLabelValues(operationName, fieldName, successStr).Inc()
+}
+
+func (m *metricsService) ObserveGraphQLComplexity(operationName string, complexity int) {
+	m.graphqlComplexity.WithLabelValues(operationName).Observe(float64(complexity))
+}
+
+func (m *metricsService) IncGraphQLError(operationName, errorType string) {
+	m.graphqlErrorsTotal.WithLabelValues(operationName, errorType).Inc()
 }
