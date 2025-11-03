@@ -659,11 +659,14 @@ func TestStateChangeMetrics(t *testing.T) {
 
 	t.Run("State change persistence metrics", func(t *testing.T) {
 		ms.IncStateChangesPersisted(50)
+		ms.IncStateChangesPersistedByCategory("BALANCE", 30)
+		ms.IncStateChangesPersistedByCategory("SIGNER", 20)
 
 		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
 		foundCount := false
+		foundByCategory := false
 
 		for _, mf := range metricFamilies {
 			switch mf.GetName() {
@@ -671,10 +674,33 @@ func TestStateChangeMetrics(t *testing.T) {
 				foundCount = true
 				metric := mf.GetMetric()[0]
 				assert.Equal(t, float64(50), metric.GetCounter().GetValue())
+
+			case "state_changes_persisted_by_category_total":
+				foundByCategory = true
+				// Should have 2 metrics (BALANCE and SIGNER)
+				assert.Equal(t, 2, len(mf.GetMetric()))
+
+				// Check each metric has correct category label and value
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					category := labels["category"]
+					if category == "BALANCE" {
+						assert.Equal(t, float64(30), metric.GetCounter().GetValue())
+					} else if category == "SIGNER" {
+						assert.Equal(t, float64(20), metric.GetCounter().GetValue())
+					} else {
+						t.Errorf("Unexpected category: %s", category)
+					}
+				}
 			}
 		}
 
 		assert.True(t, foundCount, "state_changes_persisted_total metric not found")
+		assert.True(t, foundByCategory, "state_changes_persisted_by_category_total metric not found")
 	})
 
 	t.Run("All state change categories tracked independently", func(t *testing.T) {

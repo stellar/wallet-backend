@@ -108,3 +108,7 @@ func (m *MockMetricsService) ObserveStateChangeProcessingDuration(processor stri
 func (m *MockMetricsService) IncStateChangesPersisted(count int) {
 	m.Called(count)
 }
+
+func (m *MockMetricsService) IncStateChangesPersistedByCategory(category string, count int) {
+	m.Called(category, count)
+}

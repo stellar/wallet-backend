@@ -36,6 +36,7 @@ type MetricsService interface {
 	IncStateChangeCreated(category string)
 	ObserveStateChangeProcessingDuration(processor string, duration float64)
 	IncStateChangesPersisted(count int)
+	IncStateChangesPersistedByCategory(category string, count int)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -75,9 +76,10 @@ type metricsService struct {
 	signatureVerificationExpired *prometheus.CounterVec
 
 	// State Change Metrics
-	stateChangeCreatedTotal       *prometheus.CounterVec
-	stateChangeProcessingDuration *prometheus.SummaryVec
-	stateChangesPersistedTotal    prometheus.Counter
+	stateChangeCreatedTotal          *prometheus.CounterVec
+	stateChangeProcessingDuration    *prometheus.SummaryVec
+	stateChangesPersistedTotal       prometheus.Counter
+	stateChangesPersistedByCategory  *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -243,6 +245,13 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Help: "Total number of state changes persisted to database",
 		},
 	)
+	m.stateChangesPersistedByCategory = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "state_changes_persisted_by_category_total",
+			Help: "Total number of state changes persisted to database by category",
+		},
+		[]string{"category"},
+	)
 
 	m.registerMetrics()
 	return m
@@ -272,6 +281,7 @@ func (m *metricsService) registerMetrics() {
 		m.stateChangeCreatedTotal,
 		m.stateChangeProcessingDuration,
 		m.stateChangesPersistedTotal,
+		m.stateChangesPersistedByCategory,
 	)
 }
 
@@ -455,4 +465,8 @@ func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, 
 
 func (m *metricsService) IncStateChangesPersisted(count int) {
 	m.stateChangesPersistedTotal.Add(float64(count))
+}
+
+func (m *metricsService) IncStateChangesPersistedByCategory(category string, count int) {
+	m.stateChangesPersistedByCategory.WithLabelValues(category).Add(float64(count))
 }

@@ -552,6 +552,15 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
+
+			categoryCount := make(map[string]int)
+			for _, sc := range stateChanges {
+				categoryCount[string(sc.StateChangeCategory)]++
+			}
+			for category, count := range categoryCount {
+				m.metricsService.IncStateChangesPersistedByCategory(category, count)
+			}
+
 			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 
