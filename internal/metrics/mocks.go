@@ -112,3 +112,19 @@ func (m *MockMetricsService) ObserveDBBatchSize(operation, table string, size in
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.Called(expiredSeconds)
 }
+
+func (m *MockMetricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
+	m.Called(operationName, fieldName, duration)
+}
+
+func (m *MockMetricsService) IncGraphQLField(operationName, fieldName string, success bool) {
+	m.Called(operationName, fieldName, success)
+}
+
+func (m *MockMetricsService) ObserveGraphQLComplexity(operationName string, complexity int) {
+	m.Called(operationName, complexity)
+}
+
+func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
+	m.Called(operationName, errorType)
+}

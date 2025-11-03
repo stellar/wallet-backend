@@ -36,6 +36,11 @@ type MetricsService interface {
 	ObserveDBTransactionDuration(status string, duration float64)
 	ObserveDBBatchSize(operation, table string, size int)
 	IncSignatureVerificationExpired(expiredSeconds float64)
+	// GraphQL Metrics
+	ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64)
+	IncGraphQLField(operationName, fieldName string, success bool)
+	ObserveGraphQLComplexity(operationName string, complexity int)
+	IncGraphQLError(operationName, errorType string)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -77,6 +82,12 @@ type metricsService struct {
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
+
+	// GraphQL Metrics
+	graphqlFieldDuration *prometheus.SummaryVec
+	graphqlFieldsTotal   *prometheus.CounterVec
+	graphqlComplexity    *prometheus.SummaryVec
+	graphqlErrorsTotal   *prometheus.CounterVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -250,6 +261,38 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		[]string{"expired_seconds"},
 	)
 
+	// GraphQL Metrics
+	m.graphqlFieldDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "graphql_field_duration_seconds",
+			Help:       "Duration of GraphQL field resolver execution",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"operation_name", "field_name"},
+	)
+	m.graphqlFieldsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "graphql_fields_total",
+			Help: "Total number of GraphQL field resolutions",
+		},
+		[]string{"operation_name", "field_name", "success"},
+	)
+	m.graphqlComplexity = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "graphql_complexity",
+			Help:       "GraphQL query complexity values",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"operation_name"},
+	)
+	m.graphqlErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "graphql_errors_total",
+			Help: "Total number of GraphQL errors",
+		},
+		[]string{"operation_name", "error_type"},
+	)
+
 	m.registerMetrics()
 	return m
 }
@@ -279,6 +322,10 @@ func (m *metricsService) registerMetrics() {
 		m.dbTxnDuration,
 		m.dbBatchSize,
 		m.signatureVerificationExpired,
+		m.graphqlFieldDuration,
+		m.graphqlFieldsTotal,
+		m.graphqlComplexity,
+		m.graphqlErrorsTotal,
 	)
 }
 
@@ -465,4 +512,25 @@ func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
 // Signature Verification Metrics
 func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
+}
+
+// GraphQL Metrics
+func (m *metricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
+	m.graphqlFieldDuration.WithLabelValues(operationName, fieldName).Observe(duration)
+}
+
+func (m *metricsService) IncGraphQLField(operationName, fieldName string, success bool) {
+	successStr := "true"
+	if !success {
+		successStr = "false"
+	}
+	m.graphqlFieldsTotal.WithLabelValues(operationName, fieldName, successStr).Inc()
+}
+
+func (m *metricsService) ObserveGraphQLComplexity(operationName string, complexity int) {
+	m.graphqlComplexity.WithLabelValues(operationName).Observe(float64(complexity))
+}
+
+func (m *metricsService) IncGraphQLError(operationName, errorType string) {
+	m.graphqlErrorsTotal.WithLabelValues(operationName, errorType).Inc()
 }
