@@ -11,6 +11,7 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
@@ -26,7 +27,7 @@ const (
 // TrustlinesService defines the interface for trustlines operations.
 type TrustlinesService interface {
 	GetCheckpointLedger() uint32
-	PopulateTrustlines(ctx context.Context) error
+	PopulateTrustlinesAndSAC(ctx context.Context) error
 	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
 	GetTrustlines(ctx context.Context, accountAddress string) ([]string, error)
 	ProcessTrustlineChangesBatch(ctx context.Context, changes []types.TrustlineChange) error
@@ -85,8 +86,8 @@ func (s *trustlinesService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
 }
 
-func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
-	latestCheckpointLedger, err := s.getLatestCheckpointLedger()
+func (s *trustlinesService) PopulateTrustlinesAndSAC(ctx context.Context) error {
+	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
 	if err != nil {
 		return err
 	}
@@ -108,8 +109,10 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 		}
 	}()
 
-	// trustlines is a map of account address to a list of asset codes
+	// trustlines is a map of G-... account address to a list of asset codes
 	trustlines := make(map[string][]string, 0)
+	// contracts is a map of both G-... and C-... contract addresses to a list of contract IDs
+	contracts := make(map[string][]string, 0)
 	entries := 0
 	startTime := time.Now()
 	for {
@@ -137,6 +140,30 @@ func (s *trustlinesService) PopulateTrustlines(ctx context.Context) error {
 			entries++
 			assetStr := fmt.Sprintf("%s:%s", assetCode, assetIssuer)
 			trustlines[accountAddress] = append(trustlines[accountAddress], assetStr)
+		case xdr.LedgerEntryTypeContractData:
+			contractDataEntry := change.Post.Data.MustContractData()
+
+			if contractDataEntry.Key.Type != xdr.ScValTypeScvVec {
+				continue
+			}
+
+			// Extract the account/contract holder address from the balance entry key
+			holderAddress, err := exctractHolderAddress(contractDataEntry.Key)
+			if err != nil {
+				// Skip invalid balance entries
+				continue
+			}
+
+			// Extract the SAC contract ID from the contract data entry
+			contractAddress, err := extractContractID(contractDataEntry)
+			if err != nil {
+				// Skip if we can't extract contract ID
+				continue
+			}
+
+			entries++
+			// Store SAC balance: map holder address to the contract address
+			contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
 		default:
 			continue
 		}
@@ -215,19 +242,76 @@ func (s *trustlinesService) ProcessTrustlineChangesBatch(ctx context.Context, ch
 	return nil
 }
 
-func (s *trustlinesService) getLatestCheckpointLedger() (uint32, error) {
+func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
 	// Get latest ledger from archive
-	latestLedger, err := s.archive.GetLatestLedgerSequence()
+	latestLedger, err := archive.GetLatestLedgerSequence()
 	if err != nil {
 		return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
 	}
 
 	// Get checkpoint manager
-	manager := s.archive.GetCheckpointManager()
+	manager := archive.GetCheckpointManager()
 
 	// Return the latest checkpoint (on or before latest ledger)
 	if manager.IsCheckpoint(latestLedger) {
 		return latestLedger, nil
 	}
 	return manager.PrevCheckpoint(latestLedger), nil
+}
+
+// exctractHolderAddress extracts the account address from a Stellar Asset Contract balance entry.
+// Balance entries have a key that is a ScVec with 2 elements:
+// - First element: ScSymbol("Balance")
+// - Second element: ScAddress (the account/contract holder address)
+// Returns the holder address as a Stellar-encoded string, or empty string if invalid.
+func exctractHolderAddress(key xdr.ScVal) (string, error) {
+	// Verify the key is a vector
+	keyVecPtr, ok := key.GetVec()
+	if !ok || keyVecPtr == nil {
+		return "", fmt.Errorf("key is not a vector")
+	}
+	keyVec := *keyVecPtr
+
+	// Balance entries should have exactly 2 elements
+	if len(keyVec) != 2 {
+		return "", fmt.Errorf("key vector length is %d, expected 2", len(keyVec))
+	}
+
+	// First element should be the symbol "Balance"
+	sym, ok := keyVec[0].GetSym()
+	if !ok || sym != "Balance" {
+		return "", fmt.Errorf("first element is not 'Balance' symbol")
+	}
+
+	// Second element is the ScAddress of the balance holder
+	scAddress, ok := keyVec[1].GetAddress()
+	if !ok {
+		return "", fmt.Errorf("second element is not a valid address")
+	}
+
+	// Convert ScAddress to Stellar string format
+	// This handles both account addresses (G...) and contract addresses (C...)
+	holderAddress, err := scAddress.String()
+	if err != nil {
+		return "", fmt.Errorf("converting address to string: %w", err)
+	}
+
+	return holderAddress, nil
+}
+
+// extractContractID extracts the contract ID from a ContractData entry and returns it
+// as a Stellar-encoded contract address (C...).
+func extractContractID(contractData xdr.ContractDataEntry) (string, error) {
+	if contractData.Contract.ContractId == nil {
+		return "", fmt.Errorf("contract ID is nil")
+	}
+
+	contractID := *contractData.Contract.ContractId
+	// Encode as a Stellar contract address (C...)
+	contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+	if err != nil {
+		return "", fmt.Errorf("encoding contract ID: %w", err)
+	}
+
+	return contractAddress, nil
 }

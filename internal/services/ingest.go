@@ -244,7 +244,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	defer signal.Stop(signalChan)
 
 	if latestTrustlinesLedger == 0 {
-		err := m.trustlinesService.PopulateTrustlines(ctx)
+		err := m.trustlinesService.PopulateTrustlinesAndSAC(ctx)
 		if err != nil {
 			return fmt.Errorf("populating trustlines: %w", err)
 		}
