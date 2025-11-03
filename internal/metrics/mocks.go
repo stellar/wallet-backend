@@ -98,6 +98,10 @@ func (m *MockMetricsService) IncIngestionTransactionsProcessed(count int) {
 	m.Called(count)
 }
 
+func (m *MockMetricsService) IncIngestionOperationsProcessed(count int) {
+	m.Called(count)
+}
+
 func (m *MockMetricsService) ObserveIngestionBatchSize(size int) {
 	m.Called(size)
 }

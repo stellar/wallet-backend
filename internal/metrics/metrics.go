@@ -32,6 +32,7 @@ type MetricsService interface {
 	ObserveIngestionPhaseDuration(phase string, duration float64)
 	IncIngestionLedgersProcessed(count int)
 	IncIngestionTransactionsProcessed(count int)
+	IncIngestionOperationsProcessed(count int)
 	ObserveIngestionBatchSize(size int)
 	ObserveIngestionParticipantsCount(count int)
 }
@@ -71,6 +72,7 @@ type metricsService struct {
 	ingestionPhaseDuration     *prometheus.SummaryVec
 	ingestionLedgersProcessed  prometheus.Counter
 	ingestionTransactionsTotal prometheus.Counter
+	ingestionOperationsTotal   prometheus.Counter
 	ingestionBatchSize         prometheus.Histogram
 	ingestionParticipantsCount prometheus.Histogram
 }
@@ -213,6 +215,12 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Help: "Total number of transactions processed during ingestion",
 		},
 	)
+	m.ingestionOperationsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingestion_operations_processed_total",
+			Help: "Total number of operations processed during ingestion",
+		},
+	)
 	m.ingestionBatchSize = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "ingestion_batch_size",
@@ -253,6 +261,7 @@ func (m *metricsService) registerMetrics() {
 		m.ingestionPhaseDuration,
 		m.ingestionLedgersProcessed,
 		m.ingestionTransactionsTotal,
+		m.ingestionOperationsTotal,
 		m.ingestionBatchSize,
 		m.ingestionParticipantsCount,
 	)
@@ -425,6 +434,10 @@ func (m *metricsService) IncIngestionLedgersProcessed(count int) {
 
 func (m *metricsService) IncIngestionTransactionsProcessed(count int) {
 	m.ingestionTransactionsTotal.Add(float64(count))
+}
+
+func (m *metricsService) IncIngestionOperationsProcessed(count int) {
+	m.ingestionOperationsTotal.Add(float64(count))
 }
 
 func (m *metricsService) ObserveIngestionBatchSize(size int) {

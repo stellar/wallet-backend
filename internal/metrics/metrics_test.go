@@ -362,6 +362,24 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 		assert.True(t, found)
 	})
 
+	t.Run("ingestion operations processed counter", func(t *testing.T) {
+		ms.IncIngestionOperationsProcessed(200)
+		ms.IncIngestionOperationsProcessed(75)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_operations_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(275), metric.GetCounter().GetValue())
+			}
+		}
+		assert.True(t, found)
+	})
+
 	t.Run("ingestion batch size histogram", func(t *testing.T) {
 		// Record various batch sizes
 		ms.ObserveIngestionBatchSize(1)

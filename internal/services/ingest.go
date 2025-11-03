@@ -507,8 +507,10 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
 	numberOfTransactions := mergedBuffer.GetNumberOfTransactions()
+	numberOfOperations := mergedBuffer.GetNumberOfOperations()
 	m.metricsService.IncIngestionTransactionsProcessed(numberOfTransactions)
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
+	m.metricsService.IncIngestionOperationsProcessed(numberOfOperations)
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions, %d operations using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, numberOfOperations, memStats.Alloc/1024/1024)
 
 	return nil
 }
