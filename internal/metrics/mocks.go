@@ -105,14 +105,6 @@ func (m *MockMetricsService) ObserveStateChangeProcessingDuration(processor stri
 	m.Called(processor, duration)
 }
 
-func (m *MockMetricsService) ObserveStateChangePersistenceDuration(duration float64) {
-	m.Called(duration)
-}
-
 func (m *MockMetricsService) IncStateChangesPersisted(count int) {
 	m.Called(count)
-}
-
-func (m *MockMetricsService) IncStateChangePersistenceErrors(errorType string) {
-	m.Called(errorType)
 }

@@ -658,45 +658,23 @@ func TestStateChangeMetrics(t *testing.T) {
 	})
 
 	t.Run("State change persistence metrics", func(t *testing.T) {
-		ms.ObserveStateChangePersistenceDuration(0.25)
 		ms.IncStateChangesPersisted(50)
-		ms.IncStateChangePersistenceErrors("insert_error")
 
 		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
-		foundDuration := false
 		foundCount := false
-		foundErrors := false
 
 		for _, mf := range metricFamilies {
 			switch mf.GetName() {
-			case "state_change_persistence_duration_seconds":
-				foundDuration = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
-				assert.Equal(t, 0.25, metric.GetSummary().GetSampleSum())
-
 			case "state_changes_persisted_total":
 				foundCount = true
 				metric := mf.GetMetric()[0]
 				assert.Equal(t, float64(50), metric.GetCounter().GetValue())
-
-			case "state_change_persistence_errors_total":
-				foundErrors = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, float64(1), metric.GetCounter().GetValue())
-				labels := make(map[string]string)
-				for _, label := range metric.GetLabel() {
-					labels[label.GetName()] = label.GetValue()
-				}
-				assert.Equal(t, "insert_error", labels["error_type"])
 			}
 		}
 
-		assert.True(t, foundDuration, "state_change_persistence_duration_seconds metric not found")
 		assert.True(t, foundCount, "state_changes_persisted_total metric not found")
-		assert.True(t, foundErrors, "state_change_persistence_errors_total metric not found")
 	})
 
 	t.Run("All state change categories tracked independently", func(t *testing.T) {

@@ -35,9 +35,7 @@ type MetricsService interface {
 	// State Change Metrics
 	IncStateChangeCreated(category string)
 	ObserveStateChangeProcessingDuration(processor string, duration float64)
-	ObserveStateChangePersistenceDuration(duration float64)
 	IncStateChangesPersisted(count int)
-	IncStateChangePersistenceErrors(errorType string)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -77,11 +75,9 @@ type metricsService struct {
 	signatureVerificationExpired *prometheus.CounterVec
 
 	// State Change Metrics
-	stateChangeCreatedTotal           *prometheus.CounterVec
-	stateChangeProcessingDuration     *prometheus.SummaryVec
-	stateChangePersistenceDuration    prometheus.Summary
-	stateChangesPersistedTotal        prometheus.Counter
-	stateChangePersistenceErrorsTotal *prometheus.CounterVec
+	stateChangeCreatedTotal       *prometheus.CounterVec
+	stateChangeProcessingDuration *prometheus.SummaryVec
+	stateChangesPersistedTotal    prometheus.Counter
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -241,25 +237,11 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"processor"},
 	)
-	m.stateChangePersistenceDuration = prometheus.NewSummary(
-		prometheus.SummaryOpts{
-			Name:       "state_change_persistence_duration_seconds",
-			Help:       "Duration of state change batch persistence operations",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
-		},
-	)
 	m.stateChangesPersistedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "state_changes_persisted_total",
 			Help: "Total number of state changes persisted to database",
 		},
-	)
-	m.stateChangePersistenceErrorsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "state_change_persistence_errors_total",
-			Help: "Total number of state change persistence errors by error type",
-		},
-		[]string{"error_type"},
 	)
 
 	m.registerMetrics()
@@ -289,9 +271,7 @@ func (m *metricsService) registerMetrics() {
 		m.signatureVerificationExpired,
 		m.stateChangeCreatedTotal,
 		m.stateChangeProcessingDuration,
-		m.stateChangePersistenceDuration,
 		m.stateChangesPersistedTotal,
-		m.stateChangePersistenceErrorsTotal,
 	)
 }
 
@@ -473,14 +453,6 @@ func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, 
 	m.stateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
 }
 
-func (m *metricsService) ObserveStateChangePersistenceDuration(duration float64) {
-	m.stateChangePersistenceDuration.Observe(duration)
-}
-
 func (m *metricsService) IncStateChangesPersisted(count int) {
 	m.stateChangesPersistedTotal.Add(float64(count))
-}
-
-func (m *metricsService) IncStateChangePersistenceErrors(errorType string) {
-	m.stateChangePersistenceErrorsTotal.WithLabelValues(errorType).Inc()
 }
