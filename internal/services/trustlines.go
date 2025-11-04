@@ -28,9 +28,9 @@ const (
 type TrustlinesService interface {
 	GetCheckpointLedger() uint32
 	PopulateTrustlinesAndSAC(ctx context.Context) error
-	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
+	Add(ctx context.Context, accountAddress string, assets []string) error
 	GetTrustlines(ctx context.Context, accountAddress string) ([]string, error)
-	ProcessTrustlineChangesBatch(ctx context.Context, changes []types.TrustlineChange) error
+	ProcessChangesBatch(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 var _ TrustlinesService = (*trustlinesService)(nil)
@@ -40,6 +40,7 @@ type trustlinesService struct {
 	archive          historyarchive.ArchiveInterface
 	redisStore       *store.RedisStore
 	trustlinesPrefix string
+	contractsPrefix string
 }
 
 func NewTrustlinesService(networkPassphrase string, redisStore *store.RedisStore) (TrustlinesService, error) {
@@ -57,17 +58,17 @@ func NewTrustlinesService(networkPassphrase string, redisStore *store.RedisStore
 		archive:          archive,
 		redisStore:       redisStore,
 		trustlinesPrefix: "trustlines:",
+		contractsPrefix: "contracts:",
 	}, nil
 }
 
 // AddTrustlines adds trustlines for an account to Redis.
-func (s *trustlinesService) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
+func (s *trustlinesService) Add(ctx context.Context, key string, assets []string) error {
 	if len(assets) == 0 {
 		return nil
 	}
-	key := s.trustlinesPrefix + accountAddress
 	if err := s.redisStore.SAdd(ctx, key, assets...); err != nil {
-		return fmt.Errorf("adding trustlines for account %s: %w", accountAddress, err)
+		return fmt.Errorf("adding trustlines for key %s: %w", key, err)
 	}
 	return nil
 }
@@ -147,7 +148,7 @@ func (s *trustlinesService) PopulateTrustlinesAndSAC(ctx context.Context) error 
 				continue
 			}
 
-			// Extract the account/contract holder address from the balance entry key
+			// Extract the account/contract address from the contract data entry key
 			holderAddress, err := exctractHolderAddress(contractDataEntry.Key)
 			if err != nil {
 				// Skip invalid balance entries
@@ -180,13 +181,23 @@ func (s *trustlinesService) PopulateTrustlinesAndSAC(ctx context.Context) error 
 
 	startTime = time.Now()
 	for accountAddress, assets := range trustlines {
-		// Capture loop variables for goroutine
 		accAddr := accountAddress
 		accAssets := assets
 		group.Submit(func() {
-			if err := s.AddTrustlines(ctx, accAddr, accAssets); err != nil {
+			if err := s.Add(ctx, s.trustlinesPrefix + accAddr, accAssets); err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("storing trustlines for account %s: %w", accAddr, err))
+				errMu.Unlock()
+			}
+		})
+	}
+	for accountAddress, contracts := range contracts {
+		accAddr := accountAddress
+		accContracts := contracts
+		group.Submit(func() {
+			if err := s.Add(ctx, s.contractsPrefix + accAddr, accContracts); err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("storing contracts for account %s: %w", accAddr, err))
 				errMu.Unlock()
 			}
 		})
@@ -199,22 +210,22 @@ func (s *trustlinesService) PopulateTrustlinesAndSAC(ctx context.Context) error 
 		return fmt.Errorf("storing trustlines: %w", errors.Join(errs...))
 	}
 
-	fmt.Printf("Stored trustlines in Redis in %v minutes\n", time.Since(startTime).Minutes())
+	fmt.Printf("Stored token info in Redis in %v minutes\n", time.Since(startTime).Minutes())
 
 	return nil
 }
 
-// ProcessTrustlineChangesBatch processes multiple trustline changes efficiently using Redis pipelining.
+// ProcessChangesBatch processes multiple changes efficiently using Redis pipelining.
 // This reduces network round trips from N operations to 1, significantly improving performance
 // when processing large batches of trustline changes during ingestion.
-func (s *trustlinesService) ProcessTrustlineChangesBatch(ctx context.Context, changes []types.TrustlineChange) error {
-	if len(changes) == 0 {
+func (s *trustlinesService) ProcessChangesBatch(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
 	}
 
 	// Convert trustline changes to Redis pipeline operations
-	operations := make([]store.SetPipelineOperation, 0, len(changes))
-	for _, change := range changes {
+	operations := make([]store.SetPipelineOperation, 0, len(trustlineChanges) + len(contractChanges))
+	for _, change := range trustlineChanges {
 		key := s.trustlinesPrefix + change.AccountID
 		var op store.SetOperation
 
@@ -231,6 +242,16 @@ func (s *trustlinesService) ProcessTrustlineChangesBatch(ctx context.Context, ch
 			Op:      op,
 			Key:     key,
 			Members: []string{change.Asset},
+		})
+	}
+
+	// Convert contract changes to Redis pipeline operations
+	for _, change := range contractChanges {
+		// For contract changes, we always add the contract IDs and not remove them.
+		operations = append(operations, store.SetPipelineOperation{
+			Op:      store.SetOpAdd,
+			Key:     s.contractsPrefix + change.AccountID,
+			Members: []string{change.ContractID},
 		})
 	}
 

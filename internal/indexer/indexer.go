@@ -18,6 +18,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
+func isContractAddress(address string) bool {
+	// Contract addresses start with 'C' and account addresses start with 'G'
+	return len(address) > 0 && address[0] == 'C'
+}
+
 type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
 	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
@@ -29,6 +35,8 @@ type IndexerBufferInterface interface {
 	GetOperations() []types.Operation
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() []types.TrustlineChange
+	GetContractChanges() []types.ContractChange
+	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	MergeBuffer(other IndexerBufferInterface)
 }
@@ -59,6 +67,7 @@ type PrecomputedTransactionData struct {
 	OpsParticipants  map[int64]processors.OperationParticipants
 	StateChanges     []types.StateChange
 	TrustlineChanges []types.TrustlineChange
+	ContractChanges  []types.ContractChange
 	AllParticipants  set.Set[string] // Union of all participants for this transaction
 }
 
@@ -138,6 +147,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			}
 
 			trustlineChanges := []types.TrustlineChange{}
+			contractChanges := []types.ContractChange{}
 			for _, stateChange := range stateChanges {
 				switch stateChange.StateChangeCategory {
 				case types.StateChangeCategoryTrustline:
@@ -157,12 +167,29 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 						continue
 					}
 					trustlineChanges = append(trustlineChanges, trustlineChange)
+				case types.StateChangeCategoryBalance:
+					// Only store contract changes when:
+					// - Account is C-address (contracts don't have trustlines), OR
+					// - Account is G-address AND token is NOT SAC (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
+					accountIsContract := isContractAddress(stateChange.AccountID)
+					tokenIsNotSAC := !stateChange.IsSAC
+
+					if accountIsContract || tokenIsNotSAC {
+						contractChange := types.ContractChange{
+							AccountID:    stateChange.AccountID,
+							OperationID:  stateChange.OperationID,
+							ContractID:   stateChange.TokenID.String,
+							LedgerNumber: tx.Ledger.LedgerSequence(),
+						}
+						contractChanges = append(contractChanges, contractChange)
+					}
 				default:
 					continue
 				}
 			}
 			txData.TrustlineChanges = trustlineChanges
-
+			txData.ContractChanges = contractChanges
+			
 			// Add to collection
 			precomputedData[index] = txData
 		})
@@ -254,6 +281,11 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 	// Insert trustline changes
 	for _, trustlineChange := range precomputedData.TrustlineChanges {
 		buffer.PushTrustlineChange(trustlineChange)
+	}
+
+	// Insert contract changes
+	for _, contractChange := range precomputedData.ContractChanges {
+		buffer.PushContractChange(contractChange)
 	}
 
 	// Sort state changes and set order for this transaction

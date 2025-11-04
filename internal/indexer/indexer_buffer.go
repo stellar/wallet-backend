@@ -48,6 +48,7 @@ type IndexerBuffer struct {
 	participantsByOpID   map[int64]set.Set[string]
 	stateChanges         []types.StateChange
 	trustlineChanges     []types.TrustlineChange
+	contractChanges      []types.ContractChange
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -60,6 +61,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		participantsByOpID:   make(map[int64]set.Set[string]),
 		stateChanges:         make([]types.StateChange, 0),
 		trustlineChanges:     make([]types.TrustlineChange, 0),
+		contractChanges:      make([]types.ContractChange, 0),
 	}
 }
 
@@ -145,6 +147,24 @@ func (b *IndexerBuffer) GetTrustlineChanges() []types.TrustlineChange {
 	defer b.mu.RUnlock()
 
 	return b.trustlineChanges
+}
+
+// PushContractChange adds a contract change to the buffer.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.contractChanges = append(b.contractChanges, contractChange)
+}
+
+// GetContractChanges returns a copy of all contract changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetContractChanges() []types.ContractChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.contractChanges
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.

@@ -71,6 +71,13 @@ const (
 	TrustlineOpRemove TrustlineOpType = "REMOVE"
 )
 
+type ContractChange struct {
+	AccountID    string
+	ContractID   string
+	OperationID  int64
+	LedgerNumber uint32
+}
+
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
@@ -299,7 +306,9 @@ type StateChange struct {
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
 	// code:issuer formatted asset string
-	TrustlineAsset string `json,omitempty:"-"`
+	TrustlineAsset string `json:"-"`
+	// Internal only: used for filtering contract changes
+	IsSAC bool `json:"-"`
 }
 
 type StateChangeWithCursor struct {

@@ -114,6 +114,12 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
+// WithIsSAC sets whether the token is a Stellar Asset Contract (SAC)
+func (b *StateChangeBuilder) WithIsSAC(isSAC bool) *StateChangeBuilder {
+	b.base.IsSAC = isSAC
+	return b
+}
+
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
 	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)

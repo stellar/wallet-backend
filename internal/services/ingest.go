@@ -248,6 +248,16 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if err != nil {
 			return fmt.Errorf("populating trustlines: %w", err)
 		}
+		checkpointLedger := m.trustlinesService.GetCheckpointLedger()
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, checkpointLedger); err != nil {
+				return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+		}
 	}
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
@@ -283,12 +293,15 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		// update cursors
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
+			endLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, endLedger); err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, startLedger); err != nil {
-				return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+			checkpointLedger := m.trustlinesService.GetCheckpointLedger()
+			if endLedger > checkpointLedger {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, endLedger); err != nil {
+					return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+				}
 			}
 			return nil
 		})
@@ -599,29 +612,34 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 
 	// Insert trustline changes in the ascending order of operation IDs using batch processing
 	trustlineChanges := indexerBuffer.GetTrustlineChanges()
+	contractChanges := indexerBuffer.GetContractChanges()
 	if len(trustlineChanges) > 0 {
 		sort.Slice(trustlineChanges, func(i, j int) bool {
 			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 		})
 
 		// Filter out changes that are older than the checkpoint ledger
-		// This check is required since we initialize trustlines using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
-		// We will skip trustline changes as the wallet backend catches up to the tip. We only need to ingest trustline changes that are newer than the latest checkpoint ledger.
-		filteredChanges := make([]types.TrustlineChange, 0, len(trustlineChanges))
+		// This check is required since we initialize trustlines and contracts using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
+		// We will skip changes that are older than the latest checkpoint ledger as the wallet backend catches up to the tip. We only need to ingest changes that are newer than the latest checkpoint ledger.
+		filteredTrustlineChanges := make([]types.TrustlineChange, 0, len(trustlineChanges))
 		for _, change := range trustlineChanges {
 			if change.LedgerNumber > m.trustlinesService.GetCheckpointLedger() {
-				filteredChanges = append(filteredChanges, change)
+				filteredTrustlineChanges = append(filteredTrustlineChanges, change)
+			}
+		}
+		filteredContractChanges := make([]types.ContractChange, 0, len(contractChanges))
+		for _, change := range contractChanges {
+			if change.LedgerNumber > m.trustlinesService.GetCheckpointLedger() {
+				filteredContractChanges = append(filteredContractChanges, change)
 			}
 		}
 
-		if len(filteredChanges) > 0 {
-			// Process all trustline changes in a single batch using Redis pipelining
-			if err := m.trustlinesService.ProcessTrustlineChangesBatch(ctx, filteredChanges); err != nil {
-				log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
-				return fmt.Errorf("processing trustline changes batch: %w", err)
-			}
-			log.Ctx(ctx).Infof("✅ inserted %d trustline changes", len(filteredChanges))
+		// Process all trustline and contract changes in a single batch using Redis pipelining
+		if err := m.trustlinesService.ProcessChangesBatch(ctx, filteredTrustlineChanges, filteredContractChanges); err != nil {
+			log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+			return fmt.Errorf("processing trustline changes batch: %w", err)
 		}
+		log.Ctx(ctx).Infof("✅ inserted %d trustline and contract changes", len(filteredTrustlineChanges) + len(filteredContractChanges))
 	}
 
 	return nil
