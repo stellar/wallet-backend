@@ -142,33 +142,51 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	// Build ledger keys: first the account key for native XLM balance
 	ledgerKeys := make([]string, 0)
 
-	// Add account ledger key for native XLM balance
-	accountKey, err := utils.GetAccountLedgerKey(address)
-	if err != nil {
-		return nil, fmt.Errorf("creating account ledger key: %w", err)
-	}
-	ledgerKeys = append(ledgerKeys, accountKey)
-
-	// Fetch the current trustlines for the account
-	trustlines, err := r.trustlinesService.GetTrustlines(ctx, address)
-	if err != nil {
-		return nil, fmt.Errorf("getting trustlines for account: %w", err)
-	}
-
-	// Build ledger keys for all trustlines
-	for _, trustline := range trustlines {
-		// Parse the trustline string (format: "ASSETCODE:ISSUER")
-		parts := strings.Split(trustline, ":")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid trustline format: %s", trustline)
+	if !utils.IsContractAddress(address) {
+		// Add account ledger key for native XLM balance
+		accountKey, err := utils.GetAccountLedgerKey(address)
+		if err != nil {
+			return nil, fmt.Errorf("creating account ledger key: %w", err)
 		}
-		assetCode := parts[0]
-		assetIssuer := parts[1]
+		ledgerKeys = append(ledgerKeys, accountKey)
 
-		// Create ledger key for this trustline
-		ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
+		// Fetch the current trustlines for the account
+		trustlines, err := r.trustlinesService.GetTrustlines(ctx, address)
+		if err != nil {
+			return nil, fmt.Errorf("getting trustlines for account: %w", err)
+		}
+
+		// Build ledger keys for all trustlines
+		for _, trustline := range trustlines {
+			// Parse the trustline string (format: "ASSETCODE:ISSUER")
+			parts := strings.Split(trustline, ":")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid trustline format: %s", trustline)
+			}
+			assetCode := parts[0]
+			assetIssuer := parts[1]
+
+			// Create ledger key for this trustline
+			ledgerKey, keyErr := utils.GetTrustlineLedgerKey(address, assetCode, assetIssuer)
+			if keyErr != nil {
+				return nil, fmt.Errorf("creating ledger key for trustline %s: %w", trustline, keyErr)
+			}
+			ledgerKeys = append(ledgerKeys, ledgerKey)
+		}
+	}
+
+	// Fetch the current contracts for the account
+	contracts, err := r.trustlinesService.GetContracts(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("getting contracts for account: %w", err)
+	}
+
+	// Build ledger keys for all contracts
+	for _, contract := range contracts {
+		// Create ledger key for this contract
+		ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract)
 		if keyErr != nil {
-			return nil, fmt.Errorf("creating ledger key for trustline %s: %w", trustline, keyErr)
+			return nil, fmt.Errorf("creating ledger key for contract %s: %w", contract, keyErr)
 		}
 		ledgerKeys = append(ledgerKeys, ledgerKey)
 	}
@@ -254,6 +272,34 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				LastModifiedLedger:                int32(entry.LastModifiedLedger),
 				IsAuthorized:                      isAuthorized,
 				IsAuthorizedToMaintainLiabilities: isAuthorizedToMaintainLiabilities,
+			})
+
+		case xdr.LedgerEntryTypeContractData:
+			// Handle contract balance
+			contractDataEntry := ledgerEntryData.MustContractData()
+
+			// Extract balance value
+			if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
+				return nil, fmt.Errorf("contract data value is not i128, got type: %v", contractDataEntry.Val.Type)
+			}
+
+			i128Parts := contractDataEntry.Val.MustI128()
+			balanceStr := amount.String128(i128Parts)
+
+			// Extract contract ID (token ID)
+			if contractDataEntry.Contract.ContractId == nil {
+				return nil, fmt.Errorf("contract ID is nil")
+			}
+
+			contractID := *contractDataEntry.Contract.ContractId
+			tokenID, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+			if err != nil {
+				return nil, fmt.Errorf("encoding contract ID: %w", err)
+			}
+
+			balances = append(balances, &graphql1.ContractBalance{
+				TokenID: tokenID,
+				Balance: balanceStr,
 			})
 		}
 	}

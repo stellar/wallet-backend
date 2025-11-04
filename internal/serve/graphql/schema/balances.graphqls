@@ -22,3 +22,8 @@ type TrustlineBalance implements Balance {
     isAuthorized: Boolean!
     isAuthorizedToMaintainLiabilities: Boolean!
 }
+
+type ContractBalance implements Balance {
+    balance: String!
+    tokenId: String!
+}

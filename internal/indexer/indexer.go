@@ -189,7 +189,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			}
 			txData.TrustlineChanges = trustlineChanges
 			txData.ContractChanges = contractChanges
-			
+
 			// Add to collection
 			precomputedData[index] = txData
 		})

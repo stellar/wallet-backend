@@ -293,16 +293,17 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		// update cursors
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			endLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, endLedger); err != nil {
+			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, lastLedger); err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
 			checkpointLedger := m.trustlinesService.GetCheckpointLedger()
-			if endLedger > checkpointLedger {
-				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, endLedger); err != nil {
+			if lastLedger > checkpointLedger {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, lastLedger); err != nil {
 					return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
 				}
 			}
+			startLedger = lastLedger
 			return nil
 		})
 		if err != nil {
@@ -639,7 +640,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
 			return fmt.Errorf("processing trustline changes batch: %w", err)
 		}
-		log.Ctx(ctx).Infof("✅ inserted %d trustline and contract changes", len(filteredTrustlineChanges) + len(filteredContractChanges))
+		log.Ctx(ctx).Infof("✅ inserted %d trustline and contract changes", len(filteredTrustlineChanges)+len(filteredContractChanges))
 	}
 
 	return nil

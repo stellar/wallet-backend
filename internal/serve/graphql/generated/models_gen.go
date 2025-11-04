@@ -48,6 +48,15 @@ type BuildTransactionPayload struct {
 	TransactionXdr string `json:"transactionXdr"`
 }
 
+type ContractBalance struct {
+	Balance string `json:"balance"`
+	TokenID string `json:"tokenId"`
+}
+
+func (ContractBalance) IsBalance()              {}
+func (this ContractBalance) GetBalance() string { return this.Balance }
+func (this ContractBalance) GetTokenID() string { return this.TokenID }
+
 type CreateFeeBumpTransactionInput struct {
 	TransactionXdr string `json:"transactionXDR"`
 }
