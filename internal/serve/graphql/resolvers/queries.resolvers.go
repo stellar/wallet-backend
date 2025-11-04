@@ -278,13 +278,43 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			// Handle contract balance
 			contractDataEntry := ledgerEntryData.MustContractData()
 
-			// Extract balance value
-			if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
-				return nil, fmt.Errorf("contract data value is not i128, got type: %v", contractDataEntry.Val.Type)
-			}
+			// Extract balance value - can be either i128 or BalanceValue map
+			var balanceStr string
+			switch contractDataEntry.Val.Type {
+			case xdr.ScValTypeScvI128:
+				// Simple i128 balance
+				i128Parts := contractDataEntry.Val.MustI128()
+				balanceStr = amount.String128(i128Parts)
+			case xdr.ScValTypeScvMap:
+				// BalanceValue struct: {amount: i128, authorized: bool, clawback: bool}
+				balanceMap := contractDataEntry.Val.MustMap()
+				if balanceMap == nil {
+					return nil, fmt.Errorf("balance map is nil")
+				}
 
-			i128Parts := contractDataEntry.Val.MustI128()
-			balanceStr := amount.String128(i128Parts)
+				// Find the "amount" field in the map
+				var amountFound bool
+				for _, entry := range *balanceMap {
+					if entry.Key.Type == xdr.ScValTypeScvSymbol {
+						keySymbol := entry.Key.MustSym()
+						if string(keySymbol) == "amount" {
+							if entry.Val.Type != xdr.ScValTypeScvI128 {
+								return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+							}
+							i128Parts := entry.Val.MustI128()
+							balanceStr = amount.String128(i128Parts)
+							amountFound = true
+							break
+						}
+					}
+				}
+
+				if !amountFound {
+					return nil, fmt.Errorf("amount field not found in balance map")
+				}
+			default:
+				return nil, fmt.Errorf("contract data value has unexpected type: %v", contractDataEntry.Val.Type)
+			}
 
 			// Extract contract ID (token ID)
 			if contractDataEntry.Contract.ContractId == nil {
