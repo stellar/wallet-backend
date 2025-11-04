@@ -63,7 +63,7 @@ func NewTrustlinesService(networkPassphrase string, redisStore *store.RedisStore
 	}, nil
 }
 
-// AddTrustlines adds trustlines for an account to Redis.
+// Add adds assets for an account to Redis.
 func (s *trustlinesService) Add(ctx context.Context, key string, assets []string) error {
 	if len(assets) == 0 {
 		return nil
@@ -162,14 +162,12 @@ func (s *trustlinesService) PopulateTrustlinesAndSAC(ctx context.Context) error 
 			// Extract the account/contract address from the contract data entry key
 			holderAddress, err := exctractHolderAddress(contractDataEntry.Key)
 			if err != nil {
-				// Skip invalid balance entries
 				continue
 			}
 
 			// Extract the SAC contract ID from the contract data entry
 			contractAddress, err := extractContractID(contractDataEntry)
 			if err != nil {
-				// Skip if we can't extract contract ID
 				continue
 			}
 
@@ -334,6 +332,11 @@ func exctractHolderAddress(key xdr.ScVal) (string, error) {
 // extractContractID extracts the contract ID from a ContractData entry and returns it
 // as a Stellar-encoded contract address (C...).
 func extractContractID(contractData xdr.ContractDataEntry) (string, error) {
+	// Check if the Contract field is of type CONTRACT (not ACCOUNT)
+	if contractData.Contract.Type != xdr.ScAddressTypeScAddressTypeContract {
+		return "", fmt.Errorf("contract address type is %v, expected ScAddressTypeContract", contractData.Contract.Type)
+	}
+
 	if contractData.Contract.ContractId == nil {
 		return "", fmt.Errorf("contract ID is nil")
 	}
