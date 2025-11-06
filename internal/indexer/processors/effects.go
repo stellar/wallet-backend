@@ -527,7 +527,8 @@ func (p *EffectsProcessor) buildAssetContractIDFromTrustlineEffect(effect *effec
 
 // getTrustlineFlagsFromChanges extracts the trustline flags from transaction changes
 func (p *EffectsProcessor) getTrustlineFlagsFromChanges(trustorAddress, assetCode, assetIssuer string, changes []ingest.Change) (xdr.TrustLineFlags, error) {
-	// Search through changes to find the trustline entry for this specific asset and trustor
+	// Search through changes to find the trustline entry for this specific asset and trustor. Note that these changes
+	// are from the specific operation so we will only find the entries for the specific operation and not the entire transaction.
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeTrustline {
 			continue
