@@ -65,6 +65,18 @@ func (m *MockMetricsService) SetRPCLatestLedger(ledger int64) {
 	m.Called(ledger)
 }
 
+func (m *MockMetricsService) IncRPCMethodCalls(method string) {
+	m.Called(method)
+}
+
+func (m *MockMetricsService) ObserveRPCMethodDuration(method string, duration float64) {
+	m.Called(method, duration)
+}
+
+func (m *MockMetricsService) IncRPCMethodErrors(method, errorType string) {
+	m.Called(method, errorType)
+}
+
 func (m *MockMetricsService) IncNumRequests(endpoint, method string, statusCode int) {
 	m.Called(endpoint, method, statusCode)
 }
@@ -81,6 +93,38 @@ func (m *MockMetricsService) IncDBQuery(queryType, table string) {
 	m.Called(queryType, table)
 }
 
+func (m *MockMetricsService) IncDBQueryError(queryType, table, errorType string) {
+	m.Called(queryType, table, errorType)
+}
+
+func (m *MockMetricsService) IncDBTransaction(status string) {
+	m.Called(status)
+}
+
+func (m *MockMetricsService) ObserveDBTransactionDuration(status string, duration float64) {
+	m.Called(status, duration)
+}
+
+func (m *MockMetricsService) ObserveDBBatchSize(operation, table string, size int) {
+	m.Called(operation, table, size)
+}
+
 func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.Called(expiredSeconds)
+}
+
+func (m *MockMetricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
+	m.Called(operationName, fieldName, duration)
+}
+
+func (m *MockMetricsService) IncGraphQLField(operationName, fieldName string, success bool) {
+	m.Called(operationName, fieldName, success)
+}
+
+func (m *MockMetricsService) ObserveGraphQLComplexity(operationName string, complexity int) {
+	m.Called(operationName, complexity)
+}
+
+func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
+	m.Called(operationName, errorType)
 }

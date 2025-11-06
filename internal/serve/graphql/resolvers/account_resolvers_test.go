@@ -20,8 +20,8 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "transactions").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "transactions", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "transactions").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "transactions", mock.Anything).Return()
 
 	resolver := &accountResolver{
 		&Resolver{
@@ -148,8 +148,8 @@ func TestAccountResolver_Operations(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "operations").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "operations", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "operations").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "operations", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &accountResolver{&Resolver{
@@ -259,8 +259,8 @@ func TestAccountResolver_StateChanges(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &accountResolver{&Resolver{
@@ -376,8 +376,8 @@ func TestAccountResolver_StateChanges_WithFilters(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &accountResolver{&Resolver{
@@ -521,8 +521,8 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 	parentAccount := &types.Account{StellarAddress: "test-account"}
 
 	mockMetricsService := &metrics.MockMetricsService{}
-	mockMetricsService.On("IncDBQuery", "SELECT", "state_changes").Return()
-	mockMetricsService.On("ObserveDBQueryDuration", "SELECT", "state_changes", mock.Anything).Return()
+	mockMetricsService.On("IncDBQuery", "BatchGetByAccountAddress", "state_changes").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "BatchGetByAccountAddress", "state_changes", mock.Anything).Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	resolver := &accountResolver{&Resolver{
