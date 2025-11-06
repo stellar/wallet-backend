@@ -58,7 +58,7 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	models               *data.Models
 	ledgerCursorName     string
-	trustlinesCursorName string
+	accountTokensCursorName string
 	advisoryLockID       int
 	appTracker           apptracker.AppTracker
 	rpcService           RPCService
@@ -75,7 +75,7 @@ type ingestService struct {
 func NewIngestService(
 	models *data.Models,
 	ledgerCursorName string,
-	trustlinesCursorName string,
+	accountTokensCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
@@ -113,7 +113,7 @@ func NewIngestService(
 	return &ingestService{
 		models:               models,
 		ledgerCursorName:     ledgerCursorName,
-		trustlinesCursorName: trustlinesCursorName,
+		accountTokensCursorName: accountTokensCursorName,
 		advisoryLockID:       generateAdvisoryLockID(network),
 		appTracker:           appTracker,
 		rpcService:           rpcService,
@@ -222,12 +222,12 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		var err error
 		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
-			return fmt.Errorf("getting latest ledger synced: %w", err)
+			return fmt.Errorf("getting latest ledger cursorsynced: %w", err)
 		}
 
-		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.trustlinesCursorName)
+		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
 		if err != nil {
-			return fmt.Errorf("getting latest trustlines ledger synced: %w", err)
+			return fmt.Errorf("getting latest account-tokens ledger cursor synced: %w", err)
 		}
 	}
 
@@ -246,17 +246,17 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	if latestTrustlinesLedger == 0 {
 		err := m.accountTokenService.PopulateAccountTokens(ctx)
 		if err != nil {
-			return fmt.Errorf("populating trustlines: %w", err)
+			return fmt.Errorf("populating account tokens cache: %w", err)
 		}
 		checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, checkpointLedger); err != nil {
-				return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, checkpointLedger); err != nil {
+				return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 			}
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+			return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 		}
 	}
 
@@ -302,8 +302,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 			if lastLedger > checkpointLedger {
-				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.trustlinesCursorName, lastLedger); err != nil {
-					return fmt.Errorf("updating latest synced trustlines ledger: %w", err)
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, lastLedger); err != nil {
+					return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 				}
 			}
 			startLedger = lastLedger
