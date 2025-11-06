@@ -326,7 +326,6 @@ func (m *StateChangeModel) BatchInsert(
 		return nil, fmt.Errorf("batch inserting state changes: %w", err)
 	}
 	m.MetricsService.IncDBQuery("INSERT", "state_changes")
-	m.MetricsService.IncStateChangesPersisted(len(insertedIDs))
 
 	return insertedIDs, nil
 }

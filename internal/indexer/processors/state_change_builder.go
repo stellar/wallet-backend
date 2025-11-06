@@ -131,11 +131,6 @@ func (b *StateChangeBuilder) Build() types.StateChange {
 	}
 	b.base.SortKey = b.generateSortKey()
 
-	// Track state change creation metrics
-	if b.metricsService != nil {
-		b.metricsService.IncStateChangeCreated(string(b.base.StateChangeCategory))
-	}
-
 	return b.base
 }
 

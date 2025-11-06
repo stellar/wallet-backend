@@ -553,12 +553,25 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
 
-			categoryCount := make(map[string]int)
+			// Count state changes by type and category
+			typeCategoryCount := make(map[string]map[string]int)
 			for _, sc := range stateChanges {
-				categoryCount[string(sc.StateChangeCategory)]++
+				category := string(sc.StateChangeCategory)
+				scType := ""
+				if sc.StateChangeReason != nil {
+					scType = string(*sc.StateChangeReason)
+				}
+
+				if typeCategoryCount[scType] == nil {
+					typeCategoryCount[scType] = make(map[string]int)
+				}
+				typeCategoryCount[scType][category]++
 			}
-			for category, count := range categoryCount {
-				m.metricsService.IncStateChangesPersistedByCategory(category, count)
+
+			for scType, categories := range typeCategoryCount {
+				for category, count := range categories {
+					m.metricsService.IncStateChanges(scType, category, count)
+				}
 			}
 
 			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)

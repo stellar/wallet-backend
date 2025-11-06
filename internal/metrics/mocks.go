@@ -97,18 +97,10 @@ func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds floa
 	m.Called(expiredSeconds)
 }
 
-func (m *MockMetricsService) IncStateChangeCreated(category string) {
-	m.Called(category)
-}
-
 func (m *MockMetricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
 	m.Called(processor, duration)
 }
 
-func (m *MockMetricsService) IncStateChangesPersisted(count int) {
-	m.Called(count)
-}
-
-func (m *MockMetricsService) IncStateChangesPersistedByCategory(category string, count int) {
-	m.Called(category, count)
+func (m *MockMetricsService) IncStateChanges(stateChangeType, category string, count int) {
+	m.Called(stateChangeType, category, count)
 }

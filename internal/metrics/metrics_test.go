@@ -583,44 +583,6 @@ func TestStateChangeMetrics(t *testing.T) {
 
 	ms := NewMetricsService(db)
 
-	t.Run("State change created counter", func(t *testing.T) {
-		category := "BALANCE"
-
-		ms.IncStateChangeCreated(category)
-		ms.IncStateChangeCreated(category)
-		ms.IncStateChangeCreated("SIGNER")
-
-		metricFamilies, err := ms.GetRegistry().Gather()
-		require.NoError(t, err)
-
-		found := false
-		balanceCount := 0
-		signerCount := 0
-
-		for _, mf := range metricFamilies {
-			if mf.GetName() == "state_change_created_total" {
-				found = true
-				for _, metric := range mf.GetMetric() {
-					labels := make(map[string]string)
-					for _, label := range metric.GetLabel() {
-						labels[label.GetName()] = label.GetValue()
-					}
-
-					switch labels["category"] {
-					case "BALANCE":
-						balanceCount = int(metric.GetCounter().GetValue())
-					case "SIGNER":
-						signerCount = int(metric.GetCounter().GetValue())
-					}
-				}
-			}
-		}
-
-		assert.True(t, found, "state_change_created_total metric not found")
-		assert.Equal(t, 2, balanceCount, "Expected 2 BALANCE state changes")
-		assert.Equal(t, 1, signerCount, "Expected 1 SIGNER state change")
-	})
-
 	t.Run("State change processing duration", func(t *testing.T) {
 		processor := "TokenTransferProcessor"
 
@@ -657,85 +619,98 @@ func TestStateChangeMetrics(t *testing.T) {
 		assert.InDelta(t, 0.15, tokenProcessorSum, 0.001, "Expected sum of 0.15 seconds")
 	})
 
-	t.Run("State change persistence metrics", func(t *testing.T) {
-		ms.IncStateChangesPersisted(50)
-		ms.IncStateChangesPersistedByCategory("BALANCE", 30)
-		ms.IncStateChangesPersistedByCategory("SIGNER", 20)
+	t.Run("State changes with type and category labels", func(t *testing.T) {
+		ms.IncStateChanges("DEBIT", "BALANCE", 30)
+		ms.IncStateChanges("CREDIT", "BALANCE", 25)
+		ms.IncStateChanges("ADD", "SIGNER", 10)
+		ms.IncStateChanges("", "ACCOUNT", 5) // Empty type for state changes without reason
 
 		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
 
-		foundCount := false
-		foundByCategory := false
+		found := false
+		typeCategoryValues := make(map[string]map[string]float64)
 
 		for _, mf := range metricFamilies {
-			switch mf.GetName() {
-			case "state_changes_persisted_total":
-				foundCount = true
-				metric := mf.GetMetric()[0]
-				assert.Equal(t, float64(50), metric.GetCounter().GetValue())
-
-			case "state_changes_persisted_by_category_total":
-				foundByCategory = true
-				// Should have 2 metrics (BALANCE and SIGNER)
-				assert.Equal(t, 2, len(mf.GetMetric()))
-
-				// Check each metric has correct category label and value
+			if mf.GetName() == "state_changes_total" {
+				found = true
 				for _, metric := range mf.GetMetric() {
 					labels := make(map[string]string)
 					for _, label := range metric.GetLabel() {
 						labels[label.GetName()] = label.GetValue()
 					}
 
+					scType := labels["type"]
 					category := labels["category"]
-					if category == "BALANCE" {
-						assert.Equal(t, float64(30), metric.GetCounter().GetValue())
-					} else if category == "SIGNER" {
-						assert.Equal(t, float64(20), metric.GetCounter().GetValue())
-					} else {
-						t.Errorf("Unexpected category: %s", category)
+
+					if typeCategoryValues[scType] == nil {
+						typeCategoryValues[scType] = make(map[string]float64)
 					}
+					typeCategoryValues[scType][category] = metric.GetCounter().GetValue()
 				}
 			}
 		}
 
-		assert.True(t, foundCount, "state_changes_persisted_total metric not found")
-		assert.True(t, foundByCategory, "state_changes_persisted_by_category_total metric not found")
+		assert.True(t, found, "state_changes_total metric not found")
+		assert.Equal(t, float64(30), typeCategoryValues["DEBIT"]["BALANCE"], "Expected 30 DEBIT/BALANCE state changes")
+		assert.Equal(t, float64(25), typeCategoryValues["CREDIT"]["BALANCE"], "Expected 25 CREDIT/BALANCE state changes")
+		assert.Equal(t, float64(10), typeCategoryValues["ADD"]["SIGNER"], "Expected 10 ADD/SIGNER state changes")
+		assert.Equal(t, float64(5), typeCategoryValues[""]["ACCOUNT"], "Expected 5 state changes with empty type")
 	})
 
-	t.Run("All state change categories tracked independently", func(t *testing.T) {
+	t.Run("All state change types and categories tracked independently", func(t *testing.T) {
 		msNew := NewMetricsService(db)
-		categories := []string{"BALANCE", "ACCOUNT", "SIGNER", "SIGNATURE_THRESHOLD", "METADATA"}
 
-		for _, category := range categories {
-			msNew.IncStateChangeCreated(category)
+		testCases := []struct {
+			scType   string
+			category string
+			count    int
+		}{
+			{"DEBIT", "BALANCE", 10},
+			{"CREDIT", "BALANCE", 15},
+			{"CREATE", "ACCOUNT", 5},
+			{"ADD", "SIGNER", 8},
+			{"UPDATE", "METADATA", 3},
+		}
+
+		for _, tc := range testCases {
+			msNew.IncStateChanges(tc.scType, tc.category, tc.count)
 		}
 
 		metricFamilies, err := msNew.GetRegistry().Gather()
 		require.NoError(t, err)
 
-		categoriesFound := make(map[string]bool)
+		typeCategoryFound := make(map[string]map[string]bool)
 
 		for _, mf := range metricFamilies {
-			if mf.GetName() == "state_change_created_total" {
+			if mf.GetName() == "state_changes_total" {
 				for _, metric := range mf.GetMetric() {
 					labels := make(map[string]string)
 					for _, label := range metric.GetLabel() {
 						labels[label.GetName()] = label.GetValue()
 					}
+
+					scType := labels["type"]
 					category := labels["category"]
-					for _, c := range categories {
-						if category == c {
-							categoriesFound[c] = true
-							assert.Equal(t, float64(1), metric.GetCounter().GetValue())
+
+					if typeCategoryFound[scType] == nil {
+						typeCategoryFound[scType] = make(map[string]bool)
+					}
+					typeCategoryFound[scType][category] = true
+
+					// Verify the count is correct
+					for _, tc := range testCases {
+						if tc.scType == scType && tc.category == category {
+							assert.Equal(t, float64(tc.count), metric.GetCounter().GetValue())
 						}
 					}
 				}
 			}
 		}
 
-		for _, category := range categories {
-			assert.True(t, categoriesFound[category], "Category "+category+" not tracked")
+		for _, tc := range testCases {
+			assert.True(t, typeCategoryFound[tc.scType][tc.category],
+				"Type/Category combination not tracked: "+tc.scType+"/"+tc.category)
 		}
 	})
 }
