@@ -11,6 +11,7 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/ingest/sac"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
@@ -27,6 +28,7 @@ const (
 	// Redis key prefixes for account token storage
 	trustlinesKeyPrefix = "trustlines:"
 	contractsKeyPrefix  = "contracts:"
+	contractTypePrefix  = "contract_type:"
 
 	// workerPoolSize is the number of concurrent workers for Redis operations.
 	workerPoolSize = 100
@@ -43,17 +45,21 @@ type AccountTokenService interface {
 	Add(ctx context.Context, accountAddress string, assets []string) error
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
+	GetContractType(ctx context.Context, contractID string) (types.TokenType, error)
+	GetAccountContractsByType(ctx context.Context, accountAddress string, tokenType types.TokenType) ([]string, error)
 	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 var _ AccountTokenService = (*accountTokenService)(nil)
 
 type accountTokenService struct {
-	checkpointLedger uint32
-	archive          historyarchive.ArchiveInterface
-	redisStore       *store.RedisStore
-	trustlinesPrefix string
-	contractsPrefix  string
+	checkpointLedger   uint32
+	archive            historyarchive.ArchiveInterface
+	redisStore         *store.RedisStore
+	networkPassphrase  string
+	trustlinesPrefix   string
+	contractsPrefix    string
+	contractTypePrefix string
 }
 
 func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisStore) (AccountTokenService, error) {
@@ -67,11 +73,13 @@ func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisSto
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 	return &accountTokenService{
-		checkpointLedger: 0,
-		archive:          archive,
-		redisStore:       redisStore,
-		trustlinesPrefix: trustlinesKeyPrefix,
-		contractsPrefix:  contractsKeyPrefix,
+		checkpointLedger:   0,
+		archive:            archive,
+		redisStore:         redisStore,
+		networkPassphrase:  networkPassphrase,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
 	}, nil
 }
 
@@ -109,6 +117,40 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 	return contracts, nil
 }
 
+// GetContractType retrieves the token type (SAC or CUSTOM) for a given contract ID from Redis.
+func (s *accountTokenService) GetContractType(ctx context.Context, contractID string) (types.TokenType, error) {
+	key := s.contractTypePrefix + contractID
+	tokenType, err := s.redisStore.Get(ctx, key)
+	if err != nil {
+		return types.TokenTypeCustom, fmt.Errorf("getting contract type for %s: %w", contractID, err)
+	}
+	if tokenType == "" {
+		return types.TokenTypeCustom, nil
+	}
+	return types.TokenType(tokenType), nil
+}
+
+// GetAccountContractsByType retrieves contract IDs filtered by token type for an account from Redis.
+func (s *accountTokenService) GetAccountContractsByType(ctx context.Context, accountAddress string, tokenType types.TokenType) ([]string, error) {
+	allContracts, err := s.GetAccountContracts(ctx, accountAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]string, 0, len(allContracts))
+	for _, contractID := range allContracts {
+		cType, err := s.GetContractType(ctx, contractID)
+		if err != nil {
+			log.Warnf("Error getting contract type for %s: %v", contractID, err)
+			continue
+		}
+		if cType == tokenType {
+			filtered = append(filtered, contractID)
+		}
+	}
+	return filtered, nil
+}
+
 func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
 }
@@ -142,8 +184,10 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 
 	// trustlines is a map of G-... account address to a list of asset codes
 	trustlines := make(map[string][]string)
-	// contracts is a map of both G-... and C-... contract addresses to a list of contract IDs
+	// contracts is a map of both G-... and C-... contract addresses to a list of contract info
 	contracts := make(map[string][]string)
+	// contractTypes tracks the token type for each unique contract ID
+	contractTypes := make(map[string]types.TokenType)
 	entries := 0
 	startTime := time.Now()
 	for {
@@ -184,15 +228,27 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 				continue
 			}
 
-			// Extract the SAC contract ID from the contract data entry
+			// Extract the contract ID from the contract data entry
 			contractAddress, err := extractContractID(contractDataEntry)
 			if err != nil {
 				continue
 			}
 
+			// Determine token type using SAC verification
+			ledgerEntry := change.Post
+			var tokenType types.TokenType
+			_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
+			if isSAC {
+				tokenType = types.TokenTypeSAC // Verified SAC
+			} else {
+				tokenType = types.TokenTypeCustom // Custom token
+			}
+
 			entries++
-			// Store contracts: map holder address to the contract address
+			// Store contract info: map holder address to contract address and type
 			contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
+			// Track unique contract types
+			contractTypes[contractAddress] = tokenType
 		default:
 			continue
 		}
@@ -210,22 +266,34 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	startTime = time.Now()
 	for accountAddress, assets := range trustlines {
 		accAddr := accountAddress
-		accAssets := assets
+		accTrustlines := assets
 		group.Submit(func() {
-			if err := s.Add(ctx, s.trustlinesPrefix+accAddr, accAssets); err != nil {
+			if err := s.Add(ctx, s.trustlinesPrefix+accAddr, accTrustlines); err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("storing trustlines for account %s: %w", accAddr, err))
 				errMu.Unlock()
 			}
 		})
 	}
-	for accountAddress, contracts := range contracts {
+	for accountAddress, contractAddresses := range contracts {
 		accAddr := accountAddress
-		accContracts := contracts
+		accContracts := contractAddresses
 		group.Submit(func() {
 			if err := s.Add(ctx, s.contractsPrefix+accAddr, accContracts); err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("storing contracts for account %s: %w", accAddr, err))
+				errMu.Unlock()
+			}
+		})
+	}
+	for contractID, tokenType := range contractTypes {
+		cID := contractID
+		tType := tokenType
+		group.Submit(func() {
+			key := s.contractTypePrefix + cID
+			if err := s.redisStore.Set(ctx, key, string(tType)); err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("storing contract type for %s: %w", cID, err))
 				errMu.Unlock()
 			}
 		})
@@ -255,10 +323,10 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	}
 
 	// Convert trustline changes to Redis pipeline operations
-	operations := make([]store.SetPipelineOperation, 0, len(trustlineChanges)+len(contractChanges))
+	operations := make([]store.RedisPipelineOperation, 0, len(trustlineChanges)+len(contractChanges))
 	for _, change := range trustlineChanges {
 		key := s.trustlinesPrefix + change.AccountID
-		var op store.SetOperation
+		var op store.RedisOperation
 
 		switch change.Operation {
 		case types.TrustlineOpAdd:
@@ -269,7 +337,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			return fmt.Errorf("unsupported trustline operation: %s", change.Operation)
 		}
 
-		operations = append(operations, store.SetPipelineOperation{
+		operations = append(operations, store.RedisPipelineOperation{
 			Op:      op,
 			Key:     key,
 			Members: []string{change.Asset},
@@ -279,15 +347,24 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 	// Convert contract changes to Redis pipeline operations
 	for _, change := range contractChanges {
 		// For contract changes, we always add the contract IDs and not remove them.
-		operations = append(operations, store.SetPipelineOperation{
+		operations = append(operations, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
 			Key:     s.contractsPrefix + change.AccountID,
 			Members: []string{change.ContractID},
 		})
 	}
 
+	// Store contract type metadata
+	for _, change := range contractChanges {
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      store.OpSet,
+			Key:     s.contractTypePrefix + change.ContractID,
+			Value:   string(change.TokenType),
+		})
+	}
+
 	// Execute all operations in a single pipeline
-	if err := s.redisStore.ExecuteSetPipeline(ctx, operations); err != nil {
+	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
 		return fmt.Errorf("executing trustline changes pipeline: %w", err)
 	}
 

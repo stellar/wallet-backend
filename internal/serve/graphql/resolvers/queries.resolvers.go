@@ -278,44 +278,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			// Handle contract balance
 			contractDataEntry := ledgerEntryData.MustContractData()
 
-			// Extract balance value - can be either i128 or BalanceValue map
-			var balanceStr string
-			switch contractDataEntry.Val.Type {
-			case xdr.ScValTypeScvI128:
-				// Simple i128 balance
-				i128Parts := contractDataEntry.Val.MustI128()
-				balanceStr = amount.String128(i128Parts)
-			case xdr.ScValTypeScvMap:
-				// BalanceValue struct: {amount: i128, authorized: bool, clawback: bool}
-				balanceMap := contractDataEntry.Val.MustMap()
-				if balanceMap == nil {
-					return nil, fmt.Errorf("balance map is nil")
-				}
-
-				// Find the "amount" field in the map
-				var amountFound bool
-				for _, entry := range *balanceMap {
-					if entry.Key.Type == xdr.ScValTypeScvSymbol {
-						keySymbol := entry.Key.MustSym()
-						if string(keySymbol) == "amount" {
-							if entry.Val.Type != xdr.ScValTypeScvI128 {
-								return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
-							}
-							i128Parts := entry.Val.MustI128()
-							balanceStr = amount.String128(i128Parts)
-							amountFound = true
-							break
-						}
-					}
-				}
-
-				if !amountFound {
-					return nil, fmt.Errorf("amount field not found in balance map")
-				}
-			default:
-				return nil, fmt.Errorf("contract data value has unexpected type: %v", contractDataEntry.Val.Type)
-			}
-
 			// Extract contract ID (token ID)
 			if contractDataEntry.Contract.ContractId == nil {
 				return nil, fmt.Errorf("contract ID is nil")
@@ -327,10 +289,115 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				return nil, fmt.Errorf("encoding contract ID: %w", err)
 			}
 
-			balances = append(balances, &graphql1.ContractBalance{
-				TokenID: tokenID,
-				Balance: balanceStr,
-			})
+			// Get contract type to determine if this is SAC or custom
+			tokenType, err := r.accountTokenService.GetContractType(ctx, tokenID)
+			if err != nil {
+				return nil, fmt.Errorf("getting contract type: %w", err)
+			}
+
+			// Extract balance fields based on token type
+			if tokenType == types.TokenTypeSAC {
+				// SAC balance with authorization fields
+				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
+					return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
+				}
+
+				balanceMap := contractDataEntry.Val.MustMap()
+				if balanceMap == nil {
+					return nil, fmt.Errorf("balance map is nil")
+				}
+
+				// Extract amount, authorized, and clawback from map
+				var balanceStr string
+				var isAuthorized, isClawbackEnabled bool
+				var amountFound, authorizedFound, clawbackFound bool
+
+				for _, entry := range *balanceMap {
+					if entry.Key.Type == xdr.ScValTypeScvSymbol {
+						keySymbol := string(entry.Key.MustSym())
+						switch keySymbol {
+						case "amount":
+							if entry.Val.Type != xdr.ScValTypeScvI128 {
+								return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+							}
+							i128Parts := entry.Val.MustI128()
+							balanceStr = amount.String128(i128Parts)
+							amountFound = true
+						case "authorized":
+							if entry.Val.Type != xdr.ScValTypeScvBool {
+								return nil, fmt.Errorf("authorized field is not bool, got: %v", entry.Val.Type)
+							}
+							isAuthorized = bool(entry.Val.MustB())
+							authorizedFound = true
+						case "clawback":
+							if entry.Val.Type != xdr.ScValTypeScvBool {
+								return nil, fmt.Errorf("clawback field is not bool, got: %v", entry.Val.Type)
+							}
+							isClawbackEnabled = bool(entry.Val.MustB())
+							clawbackFound = true
+						}
+					}
+				}
+
+				if !amountFound {
+					return nil, fmt.Errorf("amount field not found in SAC balance map")
+				}
+				if !authorizedFound {
+					return nil, fmt.Errorf("authorized field not found in SAC balance map")
+				}
+				if !clawbackFound {
+					return nil, fmt.Errorf("clawback field not found in SAC balance map")
+				}
+
+				balances = append(balances, &graphql1.SACBalance{
+					TokenID:           tokenID,
+					Balance:           balanceStr,
+					IsAuthorized:      isAuthorized,
+					IsClawbackEnabled: isClawbackEnabled,
+				})
+			} else {
+				// Custom token balance (may be i128 or map without authorization fields)
+				var balanceStr string
+				switch contractDataEntry.Val.Type {
+				case xdr.ScValTypeScvI128:
+					// Simple i128 balance
+					i128Parts := contractDataEntry.Val.MustI128()
+					balanceStr = amount.String128(i128Parts)
+				case xdr.ScValTypeScvMap:
+					// Extract amount from map (custom tokens may use map structure)
+					balanceMap := contractDataEntry.Val.MustMap()
+					if balanceMap == nil {
+						return nil, fmt.Errorf("balance map is nil")
+					}
+
+					var amountFound bool
+					for _, entry := range *balanceMap {
+						if entry.Key.Type == xdr.ScValTypeScvSymbol {
+							keySymbol := entry.Key.MustSym()
+							if string(keySymbol) == "amount" {
+								if entry.Val.Type != xdr.ScValTypeScvI128 {
+									return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
+								}
+								i128Parts := entry.Val.MustI128()
+								balanceStr = amount.String128(i128Parts)
+								amountFound = true
+								break
+							}
+						}
+					}
+
+					if !amountFound {
+						return nil, fmt.Errorf("amount field not found in custom balance map")
+					}
+				default:
+					return nil, fmt.Errorf("contract data value has unexpected type: %v", contractDataEntry.Val.Type)
+				}
+
+				balances = append(balances, &graphql1.CustomBalance{
+					TokenID: tokenID,
+					Balance: balanceStr,
+				})
+			}
 		}
 	}
 	return balances, nil

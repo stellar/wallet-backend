@@ -116,9 +116,9 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
-// WithIsSAC sets whether the token is a Stellar Asset Contract (SAC)
-func (b *StateChangeBuilder) WithIsSAC(isSAC bool) *StateChangeBuilder {
-	b.base.IsSAC = isSAC
+// WithTokenType sets the token type (SAC or CUSTOM)
+func (b *StateChangeBuilder) WithTokenType(tokenType types.TokenType) *StateChangeBuilder {
+	b.base.TokenType = tokenType
 	return b
 }
 

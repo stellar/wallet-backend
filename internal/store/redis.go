@@ -3,6 +3,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
@@ -75,25 +76,47 @@ func (r *RedisStore) Exists(ctx context.Context, keys ...string) (int64, error) 
 	return count, nil
 }
 
+// Get retrieves the value of a key.
+func (r *RedisStore) Get(ctx context.Context, key string) (string, error) {
+	val, err := r.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil // Key doesn't exist
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting key %s: %w", key, err)
+	}
+	return val, nil
+}
+
+// Set stores a string value at a key.
+func (r *RedisStore) Set(ctx context.Context, key, value string) error {
+	if err := r.client.Set(ctx, key, value, 0).Err(); err != nil {
+		return fmt.Errorf("setting key %s: %w", key, err)
+	}
+	return nil
+}
+
 // SetOperation represents a single Redis set operation type.
-type SetOperation string
+type RedisOperation string
 
 const (
-	SetOpAdd    SetOperation = "SADD"
-	SetOpRemove SetOperation = "SREM"
+	SetOpAdd    RedisOperation = "SADD"
+	SetOpRemove RedisOperation = "SREM"
+	OpSet       RedisOperation = "SET"
 )
 
 // SetPipelineOperation represents a single set operation to be executed in a pipeline.
-type SetPipelineOperation struct {
-	Op      SetOperation
+type RedisPipelineOperation struct {
+	Op      RedisOperation
 	Key     string
 	Members []string
+	Value   string
 }
 
-// ExecuteSetPipeline executes multiple set operations (SADD/SREM) in a single pipeline.
+// ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
 // This reduces network round trips and improves performance when processing many operations.
 // Returns an error if any operation in the pipeline fails.
-func (r *RedisStore) ExecuteSetPipeline(ctx context.Context, operations []SetPipelineOperation) error {
+func (r *RedisStore) ExecutePipeline(ctx context.Context, operations []RedisPipelineOperation) error {
 	if len(operations) == 0 {
 		return nil
 	}
@@ -105,6 +128,8 @@ func (r *RedisStore) ExecuteSetPipeline(ctx context.Context, operations []SetPip
 			pipe.SAdd(ctx, op.Key, op.Members)
 		case SetOpRemove:
 			pipe.SRem(ctx, op.Key, op.Members)
+		case OpSet:
+			pipe.Set(ctx, op.Key, op.Value, 0)
 		default:
 			return fmt.Errorf("unsupported set operation: %s", op.Op)
 		}

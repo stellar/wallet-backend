@@ -20,12 +20,12 @@ import (
 
 var ErrOperationNotFound = errors.New("operation not found")
 
-// isSACToken checks if a token is a Stellar Asset Contract (SAC) by comparing the contract address
-// with the deterministically derived SAC contract ID from the asset.
-// Returns false if the asset is nil, native, or if the contract address doesn't match the SAC contract ID.
-func (p *TokenTransferProcessor) isSACToken(asset *asset.Asset, contractAddress string) bool {
+// getTokenType determines if a token is a Stellar Asset Contract (SAC) or a custom token
+// by comparing the contract address with the deterministically derived SAC contract ID from the asset.
+// Returns TokenTypeSAC if verified SAC, TokenTypeCustom otherwise.
+func (p *TokenTransferProcessor) getTokenType(asset *asset.Asset, contractAddress string) types.TokenType {
 	if asset == nil || asset.GetNative() {
-		return false
+		return types.TokenTypeCustom
 	}
 
 	// Convert to XDR asset
@@ -34,14 +34,17 @@ func (p *TokenTransferProcessor) isSACToken(asset *asset.Asset, contractAddress 
 	// Compute the SAC contract ID for this asset
 	sacContractID, err := xdrAsset.ContractID(p.networkPassphrase)
 	if err != nil {
-		return false
+		return types.TokenTypeCustom
 	}
 
 	// Encode as Stellar contract address (C...)
 	sacContractIDStr := strkey.MustEncode(strkey.VersionByteContract, sacContractID[:])
 
 	// Compare with the actual contract address
-	return sacContractIDStr == contractAddress
+	if sacContractIDStr == contractAddress {
+		return types.TokenTypeSAC
+	}
+	return types.TokenTypeCustom
 }
 
 // TokenTransferProcessor processes Stellar transactions and extracts token transfer events.
@@ -152,12 +155,12 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 	firstEvent := feeEvents[0]
 	assetContractID := firstEvent.GetMeta().GetContractAddress()
 	asset := firstEvent.GetFee().GetAsset()
-	isSAC := p.isSACToken(asset, assetContractID)
+	tokenType := p.getTokenType(asset, assetContractID)
 
 	builder = builder.
 		WithAccount(firstEvent.GetFee().GetFrom()).
 		WithToken(assetContractID).
-		WithIsSAC(isSAC)
+		WithTokenType(tokenType)
 
 	// Calculate net fee by summing all fee events
 	var netFee int64
@@ -193,8 +196,8 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 		WithAmount(amount)
 
 	if contractAddress != "" {
-		isSAC := p.isSACToken(asset, contractAddress)
-		b = b.WithToken(contractAddress).WithIsSAC(isSAC)
+		tokenType := p.getTokenType(asset, contractAddress)
+		b = b.WithToken(contractAddress).WithTokenType(tokenType)
 	}
 
 	return b.Build()
@@ -203,10 +206,10 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 // createDebitCreditPair creates a pair of debit and credit state changes for normal transfers.
 // Used for regular payments between two accounts (e.g., Alice sends 100 USDC to Bob).
 func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, contractAddress string, asset *asset.Asset, builder *StateChangeBuilder) []types.StateChange {
-	isSAC := p.isSACToken(asset, contractAddress)
+	tokenType := p.getTokenType(asset, contractAddress)
 	change := builder.
 		WithToken(contractAddress).
-		WithIsSAC(isSAC).
+		WithTokenType(tokenType).
 		WithAmount(amount)
 
 	debitChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonDebit).WithAccount(from).Build()

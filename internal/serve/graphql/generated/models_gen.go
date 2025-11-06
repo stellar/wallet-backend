@@ -48,15 +48,6 @@ type BuildTransactionPayload struct {
 	TransactionXdr string `json:"transactionXdr"`
 }
 
-type ContractBalance struct {
-	Balance string `json:"balance"`
-	TokenID string `json:"tokenId"`
-}
-
-func (ContractBalance) IsBalance()              {}
-func (this ContractBalance) GetBalance() string { return this.Balance }
-func (this ContractBalance) GetTokenID() string { return this.TokenID }
-
 type CreateFeeBumpTransactionInput struct {
 	TransactionXdr string `json:"transactionXDR"`
 }
@@ -66,6 +57,15 @@ type CreateFeeBumpTransactionPayload struct {
 	Transaction       string `json:"transaction"`
 	NetworkPassphrase string `json:"networkPassphrase"`
 }
+
+type CustomBalance struct {
+	Balance string `json:"balance"`
+	TokenID string `json:"tokenId"`
+}
+
+func (CustomBalance) IsBalance()              {}
+func (this CustomBalance) GetBalance() string { return this.Balance }
+func (this CustomBalance) GetTokenID() string { return this.TokenID }
 
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
@@ -116,6 +116,17 @@ type RegisterAccountPayload struct {
 	Success bool           `json:"success"`
 	Account *types.Account `json:"account,omitempty"`
 }
+
+type SACBalance struct {
+	Balance           string `json:"balance"`
+	TokenID           string `json:"tokenId"`
+	IsAuthorized      bool   `json:"isAuthorized"`
+	IsClawbackEnabled bool   `json:"isClawbackEnabled"`
+}
+
+func (SACBalance) IsBalance()              {}
+func (this SACBalance) GetBalance() string { return this.Balance }
+func (this SACBalance) GetTokenID() string { return this.TokenID }
 
 type SimulationResultInput struct {
 	TransactionData *string  `json:"transactionData,omitempty"`

@@ -23,7 +23,14 @@ type TrustlineBalance implements Balance {
     isAuthorizedToMaintainLiabilities: Boolean!
 }
 
-type ContractBalance implements Balance {
+type SACBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    isAuthorized: Boolean!
+    isClawbackEnabled: Boolean!
+}
+
+type CustomBalance implements Balance {
     balance: String!
     tokenId: String!
 }

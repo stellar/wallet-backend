@@ -175,14 +175,15 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 					// - Account is C-address, OR
 					// - Account is G-address AND token is NOT SAC (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
 					accountIsContract := isContractAddress(stateChange.AccountID)
-					tokenIsNotSAC := !stateChange.IsSAC
+					tokenIsSAC := stateChange.TokenType == types.TokenTypeSAC
 
-					if accountIsContract || tokenIsNotSAC {
+					if accountIsContract || !tokenIsSAC {
 						contractChange := types.ContractChange{
 							AccountID:    stateChange.AccountID,
 							OperationID:  stateChange.OperationID,
 							ContractID:   stateChange.TokenID.String,
 							LedgerNumber: tx.Ledger.LedgerSequence(),
+							TokenType:    stateChange.TokenType,
 						}
 						contractChanges = append(contractChanges, contractChange)
 					}
