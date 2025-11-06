@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/stellar/go/ingest"
 	effects "github.com/stellar/go/processors/effects"
@@ -63,13 +64,15 @@ var (
 type EffectsProcessor struct {
 	networkPassphrase   string
 	ledgerEntryProvider LedgerEntryProvider // Provider for ledger entry data to avoid import cycles
+	metricsService      MetricsServiceInterface
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
-func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEntryProvider) *EffectsProcessor {
+func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEntryProvider, metricsService MetricsServiceInterface) *EffectsProcessor {
 	return &EffectsProcessor{
 		networkPassphrase:   networkPassphrase,
 		ledgerEntryProvider: ledgerEntryProvider,
+		metricsService:      metricsService,
 	}
 }
 
@@ -82,6 +85,14 @@ func (p *EffectsProcessor) Name() string {
 // home domain updates, data entry changes, and sponsorship relationship modifications.
 // Returns a slice of state changes representing various account state changes.
 func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("EffectsProcessor", duration)
+		}
+	}()
+
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
 	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
 	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
@@ -100,7 +111,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operat
 	}
 
 	var stateChanges []types.StateChange
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID).WithOperationID(opWrapper.ID())
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
 		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)

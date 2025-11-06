@@ -36,6 +36,9 @@ type MetricsService interface {
 	ObserveDBTransactionDuration(status string, duration float64)
 	ObserveDBBatchSize(operation, table string, size int)
 	IncSignatureVerificationExpired(expiredSeconds float64)
+	// State Change Metrics
+	ObserveStateChangeProcessingDuration(processor string, duration float64)
+	IncStateChanges(stateChangeType, category string, count int)
 	// Ingestion Phase Metrics
 	ObserveIngestionPhaseDuration(phase string, duration float64)
 	IncIngestionLedgersProcessed(count int)
@@ -89,6 +92,10 @@ type metricsService struct {
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
+
+	// State Change Metrics
+	stateChangeProcessingDuration *prometheus.SummaryVec
+	stateChangesTotal             *prometheus.CounterVec
 
 	// Ingestion Phase Metrics
 	ingestionPhaseDuration     *prometheus.SummaryVec
@@ -276,6 +283,23 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		[]string{"expired_seconds"},
 	)
 
+	// State Change Metrics
+	m.stateChangeProcessingDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "state_change_processing_duration_seconds",
+			Help:       "Duration of state change processing by processor type",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"processor"},
+	)
+	m.stateChangesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "state_changes_total",
+			Help: "Total number of state changes persisted to database by type and category",
+		},
+		[]string{"type", "category"},
+	)
+
 	// Ingestion Phase Metrics
 	m.ingestionPhaseDuration = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
@@ -379,6 +403,8 @@ func (m *metricsService) registerMetrics() {
 		m.dbTxnDuration,
 		m.dbBatchSize,
 		m.signatureVerificationExpired,
+		m.stateChangeProcessingDuration,
+		m.stateChangesTotal,
 		m.ingestionPhaseDuration,
 		m.ingestionLedgersProcessed,
 		m.ingestionTransactionsTotal,
@@ -575,6 +601,15 @@ func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
 // Signature Verification Metrics
 func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
+}
+
+// State Change Metrics
+func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
+	m.stateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
+}
+
+func (m *metricsService) IncStateChanges(stateChangeType, category string, count int) {
+	m.stateChangesTotal.WithLabelValues(stateChangeType, category).Add(float64(count))
 }
 
 // Ingestion Phase Metrics

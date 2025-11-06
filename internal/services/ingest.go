@@ -116,7 +116,7 @@ func NewIngestService(
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0)),
+		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0), metricsService),
 		pool:              pond.NewPool(0),
 	}, nil
 }
@@ -570,6 +570,28 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
+
+			// Count state changes by type and category
+			typeCategoryCount := make(map[string]map[string]int)
+			for _, sc := range stateChanges {
+				category := string(sc.StateChangeCategory)
+				scType := ""
+				if sc.StateChangeReason != nil {
+					scType = string(*sc.StateChangeReason)
+				}
+
+				if typeCategoryCount[scType] == nil {
+					typeCategoryCount[scType] = make(map[string]int)
+				}
+				typeCategoryCount[scType][category]++
+			}
+
+			for scType, categories := range typeCategoryCount {
+				for category, count := range categories {
+					m.metricsService.IncStateChanges(scType, category, count)
+				}
+			}
+
 			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 

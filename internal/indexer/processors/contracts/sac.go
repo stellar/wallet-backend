@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
@@ -34,11 +35,13 @@ const (
 
 type SACEventsProcessor struct {
 	networkPassphrase string
+	metricsService    processors.MetricsServiceInterface
 }
 
-func NewSACEventsProcessor(networkPassphrase string) *SACEventsProcessor {
+func NewSACEventsProcessor(networkPassphrase string, metricsService processors.MetricsServiceInterface) *SACEventsProcessor {
 	return &SACEventsProcessor{
 		networkPassphrase: networkPassphrase,
+		metricsService:    metricsService,
 	}
 }
 
@@ -48,6 +51,14 @@ func (p *SACEventsProcessor) Name() string {
 
 // ProcessOperation processes contract events and converts them into state changes.
 func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("SACEventsProcessor", duration)
+		}
+	}()
+
 	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, processors.ErrInvalidOpType
 	}
@@ -70,7 +81,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *oper
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService).WithOperationID(opWrapper.ID())
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
