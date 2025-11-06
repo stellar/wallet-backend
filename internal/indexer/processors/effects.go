@@ -66,14 +66,12 @@ var (
 // It focuses on account state changes like signers, thresholds, flags, and sponsorship relationships.
 type EffectsProcessor struct {
 	networkPassphrase   string
-	ledgerEntryProvider LedgerEntryProvider // Provider for ledger entry data to avoid import cycles
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
 func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEntryProvider) *EffectsProcessor {
 	return &EffectsProcessor{
 		networkPassphrase:   networkPassphrase,
-		ledgerEntryProvider: ledgerEntryProvider,
 	}
 }
 
