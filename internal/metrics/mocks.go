@@ -113,6 +113,32 @@ func (m *MockMetricsService) IncSignatureVerificationExpired(expiredSeconds floa
 	m.Called(expiredSeconds)
 }
 
+// Ingestion Phase Metrics
+func (m *MockMetricsService) ObserveIngestionPhaseDuration(phase string, duration float64) {
+	m.Called(phase, duration)
+}
+
+func (m *MockMetricsService) IncIngestionLedgersProcessed(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) IncIngestionTransactionsProcessed(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) IncIngestionOperationsProcessed(count int) {
+	m.Called(count)
+}
+
+func (m *MockMetricsService) ObserveIngestionBatchSize(size int) {
+	m.Called(size)
+}
+
+func (m *MockMetricsService) ObserveIngestionParticipantsCount(count int) {
+	m.Called(count)
+}
+
+// GraphQL Metrics
 func (m *MockMetricsService) ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64) {
 	m.Called(operationName, fieldName, duration)
 }
