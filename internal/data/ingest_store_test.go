@@ -51,8 +51,8 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "SELECT", "ingest_store", mock.Anything).Return().
-				On("IncDBQuery", "SELECT", "ingest_store").Return()
+				On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.Anything).Return().
+				On("IncDBQuery", "GetLatestLedgerSynced", "ingest_store").Return()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &IngestStoreModel{
@@ -108,8 +108,8 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 
 			mockMetricsService := metrics.NewMockMetricsService()
 			mockMetricsService.
-				On("ObserveDBQueryDuration", "INSERT", "ingest_store", mock.Anything).Return().Once().
-				On("IncDBQuery", "INSERT", "ingest_store").Return().Once()
+				On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.Anything).Return().Once().
+				On("IncDBQuery", "UpdateLatestLedgerSynced", "ingest_store").Return().Once()
 			defer mockMetricsService.AssertExpectations(t)
 
 			m := &IngestStoreModel{

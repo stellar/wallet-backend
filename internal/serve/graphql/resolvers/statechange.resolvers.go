@@ -36,14 +36,9 @@ func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.Acco
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
-// TokenID is the resolver for the tokenId field.
-func (r *accountChangeResolver) TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TokenID), nil
-}
-
-// Amount is the resolver for the amount field.
-func (r *accountChangeResolver) Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
+// FunderAddress is the resolver for the funderAddress field.
+func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.FunderAccountID), nil
 }
 
 // Type is the resolver for the type field.
@@ -69,6 +64,11 @@ func (r *balanceAuthorizationChangeResolver) Operation(ctx context.Context, obj 
 // Transaction is the resolver for the transaction field.
 func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.TokenID), nil
 }
 
 // Flags is the resolver for the flags field.
@@ -174,6 +174,11 @@ func (r *reservesChangeResolver) SponsoredAddress(ctx context.Context, obj *type
 // SponsorAddress is the resolver for the sponsorAddress field.
 func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.SponsorAccountID), nil
+}
+
+// KeyValue is the resolver for the keyValue field.
+func (r *reservesChangeResolver) KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.KeyValue)
 }
 
 // Type is the resolver for the type field.
@@ -301,9 +306,19 @@ func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.Tr
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.StateChangeOrder)
 }
 
+// TokenID is the resolver for the tokenId field.
+func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.TokenID), nil
+}
+
 // Limit is the resolver for the limit field.
-func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error) {
-	return r.resolveRequiredJSONBField(obj.TrustlineLimit)
+func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.TrustlineLimit)
+}
+
+// KeyValue is the resolver for the keyValue field.
+func (r *trustlineChangeResolver) KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+	return r.resolveJSONBField(obj.KeyValue)
 }
 
 // AccountChange returns graphql1.AccountChangeResolver implementation.

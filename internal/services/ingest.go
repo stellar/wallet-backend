@@ -123,7 +123,7 @@ func NewIngestService(
 		trustlinesService:    trustlinesService,
 		networkPassphrase:    rpcService.NetworkPassphrase(),
 		getLedgersLimit:      getLedgersLimit,
-		ledgerIndexer:        indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0)),
+		ledgerIndexer:        indexer.NewIndexer(rpcService.NetworkPassphrase(), pond.NewPool(0), metricsService),
 		pool:                 pond.NewPool(0),
 	}, nil
 }
@@ -282,7 +282,10 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
 		}
-		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
+		fetchDuration := time.Since(startTime).Seconds()
+		m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
+		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
+		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(getLedgersResponse.Ledgers), fetchDuration)
 
 		// process ledgers
 		totalIngestionStart := time.Now()
@@ -311,6 +314,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
+		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
 
 		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
 			select {
@@ -369,7 +373,7 @@ type ledgerData struct {
 // collectLedgerTransactionData collects all transaction data and participants from all ledgers in parallel.
 // This is Phase 1 of ledger processing.
 func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLedgersResponse GetLedgersResponse) ([]ledgerData, error) {
-	startTime := time.Now()
+	phaseStart := time.Now()
 
 	ledgerDataList := make([]ledgerData, len(getLedgersResponse.Ledgers))
 	group := m.pool.NewGroupContext(ctx)
@@ -418,7 +422,9 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("collecting ledger data: %w", errors.Join(errs...))
 	}
-	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(getLedgersResponse.Ledgers), time.Since(startTime).Seconds())
+	phaseDuration := time.Since(phaseStart).Seconds()
+	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", phaseDuration)
+	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(getLedgersResponse.Ledgers), phaseDuration)
 
 	return ledgerDataList, nil
 }
@@ -426,7 +432,7 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 // fetchExistingAccountsForParticipants fetches all existing accounts for participants across all ledgers.
 // This is Phase 2 of ledger processing and makes a single DB call to get all existing accounts.
 func (m *ingestService) fetchExistingAccountsForParticipants(ctx context.Context, ledgerDataList []ledgerData) (set.Set[string], error) {
-	startTime := time.Now()
+	phaseStart := time.Now()
 
 	// Collect all unique participants across all ledgers
 	allParticipants := set.NewSet[string]()
@@ -445,7 +451,10 @@ func (m *ingestService) fetchExistingAccountsForParticipants(ctx context.Context
 		existingAccountsSet = set.NewSet(existingAccounts...)
 	}
 
-	log.Ctx(ctx).Infof("🚧 Done fetching %d existing accounts from %d unique participants in %vs", len(existingAccounts), allParticipants.Cardinality(), time.Since(startTime).Seconds())
+	phaseDuration := time.Since(phaseStart).Seconds()
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", phaseDuration)
+	m.metricsService.ObserveIngestionParticipantsCount(allParticipants.Cardinality())
+	log.Ctx(ctx).Infof("🚧 Done fetching %d existing accounts from %d unique participants in %vs", len(existingAccounts), allParticipants.Cardinality(), phaseDuration)
 
 	return existingAccountsSet, nil
 }
@@ -453,7 +462,7 @@ func (m *ingestService) fetchExistingAccountsForParticipants(ctx context.Context
 // processAndBufferTransactions processes transactions and populates per-ledger buffers in parallel.
 // This is Phase 3 of ledger processing. Each ledger gets its own buffer to avoid lock contention.
 func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledgerDataList []ledgerData, existingAccountsSet set.Set[string]) ([]*indexer.IndexerBuffer, error) {
-	startTime := time.Now()
+	phaseStart := time.Now()
 
 	ledgerBuffers := make([]*indexer.IndexerBuffer, len(ledgerDataList))
 	group := m.pool.NewGroupContext(ctx)
@@ -483,22 +492,26 @@ func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledger
 		return nil, fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
 	}
 
-	log.Ctx(ctx).Infof("🚧 Done processing %d ledgers in %vs", len(ledgerDataList), time.Since(startTime).Seconds())
+	phaseDuration := time.Since(phaseStart).Seconds()
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", phaseDuration)
+	log.Ctx(ctx).Infof("🚧 Done processing %d ledgers in %vs", len(ledgerDataList), phaseDuration)
 
 	return ledgerBuffers, nil
 }
 
 // mergeLedgerBuffers merges all per-ledger buffers into a single buffer for batch DB insertion.
 // This is Phase 4 of ledger processing.
-func mergeLedgerBuffers(ctx context.Context, ledgerBuffers []*indexer.IndexerBuffer) *indexer.IndexerBuffer {
-	startTime := time.Now()
+func (m *ingestService) mergeLedgerBuffers(ctx context.Context, ledgerBuffers []*indexer.IndexerBuffer) *indexer.IndexerBuffer {
+	phaseStart := time.Now()
 
 	mergedBuffer := indexer.NewIndexerBuffer()
 	for _, buffer := range ledgerBuffers {
 		mergedBuffer.MergeBuffer(buffer)
 	}
 
-	log.Ctx(ctx).Infof("🚧 Done merging %d ledger buffers in %vs", len(ledgerBuffers), time.Since(startTime).Seconds())
+	phaseDuration := time.Since(phaseStart).Seconds()
+	m.metricsService.ObserveIngestionPhaseDuration("merge_buffers", phaseDuration)
+	log.Ctx(ctx).Infof("🚧 Done merging %d ledger buffers in %vs", len(ledgerBuffers), phaseDuration)
 
 	return mergedBuffer
 }
@@ -523,20 +536,25 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	}
 
 	// Phase 4: Merge all per-ledger buffers into a single buffer
-	mergedBuffer := mergeLedgerBuffers(ctx, ledgerBuffers)
+	mergedBuffer := m.mergeLedgerBuffers(ctx, ledgerBuffers)
 
 	// Phase 5: Insert all data into DB
-	totalIngestionStart := time.Now()
+	dbInsertStart := time.Now()
 	if err := m.ingestProcessedData(ctx, mergedBuffer); err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
-	log.Ctx(ctx).Infof("🚧 Done ingesting processed data in %vs", time.Since(totalIngestionStart).Seconds())
+	dbInsertDuration := time.Since(dbInsertStart).Seconds()
+	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", dbInsertDuration)
+	log.Ctx(ctx).Infof("🚧 Done ingesting processed data in %vs", dbInsertDuration)
 
 	// Log summary of processing
 	memStats := new(runtime.MemStats)
 	runtime.ReadMemStats(memStats)
 	numberOfTransactions := mergedBuffer.GetNumberOfTransactions()
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, memStats.Alloc/1024/1024)
+	numberOfOperations := mergedBuffer.GetNumberOfOperations()
+	m.metricsService.IncIngestionTransactionsProcessed(numberOfTransactions)
+	m.metricsService.IncIngestionOperationsProcessed(numberOfOperations)
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions, %d operations using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, numberOfOperations, memStats.Alloc/1024/1024)
 
 	return nil
 }
@@ -596,6 +614,28 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
+
+			// Count state changes by type and category
+			typeCategoryCount := make(map[string]map[string]int)
+			for _, sc := range stateChanges {
+				category := string(sc.StateChangeCategory)
+				scType := ""
+				if sc.StateChangeReason != nil {
+					scType = string(*sc.StateChangeReason)
+				}
+
+				if typeCategoryCount[scType] == nil {
+					typeCategoryCount[scType] = make(map[string]int)
+				}
+				typeCategoryCount[scType][category]++
+			}
+
+			for scType, categories := range typeCategoryCount {
+				for category, count := range categories {
+					m.metricsService.IncStateChanges(scType, category, count)
+				}
+			}
+
 			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 

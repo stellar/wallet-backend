@@ -219,13 +219,23 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 	dbColumns := make([]string, 0, len(fields))
 	for _, field := range fields {
 		fieldName := field.Name
-		// In our graphql schema, we have changed the stateChangeCategory and stateChangeReason fields to type and reason respectively.
+		// In our graphql schema, the following fields do not match the Go json tags. For e.g. sponsoredAddress in graphql vs sponsoredAccountId in Go struct.
 		// So in order to have them resolve to the db column, we need to manually change the field name here.
 		switch fieldName {
 		case "type":
 			fieldName = "stateChangeCategory"
 		case "reason":
 			fieldName = "stateChangeReason"
+		case "sponsoredAddress":
+			fieldName = "sponsoredAccountId"
+		case "sponsorAddress":
+			fieldName = "sponsorAccountId"
+		case "signerAddress":
+			fieldName = "signerAccountId"
+		case "funderAddress":
+			fieldName = "funderAccountId"
+		case "limit":
+			fieldName = "trustlineLimit"
 		}
 		if colName, ok := fieldToColumnMap[fieldName]; ok {
 			dbColumns = append(dbColumns, colName)

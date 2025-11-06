@@ -45,12 +45,11 @@ const (
 			address
 		}
 		... on StandardBalanceChange {
-			tokenId
+			standardBalanceTokenId: tokenId
 			amount
 		}
 		... on AccountChange {
-			tokenId
-			amount
+			funderAddress
 		}
 		... on SignerChange {
 			signerAddress
@@ -66,13 +65,17 @@ const (
 			flags
 		}
 		... on TrustlineChange {
+			trustlineTokenId: tokenId
 			limit
+			trustlineKeyValue: keyValue
 		}
 		... on ReservesChange {
 			sponsoredAddress
 			sponsorAddress
+			reservesKeyValue: keyValue
 		}
 		... on BalanceAuthorizationChange {
+			balanceAuthTokenId: tokenId
 			flags
 			balanceAuthKeyValue: keyValue
 		}

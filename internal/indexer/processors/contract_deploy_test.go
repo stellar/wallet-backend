@@ -18,7 +18,7 @@ import (
 
 func Test_ContractDeployProcessor_Process_invalidOpType(t *testing.T) {
 	ctx := context.Background()
-	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 
 	op := &operation_processor.TransactionOperationWrapper{
 		Operation: xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypePayment}},
@@ -37,7 +37,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 
 	ctx := context.Background()
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120, nil).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -136,7 +136,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 		}
 	}
 
-	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			stateChanges, err := proc.ProcessOperation(ctx, tc.op)
@@ -188,7 +188,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		return op
 	}
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 53021371269120, nil).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -257,7 +257,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		}
 	}
 
-	proc := NewContractDeployProcessor(network.TestNetworkPassphrase)
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			stateChanges, err := proc.ProcessOperation(ctx, tc.op)

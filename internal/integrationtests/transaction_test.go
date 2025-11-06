@@ -35,7 +35,7 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TearDownSuite() {
 	}
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions() {
+func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildSignAndSubmitTransactions() {
 	ctx := context.Background()
 
 	// Build transactions in parallel
@@ -62,14 +62,13 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions()
 
 			log.Ctx(ctx).Debugf("✅ [%s] builtTxResponse: %+v", uc.Name(), builtTxResponse)
 
-			txStr, err := txString(uc.BuiltTransactionXDR)
+			_, err = txString(uc.BuiltTransactionXDR)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("failed to build transaction string for %s: %w", uc.Name(), err))
 				mu.Unlock()
 				return
 			}
-			log.Ctx(ctx).Debugf("[%s] builtTransactionXDR: %s", uc.Name(), txStr)
 		})
 	}
 
@@ -77,24 +76,27 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestBuildAndSignTransactions()
 	suite.Require().NoError(err)
 	suite.Require().Empty(errs)
 
-	suite.assertBuildTransactionResult(suite.testEnv.UseCases)
+	suite.assertBuildTransactionResult()
 
 	// Sign transactions in parallel
 	log.Ctx(ctx).Info("===> 2️⃣ [Local] Signing transactions...")
-	err = suite.signTransactions(ctx, suite.testEnv.UseCases)
-	suite.Require().NoError(err, "failed to sign transactions")
+	suite.signTransactions(ctx, suite.testEnv.UseCases)
+
+	// Create fee bump transactions in parallel
+	log.Ctx(ctx).Info("===> 3️⃣ [WalletBackend] Creating fee bump transactions...")
+	suite.createFeeBumpTransactions(ctx, suite.testEnv.UseCases)
+
+	// Submit transactions in parallel
+	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Submitting transactions...")
+	suite.submitTransactions(ctx)
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestCreateFeeBumpTransactions() {
-	ctx := context.Background()
-
-	log.Ctx(ctx).Info("===> 3️⃣ [WalletBackend] Creating fee bump transactions...")
-
+func (suite *BuildAndSubmitTransactionsTestSuite) createFeeBumpTransactions(ctx context.Context, useCases []*infrastructure.UseCase) {
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
 
-	for _, useCase := range suite.testEnv.UseCases {
+	for _, useCase := range useCases {
 		uc := useCase
 		group.Submit(func() {
 			feeBumpTxResponse, err := suite.testEnv.WBClient.FeeBumpTransaction(ctx, uc.SignedTransactionXDR)
@@ -129,25 +131,13 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestCreateFeeBumpTransactions(
 	suite.Require().Empty(errs)
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactions() {
-	ctx := context.Background()
-
-	// Wait for RPC to be healthy
-	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Waiting for RPC service to become healthy...")
-	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil); err != nil {
-		suite.Require().NoError(err, "RPC service did not become healthy")
-	}
-
-	// Submit transactions sequentially (due to delay requirements)
-	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Submitting transactions...")
-	for _, useCase := range suite.testEnv.UseCases {
+func (suite *BuildAndSubmitTransactionsTestSuite) submitTransactions(ctx context.Context) {
+	submitTransaction := func(useCase *infrastructure.UseCase) {
 		log.Ctx(ctx).Debugf("Submitting transaction for %s: %s", useCase.Name(), useCase.FeeBumpedTransactionXDR)
-
 		if useCase.DelayTime > 0 {
 			log.Ctx(ctx).Infof("⏳ %s delaying for %s", useCase.Name(), useCase.DelayTime)
 			time.Sleep(useCase.DelayTime)
 		}
-
 		res, sendErr := suite.testEnv.RPCService.SendTransaction(useCase.FeeBumpedTransactionXDR)
 		suite.Require().NoError(sendErr, "failed to send transaction for %s", useCase.Name())
 		useCase.SendTransactionResult = res
@@ -155,12 +145,24 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactio
 		suite.Require().Equal(entities.PendingStatus, res.Status, "%s's transaction with hash %s failed with status %s, errorResultXdr=%+v", useCase.Name(), res.Hash, res.Status, res.ErrorResultXDR)
 	}
 
-	// Wait for confirmations in parallel
-	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Waiting for transaction confirmation...")
+	// PHASE A: Wait for RPC health
+	log.Ctx(ctx).Info("===> 4️⃣ [RPC] Waiting for RPC service to become healthy...")
+	if err := infrastructure.WaitForRPCHealthAndRun(ctx, suite.testEnv.RPCService, 40*time.Second, nil); err != nil {
+		suite.Require().NoError(err, "RPC service did not become healthy")
+	}
 
+	// PHASE B: Submit all regular transactions (INCLUDING createClaimableBalanceOps)
+	log.Ctx(ctx).Info("===> 5️⃣ [RPC] Submitting transactions...")
+	for _, useCase := range suite.testEnv.UseCases {
+		submitTransaction(useCase)
+	}
+
+	// PHASE C: Wait for all transactions to confirm
+	log.Ctx(ctx).Info("===> 6️⃣ [RPC] Waiting for transaction confirmation...")
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
+	var failedUseCases []*entities.RPCGetTransactionResult
 
 	for _, useCase := range suite.testEnv.UseCases {
 		uc := useCase
@@ -180,18 +182,98 @@ func (suite *BuildAndSubmitTransactionsTestSuite) TestSubmitAndConfirmTransactio
 			log.Ctx(ctx).Info(infrastructure.RenderResult(uc))
 
 			// Assert transaction succeeded
-			suite.Require().Equal(entities.SuccessStatus, uc.GetTransactionResult.Status,
-				"transaction for %s failed with status %s", uc.Name(), uc.GetTransactionResult.Status)
+			if txResult.Status == entities.FailedStatus {
+				mu.Lock()
+				failedUseCases = append(failedUseCases, &txResult)
+				mu.Unlock()
+			}
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		suite.Require().NoError(err)
-	}
+	err := group.Wait()
+	suite.Require().NoError(err)
 	suite.Require().Empty(errs)
+	suite.Require().Empty(failedUseCases)
+
+	// PHASE D: Extract balance IDs from createClaimableBalanceOps result
+	log.Ctx(ctx).Info("===> 7️⃣ [Processing] Extracting claimable balance IDs from confirmed transaction...")
+	createCBUseCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Stellarclassic/createClaimableBalanceOps")
+	suite.Require().NotNil(createCBUseCase, "createClaimableBalanceOps use case not found")
+
+	balanceIDs, err := infrastructure.ExtractClaimableBalanceIDsFromMeta(createCBUseCase.GetTransactionResult.ResultMetaXDR)
+	suite.Require().NoError(err, "failed to extract claimable balance IDs")
+	suite.Require().Len(balanceIDs, 2, "expected 2 claimable balance IDs")
+	suite.testEnv.ClaimBalanceID = balanceIDs[0]
+	suite.testEnv.ClawbackBalanceID = balanceIDs[1]
+
+	log.Ctx(ctx).Infof("✅ Extracted balance IDs: [0]=%s, [1]=%s", balanceIDs[0], balanceIDs[1])
+
+	// PHASE E: Create claim/clawback use cases with real balance IDs
+	log.Ctx(ctx).Info("===> 8️⃣ [WalletBackend] Creating claim, clawback, and clear auth flags use cases with real balance IDs...")
+	fixtures := &infrastructure.Fixtures{
+		NetworkPassphrase:     suite.testEnv.NetworkPassphrase,
+		PrimaryAccountKP:      suite.testEnv.PrimaryAccountKP,
+		SecondaryAccountKP:    suite.testEnv.SecondaryAccountKP,
+		SponsoredNewAccountKP: suite.testEnv.SponsoredNewAccountKP,
+		RPCService:            suite.testEnv.RPCService,
+	}
+	claimAndClawbackUseCases, err := fixtures.PrepareClaimAndClawbackUseCases(
+		balanceIDs[0], // first balance to claim
+		balanceIDs[1], // second balance to clawback
+	)
+	suite.Require().NoError(err, "failed to prepare claim, clawback, and clear auth flags use cases")
+	suite.Require().Len(claimAndClawbackUseCases, 3)
+	suite.testEnv.ClaimAndClawbackUseCases = claimAndClawbackUseCases
+
+	// PHASE F: Build transactions for claim/clawback
+	log.Ctx(ctx).Info("===> 9️⃣ [WalletBackend] Building claim, clawback, and clear auth flags transactions...")
+	group = suite.pool.NewGroupContext(ctx)
+	errs = []error{}
+	for _, useCase := range claimAndClawbackUseCases {
+		uc := useCase
+		group.Submit(func() {
+			builtTxResponse, err := suite.testEnv.WBClient.BuildTransaction(ctx, uc.RequestedTransaction)
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("failed to build transaction for %s: %w", uc.Name(), err))
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			uc.BuiltTransactionXDR = builtTxResponse.TransactionXDR
+			mu.Unlock()
+		})
+	}
+	err = group.Wait()
+	suite.Require().NoError(err)
+	suite.Require().Empty(errs)
+
+	// PHASE G: Sign transactions (reuse existing function)
+	log.Ctx(ctx).Info("===> 🔟 [Local] Signing claim, clawback, and clear auth flags transactions...")
+	suite.signTransactions(ctx, claimAndClawbackUseCases)
+
+	// PHASE H: Create fee bump transactions (reuse existing function)
+	log.Ctx(ctx).Info("===> 1️⃣1️⃣ [WalletBackend] Creating fee bump for claim, clawback, and clear auth flags transactions...")
+	suite.createFeeBumpTransactions(ctx, claimAndClawbackUseCases)
+
+	// PHASE I: Submit claim/clawback transactions
+	log.Ctx(ctx).Info("===> 1️⃣2️⃣ [RPC] Submitting claim, clawback, and clear auth flags transactions...")
+	for _, uc := range claimAndClawbackUseCases {
+		submitTransaction(uc)
+	}
+
+	// PHASE J: Wait for claim/clawback confirmations
+	log.Ctx(ctx).Info("===> 1️⃣3️⃣ [RPC] Waiting for claim, clawback, and clear auth flags transaction confirmation...")
+	for _, uc := range claimAndClawbackUseCases {
+		txResult, confirmErr := infrastructure.WaitForTransactionConfirmation(ctx, suite.testEnv.RPCService, uc.SendTransactionResult.Hash)
+		suite.Require().NoError(confirmErr, "failed to wait for transaction confirmation for %s", uc.Name())
+		uc.GetTransactionResult = txResult
+		log.Ctx(ctx).Info(infrastructure.RenderResult(uc))
+		suite.Require().Equal(entities.SuccessStatus, txResult.Status, "transaction for %s failed", uc.Name())
+	}
 }
 
-func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context, useCases []*infrastructure.UseCase) error {
+func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.Context, useCases []*infrastructure.UseCase) {
 	group := suite.pool.NewGroupContext(ctx)
 	var mu sync.Mutex
 	var errs []error
@@ -238,22 +320,16 @@ func (suite *BuildAndSubmitTransactionsTestSuite) signTransactions(ctx context.C
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		return err
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("signing transactions: %w", errs[0])
-	}
-
-	return nil
+	err := group.Wait()
+	suite.Require().NoError(err)
+	suite.Require().Empty(errs)
 }
 
 // assertBuildTransactionResult asserts that the build transaction result is correct.
-func (suite *BuildAndSubmitTransactionsTestSuite) assertBuildTransactionResult(useCases []*infrastructure.UseCase) {
+func (suite *BuildAndSubmitTransactionsTestSuite) assertBuildTransactionResult() {
 	// Note: We can't easily access the channel account store from here in the containerized environment,
 	// so we'll just verify that the transactions were built successfully
-	for _, useCase := range useCases {
+	for _, useCase := range suite.testEnv.UseCases {
 		// Parse the transaction from the XDR
 		builtTx, err := parseTxXDR(useCase.BuiltTransactionXDR)
 		suite.Require().NoError(err, "[%s] failed to parse transaction from XDR %s", useCase.Name(), useCase.BuiltTransactionXDR)

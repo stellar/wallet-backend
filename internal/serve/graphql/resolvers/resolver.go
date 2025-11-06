@@ -20,6 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
@@ -43,14 +44,14 @@ type Resolver struct {
 	feeBumpService    services.FeeBumpService
 	rpcService        services.RPCService
 	trustlinesService services.TrustlinesService
+	// metricsService provides metrics collection capabilities
+	metricsService metrics.MetricsService
 }
 
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService,
-	feeBumpService services.FeeBumpService, rpcService services.RPCService, trustlinesService services.TrustlinesService,
-) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, trustlinesService services.TrustlinesService, metricsService metrics.MetricsService) *Resolver {
 	return &Resolver{
 		models:             models,
 		accountService:     accountService,
@@ -58,6 +59,7 @@ func NewResolver(models *data.Models, accountService services.AccountService, tr
 		feeBumpService:     feeBumpService,
 		rpcService:         rpcService,
 		trustlinesService:  trustlinesService,
+		metricsService:     metricsService,
 	}
 }
 

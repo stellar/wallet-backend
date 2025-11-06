@@ -58,7 +58,7 @@ services:
 
   stellar-rpc-mainnet:
     container_name: stellar-rpc-mainnet
-    image: stellar/stellar-rpc:23.0.1
+    image: stellar/stellar-rpc:stable
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s
@@ -75,7 +75,7 @@ services:
 
   stellar-rpc-testnet:
     container_name: stellar-rpc-testnet
-    image: stellar/stellar-rpc:23.0.1
+    image: stellar/stellar-rpc:stable
     healthcheck:
       test: "curl --location 'http://localhost:8000/' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":8675309,\"method\":\"getHealth\"}' | grep -q '\"status\":\"healthy\"'"
       interval: 10s

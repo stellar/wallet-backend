@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/stellar/go/asset"
 	"github.com/stellar/go/ingest"
@@ -48,13 +49,15 @@ func (p *TokenTransferProcessor) isSACToken(asset *asset.Asset, contractAddress 
 type TokenTransferProcessor struct {
 	eventsProcessor   *ttp.EventsProcessor
 	networkPassphrase string
+	metricsService  MetricsServiceInterface
 }
 
 // NewTokenTransferProcessor creates a new token transfer processor for the specified Stellar network.
-func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor {
+func NewTokenTransferProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *TokenTransferProcessor {
 	return &TokenTransferProcessor{
 		eventsProcessor:   ttp.NewEventsProcessor(networkPassphrase),
 		networkPassphrase: networkPassphrase,
+		metricsService:  metricsService,
 	}
 }
 
@@ -62,6 +65,14 @@ func NewTokenTransferProcessor(networkPassphrase string) *TokenTransferProcessor
 // It handles fee events (transaction costs/refunds) and operation events (payments, mints, burns, etc.).
 // Returns a slice of state changes representing debits, credits, mints, and burns.
 func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("TokenTransferProcessor", duration)
+		}
+	}()
+
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
 	txHash := tx.Result.TransactionHash.HexString()
@@ -74,7 +85,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
-	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID)
+	builder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txHash, txID, p.metricsService)
 
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)
@@ -238,9 +249,9 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		switch *operationType {
 		case xdr.OperationTypeCreateAccount:
 			funder := transfer.GetFrom()
-			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), transfer.GetAmount(), "", nil, builder.Clone().WithFunder(funder)))
+			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), "", "", nil, builder.Clone().WithFunder(funder)))
 		case xdr.OperationTypeAccountMerge:
-			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonMerge, transfer.GetTo(), transfer.GetAmount(), "", nil, builder.Clone()))
+			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonMerge, transfer.GetTo(), "", "", nil, builder.Clone()))
 		}
 
 		// Normal transfer between two accounts

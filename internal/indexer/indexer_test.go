@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -131,22 +130,11 @@ var (
 	}
 )
 
-// MockLedgerEntryProvider is a mock for LedgerEntryProvider
-type MockLedgerEntryProvider struct {
-	mock.Mock
-}
-
-func (m *MockLedgerEntryProvider) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
-	args := m.Called(keys)
-	return args.Get(0).(entities.RPCGetLedgerEntriesResult), args.Error(1)
-}
-
 func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
-	mockLedgerEntryProvider := &MockLedgerEntryProvider{}
 	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, mockLedgerEntryProvider, pool)
+	indexer := NewIndexer(networkPassphrase, pool, nil)
 
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)

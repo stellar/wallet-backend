@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 type StateChangeModel struct {
@@ -102,11 +103,12 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByAccountAddress", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByAccountAddress", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by account address: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByAccountAddress", "state_changes")
 	return stateChanges, nil
 }
 
@@ -150,11 +152,12 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("GetAll", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("GetAll", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting all state changes: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("GetAll", "state_changes")
 	return stateChanges, nil
 }
 
@@ -188,6 +191,7 @@ func (m *StateChangeModel) BatchInsert(
 	funderAccountIDs := make([]*string, len(stateChanges))
 	signerWeights := make([]*types.NullableJSONB, len(stateChanges))
 	thresholds := make([]*types.NullableJSONB, len(stateChanges))
+	trustlineLimits := make([]*types.NullableJSONB, len(stateChanges))
 	flags := make([]*types.NullableJSON, len(stateChanges))
 	keyValues := make([]*types.NullableJSONB, len(stateChanges))
 
@@ -239,6 +243,9 @@ func (m *StateChangeModel) BatchInsert(
 		if sc.Thresholds != nil {
 			thresholds[i] = &sc.Thresholds
 		}
+		if sc.TrustlineLimit != nil {
+			trustlineLimits[i] = &sc.TrustlineLimit
+		}
 		if sc.Flags != nil {
 			flags[i] = &sc.Flags
 		}
@@ -271,8 +278,9 @@ func (m *StateChangeModel) BatchInsert(
 				UNNEST($18::text[]) AS funder_account_id,
 				UNNEST($19::jsonb[]) AS signer_weights,
 				UNNEST($20::jsonb[]) AS thresholds,
-				UNNEST($21::jsonb[]) AS flags,
-				UNNEST($22::jsonb[]) AS key_value
+				UNNEST($21::jsonb[]) AS trustline_limit,
+				UNNEST($22::jsonb[]) AS flags,
+				UNNEST($23::jsonb[]) AS key_value
 		),
 		inserted_state_changes AS (
 			INSERT INTO state_changes
@@ -280,13 +288,13 @@ func (m *StateChangeModel) BatchInsert(
 				ledger_number, account_id, operation_id, tx_hash, token_id, amount,
 				offer_id, signer_account_id,
 				spender_account_id, sponsored_account_id, sponsor_account_id,
-				deployer_account_id, funder_account_id, signer_weights, thresholds, flags, key_value)
+				deployer_account_id, funder_account_id, signer_weights, thresholds, trustline_limit, flags, key_value)
 			SELECT
 				sc.state_change_order, sc.to_id, sc.state_change_category, sc.state_change_reason, sc.ledger_created_at,
 				sc.ledger_number, sc.account_id, sc.operation_id, sc.tx_hash, sc.token_id, sc.amount,
 				sc.offer_id, sc.signer_account_id,
 				sc.spender_account_id, sc.sponsored_account_id, sc.sponsor_account_id,
-				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.flags, sc.key_value
+				sc.deployer_account_id, sc.funder_account_id, sc.signer_weights, sc.thresholds, sc.trustline_limit, sc.flags, sc.key_value
 			FROM input_data sc
 			ON CONFLICT (to_id, state_change_order) DO NOTHING
 			RETURNING to_id, state_change_order
@@ -317,15 +325,18 @@ func (m *StateChangeModel) BatchInsert(
 		pq.Array(funderAccountIDs),
 		pq.Array(signerWeights),
 		pq.Array(thresholds),
+		pq.Array(trustlineLimits),
 		pq.Array(flags),
 		pq.Array(keyValues),
 	)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("INSERT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchInsert", "state_changes", len(stateChanges))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsert", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("batch inserting state changes: %w", err)
 	}
-	m.MetricsService.IncDBQuery("INSERT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchInsert", "state_changes")
 
 	return insertedIDs, nil
 }
@@ -376,11 +387,12 @@ func (m *StateChangeModel) BatchGetByTxHash(ctx context.Context, txHash string, 
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHash", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByTxHash", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by tx hash: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByTxHash", "state_changes")
 	return stateChanges, nil
 }
 
@@ -423,11 +435,13 @@ func (m *StateChangeModel) BatchGetByTxHashes(ctx context.Context, txHashes []st
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(txHashes))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByTxHashes", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByTxHashes", "state_changes", len(txHashes))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByTxHashes", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by transaction hashes: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByTxHashes", "state_changes")
 	return stateChanges, nil
 }
 
@@ -477,11 +491,12 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, args...)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationID", "state_changes", duration)
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByOperationID", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting paginated state changes by operation ID: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByOperationID", "state_changes")
 	return stateChanges, nil
 }
 
@@ -522,10 +537,12 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	start := time.Now()
 	err := m.DB.SelectContext(ctx, &stateChanges, query, pq.Array(operationIDs))
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("SELECT", "state_changes", duration)
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByOperationIDs", "state_changes", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchGetByOperationIDs", "state_changes", len(operationIDs))
 	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByOperationIDs", "state_changes", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
 	}
-	m.MetricsService.IncDBQuery("SELECT", "state_changes")
+	m.MetricsService.IncDBQuery("BatchGetByOperationIDs", "state_changes")
 	return stateChanges, nil
 }
