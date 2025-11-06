@@ -231,7 +231,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.MetricsService)
 
 			config := generated.Config{
 				Resolvers: resolver,
@@ -254,8 +254,12 @@ func handler(deps handlerDeps) http.Handler {
 			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
-			reporter := middleware.NewComplexityLogger()
+			reporter := middleware.NewComplexityLogger(deps.MetricsService)
 			srv.Use(complexityreporter.NewExtension(reporter))
+
+			// Add field-level metrics tracking
+			fieldMetrics := middleware.NewGraphQLFieldMetrics(deps.MetricsService)
+			srv.AroundFields(fieldMetrics.Middleware)
 
 			r.Handle("/query", srv)
 		})
