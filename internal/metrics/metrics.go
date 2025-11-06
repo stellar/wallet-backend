@@ -36,6 +36,16 @@ type MetricsService interface {
 	ObserveDBTransactionDuration(status string, duration float64)
 	ObserveDBBatchSize(operation, table string, size int)
 	IncSignatureVerificationExpired(expiredSeconds float64)
+	// State Change Metrics
+	ObserveStateChangeProcessingDuration(processor string, duration float64)
+	IncStateChanges(stateChangeType, category string, count int)
+	// Ingestion Phase Metrics
+	ObserveIngestionPhaseDuration(phase string, duration float64)
+	IncIngestionLedgersProcessed(count int)
+	IncIngestionTransactionsProcessed(count int)
+	IncIngestionOperationsProcessed(count int)
+	ObserveIngestionBatchSize(size int)
+	ObserveIngestionParticipantsCount(count int)
 	// GraphQL Metrics
 	ObserveGraphQLFieldDuration(operationName, fieldName string, duration float64)
 	IncGraphQLField(operationName, fieldName string, success bool)
@@ -82,6 +92,18 @@ type metricsService struct {
 
 	// Signature Verification Metrics
 	signatureVerificationExpired *prometheus.CounterVec
+
+	// State Change Metrics
+	stateChangeProcessingDuration *prometheus.SummaryVec
+	stateChangesTotal             *prometheus.CounterVec
+
+	// Ingestion Phase Metrics
+	ingestionPhaseDuration     *prometheus.SummaryVec
+	ingestionLedgersProcessed  prometheus.Counter
+	ingestionTransactionsTotal prometheus.Counter
+	ingestionOperationsTotal   prometheus.Counter
+	ingestionBatchSize         prometheus.Histogram
+	ingestionParticipantsCount prometheus.Histogram
 
 	// GraphQL Metrics
 	graphqlFieldDuration *prometheus.SummaryVec
@@ -261,6 +283,65 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		[]string{"expired_seconds"},
 	)
 
+	// State Change Metrics
+	m.stateChangeProcessingDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "state_change_processing_duration_seconds",
+			Help:       "Duration of state change processing by processor type",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"processor"},
+	)
+	m.stateChangesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "state_changes_total",
+			Help: "Total number of state changes persisted to database by type and category",
+		},
+		[]string{"type", "category"},
+	)
+
+	// Ingestion Phase Metrics
+	m.ingestionPhaseDuration = prometheus.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name:       "ingestion_phase_duration_seconds",
+			Help:       "Duration of each ingestion phase",
+			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		},
+		[]string{"phase"},
+	)
+	m.ingestionLedgersProcessed = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingestion_ledgers_processed_total",
+			Help: "Total number of ledgers processed during ingestion",
+		},
+	)
+	m.ingestionTransactionsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingestion_transactions_processed_total",
+			Help: "Total number of transactions processed during ingestion",
+		},
+	)
+	m.ingestionOperationsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ingestion_operations_processed_total",
+			Help: "Total number of operations processed during ingestion",
+		},
+	)
+	m.ingestionBatchSize = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_batch_size",
+			Help:    "Number of ledgers processed per ingestion batch",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 8), // 1, 2, 4, 8, 16, 32, 64, 128
+		},
+	)
+	m.ingestionParticipantsCount = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_participants_count",
+			Help:    "Number of unique participants per ingestion batch",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+		},
+	)
+
 	// GraphQL Metrics
 	m.graphqlFieldDuration = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
@@ -322,6 +403,14 @@ func (m *metricsService) registerMetrics() {
 		m.dbTxnDuration,
 		m.dbBatchSize,
 		m.signatureVerificationExpired,
+		m.stateChangeProcessingDuration,
+		m.stateChangesTotal,
+		m.ingestionPhaseDuration,
+		m.ingestionLedgersProcessed,
+		m.ingestionTransactionsTotal,
+		m.ingestionOperationsTotal,
+		m.ingestionBatchSize,
+		m.ingestionParticipantsCount,
 		m.graphqlFieldDuration,
 		m.graphqlFieldsTotal,
 		m.graphqlComplexity,
@@ -512,6 +601,40 @@ func (m *metricsService) ObserveDBBatchSize(operation, table string, size int) {
 // Signature Verification Metrics
 func (m *metricsService) IncSignatureVerificationExpired(expiredSeconds float64) {
 	m.signatureVerificationExpired.WithLabelValues(fmt.Sprintf("%fs", expiredSeconds)).Inc()
+}
+
+// State Change Metrics
+func (m *metricsService) ObserveStateChangeProcessingDuration(processor string, duration float64) {
+	m.stateChangeProcessingDuration.WithLabelValues(processor).Observe(duration)
+}
+
+func (m *metricsService) IncStateChanges(stateChangeType, category string, count int) {
+	m.stateChangesTotal.WithLabelValues(stateChangeType, category).Add(float64(count))
+}
+
+// Ingestion Phase Metrics
+func (m *metricsService) ObserveIngestionPhaseDuration(phase string, duration float64) {
+	m.ingestionPhaseDuration.WithLabelValues(phase).Observe(duration)
+}
+
+func (m *metricsService) IncIngestionLedgersProcessed(count int) {
+	m.ingestionLedgersProcessed.Add(float64(count))
+}
+
+func (m *metricsService) IncIngestionTransactionsProcessed(count int) {
+	m.ingestionTransactionsTotal.Add(float64(count))
+}
+
+func (m *metricsService) IncIngestionOperationsProcessed(count int) {
+	m.ingestionOperationsTotal.Add(float64(count))
+}
+
+func (m *metricsService) ObserveIngestionBatchSize(size int) {
+	m.ingestionBatchSize.Observe(float64(size))
+}
+
+func (m *metricsService) ObserveIngestionParticipantsCount(count int) {
+	m.ingestionParticipantsCount.Observe(float64(count))
 }
 
 // GraphQL Metrics

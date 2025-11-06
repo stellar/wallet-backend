@@ -461,6 +461,153 @@ func TestDBBatchSizeMetrics(t *testing.T) {
 	})
 }
 
+func TestIngestionPhaseMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("ingestion phase duration metrics", func(t *testing.T) {
+		// Record durations for different phases
+		ms.ObserveIngestionPhaseDuration("fetch_ledgers", 0.5)
+		ms.ObserveIngestionPhaseDuration("collect_transaction_data", 1.2)
+		ms.ObserveIngestionPhaseDuration("fetch_existing_accounts", 0.3)
+		ms.ObserveIngestionPhaseDuration("process_and_buffer", 2.1)
+		ms.ObserveIngestionPhaseDuration("merge_buffers", 0.1)
+		ms.ObserveIngestionPhaseDuration("db_insertion", 1.5)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_phase_duration_seconds" {
+				found = true
+				// Should have 6 metrics (one for each phase)
+				assert.Equal(t, 6, len(mf.GetMetric()))
+
+				// Verify each phase is recorded
+				phaseLabels := make(map[string]bool)
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+					phaseLabels[labels["phase"]] = true
+					assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+				}
+
+				assert.True(t, phaseLabels["fetch_ledgers"])
+				assert.True(t, phaseLabels["collect_transaction_data"])
+				assert.True(t, phaseLabels["fetch_existing_accounts"])
+				assert.True(t, phaseLabels["process_and_buffer"])
+				assert.True(t, phaseLabels["merge_buffers"])
+				assert.True(t, phaseLabels["db_insertion"])
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("ingestion ledgers processed counter", func(t *testing.T) {
+		ms.IncIngestionLedgersProcessed(10)
+		ms.IncIngestionLedgersProcessed(5)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_ledgers_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(15), metric.GetCounter().GetValue())
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("ingestion transactions processed counter", func(t *testing.T) {
+		ms.IncIngestionTransactionsProcessed(100)
+		ms.IncIngestionTransactionsProcessed(50)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_transactions_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(150), metric.GetCounter().GetValue())
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("ingestion operations processed counter", func(t *testing.T) {
+		ms.IncIngestionOperationsProcessed(200)
+		ms.IncIngestionOperationsProcessed(75)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_operations_processed_total" {
+				found = true
+				metric := mf.GetMetric()[0]
+				assert.Equal(t, float64(275), metric.GetCounter().GetValue())
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("ingestion batch size histogram", func(t *testing.T) {
+		// Record various batch sizes
+		ms.ObserveIngestionBatchSize(1)
+		ms.ObserveIngestionBatchSize(10)
+		ms.ObserveIngestionBatchSize(50)
+		ms.ObserveIngestionBatchSize(25)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_batch_size" {
+				found = true
+				metric := mf.GetMetric()[0]
+				histogram := metric.GetHistogram()
+				assert.Equal(t, uint64(4), histogram.GetSampleCount())
+				assert.Equal(t, float64(86), histogram.GetSampleSum()) // 1 + 10 + 50 + 25 = 86
+			}
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("ingestion participants count histogram", func(t *testing.T) {
+		// Record various participant counts
+		ms.ObserveIngestionParticipantsCount(5)
+		ms.ObserveIngestionParticipantsCount(100)
+		ms.ObserveIngestionParticipantsCount(500)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "ingestion_participants_count" {
+				found = true
+				metric := mf.GetMetric()[0]
+				histogram := metric.GetHistogram()
+				assert.Equal(t, uint64(3), histogram.GetSampleCount())
+				assert.Equal(t, float64(605), histogram.GetSampleSum()) // 5 + 100 + 500 = 605
+			}
+		}
+		assert.True(t, found)
+	})
+}
+
 func TestPoolMetrics(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
@@ -755,6 +902,144 @@ func TestRPCMethodMetrics(t *testing.T) {
 
 		for _, method := range methods {
 			assert.True(t, methodsFound[method], "Method "+method+" not tracked")
+		}
+	})
+}
+
+func TestStateChangeMetrics(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ms := NewMetricsService(db)
+
+	t.Run("State change processing duration", func(t *testing.T) {
+		processor := "TokenTransferProcessor"
+
+		ms.ObserveStateChangeProcessingDuration(processor, 0.05)
+		ms.ObserveStateChangeProcessingDuration(processor, 0.10)
+		ms.ObserveStateChangeProcessingDuration("EffectsProcessor", 0.03)
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		tokenProcessorCount := uint64(0)
+		tokenProcessorSum := 0.0
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_change_processing_duration_seconds" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					if labels["processor"] == processor {
+						tokenProcessorCount = metric.GetSummary().GetSampleCount()
+						tokenProcessorSum = metric.GetSummary().GetSampleSum()
+					}
+				}
+			}
+		}
+
+		assert.True(t, found, "state_change_processing_duration_seconds metric not found")
+		assert.Equal(t, uint64(2), tokenProcessorCount, "Expected 2 samples for TokenTransferProcessor")
+		assert.InDelta(t, 0.15, tokenProcessorSum, 0.001, "Expected sum of 0.15 seconds")
+	})
+
+	t.Run("State changes with type and category labels", func(t *testing.T) {
+		ms.IncStateChanges("DEBIT", "BALANCE", 30)
+		ms.IncStateChanges("CREDIT", "BALANCE", 25)
+		ms.IncStateChanges("ADD", "SIGNER", 10)
+		ms.IncStateChanges("", "ACCOUNT", 5) // Empty type for state changes without reason
+
+		metricFamilies, err := ms.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		found := false
+		typeCategoryValues := make(map[string]map[string]float64)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_changes_total" {
+				found = true
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					scType := labels["type"]
+					category := labels["category"]
+
+					if typeCategoryValues[scType] == nil {
+						typeCategoryValues[scType] = make(map[string]float64)
+					}
+					typeCategoryValues[scType][category] = metric.GetCounter().GetValue()
+				}
+			}
+		}
+
+		assert.True(t, found, "state_changes_total metric not found")
+		assert.Equal(t, float64(30), typeCategoryValues["DEBIT"]["BALANCE"], "Expected 30 DEBIT/BALANCE state changes")
+		assert.Equal(t, float64(25), typeCategoryValues["CREDIT"]["BALANCE"], "Expected 25 CREDIT/BALANCE state changes")
+		assert.Equal(t, float64(10), typeCategoryValues["ADD"]["SIGNER"], "Expected 10 ADD/SIGNER state changes")
+		assert.Equal(t, float64(5), typeCategoryValues[""]["ACCOUNT"], "Expected 5 state changes with empty type")
+	})
+
+	t.Run("All state change types and categories tracked independently", func(t *testing.T) {
+		msNew := NewMetricsService(db)
+
+		testCases := []struct {
+			scType   string
+			category string
+			count    int
+		}{
+			{"DEBIT", "BALANCE", 10},
+			{"CREDIT", "BALANCE", 15},
+			{"CREATE", "ACCOUNT", 5},
+			{"ADD", "SIGNER", 8},
+			{"UPDATE", "METADATA", 3},
+		}
+
+		for _, tc := range testCases {
+			msNew.IncStateChanges(tc.scType, tc.category, tc.count)
+		}
+
+		metricFamilies, err := msNew.GetRegistry().Gather()
+		require.NoError(t, err)
+
+		typeCategoryFound := make(map[string]map[string]bool)
+
+		for _, mf := range metricFamilies {
+			if mf.GetName() == "state_changes_total" {
+				for _, metric := range mf.GetMetric() {
+					labels := make(map[string]string)
+					for _, label := range metric.GetLabel() {
+						labels[label.GetName()] = label.GetValue()
+					}
+
+					scType := labels["type"]
+					category := labels["category"]
+
+					if typeCategoryFound[scType] == nil {
+						typeCategoryFound[scType] = make(map[string]bool)
+					}
+					typeCategoryFound[scType][category] = true
+
+					// Verify the count is correct
+					for _, tc := range testCases {
+						if tc.scType == scType && tc.category == category {
+							assert.Equal(t, float64(tc.count), metric.GetCounter().GetValue())
+						}
+					}
+				}
+			}
+		}
+
+		for _, tc := range testCases {
+			assert.True(t, typeCategoryFound[tc.scType][tc.category],
+				"Type/Category combination not tracked: "+tc.scType+"/"+tc.category)
 		}
 	})
 }

@@ -105,6 +105,15 @@ func (b *IndexerBuffer) GetNumberOfTransactions() int {
 	return len(b.txByHash)
 }
 
+// GetNumberOfOperations returns the count of unique operations in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetNumberOfOperations() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.opByID)
+}
+
 // GetTransactions returns all unique transactions.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetTransactions() []types.Transaction {

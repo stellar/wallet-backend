@@ -3,6 +3,7 @@ package processors
 import (
 	"context"
 	"fmt"
+	"time"
 
 	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/xdr"
@@ -13,10 +14,14 @@ import (
 // ContractDeployProcessor emits state changes for contract deployments.
 type ContractDeployProcessor struct {
 	networkPassphrase string
+	metricsService    MetricsServiceInterface
 }
 
-func NewContractDeployProcessor(networkPassphrase string) *ContractDeployProcessor {
-	return &ContractDeployProcessor{networkPassphrase: networkPassphrase}
+func NewContractDeployProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *ContractDeployProcessor {
+	return &ContractDeployProcessor{
+		networkPassphrase: networkPassphrase,
+		metricsService:    metricsService,
+	}
 }
 
 func (p *ContractDeployProcessor) Name() string {
@@ -25,13 +30,21 @@ func (p *ContractDeployProcessor) Name() string {
 
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
 func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.ObserveStateChangeProcessingDuration("ContractDeployProcessor", duration)
+		}
+	}()
+
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
 	}
 	invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
 
 	opID := op.ID()
-	builder := NewStateChangeBuilder(op.Transaction.Ledger.LedgerSequence(), op.LedgerClosed.Unix(), op.Transaction.Hash.HexString(), op.TransactionID()).
+	builder := NewStateChangeBuilder(op.Transaction.Ledger.LedgerSequence(), op.LedgerClosed.Unix(), op.Transaction.Hash.HexString(), op.TransactionID(), p.metricsService).
 		WithOperationID(opID).
 		WithCategory(types.StateChangeCategoryAccount).
 		WithReason(types.StateChangeReasonCreate)

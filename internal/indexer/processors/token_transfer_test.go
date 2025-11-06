@@ -31,7 +31,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		createAccountResult := &xdr.OperationResult{}
 		tx := createTx(createAccountOp, nil, createAccountResult, true)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 1)
 		assertFeeEvent(t, changes[0], "100")
@@ -48,7 +48,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 				generateAccountEntryUpdatedChange(accountEntry(someTxAccount, 700*oneUnit), 730*oneUnit),
 			}, true)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 1)
 		assertFeeEvent(t, changes[0], "2700000000")
@@ -68,7 +68,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		createAccountResult := &xdr.OperationResult{}
 		tx := createTx(createAccountOp, nil, createAccountResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 4)
 
@@ -101,7 +101,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		}
 		tx := createTx(accountMergeOp, nil, accountMergeResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 4)
 
@@ -132,7 +132,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		}
 		tx := createTx(accountMergeOp, nil, accountMergeResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 1)
 		assertFeeEvent(t, changes[0], "100")
@@ -153,7 +153,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		paymentResult := &xdr.OperationResult{}
 		tx := createTx(paymentOp, nil, paymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 3)
 
@@ -177,7 +177,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		paymentResult := &xdr.OperationResult{}
 		tx := createTx(paymentOp, nil, paymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 3)
 
@@ -201,7 +201,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		mintPaymentResult := &xdr.OperationResult{}
 		tx := createTx(mintPaymentOp, nil, mintPaymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 3)
 
@@ -225,7 +225,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		burnPaymentResult := &xdr.OperationResult{}
 		tx := createTx(burnPaymentOp, nil, burnPaymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		changes := processTransaction(t, processor, tx)
 		requireEventCount(t, changes, 3)
 
@@ -254,7 +254,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(claimOp, changes, claimResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 2)
 
@@ -282,7 +282,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(claimOp, changes, claimResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 2)
 
@@ -336,7 +336,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 			},
 		}
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 
@@ -367,7 +367,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(claimOp, changes, claimResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 2)
 
@@ -412,7 +412,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(createOp, changes, createResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 2)
 
@@ -434,7 +434,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		}
 		tx := createTx(clawbackOperation, nil, clawbackResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 
@@ -463,7 +463,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(clawbackCBOperation, changes, clawbackCBResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 2)
 
@@ -491,7 +491,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(lpDepositOperation, changes, lpDepositResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 
@@ -522,7 +522,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 
@@ -553,7 +553,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(lpWithdrawOperation, changes, lpWithdrawResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 
@@ -594,7 +594,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 7)
 
@@ -640,7 +640,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 7)
 
@@ -686,7 +686,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(pathPaymentOp, nil, pathPaymentResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 11)
 
@@ -751,7 +751,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(manageBuyOp, nil, manageBuyResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 9)
 
@@ -787,7 +787,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 
 		tx := createTx(manageSellOp, nil, manageSellResult, false)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 9)
 
@@ -822,7 +822,7 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		}
 		tx := createInvocationTx(fromContract, toContract, admin, asset, amount, opResult, contractevents.EventTypeTransfer)
 
-		processor := NewTokenTransferProcessor(networkPassphrase)
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 		assertFeeEvent(t, stateChanges[0], "1234")

@@ -15,7 +15,7 @@ import (
 )
 
 func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
-	processor := NewSACEventsProcessor(networkPassphrase)
+	processor := NewSACEventsProcessor(networkPassphrase, nil)
 
 	t.Run("V3 Format - set_authorized = true (was unauthorized)", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
