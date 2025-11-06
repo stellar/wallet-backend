@@ -1,5 +1,3 @@
-// Package services provides business logic for account token management.
-// This file handles Redis-based caching of trustlines and Stellar Asset Contract (SAC) balances.
 package services
 
 import (
@@ -193,7 +191,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 			}
 
 			entries++
-			// Store SAC balance: map holder address to the contract address
+			// Store contracts: map holder address to the contract address
 			contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
 		default:
 			continue
@@ -250,7 +248,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 // during live ingestion. Called by the indexer for each ledger's state changes.
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
-// For SAC balances: only ADD operations are processed (balances are never explicitly removed).
+// For SAC balances: only ADD operations are processed (contract tokens are never explicitly removed).
 func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
