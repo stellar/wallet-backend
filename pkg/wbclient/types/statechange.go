@@ -61,15 +61,14 @@ func (b BaseStateChangeFields) GetAccountID() string {
 // StandardBalanceChange represents a standard balance state change
 type StandardBalanceChange struct {
 	BaseStateChangeFields
-	TokenID string `json:"tokenId"`
+	TokenID string `json:"standardBalanceTokenId"`
 	Amount  string `json:"amount"`
 }
 
 // AccountChange represents an account state change
 type AccountChange struct {
 	BaseStateChangeFields
-	TokenID string `json:"tokenId"`
-	Amount  string `json:"amount"`
+	FunderAddress *string `json:"funderAddress,omitempty"`
 }
 
 // SignerChange represents a signer state change
@@ -100,7 +99,9 @@ type FlagsChange struct {
 // TrustlineChange represents a trustline state change
 type TrustlineChange struct {
 	BaseStateChangeFields
-	Limit string `json:"limit"`
+	TokenID  *string `json:"trustlineTokenId,omitempty"`
+	Limit    *string `json:"limit,omitempty"`
+	KeyValue *string `json:"trustlineKeyValue,omitempty"`
 }
 
 // ReservesChange represents a reserves state change
@@ -108,11 +109,13 @@ type ReservesChange struct {
 	BaseStateChangeFields
 	SponsoredAddress *string `json:"sponsoredAddress,omitempty"`
 	SponsorAddress   *string `json:"sponsorAddress,omitempty"`
+	KeyValue         *string `json:"reservesKeyValue,omitempty"`
 }
 
 // BalanceAuthorizationChange represents a balance authorization state change
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
+	TokenID  *string  `json:"balanceAuthTokenId,omitempty"`
 	Flags    []string `json:"flags"`
 	KeyValue *string  `json:"balanceAuthKeyValue,omitempty"`
 }

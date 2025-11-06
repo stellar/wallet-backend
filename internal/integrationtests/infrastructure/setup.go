@@ -184,6 +184,7 @@ type SharedContainers struct {
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
 	distributionAccountKeyPair    *keypair.Full
+	sponsoredNewAccountKeyPair    *keypair.Full
 	masterAccount                 *txnbuild.SimpleAccount
 	masterKeyPair                 *keypair.Full
 }
@@ -223,6 +224,9 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.primarySourceAccountKeyPair = keypair.MustRandom()
 	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
 	shared.distributionAccountKeyPair = keypair.MustRandom()
+
+	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
+	shared.sponsoredNewAccountKeyPair = keypair.MustRandom()
 
 	// Create and fund all accounts in a single transaction
 	shared.createAndFundAccounts(ctx, t, []*keypair.Full{
@@ -269,6 +273,10 @@ func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context)
 	return s.secondarySourceAccountKeyPair
 }
 
+func (s *SharedContainers) GetSponsoredNewAccountKeyPair(ctx context.Context) *keypair.Full {
+	return s.sponsoredNewAccountKeyPair
+}
+
 // Cleanup cleans up shared containers after all tests complete
 func (s *SharedContainers) Cleanup(ctx context.Context) {
 	if s.WalletBackendContainer.API != nil {
@@ -296,8 +304,6 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 
 // deployNativeAssetSAC deploys the Stellar Asset Contract for the native asset (XLM)
 func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.T) {
-	log.Ctx(ctx).Info("Deploying native asset SAC...")
-
 	// Create the InvokeHostFunction operation to deploy the native asset contract
 	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
 	deployOp := &txnbuild.InvokeHostFunction{
@@ -733,13 +739,14 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend migrate up && ./wallet-backend channel-account ensure 7 && ./wallet-backend serve",
+			"./wallet-backend channel-account ensure 15 && ./wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
 			"RPC_URL":                          "http://stellar-rpc:8000",
 			"DATABASE_URL":                     "postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
 			"PORT":                             walletBackendContainerAPIPort,
+			"GRAPHQL_COMPLEXITY_LIMIT":         "2000",
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
 			"NETWORK_PASSPHRASE":               networkPassphrase,
@@ -747,7 +754,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
 			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
-			"NUMBER_CHANNEL_ACCOUNTS":                 "7",
+			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
 		},
@@ -911,22 +918,17 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 
 // TestEnvironment holds all initialized services and clients for integration tests
 type TestEnvironment struct {
-	WBClient           *wbclient.Client
-	RPCService         services.RPCService
-	PrimaryAccountKP   *keypair.Full
-	SecondaryAccountKP *keypair.Full
-	NetworkPassphrase  string
-	UseCases           []*UseCase
-}
-
-func createUseCases(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, rpcService services.RPCService) ([]*UseCase, error) {
-	fixtures := Fixtures{
-		NetworkPassphrase:  networkPassphrase,
-		PrimaryAccountKP:   primaryAccountKP,
-		SecondaryAccountKP: secondaryAccountKP,
-		RPCService:         rpcService,
-	}
-	return fixtures.PrepareUseCases(ctx)
+	WBClient                 *wbclient.Client
+	RPCService               services.RPCService
+	PrimaryAccountKP         *keypair.Full
+	SecondaryAccountKP       *keypair.Full
+	SponsoredNewAccountKP    *keypair.Full
+	ClaimBalanceID           string
+	ClawbackBalanceID        string
+	LiquidityPoolID          string
+	NetworkPassphrase        string
+	UseCases                 []*UseCase
+	ClaimAndClawbackUseCases []*UseCase
 }
 
 // createWalletBackendClient initializes the wallet-backend client
@@ -1003,9 +1005,14 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	// Get keypairs
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
+	sponsoredNewAccountKP := containers.GetSponsoredNewAccountKeyPair(ctx)
 
 	// Prepare use cases
-	useCases, err := createUseCases(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, rpcService)
+	fixtures, err := NewFixtures(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
+	if err != nil {
+		return nil, err
+	}
+	useCases, err := fixtures.PrepareUseCases(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,11 +1020,13 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	log.Ctx(ctx).Info("✅ Test environment setup complete")
 
 	return &TestEnvironment{
-		WBClient:           wbClient,
-		RPCService:         rpcService,
-		PrimaryAccountKP:   primaryAccountKP,
-		SecondaryAccountKP: secondaryAccountKP,
-		UseCases:           useCases,
-		NetworkPassphrase:  networkPassphrase,
+		WBClient:              wbClient,
+		RPCService:            rpcService,
+		PrimaryAccountKP:      primaryAccountKP,
+		SecondaryAccountKP:    secondaryAccountKP,
+		SponsoredNewAccountKP: sponsoredNewAccountKP,
+		UseCases:              useCases,
+		NetworkPassphrase:     networkPassphrase,
+		LiquidityPoolID:       fixtures.LiquidityPoolID,
 	}, nil
 }

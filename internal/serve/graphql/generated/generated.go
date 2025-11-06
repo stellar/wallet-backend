@@ -70,13 +70,12 @@ type ComplexityRoot struct {
 
 	AccountChange struct {
 		Account         func(childComplexity int) int
-		Amount          func(childComplexity int) int
+		FunderAddress   func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
-		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -90,6 +89,7 @@ type ComplexityRoot struct {
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -187,6 +187,7 @@ type ComplexityRoot struct {
 	ReservesChange struct {
 		Account          func(childComplexity int) int
 		IngestedAt       func(childComplexity int) int
+		KeyValue         func(childComplexity int) int
 		LedgerCreatedAt  func(childComplexity int) int
 		LedgerNumber     func(childComplexity int) int
 		Operation        func(childComplexity int) int
@@ -271,11 +272,13 @@ type ComplexityRoot struct {
 	TrustlineChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
+		KeyValue        func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
 		Limit           func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -294,8 +297,7 @@ type AccountChangeResolver interface {
 	Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.AccountStateChangeModel) (string, error)
-	Amount(ctx context.Context, obj *types.AccountStateChangeModel) (string, error)
+	FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error)
 }
 type BalanceAuthorizationChangeResolver interface {
 	Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error)
@@ -304,6 +306,7 @@ type BalanceAuthorizationChangeResolver interface {
 	Account(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error)
 	Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error)
 	KeyValue(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error)
 }
@@ -353,6 +356,7 @@ type ReservesChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error)
 	SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 	SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
+	KeyValue(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error)
 }
 type SignerChangeResolver interface {
 	Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error)
@@ -395,7 +399,9 @@ type TrustlineChangeResolver interface {
 	Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error)
-	Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (string, error)
+	TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
+	Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
+	KeyValue(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error)
 }
 
 type executableSchema struct {
@@ -467,12 +473,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.AccountChange.Account(childComplexity), true
 
-	case "AccountChange.amount":
-		if e.complexity.AccountChange.Amount == nil {
+	case "AccountChange.funderAddress":
+		if e.complexity.AccountChange.FunderAddress == nil {
 			break
 		}
 
-		return e.complexity.AccountChange.Amount(childComplexity), true
+		return e.complexity.AccountChange.FunderAddress(childComplexity), true
 
 	case "AccountChange.ingestedAt":
 		if e.complexity.AccountChange.IngestedAt == nil {
@@ -508,13 +514,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.AccountChange.Reason(childComplexity), true
-
-	case "AccountChange.tokenId":
-		if e.complexity.AccountChange.TokenID == nil {
-			break
-		}
-
-		return e.complexity.AccountChange.TokenID(childComplexity), true
 
 	case "AccountChange.transaction":
 		if e.complexity.AccountChange.Transaction == nil {
@@ -585,6 +584,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.BalanceAuthorizationChange.Reason(childComplexity), true
+
+	case "BalanceAuthorizationChange.tokenId":
+		if e.complexity.BalanceAuthorizationChange.TokenID == nil {
+			break
+		}
+
+		return e.complexity.BalanceAuthorizationChange.TokenID(childComplexity), true
 
 	case "BalanceAuthorizationChange.transaction":
 		if e.complexity.BalanceAuthorizationChange.Transaction == nil {
@@ -1047,6 +1053,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ReservesChange.IngestedAt(childComplexity), true
 
+	case "ReservesChange.keyValue":
+		if e.complexity.ReservesChange.KeyValue == nil {
+			break
+		}
+
+		return e.complexity.ReservesChange.KeyValue(childComplexity), true
+
 	case "ReservesChange.ledgerCreatedAt":
 		if e.complexity.ReservesChange.LedgerCreatedAt == nil {
 			break
@@ -1456,6 +1469,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineChange.IngestedAt(childComplexity), true
 
+	case "TrustlineChange.keyValue":
+		if e.complexity.TrustlineChange.KeyValue == nil {
+			break
+		}
+
+		return e.complexity.TrustlineChange.KeyValue(childComplexity), true
+
 	case "TrustlineChange.ledgerCreatedAt":
 		if e.complexity.TrustlineChange.LedgerCreatedAt == nil {
 			break
@@ -1490,6 +1510,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.TrustlineChange.Reason(childComplexity), true
+
+	case "TrustlineChange.tokenId":
+		if e.complexity.TrustlineChange.TokenID == nil {
+			break
+		}
+
+		return e.complexity.TrustlineChange.TokenID(childComplexity), true
 
 	case "TrustlineChange.transaction":
 		if e.complexity.TrustlineChange.Transaction == nil {
@@ -1951,8 +1978,7 @@ type AccountChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
-  amount:                     String!
+  funderAddress:              String @goField(forceResolver: true)
 }
 
 type SignerChange implements BaseStateChange {
@@ -1965,7 +1991,7 @@ type SignerChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  signerAddress:              String
+  signerAddress:              String @goField(forceResolver: true)
   signerWeights:              String
 }
 
@@ -2018,7 +2044,9 @@ type TrustlineChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  limit:                      String!
+  tokenId:                    String @goField(forceResolver: true)
+  limit:                      String @goField(forceResolver: true)
+  keyValue:                   String
 }
 
 type ReservesChange implements BaseStateChange{
@@ -2031,8 +2059,9 @@ type ReservesChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  sponsoredAddress:         String   
-  sponsorAddress:           String
+  sponsoredAddress:         String @goField(forceResolver: true)
+  sponsorAddress:           String @goField(forceResolver: true)
+  keyValue:                 String
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{
@@ -2045,6 +2074,7 @@ type BalanceAuthorizationChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
+  tokenId:                    String @goField(forceResolver: true)
   flags:                      [String!]!
   keyValue:                   String
 }
@@ -3693,8 +3723,8 @@ func (ec *executionContext) fieldContext_AccountChange_transaction(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountChange_tokenId(ctx, field)
+func (ec *executionContext) _AccountChange_funderAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_AccountChange_funderAddress(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -3707,68 +3737,21 @@ func (ec *executionContext) _AccountChange_tokenId(ctx context.Context, field gr
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountChange().TokenID(rctx, obj)
+		return ec.resolvers.AccountChange().FunderAddress(rctx, obj)
 	})
 	if err != nil {
 		ec.Error(ctx, err)
 		return graphql.Null
 	}
 	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.(*string)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_AccountChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "AccountChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _AccountChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_AccountChange_amount(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.AccountChange().Amount(rctx, obj)
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_AccountChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountChange_funderAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AccountChange",
 		Field:      field,
@@ -4177,6 +4160,47 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_transaction(
 				return ec.fieldContext_Transaction_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BalanceAuthorizationChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BalanceAuthorizationStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_BalanceAuthorizationChange_tokenId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.BalanceAuthorizationChange().TokenID(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_BalanceAuthorizationChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7617,6 +7641,47 @@ func (ec *executionContext) fieldContext_ReservesChange_sponsorAddress(_ context
 	return fc, nil
 }
 
+func (ec *executionContext) _ReservesChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.ReservesStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ReservesChange_keyValue(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.ReservesChange().KeyValue(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ReservesChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReservesChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SignerChange_type(ctx context.Context, field graphql.CollectedField, obj *types.SignerStateChangeModel) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_SignerChange_type(ctx, field)
 	if err != nil {
@@ -10307,6 +10372,47 @@ func (ec *executionContext) fieldContext_TrustlineChange_transaction(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _TrustlineChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_tokenId(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.TrustlineChange().TokenID(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _TrustlineChange_limit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_TrustlineChange_limit(ctx, field)
 	if err != nil {
@@ -10328,17 +10434,55 @@ func (ec *executionContext) _TrustlineChange_limit(ctx context.Context, field gr
 		return graphql.Null
 	}
 	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.(*string)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineChange_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineChange_keyValue(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineStateChangeModel) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineChange_keyValue(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.TrustlineChange().KeyValue(rctx, obj)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*string)
+	fc.Result = res
+	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineChange_keyValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "TrustlineChange",
 		Field:      field,
@@ -12979,55 +13123,16 @@ func (ec *executionContext) _AccountChange(ctx context.Context, sel ast.Selectio
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "tokenId":
+		case "funderAddress":
 			field := field
 
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountChange_tokenId(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "amount":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._AccountChange_amount(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
+				res = ec._AccountChange_funderAddress(ctx, field, obj)
 				return res
 			}
 
@@ -13254,6 +13359,39 @@ func (ec *executionContext) _BalanceAuthorizationChange(ctx context.Context, sel
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BalanceAuthorizationChange_tokenId(ctx, field, obj)
 				return res
 			}
 
@@ -14870,6 +15008,39 @@ func (ec *executionContext) _ReservesChange(ctx context.Context, sel ast.Selecti
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "keyValue":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ReservesChange_keyValue(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -16283,19 +16454,82 @@ func (ec *executionContext) _TrustlineChange(ctx context.Context, sel ast.Select
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TrustlineChange_tokenId(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "limit":
 			field := field
 
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._TrustlineChange_limit(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
 				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "keyValue":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._TrustlineChange_keyValue(ctx, field, obj)
 				return res
 			}
 

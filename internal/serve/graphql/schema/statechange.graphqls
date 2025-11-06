@@ -41,8 +41,7 @@ type AccountChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!              
-  amount:                     String!
+  funderAddress:              String @goField(forceResolver: true)
 }
 
 type SignerChange implements BaseStateChange {
@@ -55,7 +54,7 @@ type SignerChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  signerAddress:              String
+  signerAddress:              String @goField(forceResolver: true)
   signerWeights:              String
 }
 
@@ -108,7 +107,9 @@ type TrustlineChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  limit:                      String!
+  tokenId:                    String @goField(forceResolver: true)
+  limit:                      String @goField(forceResolver: true)
+  keyValue:                   String
 }
 
 type ReservesChange implements BaseStateChange{
@@ -121,8 +122,9 @@ type ReservesChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  sponsoredAddress:         String   
-  sponsorAddress:           String
+  sponsoredAddress:         String @goField(forceResolver: true)
+  sponsorAddress:           String @goField(forceResolver: true)
+  keyValue:                 String
 }
 
 type BalanceAuthorizationChange implements BaseStateChange{
@@ -135,6 +137,7 @@ type BalanceAuthorizationChange implements BaseStateChange{
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
+  tokenId:                    String @goField(forceResolver: true)
   flags:                      [String!]!
   keyValue:                   String
 }

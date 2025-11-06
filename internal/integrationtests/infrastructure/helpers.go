@@ -3,6 +3,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
@@ -166,4 +167,63 @@ func RenderResult(useCase *UseCase) string {
 	builder.WriteString("}")
 
 	return builder.String()
+}
+
+// FindUseCase returns the use case with the given name from a slice of use cases.
+func FindUseCase(useCases []*UseCase, useCaseName string) *UseCase {
+	for _, uc := range useCases {
+		if uc.Name() == useCaseName {
+			return uc
+		}
+	}
+	return nil
+}
+
+// ExtractClaimableBalanceIDsFromMeta extracts claimable balance IDs from transaction result metadata.
+// Returns the balance IDs in the order they were created in the transaction.
+func ExtractClaimableBalanceIDsFromMeta(resultMetaXDR string) ([]string, error) {
+	// Decode base64 XDR to bytes
+	metaBytes, err := base64.StdEncoding.DecodeString(resultMetaXDR)
+	if err != nil {
+		return nil, fmt.Errorf("decoding result meta XDR: %w", err)
+	}
+
+	// Unmarshal to xdr.TransactionMeta
+	var txMeta xdr.TransactionMeta
+	if err := xdr.SafeUnmarshal(metaBytes, &txMeta); err != nil {
+		return nil, fmt.Errorf("unmarshalling transaction meta: %w", err)
+	}
+	metaV4 := txMeta.MustV4()
+
+	var balanceIDs []string
+
+	// Iterate through each operation's changes
+	for opIdx, opMeta := range metaV4.Operations {
+		for changeIdx, change := range opMeta.Changes {
+			// Look for LedgerEntryTypeClaimableBalance with LedgerEntryChangeTypeLedgerEntryCreated
+			if change.Type == xdr.LedgerEntryChangeTypeLedgerEntryCreated {
+				if change.Created == nil {
+					continue
+				}
+				entry := change.Created.Data
+				if entry.Type == xdr.LedgerEntryTypeClaimableBalance {
+					if entry.ClaimableBalance == nil {
+						continue
+					}
+					// Extract balance ID from entry.Data.ClaimableBalance.BalanceId
+					balanceID := entry.ClaimableBalance.BalanceId
+
+					// Convert xdr.ClaimableBalanceId to hex string
+					balanceIDBytes, err := balanceID.MarshalBinary()
+					if err != nil {
+						return nil, fmt.Errorf("marshalling balance ID (op=%d, change=%d): %w", opIdx, changeIdx, err)
+					}
+					balanceIDHex := fmt.Sprintf("%x", balanceIDBytes)
+					balanceIDs = append(balanceIDs, balanceIDHex)
+				}
+			}
+		}
+	}
+
+	return balanceIDs, nil
 }
