@@ -151,7 +151,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		ledgerKeys = append(ledgerKeys, accountKey)
 
 		// Fetch the current trustlines for the account
-		trustlines, err := r.trustlinesService.GetTrustlines(ctx, address)
+		trustlines, err := r.accountTokenService.GetAccountTrustlines(ctx, address)
 		if err != nil {
 			return nil, fmt.Errorf("getting trustlines for account: %w", err)
 		}
@@ -176,7 +176,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	}
 
 	// Fetch the current contracts for the account
-	contracts, err := r.trustlinesService.GetContracts(ctx, address)
+	contracts, err := r.accountTokenService.GetAccountContracts(ctx, address)
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account: %w", err)
 	}

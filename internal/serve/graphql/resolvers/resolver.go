@@ -41,9 +41,9 @@ type Resolver struct {
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService    services.FeeBumpService
-	rpcService        services.RPCService
-	trustlinesService services.TrustlinesService
+	feeBumpService      services.FeeBumpService
+	rpcService          services.RPCService
+	accountTokenService services.AccountTokenService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
 }
@@ -51,15 +51,15 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, trustlinesService services.TrustlinesService, metricsService metrics.MetricsService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService) *Resolver {
 	return &Resolver{
-		models:             models,
-		accountService:     accountService,
-		transactionService: transactionService,
-		feeBumpService:     feeBumpService,
-		rpcService:         rpcService,
-		trustlinesService:  trustlinesService,
-		metricsService:     metricsService,
+		models:              models,
+		accountService:      accountService,
+		transactionService:  transactionService,
+		feeBumpService:      feeBumpService,
+		rpcService:          rpcService,
+		accountTokenService: accountTokenService,
+		metricsService:      metricsService,
 	}
 }
 

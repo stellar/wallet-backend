@@ -82,12 +82,12 @@ type handlerDeps struct {
 
 	// Services
 
-	AccountService     services.AccountService
-	FeeBumpService     services.FeeBumpService
-	MetricsService     metrics.MetricsService
-	TransactionService services.TransactionService
-	RPCService         services.RPCService
-	TrustlinesService  services.TrustlinesService
+	AccountService      services.AccountService
+	FeeBumpService      services.FeeBumpService
+	MetricsService      metrics.MetricsService
+	TransactionService  services.TransactionService
+	RPCService          services.RPCService
+	AccountTokenService services.AccountTokenService
 	// GraphQL
 	GraphQLComplexityLimit int
 	// Error Tracker
@@ -161,9 +161,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
-	trustlinesService, err := services.NewTrustlinesService(cfg.NetworkPassphrase, redisStore)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, redisStore)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating trustlines service: %w", err)
+		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
@@ -202,7 +202,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:         feeBumpService,
 		MetricsService:         metricsService,
 		RPCService:             rpcService,
-		TrustlinesService:      trustlinesService,
+		AccountTokenService:    accountTokenService,
 		AppTracker:             cfg.AppTracker,
 		NetworkPassphrase:      cfg.NetworkPassphrase,
 		TransactionService:     txService,
@@ -246,7 +246,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.RPCService, deps.TrustlinesService, deps.MetricsService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.RPCService, deps.AccountTokenService, deps.MetricsService)
 
 			config := generated.Config{
 				Resolvers: resolver,

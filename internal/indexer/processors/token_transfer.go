@@ -49,7 +49,7 @@ func (p *TokenTransferProcessor) isSACToken(asset *asset.Asset, contractAddress 
 type TokenTransferProcessor struct {
 	eventsProcessor   *ttp.EventsProcessor
 	networkPassphrase string
-	metricsService  MetricsServiceInterface
+	metricsService    MetricsServiceInterface
 }
 
 // NewTokenTransferProcessor creates a new token transfer processor for the specified Stellar network.
@@ -57,7 +57,7 @@ func NewTokenTransferProcessor(networkPassphrase string, metricsService MetricsS
 	return &TokenTransferProcessor{
 		eventsProcessor:   ttp.NewEventsProcessor(networkPassphrase),
 		networkPassphrase: networkPassphrase,
-		metricsService:  metricsService,
+		metricsService:    metricsService,
 	}
 }
 
