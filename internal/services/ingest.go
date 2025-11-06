@@ -116,7 +116,7 @@ func NewIngestService(
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), rpcService, pond.NewPool(0), metricsService),
+		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), pond.NewPool(0), metricsService),
 		pool:              pond.NewPool(0),
 	}, nil
 }

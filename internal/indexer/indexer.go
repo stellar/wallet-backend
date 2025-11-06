@@ -68,12 +68,12 @@ type Indexer struct {
 	metricsService         processors.MetricsServiceInterface
 }
 
-func NewIndexer(networkPassphrase string, ledgerEntryProvider processors.LedgerEntryProvider, pool pond.Pool, metricsService processors.MetricsServiceInterface) *Indexer {
+func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
 		processors: []OperationProcessorInterface{
-			processors.NewEffectsProcessor(networkPassphrase, ledgerEntryProvider, metricsService),
+			processors.NewEffectsProcessor(networkPassphrase, metricsService),
 			processors.NewContractDeployProcessor(networkPassphrase, metricsService),
 			contract_processors.NewSACEventsProcessor(networkPassphrase, metricsService),
 		},
