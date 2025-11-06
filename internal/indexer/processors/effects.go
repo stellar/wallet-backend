@@ -71,7 +71,7 @@ type EffectsProcessor struct {
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
-func NewEffectsProcessor(networkPassphrase string, ledgerEntryProvider LedgerEntryProvider, metricsService MetricsServiceInterface) *EffectsProcessor {
+func NewEffectsProcessor(networkPassphrase string, metricsService MetricsServiceInterface) *EffectsProcessor {
 	return &EffectsProcessor{
 		networkPassphrase:   networkPassphrase,
 		metricsService:      metricsService,
