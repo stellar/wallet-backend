@@ -71,11 +71,12 @@ const (
 	TrustlineOpRemove TrustlineOpType = "REMOVE"
 )
 
-type TokenType string
+type ContractType string
 
 const (
-	TokenTypeSAC    TokenType = "SAC"    // Verified Stellar Asset Contract
-	TokenTypeCustom TokenType = "CUSTOM" // Non-SAC tokens (SEP-41, SEP-50, etc.)
+	ContractTypeSAC    ContractType = "SAC"    // Stellar Asset Contract
+	ContractTypeSEP41   ContractType = "SEP41"  // SEP-41 token
+	ContractTypeCustom  ContractType = "CUSTOM" // Custom token
 )
 
 type ContractChange struct {
@@ -83,7 +84,7 @@ type ContractChange struct {
 	ContractID   string
 	OperationID  int64
 	LedgerNumber uint32
-	TokenType    TokenType
+	ContractType ContractType
 }
 
 type Transaction struct {
@@ -316,7 +317,7 @@ type StateChange struct {
 	// code:issuer formatted asset string
 	TrustlineAsset string `json:"-"`
 	// Internal only: used for filtering contract changes and identifying token type
-	TokenType TokenType `json:"token_type,omitempty"`
+	ContractType ContractType `json:"-"`
 }
 
 type StateChangeWithCursor struct {

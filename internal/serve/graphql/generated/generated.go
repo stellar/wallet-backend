@@ -14,11 +14,10 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	gqlparser "github.com/vektah/gqlparser/v2"
-	"github.com/vektah/gqlparser/v2/ast"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/scalars"
+	gqlparser "github.com/vektah/gqlparser/v2"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 // region    ************************** generated!.gotpl **************************
@@ -106,8 +105,9 @@ type ComplexityRoot struct {
 	}
 
 	CustomBalance struct {
-		Balance func(childComplexity int) int
-		TokenID func(childComplexity int) int
+		Balance   func(childComplexity int) int
+		TokenID   func(childComplexity int) int
+		TokenType func(childComplexity int) int
 	}
 
 	DeregisterAccountPayload struct {
@@ -147,8 +147,9 @@ type ComplexityRoot struct {
 	}
 
 	NativeBalance struct {
-		Balance func(childComplexity int) int
-		TokenID func(childComplexity int) int
+		Balance   func(childComplexity int) int
+		TokenID   func(childComplexity int) int
+		TokenType func(childComplexity int) int
 	}
 
 	Operation struct {
@@ -214,6 +215,7 @@ type ComplexityRoot struct {
 		IsAuthorized      func(childComplexity int) int
 		IsClawbackEnabled func(childComplexity int) int
 		TokenID           func(childComplexity int) int
+		TokenType         func(childComplexity int) int
 	}
 
 	SignerChange struct {
@@ -298,6 +300,7 @@ type ComplexityRoot struct {
 		Limit                             func(childComplexity int) int
 		SellingLiabilities                func(childComplexity int) int
 		TokenID                           func(childComplexity int) int
+		TokenType                         func(childComplexity int) int
 		Type                              func(childComplexity int) int
 	}
 
@@ -688,6 +691,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.CustomBalance.TokenID(childComplexity), true
 
+	case "CustomBalance.tokenType":
+		if e.complexity.CustomBalance.TokenType == nil {
+			break
+		}
+
+		return e.complexity.CustomBalance.TokenType(childComplexity), true
+
 	case "DeregisterAccountPayload.message":
 		if e.complexity.DeregisterAccountPayload.Message == nil {
 			break
@@ -889,6 +899,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.NativeBalance.TokenID(childComplexity), true
+
+	case "NativeBalance.tokenType":
+		if e.complexity.NativeBalance.TokenType == nil {
+			break
+		}
+
+		return e.complexity.NativeBalance.TokenType(childComplexity), true
 
 	case "Operation.accounts":
 		if e.complexity.Operation.Accounts == nil {
@@ -1216,6 +1233,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SACBalance.TokenID(childComplexity), true
+
+	case "SACBalance.tokenType":
+		if e.complexity.SACBalance.TokenType == nil {
+			break
+		}
+
+		return e.complexity.SACBalance.TokenType(childComplexity), true
 
 	case "SignerChange.account":
 		if e.complexity.SignerChange.Account == nil {
@@ -1626,6 +1650,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.TrustlineBalance.TokenID(childComplexity), true
 
+	case "TrustlineBalance.tokenType":
+		if e.complexity.TrustlineBalance.TokenType == nil {
+			break
+		}
+
+		return e.complexity.TrustlineBalance.TokenType(childComplexity), true
+
 	case "TrustlineBalance.type":
 		if e.complexity.TrustlineBalance.Type == nil {
 			break
@@ -1847,16 +1878,19 @@ type Account{
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }
 
 type NativeBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }
 
 type TrustlineBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 
     code: String
     issuer: String
@@ -1872,6 +1906,8 @@ type TrustlineBalance implements Balance {
 type SACBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
+
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
@@ -1879,6 +1915,7 @@ type SACBalance implements Balance {
 type CustomBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -1975,6 +2012,14 @@ enum StateChangeReason {
   DATA_ENTRY
   SPONSOR
   UNSPONSOR
+}
+
+enum TokenType {
+  NATIVE
+  CLASSIC
+  SAC
+  SEP41
+  CUSTOM
 }
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries
@@ -4838,6 +4883,50 @@ func (ec *executionContext) fieldContext_CustomBalance_tokenId(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _CustomBalance_tokenType(ctx context.Context, field graphql.CollectedField, obj *CustomBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_CustomBalance_tokenType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TokenType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(TokenType)
+	fc.Result = res
+	return ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_CustomBalance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DeregisterAccountPayload_success(ctx context.Context, field graphql.CollectedField, obj *DeregisterAccountPayload) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_DeregisterAccountPayload_success(ctx, field)
 	if err != nil {
@@ -6142,6 +6231,50 @@ func (ec *executionContext) fieldContext_NativeBalance_tokenId(_ context.Context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_tokenType(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_NativeBalance_tokenType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TokenType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(TokenType)
+	fc.Result = res
+	return ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
 		},
 	}
 	return fc, nil
@@ -8235,6 +8368,50 @@ func (ec *executionContext) fieldContext_SACBalance_tokenId(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SACBalance_tokenType(ctx context.Context, field graphql.CollectedField, obj *SACBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SACBalance_tokenType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TokenType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(TokenType)
+	fc.Result = res
+	return ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SACBalance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SACBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10700,6 +10877,50 @@ func (ec *executionContext) fieldContext_TrustlineBalance_tokenId(_ context.Cont
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TrustlineBalance_tokenType(ctx context.Context, field graphql.CollectedField, obj *TrustlineBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_TrustlineBalance_tokenType(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.TokenType, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(TokenType)
+	fc.Result = res
+	return ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_TrustlineBalance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TrustlineBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
 		},
 	}
 	return fc, nil
@@ -14782,6 +15003,11 @@ func (ec *executionContext) _CustomBalance(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "tokenType":
+			out.Values[i] = ec._CustomBalance_tokenType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -15458,6 +15684,11 @@ func (ec *executionContext) _NativeBalance(ctx context.Context, sel ast.Selectio
 			}
 		case "tokenId":
 			out.Values[i] = ec._NativeBalance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenType":
+			out.Values[i] = ec._NativeBalance_tokenType(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -16353,6 +16584,11 @@ func (ec *executionContext) _SACBalance(ctx context.Context, sel ast.SelectionSe
 			}
 		case "tokenId":
 			out.Values[i] = ec._SACBalance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenType":
+			out.Values[i] = ec._SACBalance_tokenType(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -17597,6 +17833,11 @@ func (ec *executionContext) _TrustlineBalance(ctx context.Context, sel ast.Selec
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "tokenType":
+			out.Values[i] = ec._TrustlineBalance_tokenType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "code":
 			out.Values[i] = ec._TrustlineBalance_code(ctx, field, obj)
 		case "issuer":
@@ -18696,6 +18937,16 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx context.Context, v any) (TokenType, error) {
+	var res TokenType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx context.Context, sel ast.SelectionSet, v TokenType) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNTransaction2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx context.Context, sel ast.SelectionSet, v types.Transaction) graphql.Marshaler {

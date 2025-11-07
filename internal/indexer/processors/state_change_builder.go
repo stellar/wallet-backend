@@ -117,8 +117,8 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 }
 
 // WithTokenType sets the token type (SAC or CUSTOM)
-func (b *StateChangeBuilder) WithTokenType(tokenType types.TokenType) *StateChangeBuilder {
-	b.base.TokenType = tokenType
+func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
+	b.base.ContractType = tokenType
 	return b
 }
 

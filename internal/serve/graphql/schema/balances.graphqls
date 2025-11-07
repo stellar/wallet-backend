@@ -1,16 +1,19 @@
 interface Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }
 
 type NativeBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }
 
 type TrustlineBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 
     code: String
     issuer: String
@@ -26,6 +29,8 @@ type TrustlineBalance implements Balance {
 type SACBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
+
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
@@ -33,4 +38,5 @@ type SACBalance implements Balance {
 type CustomBalance implements Balance {
     balance: String!
     tokenId: String!
+    tokenType: TokenType!
 }

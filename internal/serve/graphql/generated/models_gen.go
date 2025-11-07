@@ -3,6 +3,10 @@
 package graphql
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"strconv"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -12,6 +16,7 @@ type Balance interface {
 	IsBalance()
 	GetBalance() string
 	GetTokenID() string
+	GetTokenType() TokenType
 }
 
 type BaseStateChange interface {
@@ -59,13 +64,15 @@ type CreateFeeBumpTransactionPayload struct {
 }
 
 type CustomBalance struct {
-	Balance string `json:"balance"`
-	TokenID string `json:"tokenId"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
 }
 
-func (CustomBalance) IsBalance()              {}
-func (this CustomBalance) GetBalance() string { return this.Balance }
-func (this CustomBalance) GetTokenID() string { return this.TokenID }
+func (CustomBalance) IsBalance()                   {}
+func (this CustomBalance) GetBalance() string      { return this.Balance }
+func (this CustomBalance) GetTokenID() string      { return this.TokenID }
+func (this CustomBalance) GetTokenType() TokenType { return this.TokenType }
 
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
@@ -80,13 +87,15 @@ type Mutation struct {
 }
 
 type NativeBalance struct {
-	Balance string `json:"balance"`
-	TokenID string `json:"tokenId"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
 }
 
-func (NativeBalance) IsBalance()              {}
-func (this NativeBalance) GetBalance() string { return this.Balance }
-func (this NativeBalance) GetTokenID() string { return this.TokenID }
+func (NativeBalance) IsBalance()                   {}
+func (this NativeBalance) GetBalance() string      { return this.Balance }
+func (this NativeBalance) GetTokenID() string      { return this.TokenID }
+func (this NativeBalance) GetTokenType() TokenType { return this.TokenType }
 
 type OperationConnection struct {
 	Edges    []*OperationEdge `json:"edges,omitempty"`
@@ -118,15 +127,17 @@ type RegisterAccountPayload struct {
 }
 
 type SACBalance struct {
-	Balance           string `json:"balance"`
-	TokenID           string `json:"tokenId"`
-	IsAuthorized      bool   `json:"isAuthorized"`
-	IsClawbackEnabled bool   `json:"isClawbackEnabled"`
+	Balance           string    `json:"balance"`
+	TokenID           string    `json:"tokenId"`
+	TokenType         TokenType `json:"tokenType"`
+	IsAuthorized      bool      `json:"isAuthorized"`
+	IsClawbackEnabled bool      `json:"isClawbackEnabled"`
 }
 
-func (SACBalance) IsBalance()              {}
-func (this SACBalance) GetBalance() string { return this.Balance }
-func (this SACBalance) GetTokenID() string { return this.TokenID }
+func (SACBalance) IsBalance()                   {}
+func (this SACBalance) GetBalance() string      { return this.Balance }
+func (this SACBalance) GetTokenID() string      { return this.TokenID }
+func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
 
 type SimulationResultInput struct {
 	TransactionData *string  `json:"transactionData,omitempty"`
@@ -158,19 +169,82 @@ type TransactionEdge struct {
 }
 
 type TrustlineBalance struct {
-	Balance                           string  `json:"balance"`
-	TokenID                           string  `json:"tokenId"`
-	Code                              *string `json:"code,omitempty"`
-	Issuer                            *string `json:"issuer,omitempty"`
-	Type                              string  `json:"type"`
-	Limit                             string  `json:"limit"`
-	BuyingLiabilities                 string  `json:"buyingLiabilities"`
-	SellingLiabilities                string  `json:"sellingLiabilities"`
-	LastModifiedLedger                int32   `json:"lastModifiedLedger"`
-	IsAuthorized                      bool    `json:"isAuthorized"`
-	IsAuthorizedToMaintainLiabilities bool    `json:"isAuthorizedToMaintainLiabilities"`
+	Balance                           string    `json:"balance"`
+	TokenID                           string    `json:"tokenId"`
+	TokenType                         TokenType `json:"tokenType"`
+	Code                              *string   `json:"code,omitempty"`
+	Issuer                            *string   `json:"issuer,omitempty"`
+	Type                              string    `json:"type"`
+	Limit                             string    `json:"limit"`
+	BuyingLiabilities                 string    `json:"buyingLiabilities"`
+	SellingLiabilities                string    `json:"sellingLiabilities"`
+	LastModifiedLedger                int32     `json:"lastModifiedLedger"`
+	IsAuthorized                      bool      `json:"isAuthorized"`
+	IsAuthorizedToMaintainLiabilities bool      `json:"isAuthorizedToMaintainLiabilities"`
 }
 
-func (TrustlineBalance) IsBalance()              {}
-func (this TrustlineBalance) GetBalance() string { return this.Balance }
-func (this TrustlineBalance) GetTokenID() string { return this.TokenID }
+func (TrustlineBalance) IsBalance()                   {}
+func (this TrustlineBalance) GetBalance() string      { return this.Balance }
+func (this TrustlineBalance) GetTokenID() string      { return this.TokenID }
+func (this TrustlineBalance) GetTokenType() TokenType { return this.TokenType }
+
+type TokenType string
+
+const (
+	TokenTypeNative  TokenType = "NATIVE"
+	TokenTypeClassic TokenType = "CLASSIC"
+	TokenTypeSac     TokenType = "SAC"
+	TokenTypeSep41   TokenType = "SEP41"
+	TokenTypeCustom  TokenType = "CUSTOM"
+)
+
+var AllTokenType = []TokenType{
+	TokenTypeNative,
+	TokenTypeClassic,
+	TokenTypeSac,
+	TokenTypeSep41,
+	TokenTypeCustom,
+}
+
+func (e TokenType) IsValid() bool {
+	switch e {
+	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41, TokenTypeCustom:
+		return true
+	}
+	return false
+}
+
+func (e TokenType) String() string {
+	return string(e)
+}
+
+func (e *TokenType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = TokenType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid TokenType", str)
+	}
+	return nil
+}
+
+func (e TokenType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *TokenType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e TokenType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}

@@ -27,6 +27,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
+const (
+	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+)
+
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
 // Resolver is the main resolver struct for gqlgen

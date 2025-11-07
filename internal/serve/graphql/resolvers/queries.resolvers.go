@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -225,6 +224,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, &graphql1.NativeBalance{
 				TokenID: tokenID,
 				Balance: balanceStr,
+				TokenType: graphql1.TokenTypeNative,
 			})
 
 		case xdr.LedgerEntryTypeTrustline:
@@ -263,6 +263,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, &graphql1.TrustlineBalance{
 				TokenID:                           tokenID,
 				Balance:                           balanceStr,
+				TokenType: 		graphql1.TokenTypeClassic,
 				Code:                              utils.PointOf(assetCode),
 				Issuer:                            utils.PointOf(assetIssuer),
 				Type:                              assetType,
@@ -297,7 +298,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 
 			// Extract balance fields based on token type
 			switch tokenType {
-			case types.TokenTypeSAC:
+			case types.ContractTypeSAC:
 				// SAC balance with authorization fields
 				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
 					return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
@@ -353,10 +354,11 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				balances = append(balances, &graphql1.SACBalance{
 					TokenID:           tokenID,
 					Balance:           balanceStr,
+					TokenType:         graphql1.TokenTypeSac,
 					IsAuthorized:      isAuthorized,
 					IsClawbackEnabled: isClawbackEnabled,
 				})
-			case types.TokenTypeCustom:
+			case types.ContractTypeCustom, types.ContractTypeSEP41:
 				// Custom token balance (may be i128 or map without authorization fields)
 				var balanceStr string
 				switch contractDataEntry.Val.Type {
@@ -391,9 +393,15 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 						return nil, fmt.Errorf("amount field not found in custom balance map")
 					}
 				}
+				// Native token is treaded as a separate case.
+				contractType := graphql1.TokenTypeSep41
+				if tokenID == MainnetNativeContractAddress {
+					contractType = graphql1.TokenTypeNative
+				}
 				balances = append(balances, &graphql1.CustomBalance{
 					TokenID: tokenID,
 					Balance: balanceStr,
+					TokenType: contractType,
 				})
 			default:
 				return nil, fmt.Errorf("unknown token type: %v", tokenType)
