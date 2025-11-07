@@ -218,37 +218,43 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		case xdr.LedgerEntryTypeContractData:
 			contractDataEntry := change.Post.Data.MustContractData()
 
-			if contractDataEntry.Key.Type != xdr.ScValTypeScvVec {
+			switch contractDataEntry.Key.Type {
+			case xdr.ScValTypeScvVec:
+				// Extract the account/contract address from the contract data entry key
+				holderAddress, err := extractHolderAddress(contractDataEntry.Key)
+				if err != nil {
+					continue
+				}
+
+				// Extract the contract ID from the contract data entry
+				contractAddress, err := extractContractID(contractDataEntry)
+				if err != nil {
+					continue
+				}
+
+				// Store contract info: map holder address to contract address and type
+				contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
+				entries++
+			case xdr.ScValTypeScvLedgerKeyContractInstance:
+				// Determine token type using SAC verification
+				// Extract the contract ID from the contract data entry
+				contractAddress, err := extractContractID(contractDataEntry)
+				if err != nil {
+					continue
+				}
+				ledgerEntry := change.Post
+				var tokenType types.TokenType
+				_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
+				if isSAC {
+					tokenType = types.TokenTypeSAC // Verified SAC
+				} else {
+					tokenType = types.TokenTypeCustom // Custom token
+				}
+				contractTypes[contractAddress] = tokenType
+				entries++
+			default:
 				continue
 			}
-
-			// Extract the account/contract address from the contract data entry key
-			holderAddress, err := extractHolderAddress(contractDataEntry.Key)
-			if err != nil {
-				continue
-			}
-
-			// Extract the contract ID from the contract data entry
-			contractAddress, err := extractContractID(contractDataEntry)
-			if err != nil {
-				continue
-			}
-
-			// Determine token type using SAC verification
-			ledgerEntry := change.Post
-			var tokenType types.TokenType
-			_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
-			if isSAC {
-				tokenType = types.TokenTypeSAC // Verified SAC
-			} else {
-				tokenType = types.TokenTypeCustom // Custom token
-			}
-
-			entries++
-			// Store contract info: map holder address to contract address and type
-			contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
-			// Track unique contract types
-			contractTypes[contractAddress] = tokenType
 		default:
 			continue
 		}

@@ -231,14 +231,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	// Prepare the health check:
-	manualTriggerChan := make(chan any, 1)
-	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
-	ingestHeartbeatChannel := make(chan any, 1)
-	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
-	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
-	var rpcHealth entities.RPCGetHealthResult
-
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
@@ -259,6 +251,14 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 		}
 	}
+
+	// Prepare the health check:
+	manualTriggerChan := make(chan any, 1)
+	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	ingestHeartbeatChannel := make(chan any, 1)
+	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
+	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
+	var rpcHealth entities.RPCGetHealthResult
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
