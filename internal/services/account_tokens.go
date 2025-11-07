@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/sac"
@@ -30,11 +28,8 @@ const (
 	contractsKeyPrefix  = "contracts:"
 	contractTypePrefix  = "contract_type:"
 
-	// workerPoolSize is the number of concurrent workers for Redis operations.
-	workerPoolSize = 100
-
-	// workerQueueSize is the buffer size for the worker pool queue.
-	workerQueueSize = 1000
+	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
+	redisPipelineBatchSize = 100000
 )
 
 // AccountTokenService manages Redis caching of account token holdings,
@@ -165,7 +160,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		return err
 	}
 
-	log.Ctx(ctx).Infof("Populating trustlines from ledger %d", latestCheckpointLedger)
+	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", latestCheckpointLedger)
 	s.checkpointLedger = latestCheckpointLedger
 	reader, err := ingest.NewCheckpointChangeReader(
 		ctx,
@@ -261,55 +256,34 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	}
 	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
 
-	// Store trustlines in Redis using parallel worker pool
-	pool := pond.NewPool(workerPoolSize, pond.WithQueueSize(workerQueueSize))
-	defer pool.Stop()
-
-	group := pool.NewGroupContext(ctx)
-	var errs []error
-	errMu := sync.Mutex{}
-
 	startTime = time.Now()
+	operations := make([]store.RedisPipelineOperation, 0, len(trustlines)+len(contracts)+len(contractTypes))
 	for accountAddress, assets := range trustlines {
-		accAddr := accountAddress
-		accTrustlines := assets
-		group.Submit(func() {
-			if err := s.Add(ctx, s.trustlinesPrefix+accAddr, accTrustlines); err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("storing trustlines for account %s: %w", accAddr, err))
-				errMu.Unlock()
-			}
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      store.SetOpAdd,
+			Key:     s.trustlinesPrefix + accountAddress,
+			Members: assets,
 		})
 	}
 	for accountAddress, contractAddresses := range contracts {
-		accAddr := accountAddress
-		accContracts := contractAddresses
-		group.Submit(func() {
-			if err := s.Add(ctx, s.contractsPrefix+accAddr, accContracts); err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("storing contracts for account %s: %w", accAddr, err))
-				errMu.Unlock()
-			}
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      store.SetOpAdd,
+			Key:     s.contractsPrefix + accountAddress,
+			Members: contractAddresses,
 		})
 	}
 	for contractID, tokenType := range contractTypes {
-		cID := contractID
-		tType := tokenType
-		group.Submit(func() {
-			key := s.contractTypePrefix + cID
-			if err := s.redisStore.Set(ctx, key, string(tType)); err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("storing contract type for %s: %w", cID, err))
-				errMu.Unlock()
-			}
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      store.OpSet,
+			Key:     s.contractTypePrefix + contractID,
+			Value:   string(tokenType),
 		})
 	}
-
-	if err := group.Wait(); err != nil {
-		return fmt.Errorf("waiting for trustlines storage: %w", err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("storing trustlines: %w", errors.Join(errs...))
+	for i := 0; i < len(operations); i += redisPipelineBatchSize {
+		end := min(i + redisPipelineBatchSize, len(operations))
+		if err := s.redisStore.ExecutePipeline(ctx, operations[i:end]); err != nil {
+			return fmt.Errorf("executing account tokens pipeline: %w", err)
+		}
 	}
 
 	log.Ctx(ctx).Infof("Stored %d trustlines and %d contracts in Redis in %.2f minutes", len(trustlines), len(contracts), time.Since(startTime).Minutes())
@@ -357,12 +331,7 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			Op:      store.SetOpAdd,
 			Key:     s.contractsPrefix + change.AccountID,
 			Members: []string{change.ContractID},
-		})
-	}
-
-	// Store contract type metadata
-	for _, change := range contractChanges {
-		operations = append(operations, store.RedisPipelineOperation{
+		}, store.RedisPipelineOperation{
 			Op:      store.OpSet,
 			Key:     s.contractTypePrefix + change.ContractID,
 			Value:   string(change.TokenType),

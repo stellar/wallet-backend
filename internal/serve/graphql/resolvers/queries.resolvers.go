@@ -296,7 +296,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 
 			// Extract balance fields based on token type
-			if tokenType == types.TokenTypeSAC {
+			switch tokenType {
+			case types.TokenTypeSAC:
 				// SAC balance with authorization fields
 				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {
 					return nil, fmt.Errorf("SAC balance expected to be map, got: %v", contractDataEntry.Val.Type)
@@ -355,7 +356,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					IsAuthorized:      isAuthorized,
 					IsClawbackEnabled: isClawbackEnabled,
 				})
-			} else {
+			case types.TokenTypeCustom:
 				// Custom token balance (may be i128 or map without authorization fields)
 				var balanceStr string
 				switch contractDataEntry.Val.Type {
@@ -389,14 +390,13 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					if !amountFound {
 						return nil, fmt.Errorf("amount field not found in custom balance map")
 					}
-				default:
-					return nil, fmt.Errorf("contract data value has unexpected type: %v", contractDataEntry.Val.Type)
 				}
-
 				balances = append(balances, &graphql1.CustomBalance{
 					TokenID: tokenID,
 					Balance: balanceStr,
 				})
+			default:
+				return nil, fmt.Errorf("unknown token type: %v", tokenType)
 			}
 		}
 	}
