@@ -5,10 +5,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/akupila/go-wasm"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
+	"github.com/tetratelabs/wazero"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+)
+
+const (
+	contractSpecV0SectionName = "contractspecv0"
+	getLedgerEntriesBatchSize = 10
 )
 
 type ContractSpecValidator interface {
@@ -35,38 +41,43 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 		ledgerKeys = append(ledgerKeys, ledgerKey)
 	}
 
-	entries, err := v.rpcService.GetLedgerEntries(ledgerKeys)
-	if err != nil {
-		return nil, fmt.Errorf("getting ledger entries: %w", err)
-	}
-
 	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
-	for _, entry := range entries.Entries {
-		var ledgerEntryData xdr.LedgerEntryData
-		err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshalling ledger entry data: %w", err)
-		}
+	for i := 0; i < len(ledgerKeys); i += getLedgerEntriesBatchSize {
+		end := min(i+getLedgerEntriesBatchSize, len(ledgerKeys))
+		batch := ledgerKeys[i:end]
 
-		if ledgerEntryData.Type != xdr.LedgerEntryTypeContractCode {
-			continue
-		}
+		log.Ctx(ctx).Infof("Validating WASM batch %d-%d of %d", i+1, end, len(ledgerKeys))
 
-		contractCodeEntry := ledgerEntryData.MustContractCode()
-		wasmCode := contractCodeEntry.Code
-		wasmHash := contractCodeEntry.Hash
-		isSep41, err := v.isContractCodeSEP41(wasmCode)
+		entries, err := v.rpcService.GetLedgerEntries(batch)
 		if err != nil {
-			return nil, fmt.Errorf("checking if contract code is SEP41: %w", err)
+			return nil, fmt.Errorf("getting ledger entries: %w", err)
 		}
-		if isSep41 {
-			contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
+		for _, entry := range entries.Entries {
+			var ledgerEntryData xdr.LedgerEntryData
+			err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
+			if err != nil {
+				return nil, fmt.Errorf("unmarshalling ledger entry data: %w", err)
+			}
+
+			if ledgerEntryData.Type != xdr.LedgerEntryTypeContractCode {
+				continue
+			}
+
+			contractCodeEntry := ledgerEntryData.MustContractCode()
+			wasmCode := contractCodeEntry.Code
+			wasmHash := contractCodeEntry.Hash
+			isSep41 := v.isContractCodeSEP41(wasmCode)
+			if isSep41 {
+				contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
+			} else {
+				contractTypesByWasmHash[wasmHash] = types.ContractTypeCustom
+			}
 		}
 	}
 	return contractTypesByWasmHash, nil
 }
 
-func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) (bool, error) {
+func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) bool {
 	requiredFunctions := map[string]bool{
 		"balance":       false,
 		"allowance":     false,
@@ -82,7 +93,9 @@ func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) (bool, erro
 
 	contractSpec, err := v.extractContractSpecFromWasmCode(wasmCode)
 	if err != nil {
-		return false, fmt.Errorf("extracting contract spec from WASM: %w", err)
+		// Log warning but don't fail - mark as Custom
+		log.Warnf("Failed to extract contract spec from WASM: %v", err)
+		return false
 	}
 
 	for _, spec := range contractSpec {
@@ -96,28 +109,43 @@ func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) (bool, erro
 
 	for _, exists := range requiredFunctions {
 		if !exists {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
+	return true
 }
 
 func (v *contractSpecValidator) extractContractSpecFromWasmCode(wasmCode []byte) ([]xdr.ScSpecEntry, error) {
-	// Parse WASM module
-	module, err := wasm.Parse(bytes.NewReader(wasmCode))
-	if err != nil {
-		return nil, fmt.Errorf("parsing WASM: %w", err)
-	}
+	// Create wazero runtime with custom sections enabled
+	ctx := context.Background()
+	config := wazero.NewRuntimeConfig().WithCustomSections(true)
+	runtime := wazero.NewRuntimeWithConfig(ctx, config)
+	defer func() {
+		if err := runtime.Close(ctx); err != nil {
+			log.Warnf("Failed to close wazero runtime: %v", err)
+		}
+	}()
 
-	// Find contractspecv0 custom section
+	// Compile WASM module (validates structure and won't panic)
+	compiledModule, err := runtime.CompileModule(ctx, wasmCode)
+	if err != nil {
+		return nil, fmt.Errorf("compiling WASM module: %w", err)
+	}
+	defer func() {
+		if err := compiledModule.Close(ctx); err != nil {
+			log.Warnf("Failed to close compiled module: %v", err)
+		}
+	}()
+
+	// Extract all custom sections
+	customSections := compiledModule.CustomSections()
+
+	// Find contractspecv0 section
 	var specBytes []byte
-	for _, s := range module.Sections {
-		switch section := s.(type) {
-		case *wasm.SectionCustom:
-			if section.SectionName == "contractspecv0" {
-				specBytes = section.Payload
-				break
-			}
+	for _, section := range customSections {
+		if section.Name() == contractSpecV0SectionName {
+			specBytes = section.Data()
+			break
 		}
 	}
 

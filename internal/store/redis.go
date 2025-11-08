@@ -96,7 +96,7 @@ func (r *RedisStore) Set(ctx context.Context, key, value string) error {
 	return nil
 }
 
-// SetOperation represents a single Redis set operation type.
+// RedisOperation represents a single Redis set operation type.
 type RedisOperation string
 
 const (
@@ -105,7 +105,7 @@ const (
 	OpSet       RedisOperation = "SET"
 )
 
-// SetPipelineOperation represents a single set operation to be executed in a pipeline.
+// RedisPipelineOperation represents a single set operation to be executed in a pipeline.
 type RedisPipelineOperation struct {
 	Op      RedisOperation
 	Key     string

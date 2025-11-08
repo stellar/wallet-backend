@@ -30,7 +30,7 @@ const (
 	contractTypePrefix  = "contract_type:"
 
 	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
-	redisPipelineBatchSize = 100000
+	redisPipelineBatchSize = 50000
 )
 
 // AccountTokenService manages Redis caching of account token holdings,
