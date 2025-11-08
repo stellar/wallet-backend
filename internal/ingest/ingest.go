@@ -88,7 +88,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, redisStore)
+	contractSpecValidator := services.NewContractSpecValidator(rpcService)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, redisStore, contractSpecValidator)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}

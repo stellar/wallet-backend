@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/sac"
@@ -47,16 +48,17 @@ type AccountTokenService interface {
 var _ AccountTokenService = (*accountTokenService)(nil)
 
 type accountTokenService struct {
-	checkpointLedger   uint32
-	archive            historyarchive.ArchiveInterface
-	redisStore         *store.RedisStore
-	networkPassphrase  string
-	trustlinesPrefix   string
-	contractsPrefix    string
-	contractTypePrefix string
+	checkpointLedger      uint32
+	archive               historyarchive.ArchiveInterface
+	contractSpecValidator ContractSpecValidator
+	redisStore            *store.RedisStore
+	networkPassphrase     string
+	trustlinesPrefix      string
+	contractsPrefix       string
+	contractTypePrefix    string
 }
 
-func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisStore) (AccountTokenService, error) {
+func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator) (AccountTokenService, error) {
 	archive, err := historyarchive.Connect(
 		archiveURL,
 		historyarchive.ArchiveOptions{
@@ -66,14 +68,16 @@ func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisSto
 	if err != nil {
 		return nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
+
 	return &accountTokenService{
-		checkpointLedger:   0,
-		archive:            archive,
-		redisStore:         redisStore,
-		networkPassphrase:  networkPassphrase,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		checkpointLedger:      0,
+		archive:               archive,
+		contractSpecValidator: contractSpecValidator,
+		redisStore:            redisStore,
+		networkPassphrase:     networkPassphrase,
+		trustlinesPrefix:      trustlinesKeyPrefix,
+		contractsPrefix:       contractsKeyPrefix,
+		contractTypePrefix:    contractTypePrefix,
 	}, nil
 }
 
@@ -161,6 +165,8 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	contracts := make(map[string][]string)
 	// contractTypes tracks the token type for each unique contract ID
 	contractTypes := make(map[string]types.ContractType)
+	contractIDsByWasmHash := make(map[xdr.Hash][]string)
+	uniqueWasmHashes := set.NewSet[xdr.Hash]()
 	entries := 0
 	startTime := time.Now()
 	for {
@@ -209,21 +215,26 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 				contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
 				entries++
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				// Determine token type using SAC verification
 				// Extract the contract ID from the contract data entry
 				contractAddress, err := extractContractID(contractDataEntry)
 				if err != nil {
 					continue
 				}
 				ledgerEntry := change.Post
-				var contractType types.ContractType
 				_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
 				if isSAC {
-					contractType = types.ContractTypeSAC // Verified SAC
+					contractTypes[contractAddress] = types.ContractTypeSAC // Verified SAC
 				} else {
-					contractType = types.ContractTypeCustom // Custom token (SEP41, SEP50, ...)
+					contractInstance := contractDataEntry.Val.MustInstance()
+					if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
+						// Extract the WASM hash
+						if contractInstance.Executable.WasmHash != nil {
+							wasmHash := *contractInstance.Executable.WasmHash
+							contractIDsByWasmHash[wasmHash] = append(contractIDsByWasmHash[wasmHash], contractAddress)
+							uniqueWasmHashes.Add(wasmHash)
+						}
+					}
 				}
-				contractTypes[contractAddress] = contractType
 				entries++
 			default:
 				continue
@@ -233,6 +244,17 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		}
 	}
 	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
+
+	// Validate the contract spec against known contract types
+	contractTypesByWasmHash, err := s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
+	if err != nil {
+		return fmt.Errorf("validating contract spec: %w", err)
+	}
+	for wasmHash, contractType := range contractTypesByWasmHash {
+		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
+			contractTypes[contractAddress] = contractType
+		}
+	}
 
 	startTime = time.Now()
 	operations := make([]store.RedisPipelineOperation, 0, len(trustlines)+len(contracts)+len(contractTypes))
@@ -252,13 +274,13 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	}
 	for contractID, contractType := range contractTypes {
 		operations = append(operations, store.RedisPipelineOperation{
-			Op:      store.OpSet,
-			Key:     s.contractTypePrefix + contractID,
-			Value:   string(contractType),
+			Op:    store.OpSet,
+			Key:   s.contractTypePrefix + contractID,
+			Value: string(contractType),
 		})
 	}
 	for i := 0; i < len(operations); i += redisPipelineBatchSize {
-		end := min(i + redisPipelineBatchSize, len(operations))
+		end := min(i+redisPipelineBatchSize, len(operations))
 		if err := s.redisStore.ExecutePipeline(ctx, operations[i:end]); err != nil {
 			return fmt.Errorf("executing account tokens pipeline: %w", err)
 		}
@@ -310,9 +332,9 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 			Key:     s.contractsPrefix + change.AccountID,
 			Members: []string{change.ContractID},
 		}, store.RedisPipelineOperation{
-			Op:      store.OpSet,
-			Key:     s.contractTypePrefix + change.ContractID,
-			Value:   string(change.ContractType),
+			Op:    store.OpSet,
+			Key:   s.contractTypePrefix + change.ContractID,
+			Value: string(change.ContractType),
 		})
 	}
 

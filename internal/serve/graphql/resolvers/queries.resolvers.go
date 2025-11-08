@@ -12,6 +12,7 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -222,8 +223,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			tokenID := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
 			balances = append(balances, &graphql1.NativeBalance{
-				TokenID: tokenID,
-				Balance: balanceStr,
+				TokenID:   tokenID,
+				Balance:   balanceStr,
 				TokenType: graphql1.TokenTypeNative,
 			})
 
@@ -263,7 +264,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			balances = append(balances, &graphql1.TrustlineBalance{
 				TokenID:                           tokenID,
 				Balance:                           balanceStr,
-				TokenType: 		graphql1.TokenTypeClassic,
+				TokenType:                         graphql1.TokenTypeClassic,
 				Code:                              utils.PointOf(assetCode),
 				Issuer:                            utils.PointOf(assetIssuer),
 				Type:                              assetType,
@@ -399,8 +400,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					contractType = graphql1.TokenTypeNative
 				}
 				balances = append(balances, &graphql1.CustomBalance{
-					TokenID: tokenID,
-					Balance: balanceStr,
+					TokenID:   tokenID,
+					Balance:   balanceStr,
 					TokenType: contractType,
 				})
 			default:
