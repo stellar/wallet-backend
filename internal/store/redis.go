@@ -9,6 +9,23 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisOperation represents a single Redis set operation type.
+type RedisOperation string
+
+const (
+	SetOpAdd    RedisOperation = "SADD"
+	SetOpRemove RedisOperation = "SREM"
+	OpSet       RedisOperation = "SET"
+)
+
+// RedisPipelineOperation represents a single set operation to be executed in a pipeline.
+type RedisPipelineOperation struct {
+	Op      RedisOperation
+	Key     string
+	Members []string
+	Value   string
+}
+
 // RedisStore provides generic Redis operations for caching.
 type RedisStore struct {
 	client *redis.Client
@@ -94,23 +111,6 @@ func (r *RedisStore) Set(ctx context.Context, key, value string) error {
 		return fmt.Errorf("setting key %s: %w", key, err)
 	}
 	return nil
-}
-
-// RedisOperation represents a single Redis set operation type.
-type RedisOperation string
-
-const (
-	SetOpAdd    RedisOperation = "SADD"
-	SetOpRemove RedisOperation = "SREM"
-	OpSet       RedisOperation = "SET"
-)
-
-// RedisPipelineOperation represents a single set operation to be executed in a pipeline.
-type RedisPipelineOperation struct {
-	Op      RedisOperation
-	Key     string
-	Members []string
-	Value   string
 }
 
 // ExecutePipeline executes multiple operations (SADD/SREM/SET) in a single pipeline.
