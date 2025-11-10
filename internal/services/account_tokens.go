@@ -1,3 +1,5 @@
+// Package services provides account token management with Redis caching.
+// This file handles trustlines and Stellar Asset Contract (SAC) balance tracking.
 package services
 
 import (
@@ -21,9 +23,6 @@ import (
 )
 
 const (
-	// archiveURL is the Stellar public history archive for mainnet.
-	archiveURL = "https://history.stellar.org/prd/core-live/core_live_001/"
-
 	// Redis key prefixes for account token storage
 	trustlinesKeyPrefix = "trustlines:"
 	contractsKeyPrefix  = "contracts:"
@@ -31,17 +30,45 @@ const (
 
 	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
 	redisPipelineBatchSize = 50000
+
+	// progressInterval is the number of checkpoint entries to process before logging progress.
+	progressInterval = 100000
 )
 
 // AccountTokenService manages Redis caching of account token holdings,
 // including both classic Stellar trustlines and Stellar Asset Contract (SAC) balances.
 type AccountTokenService interface {
+	// GetCheckpointLedger returns the ledger sequence number of the checkpoint
+	// used to populate the initial account token cache.
 	GetCheckpointLedger() uint32
+
+	// PopulateAccountTokens performs initial Redis cache population from Stellar
+	// history archive for the latest checkpoint. This is a long-running operation
+	// that may take several minutes and should be called during service initialization.
+	// It reads all trustlines and contract balances and stores them in Redis.
 	PopulateAccountTokens(ctx context.Context) error
+
+	// Add adds token identifiers (trustline assets or contract IDs) to an account's
+	// Redis set. For trustlines, assets should be formatted as "CODE:ISSUER".
+	// For contracts, assets should be contract addresses starting with "C".
+	// Returns nil if assets is empty (no-op).
 	Add(ctx context.Context, accountAddress string, assets []string) error
+
+	// GetAccountTrustlines retrieves all classic trustline assets for an account.
+	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
+
+	// GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract
+	// IDs for an account. Returns contract addresses (C...) or empty slice if none exist.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
+
+	// GetContractType determines the token type (SAC, SEP41, or UNKNOWN) for a contract.
+	// Returns ContractTypeUnknown if the contract ID is not found in the cache.
 	GetContractType(ctx context.Context, contractID string) (types.ContractType, error)
+
+	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
+	// using pipelining for performance. This is called by the indexer for each ledger's
+	// state changes during live ingestion.
 	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
@@ -58,7 +85,29 @@ type accountTokenService struct {
 	contractTypePrefix    string
 }
 
-func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator) (AccountTokenService, error) {
+// GetArchiveURLForNetwork returns the appropriate history archive URL for a given network.
+func GetArchiveURLForNetwork(network string) string {
+	switch network {
+	case "testnet":
+		return "https://history.stellar.org/prd/core-testnet/core_testnet_001/"
+	case "mainnet":
+		return "https://history.stellar.org/prd/core-live/core_live_001/"
+	default:
+		// Default to mainnet
+		return "https://history.stellar.org/prd/core-live/core_live_001/"
+	}
+}
+
+// GetArchiveURLFromPassphrase derives the appropriate history archive URL from a network passphrase.
+func GetArchiveURLFromPassphrase(networkPassphrase string) string {
+	if networkPassphrase == "Test SDF Network ; September 2015" {
+		return "https://history.stellar.org/prd/core-testnet/core_testnet_001/"
+	}
+	// Default to mainnet
+	return "https://history.stellar.org/prd/core-live/core_live_001/"
+}
+
+func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator) (AccountTokenService, error) {
 	archive, err := historyarchive.Connect(
 		archiveURL,
 		historyarchive.ArchiveOptions{
@@ -81,23 +130,41 @@ func NewAccountTokenService(networkPassphrase string, redisStore *store.RedisSto
 	}, nil
 }
 
+// buildTrustlineKey constructs the Redis key for an account's trustlines set.
+func (s *accountTokenService) buildTrustlineKey(accountAddress string) string {
+	return s.trustlinesPrefix + accountAddress
+}
+
+// buildContractKey constructs the Redis key for an account's contracts set.
+func (s *accountTokenService) buildContractKey(accountAddress string) string {
+	return s.contractsPrefix + accountAddress
+}
+
+// buildContractTypeKey constructs the Redis key for a contract's type.
+func (s *accountTokenService) buildContractTypeKey(contractID string) string {
+	return s.contractTypePrefix + contractID
+}
+
 // Add adds token identifiers to an account's Redis set.
 // For trustlines, assets are formatted as "CODE:ISSUER".
 // For SAC balances, assets are contract addresses (C...).
 // Returns nil if assets is empty (no-op).
-func (s *accountTokenService) Add(ctx context.Context, key string, assets []string) error {
+func (s *accountTokenService) Add(ctx context.Context, redisKey string, assets []string) error {
 	if len(assets) == 0 {
 		return nil
 	}
-	if err := s.redisStore.SAdd(ctx, key, assets...); err != nil {
-		return fmt.Errorf("adding trustlines for key %s: %w", key, err)
+	if err := s.redisStore.SAdd(ctx, redisKey, assets...); err != nil {
+		return fmt.Errorf("adding members to set %s: %w", redisKey, err)
 	}
 	return nil
 }
 
 // GetAccountTrustlines retrieves all trustlines for an account from Redis.
 func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
-	key := s.trustlinesPrefix + accountAddress
+	if accountAddress == "" {
+		return nil, fmt.Errorf("account address cannot be empty")
+	}
+	key := s.buildTrustlineKey(accountAddress)
 	trustlines, err := s.redisStore.SMembers(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("getting trustlines for account %s: %w", accountAddress, err)
@@ -107,7 +174,10 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 
 // GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract IDs for an account from Redis.
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
-	key := s.contractsPrefix + accountAddress
+	if accountAddress == "" {
+		return nil, fmt.Errorf("account address cannot be empty")
+	}
+	key := s.buildContractKey(accountAddress)
 	contracts, err := s.redisStore.SMembers(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
@@ -117,7 +187,10 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 
 // GetContractType retrieves the token type (SAC or CUSTOM) for a given contract ID from Redis.
 func (s *accountTokenService) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
-	key := s.contractTypePrefix + contractID
+	if contractID == "" {
+		return types.ContractTypeUnknown, fmt.Errorf("contract ID cannot be empty")
+	}
+	key := s.buildContractTypeKey(contractID)
 	tokenType, err := s.redisStore.Get(ctx, key)
 	if err != nil {
 		return types.ContractTypeUnknown, fmt.Errorf("getting contract type for %s: %w", contractID, err)
@@ -132,52 +205,55 @@ func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
 }
 
-// PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
-// This reads the latest checkpoint ledger and extracts all trustlines and contracts that an account has.
-// It should be called during service initialization before processing live ingestion.
-// Warning: This is a long-running operation that may take several minutes.
-func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
-	defer s.contractSpecValidator.Close(ctx)
-
-	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
+// collectAccountTokensFromCheckpoint reads the checkpoint ledger and collects all trustlines and contract balances.
+// Returns maps of trustlines, contracts, contract types, and contract IDs grouped by WASM hash.
+func (s *accountTokenService) collectAccountTokensFromCheckpoint(
+	ctx context.Context,
+	checkpointLedger uint32,
+) (
+	trustlines map[string][]string,
+	contracts map[string][]string,
+	contractTypesByContractID map[string]types.ContractType,
+	contractIDsByWasmHash map[xdr.Hash][]string,
+	err error,
+) {
+	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, checkpointLedger)
 	if err != nil {
-		return err
-	}
-
-	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", latestCheckpointLedger)
-	s.checkpointLedger = latestCheckpointLedger
-	reader, err := ingest.NewCheckpointChangeReader(
-		ctx,
-		s.archive,
-		latestCheckpointLedger,
-	)
-	if err != nil {
-		return fmt.Errorf("creating checkpoint change reader: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("creating checkpoint change reader: %w", err)
 	}
 	defer func() {
 		if closeErr := reader.Close(); closeErr != nil {
-			// Log error but don't override the function's return error
 			log.Ctx(ctx).Errorf("error closing checkpoint reader: %v", closeErr)
 		}
 	}()
 
-	// trustlines is a map of G-... account address to a list of asset codes
-	trustlines := make(map[string][]string)
-	// contracts is a map of both G-... and C-... contract addresses to a list of contract info
-	contracts := make(map[string][]string)
+	// trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
+	trustlines = make(map[string][]string)
+	// contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
+	contracts = make(map[string][]string)
 	// contractTypes tracks the token type for each unique contract ID
-	contractTypesByContractID := make(map[string]types.ContractType)
-	contractIDsByWasmHash := make(map[xdr.Hash][]string)
+	contractTypesByContractID = make(map[string]types.ContractType)
+	contractIDsByWasmHash = make(map[xdr.Hash][]string)
 	uniqueWasmHashes := set.NewSet[xdr.Hash]()
+
 	entries := 0
 	startTime := time.Now()
+	lastLogTime := startTime
+
 	for {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, nil, nil, nil, fmt.Errorf("checkpoint processing cancelled: %w", ctx.Err())
+		default:
+		}
+
 		change, err := reader.Read()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("reading checkpoint changes: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("reading checkpoint changes: %w", err)
 		}
 
 		switch change.Type {
@@ -191,11 +267,13 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 			var assetType, assetCode, assetIssuer string
 			err = trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer)
 			if err != nil {
+				log.Ctx(ctx).Debugf("Failed to extract asset from trustline: %v", err)
 				continue
 			}
 			entries++
 			assetStr := fmt.Sprintf("%s:%s", assetCode, assetIssuer)
 			trustlines[accountAddress] = append(trustlines[accountAddress], assetStr)
+
 		case xdr.LedgerEntryTypeContractData:
 			contractDataEntry := change.Post.Data.MustContractData()
 
@@ -206,22 +284,26 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 				// However, this could also be valid for any non-SEP41 contract that mimics the same format.
 				holderAddress, err := extractHolderAddress(contractDataEntry.Key)
 				if err != nil {
+					log.Ctx(ctx).Debugf("Failed to extract holder address: %v", err)
 					continue
 				}
 
 				// Extract the contract ID from the contract data entry
 				contractAddress, err := extractContractID(contractDataEntry)
 				if err != nil {
+					log.Ctx(ctx).Debugf("Failed to extract contract ID: %v", err)
 					continue
 				}
 
 				// Store contract info: map holder address to contract address and type
 				contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
 				entries++
+
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
 				// Extract the contract ID from the contract data entry
 				contractAddress, err := extractContractID(contractDataEntry)
 				if err != nil {
+					log.Ctx(ctx).Debugf("Failed to extract contract ID from instance: %v", err)
 					continue
 				}
 				ledgerEntry := change.Post
@@ -241,66 +323,128 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 					}
 				}
 				entries++
-			default:
-				continue
 			}
-		default:
-			continue
+		}
+
+		// Progress logging every progressInterval entries
+		if entries%progressInterval == 0 && entries > 0 {
+			elapsed := time.Since(lastLogTime)
+			log.Ctx(ctx).Infof("Processed %d entries (%.0f entries/sec)", entries, float64(progressInterval)/elapsed.Seconds())
+			lastLogTime = time.Now()
 		}
 	}
+
 	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
+	return trustlines, contracts, contractTypesByContractID, contractIDsByWasmHash, nil
+}
+
+// enrichContractTypes validates contract specs and enriches the contractTypesByContractID map with SEP-41 classifications.
+func (s *accountTokenService) enrichContractTypes(
+	ctx context.Context,
+	contractTypesByContractID map[string]types.ContractType,
+	contractIDsByWasmHash map[xdr.Hash][]string,
+) error {
+	uniqueWasmHashes := make([]xdr.Hash, 0, len(contractIDsByWasmHash))
+	for wasmHash := range contractIDsByWasmHash {
+		uniqueWasmHashes = append(uniqueWasmHashes, wasmHash)
+	}
 
 	// Validate the contract spec against known contract types
-	contractTypesByWasmHash, err := s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
+	contractTypesByWasmHash, err := s.contractSpecValidator.Validate(ctx, uniqueWasmHashes)
 	if err != nil {
 		return fmt.Errorf("validating contract spec: %w", err)
 	}
+
+	// Map WASM hash types back to individual contract IDs
 	for wasmHash, contractType := range contractTypesByWasmHash {
 		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
 			contractTypesByContractID[contractAddress] = contractType
 		}
 	}
 
-	startTime = time.Now()
-	operations := make([]store.RedisPipelineOperation, 0, len(trustlines)+len(contracts)+len(contractTypesByContractID)+len(contractTypesByWasmHash))
+	return nil
+}
+
+// storeAccountTokensInRedis stores all collected trustlines and contracts into Redis using pipelining.
+func (s *accountTokenService) storeAccountTokensInRedis(
+	ctx context.Context,
+	trustlines map[string][]string,
+	contracts map[string][]string,
+	contractTypesByContractID map[string]types.ContractType,
+) error {
+	startTime := time.Now()
+
+	// Calculate total operations: trustlines + contracts + contract types
+	totalOps := len(trustlines) + len(contracts) + len(contractTypesByContractID)
+	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
+
+	// Add trustline operations
 	for accountAddress, assets := range trustlines {
-		operations = append(operations, store.RedisPipelineOperation{
+		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
-			Key:     s.trustlinesPrefix + accountAddress,
+			Key:     s.buildTrustlineKey(accountAddress),
 			Members: assets,
 		})
 	}
+
+	// Add contract operations
 	for accountAddress, contractAddresses := range contracts {
-		operations = append(operations, store.RedisPipelineOperation{
+		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
-			Key:     s.contractsPrefix + accountAddress,
+			Key:     s.buildContractKey(accountAddress),
 			Members: contractAddresses,
 		})
 	}
+
+	// Add contract type operations
 	for contractID, contractType := range contractTypesByContractID {
-		operations = append(operations, store.RedisPipelineOperation{
+		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
 			Op:    store.OpSet,
-			Key:   s.contractTypePrefix + contractID,
+			Key:   s.buildContractTypeKey(contractID),
 			Value: string(contractType),
 		})
 	}
-	for wasmHash, contractType := range contractTypesByWasmHash {
-		operations = append(operations, store.RedisPipelineOperation{
-			Op:    store.OpSet,
-			Key:   s.contractTypePrefix + wasmHash.HexString(),
-			Value: string(contractType),
-		})
-	}
-	for i := 0; i < len(operations); i += redisPipelineBatchSize {
-		end := min(i+redisPipelineBatchSize, len(operations))
-		if err := s.redisStore.ExecutePipeline(ctx, operations[i:end]); err != nil {
+
+	// Execute operations in batches
+	for i := 0; i < len(redisPipelineOps); i += redisPipelineBatchSize {
+		end := min(i+redisPipelineBatchSize, len(redisPipelineOps))
+		if err := s.redisStore.ExecutePipeline(ctx, redisPipelineOps[i:end]); err != nil {
 			return fmt.Errorf("executing account tokens pipeline: %w", err)
 		}
 	}
 
 	log.Ctx(ctx).Infof("Stored %d trustlines and %d contracts in Redis in %.2f minutes", len(trustlines), len(contracts), time.Since(startTime).Minutes())
-
 	return nil
+}
+
+// PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
+// This reads the latest checkpoint ledger and extracts all trustlines and contracts that an account has.
+// It should be called during service initialization before processing live ingestion.
+// Warning: This is a long-running operation that may take several minutes.
+func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
+	defer s.contractSpecValidator.Close(ctx)
+
+	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
+	if err != nil {
+		return err
+	}
+
+	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", latestCheckpointLedger)
+	s.checkpointLedger = latestCheckpointLedger
+
+	// Extract data collection into separate function
+	trustlines, contracts, contractTypesByContractID, contractIDsByWasmHash, err := s.collectAccountTokensFromCheckpoint(ctx, latestCheckpointLedger)
+	if err != nil {
+		return err
+	}
+
+	// Extract validation into separate function
+	if err := s.enrichContractTypes(ctx, contractTypesByContractID, contractIDsByWasmHash); err != nil {
+		return err
+	}
+
+	// Extract storage into separate function
+	return s.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypesByContractID)
 }
 
 // ProcessTokenChanges processes token changes efficiently using Redis pipelining.
@@ -314,10 +458,19 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 		return nil
 	}
 
+	// Calculate capacity: each trustline = 1 op, each contract = 2 ops (set membership + contract type)
+	trustlineOpsCount := len(trustlineChanges)
+	contractOpsCount := len(contractChanges) * 2
+	operations := make([]store.RedisPipelineOperation, 0, trustlineOpsCount+contractOpsCount)
+
 	// Convert trustline changes to Redis pipeline operations
-	operations := make([]store.RedisPipelineOperation, 0, len(trustlineChanges)+len(contractChanges))
 	for _, change := range trustlineChanges {
-		key := s.trustlinesPrefix + change.AccountID
+		if change.Asset == "" {
+			log.Ctx(ctx).Warnf("Skipping trustline change with empty asset for account %s", change.AccountID)
+			continue
+		}
+
+		key := s.buildTrustlineKey(change.AccountID)
 		var op store.RedisOperation
 
 		switch change.Operation {
@@ -338,21 +491,29 @@ func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustline
 
 	// Convert contract changes to Redis pipeline operations
 	for _, change := range contractChanges {
-		// For contract changes, we always add the contract IDs and not remove them.
+		if change.ContractID == "" {
+			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
+			continue
+		}
+
+		// For contract changes, we always add contract IDs and never remove them.
+		// This is because contract balance entries persist in the ledger even when balance is zero,
+		// unlike trustlines which can be completely deleted. We track all contracts an account has
+		// ever interacted with.
 		operations = append(operations, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
-			Key:     s.contractsPrefix + change.AccountID,
+			Key:     s.buildContractKey(change.AccountID),
 			Members: []string{change.ContractID},
 		}, store.RedisPipelineOperation{
 			Op:    store.OpSet,
-			Key:   s.contractTypePrefix + change.ContractID,
+			Key:   s.buildContractTypeKey(change.ContractID),
 			Value: string(change.ContractType),
 		})
 	}
 
 	// Execute all operations in a single pipeline
 	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
-		return fmt.Errorf("executing trustline changes pipeline: %w", err)
+		return fmt.Errorf("executing token changes pipeline: %w", err)
 	}
 
 	return nil

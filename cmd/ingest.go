@@ -50,6 +50,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:        "archive-url",
+			Usage:       "Archive URL for history archives",
+			OptType:     types.String,
+			ConfigKey:   &cfg.ArchiveURL,
+			FlagDefault: "https://history.stellar.org/prd/core-testnet/core_testnet_001/",
+			Required:    true,
+		},
+		{
 			Name:        "redis-host",
 			Usage:       "Redis host for caching",
 			OptType:     types.String,

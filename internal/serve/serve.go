@@ -49,7 +49,8 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
-
+	ArchiveURL                  string
+	
 	// Redis
 	RedisHost     string
 	RedisPort     int
@@ -162,7 +163,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
 	contractSpecValidator := services.NewContractSpecValidator(rpcService)
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, redisStore, contractSpecValidator)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractSpecValidator)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}
