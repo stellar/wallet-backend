@@ -74,9 +74,9 @@ const (
 type ContractType string
 
 const (
-	ContractTypeSAC    ContractType = "SAC"    // Stellar Asset Contract
-	ContractTypeSEP41  ContractType = "SEP41"  // SEP-41 token
-	ContractTypeUnknown ContractType = "UNKNOWN" // Custom token
+	ContractTypeSAC     ContractType = "SAC"
+	ContractTypeSEP41   ContractType = "SEP41"
+	ContractTypeUnknown ContractType = "UNKNOWN"
 )
 
 type ContractChange struct {

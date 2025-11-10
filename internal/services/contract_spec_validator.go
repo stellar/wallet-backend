@@ -87,18 +87,18 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 }
 
 func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
-	/* 
-	For a contract to be SEP-41, it must atleast have the following functions and inputs/outputs:
-	- balance: (id: Address) -> (i128)
-	- allowance: (from: Address, spender: Address) -> (i128)
-	- decimals: () -> (u32)
-	- name: () -> (String)
-	- symbol: () -> (String)
-	- approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
-	- transfer: (from: Address, to: Address, amount: i128) -> ()
-	- transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
-	- burn: (from: Address, amount: i128) -> ()
-	- burn_from: (spender: Address, from: Address, amount: i128) -> ()
+	/*
+		For a contract to be SEP-41, it must atleast have the following functions and inputs/outputs:
+		- balance: (id: Address) -> (i128)
+		- allowance: (from: Address, spender: Address) -> (i128)
+		- decimals: () -> (u32)
+		- name: () -> (String)
+		- symbol: () -> (String)
+		- approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
+		- transfer: (from: Address, to: Address, amount: i128) -> ()
+		- transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
+		- burn: (from: Address, amount: i128) -> ()
+		- burn_from: (spender: Address, from: Address, amount: i128) -> ()
 	*/
 	requiredFunctions := map[string]bool{
 		"balance":       false,

@@ -227,6 +227,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 				if isSAC {
 					contractTypesByContractID[contractAddress] = types.ContractTypeSAC // Verified SAC
 				} else {
+					// For non-SAC contracts, we need to validate the contract spec to determine if it is a SEP-41 token.
 					contractInstance := contractDataEntry.Val.MustInstance()
 					if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
 						// Extract the WASM hash
