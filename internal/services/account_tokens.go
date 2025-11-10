@@ -113,7 +113,11 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 // It should be called during service initialization before processing live ingestion.
 // Warning: This is a long-running operation that may take several minutes.
 func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
-	defer s.contractSpecValidator.Close(ctx)
+	defer func() {
+		if err := s.contractSpecValidator.Close(ctx); err != nil {
+			log.Ctx(ctx).Errorf("error closing contract spec validator: %v", err)
+		}
+	}()
 
 	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
 	if err != nil {
@@ -123,7 +127,19 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", latestCheckpointLedger)
 	s.checkpointLedger = latestCheckpointLedger
 
-	trustlines, contracts, contractTypesByContractID, contractIDsByWasmHash, err := s.collectAccountTokensFromCheckpoint(ctx, latestCheckpointLedger)
+	// Create checkpoint change reader
+	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, latestCheckpointLedger)
+	if err != nil {
+		return fmt.Errorf("creating checkpoint change reader: %w", err)
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			log.Ctx(ctx).Errorf("error closing checkpoint reader: %v", closeErr)
+		}
+	}()
+
+	// Collect account tokens from checkpoint
+	trustlines, contracts, contractTypesByContractID, contractIDsByWasmHash, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
 	}
@@ -282,11 +298,11 @@ func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
 }
 
-// collectAccountTokensFromCheckpoint reads the checkpoint ledger and collects all trustlines and contract balances.
+// collectAccountTokensFromCheckpoint reads from a ChangeReader and collects all trustlines and contract balances.
 // Returns maps of trustlines, contracts, contract types, and contract IDs grouped by WASM hash.
 func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	ctx context.Context,
-	checkpointLedger uint32,
+	reader ingest.ChangeReader,
 ) (
 	trustlines map[string][]string,
 	contracts map[string][]string,
@@ -294,16 +310,6 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 	contractIDsByWasmHash map[xdr.Hash][]string,
 	err error,
 ) {
-	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, checkpointLedger)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("creating checkpoint change reader: %w", err)
-	}
-	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
-			log.Ctx(ctx).Errorf("error closing checkpoint reader: %v", closeErr)
-		}
-	}()
-
 	// trustlines maps account addresses (G...) to their trustline assets formatted as "CODE:ISSUER"
 	trustlines = make(map[string][]string)
 	// contracts maps holder addresses (account G... or contract C...) to contract IDs (C...) they hold balances in
@@ -333,7 +339,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			return nil, nil, nil, nil, fmt.Errorf("reading checkpoint changes: %w", err)
 		}
 
-		switch change.Type {
+		switch change.Type { //nolint:exhaustive // only handling trustline and contract data
 		case xdr.LedgerEntryTypeTrustline:
 			trustlineEntry := change.Post.Data.MustTrustLine()
 			accountAddress := trustlineEntry.AccountId.Address()
@@ -354,7 +360,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		case xdr.LedgerEntryTypeContractData:
 			contractDataEntry := change.Post.Data.MustContractData()
 
-			switch contractDataEntry.Key.Type {
+			switch contractDataEntry.Key.Type { //nolint:exhaustive // only handling vec and ledger key contract instance
 			case xdr.ScValTypeScvVec:
 				// Extract the account/contract address from the contract data entry key.
 				// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.

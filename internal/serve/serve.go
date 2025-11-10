@@ -50,7 +50,7 @@ type Configs struct {
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
 	ArchiveURL                  string
-	
+
 	// Redis
 	RedisHost     string
 	RedisPort     int
