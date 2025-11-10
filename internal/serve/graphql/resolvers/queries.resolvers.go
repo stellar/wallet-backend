@@ -292,13 +292,13 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 			}
 
 			// Get contract type to determine if this is SAC or custom
-			tokenType, err := r.accountTokenService.GetContractType(ctx, tokenID)
+			contractTokenType, err := r.accountTokenService.GetContractType(ctx, tokenID)
 			if err != nil {
 				return nil, fmt.Errorf("getting contract type: %w", err)
 			}
 
 			// Extract balance fields based on token type
-			switch tokenType {
+			switch contractTokenType {
 			case types.ContractTypeSAC:
 				// SAC balance with authorization fields
 				if contractDataEntry.Val.Type != xdr.ScValTypeScvMap {

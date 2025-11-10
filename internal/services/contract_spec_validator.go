@@ -20,6 +20,7 @@ const (
 
 type ContractSpecValidator interface {
 	Validate(_ context.Context, _ []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
+	Close(_ context.Context) error
 }
 
 type contractSpecValidator struct {
@@ -84,6 +85,13 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 		}
 	}
 	return contractTypesByWasmHash, nil
+}
+
+func (v *contractSpecValidator) Close(ctx context.Context) error {
+	if err := v.runtime.Close(ctx); err != nil {
+		return fmt.Errorf("closing contract spec validator: %w", err)
+	}
+	return nil
 }
 
 func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
