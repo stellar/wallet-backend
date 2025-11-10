@@ -339,7 +339,8 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			return nil, nil, nil, nil, fmt.Errorf("reading checkpoint changes: %w", err)
 		}
 
-		switch change.Type { //nolint:exhaustive // only handling trustline and contract data
+		//exhaustive:ignore
+		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
 			trustlineEntry := change.Post.Data.MustTrustLine()
 			accountAddress := trustlineEntry.AccountId.Address()
@@ -360,7 +361,8 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		case xdr.LedgerEntryTypeContractData:
 			contractDataEntry := change.Post.Data.MustContractData()
 
-			switch contractDataEntry.Key.Type { //nolint:exhaustive // only handling vec and ledger key contract instance
+			//exhaustive:ignore
+			switch contractDataEntry.Key.Type {
 			case xdr.ScValTypeScvVec:
 				// Extract the account/contract address from the contract data entry key.
 				// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
