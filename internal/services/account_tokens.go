@@ -165,7 +165,6 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	contracts := make(map[string][]string)
 	// contractTypes tracks the token type for each unique contract ID
 	contractTypesByContractID := make(map[string]types.ContractType)
-	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
 	contractIDsByWasmHash := make(map[xdr.Hash][]string)
 	uniqueWasmHashes := set.NewSet[xdr.Hash]()
 	entries := 0
@@ -247,7 +246,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
 
 	// Validate the contract spec against known contract types
-	contractTypesByWasmHash, err = s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
+	contractTypesByWasmHash, err := s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
 	if err != nil {
 		return fmt.Errorf("validating contract spec: %w", err)
 	}

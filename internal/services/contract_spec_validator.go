@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 	"github.com/tetratelabs/wazero"
@@ -70,7 +71,11 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 			contractCodeEntry := ledgerEntryData.MustContractCode()
 			wasmCode := contractCodeEntry.Code
 			wasmHash := contractCodeEntry.Hash
-			isSep41 := v.isContractCodeSEP41(wasmCode)
+			contractSpec, err := v.extractContractSpecFromWasmCode(wasmCode)
+			if err != nil {
+				return nil, fmt.Errorf("extracting contract spec from WASM: %w", err)
+			}
+			isSep41 := v.isContractCodeSEP41(contractSpec)
 			if isSep41 {
 				contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
 			} else {
@@ -81,40 +86,155 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 	return contractTypesByWasmHash, nil
 }
 
-func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) bool {
-	requiredFunctions := map[string]bool{
-		"balance":       false,
-		"allowance":     false,
-		"decimals":      false,
-		"name":          false,
-		"symbol":        false,
-		"approve":       false,
-		"transfer":      false,
-		"transfer_from": false,
-		"burn":          false,
-		"burn_from":     false,
-	}
-
-	contractSpec, err := v.extractContractSpecFromWasmCode(wasmCode)
-	if err != nil {
-		// Log warning but don't fail - mark as Custom
-		log.Warnf("Failed to extract contract spec from WASM: %v", err)
-		return false
-	}
-
+func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
 	for _, spec := range contractSpec {
 		if spec.Kind == xdr.ScSpecEntryKindScSpecEntryFunctionV0 && spec.FunctionV0 != nil {
-			funcName := string(spec.FunctionV0.Name)
-			if _, exists := requiredFunctions[funcName]; exists {
-				requiredFunctions[funcName] = true
+			function := spec.FunctionV0
+
+			funcName := string(function.Name)
+			inputs := make(map[string]string, 0)
+			for _, input := range function.Inputs {
+				inputs[input.Name] = getTypeName(input.Type.Type)
+			}
+
+			outputs := set.NewSet[string]()
+			for _, output := range function.Outputs {
+				outputs.Add(getTypeName(output.Type))
+			}
+
+			switch funcName {
+			case "balance":
+				expectedInputs := map[string]string{
+					"id": "Address",
+				}
+				expectedOutputs := set.NewSet(
+					"i128",
+				)
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "allowance":
+				expectedInputs := map[string]string{
+					"env":     "Env",
+					"from":    "Address",
+					"spender": "Address",
+				}
+				expectedOutputs := set.NewSet(
+					"i128",
+				)
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "decimals":
+				expectedInputs := map[string]string{}
+				expectedOutputs := set.NewSet(
+					"u32",
+				)
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "name":
+				expectedInputs := map[string]string{}
+				expectedOutputs := set.NewSet(
+					"String",
+				)
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "symbol":
+				expectedInputs := map[string]string{}
+				expectedOutputs := set.NewSet(
+					"String",
+				)
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "approve":
+				expectedInputs := map[string]string{
+					"from":              "Address",
+					"spender":           "Address",
+					"amount":            "i128",
+					"live_until_ledger": "u32",
+				}
+				expectedOutputs := set.NewSet[string]()
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "transfer":
+				expectedInputs := map[string]string{
+					"from":   "Address",
+					"to":     "Address",
+					"amount": "i128",
+				}
+				expectedOutputs := set.NewSet[string]()
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "transfer_from":
+				expectedInputs := map[string]string{
+					"spender": "Address",
+					"from":    "Address",
+					"to":      "Address",
+					"amount":  "i128",
+				}
+				expectedOutputs := set.NewSet[string]()
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "burn":
+				expectedInputs := map[string]string{
+					"from":   "Address",
+					"amount": "i128",
+				}
+				expectedOutputs := set.NewSet[string]()
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			case "burn_from":
+				expectedInputs := map[string]string{
+					"spender": "Address",
+					"from":    "Address",
+					"amount":  "i128",
+				}
+				expectedOutputs := set.NewSet[string]()
+
+				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
+					return false
+				}
+			default:
+				return false
 			}
 		}
 	}
+	return true
+}
 
-	for _, exists := range requiredFunctions {
-		if !exists {
+func (v *contractSpecValidator) validateFunctionInputsAndOutputs(inputs map[string]string, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
+	if len(inputs) != len(expectedInputs) {
+		return false
+	}
+
+	for expectedInput, expectedInputType := range expectedInputs {
+		if inputs[expectedInput] != expectedInputType {
 			return false
 		}
+	}
+
+	if expectedOutputs.Cardinality() != outputs.Cardinality() {
+		return false
+	}
+
+	if !expectedOutputs.Equal(outputs) {
+		return false
 	}
 	return true
 }
@@ -178,4 +298,54 @@ func (v *contractSpecValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (str
 	}
 
 	return keyBase64, nil
+}
+
+// Helper function to get type name as string
+func getTypeName(scType xdr.ScSpecType) string {
+	switch scType {
+	case xdr.ScSpecTypeScSpecTypeBool:
+		return "bool"
+	case xdr.ScSpecTypeScSpecTypeU32:
+		return "u32"
+	case xdr.ScSpecTypeScSpecTypeI32:
+		return "i32"
+	case xdr.ScSpecTypeScSpecTypeU64:
+		return "u64"
+	case xdr.ScSpecTypeScSpecTypeI64:
+		return "i64"
+	case xdr.ScSpecTypeScSpecTypeU128:
+		return "u128"
+	case xdr.ScSpecTypeScSpecTypeI128:
+		return "i128"
+	case xdr.ScSpecTypeScSpecTypeU256:
+		return "u256"
+	case xdr.ScSpecTypeScSpecTypeI256:
+		return "i256"
+	case xdr.ScSpecTypeScSpecTypeAddress:
+		return "Address"
+	case xdr.ScSpecTypeScSpecTypeString:
+		return "String"
+	case xdr.ScSpecTypeScSpecTypeBytes:
+		return "Bytes"
+	case xdr.ScSpecTypeScSpecTypeSymbol:
+		return "Symbol"
+	case xdr.ScSpecTypeScSpecTypeVec:
+		return "Vec"
+	case xdr.ScSpecTypeScSpecTypeMap:
+		return "Map"
+	case xdr.ScSpecTypeScSpecTypeOption:
+		return "Option"
+	case xdr.ScSpecTypeScSpecTypeResult:
+		return "Result"
+	case xdr.ScSpecTypeScSpecTypeTuple:
+		return "Tuple"
+	case xdr.ScSpecTypeScSpecTypeBytesN:
+		return "BytesN"
+	case xdr.ScSpecTypeScSpecTypeUdt:
+		return "UDT"
+	case xdr.ScSpecTypeScSpecTypeVoid:
+		return "void"
+	default:
+		return "unknown"
+	}
 }
