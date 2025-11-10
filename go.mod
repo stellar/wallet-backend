@@ -6,6 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/99designs/gqlgen v0.17.76
+	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/alitto/pond v1.9.2
 	github.com/alitto/pond/v2 v2.5.0
 	github.com/avast/retry-go/v4 v4.6.1
@@ -162,6 +163,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
 	go.opencensus.io v0.24.0 // indirect

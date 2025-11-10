@@ -138,7 +138,7 @@ func (s *accountTokenService) GetCheckpointLedger() uint32 {
 // Warning: This is a long-running operation that may take several minutes.
 func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	defer s.contractSpecValidator.Close(ctx)
-	
+
 	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
 	if err != nil {
 		return err
