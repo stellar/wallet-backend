@@ -120,10 +120,10 @@ func (s *accountTokenService) GetContractType(ctx context.Context, contractID st
 	key := s.contractTypePrefix + contractID
 	tokenType, err := s.redisStore.Get(ctx, key)
 	if err != nil {
-		return types.ContractTypeCustom, fmt.Errorf("getting contract type for %s: %w", contractID, err)
+		return types.ContractTypeUnknown, fmt.Errorf("getting contract type for %s: %w", contractID, err)
 	}
 	if tokenType == "" {
-		return types.ContractTypeCustom, nil
+		return types.ContractTypeUnknown, nil
 	}
 	return types.ContractType(tokenType), nil
 }
@@ -199,7 +199,9 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 
 			switch contractDataEntry.Key.Type {
 			case xdr.ScValTypeScvVec:
-				// Extract the account/contract address from the contract data entry key
+				// Extract the account/contract address from the contract data entry key.
+				// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
+				// However, this could also be valid for any non-SEP41 contract that mimics the same format.
 				holderAddress, err := extractHolderAddress(contractDataEntry.Key)
 				if err != nil {
 					continue

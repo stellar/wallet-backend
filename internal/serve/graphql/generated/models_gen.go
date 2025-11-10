@@ -63,17 +63,6 @@ type CreateFeeBumpTransactionPayload struct {
 	NetworkPassphrase string `json:"networkPassphrase"`
 }
 
-type CustomBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
-	TokenType TokenType `json:"tokenType"`
-}
-
-func (CustomBalance) IsBalance()                   {}
-func (this CustomBalance) GetBalance() string      { return this.Balance }
-func (this CustomBalance) GetTokenID() string      { return this.TokenID }
-func (this CustomBalance) GetTokenType() TokenType { return this.TokenType }
-
 type DeregisterAccountInput struct {
 	Address string `json:"address"`
 }
@@ -138,6 +127,17 @@ func (SACBalance) IsBalance()                   {}
 func (this SACBalance) GetBalance() string      { return this.Balance }
 func (this SACBalance) GetTokenID() string      { return this.TokenID }
 func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
+
+type SEP41Balance struct {
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+}
+
+func (SEP41Balance) IsBalance()                   {}
+func (this SEP41Balance) GetBalance() string      { return this.Balance }
+func (this SEP41Balance) GetTokenID() string      { return this.TokenID }
+func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
 
 type SimulationResultInput struct {
 	TransactionData *string  `json:"transactionData,omitempty"`

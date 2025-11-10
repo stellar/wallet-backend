@@ -12,7 +12,6 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -368,55 +367,13 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				i128Parts := contractDataEntry.Val.MustI128()
 				balanceStr := amount.String128(i128Parts)
 
-				balances = append(balances, &graphql1.CustomBalance{
+				balances = append(balances, &graphql1.SEP41Balance{
 					TokenID:   tokenID,
 					Balance:   balanceStr,
 					TokenType: graphql1.TokenTypeSep41,
 				})
-			case types.ContractTypeCustom:
-				// Custom token balance (may be i128 or map without authorization fields)
-				var balanceStr string
-				switch contractDataEntry.Val.Type {
-				case xdr.ScValTypeScvI128:
-					// Simple i128 balance
-					i128Parts := contractDataEntry.Val.MustI128()
-					balanceStr = amount.String128(i128Parts)
-				case xdr.ScValTypeScvMap:
-					// Extract amount from map (custom tokens may use map structure)
-					balanceMap := contractDataEntry.Val.MustMap()
-					if balanceMap == nil {
-						return nil, fmt.Errorf("balance map is nil")
-					}
-
-					var amountFound bool
-					for _, entry := range *balanceMap {
-						if entry.Key.Type == xdr.ScValTypeScvSymbol {
-							keySymbol := entry.Key.MustSym()
-							if string(keySymbol) == "amount" {
-								if entry.Val.Type != xdr.ScValTypeScvI128 {
-									return nil, fmt.Errorf("amount field is not i128, got: %v", entry.Val.Type)
-								}
-								i128Parts := entry.Val.MustI128()
-								balanceStr = amount.String128(i128Parts)
-								amountFound = true
-								break
-							}
-						}
-					}
-
-					if !amountFound {
-						return nil, fmt.Errorf("amount field not found in custom balance map")
-					}
-				default:
-					return nil, fmt.Errorf("custom token balance must be i128 or map, got: %v", contractDataEntry.Val.Type)
-				}
-				balances = append(balances, &graphql1.CustomBalance{
-					TokenID:   tokenID,
-					Balance:   balanceStr,
-					TokenType: graphql1.TokenTypeCustom,
-				})
-			default:
-				return nil, fmt.Errorf("unknown token type: %v", tokenType)
+			case types.ContractTypeUnknown:
+				continue
 			}
 		}
 	}

@@ -35,7 +35,7 @@ type SACBalance implements Balance {
     isClawbackEnabled: Boolean!
 }
 
-type CustomBalance implements Balance {
+type SEP41Balance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!

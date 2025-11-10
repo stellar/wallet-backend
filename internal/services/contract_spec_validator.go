@@ -79,7 +79,7 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 			if isSep41 {
 				contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
 			} else {
-				contractTypesByWasmHash[wasmHash] = types.ContractTypeCustom
+				contractTypesByWasmHash[wasmHash] = types.ContractTypeUnknown
 			}
 		}
 	}
@@ -87,6 +87,31 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 }
 
 func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
+	/* 
+	For a contract to be SEP-41, it must atleast have the following functions and inputs/outputs:
+	- balance: (id: Address) -> (i128)
+	- allowance: (from: Address, spender: Address) -> (i128)
+	- decimals: () -> (u32)
+	- name: () -> (String)
+	- symbol: () -> (String)
+	- approve: (from: Address, spender: Address, amount: i128, live_until_ledger: u32) -> ()
+	- transfer: (from: Address, to: Address, amount: i128) -> ()
+	- transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
+	- burn: (from: Address, amount: i128) -> ()
+	- burn_from: (spender: Address, from: Address, amount: i128) -> ()
+	*/
+	requiredFunctions := map[string]bool{
+		"balance":       false,
+		"allowance":     false,
+		"decimals":      false,
+		"name":          false,
+		"symbol":        false,
+		"approve":       false,
+		"transfer":      false,
+		"transfer_from": false,
+		"burn":          false,
+		"burn_from":     false,
+	}
 	for _, spec := range contractSpec {
 		if spec.Kind == xdr.ScSpecEntryKindScSpecEntryFunctionV0 && spec.FunctionV0 != nil {
 			function := spec.FunctionV0
@@ -114,9 +139,9 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["balance"] = true
 			case "allowance":
 				expectedInputs := map[string]string{
-					"env":     "Env",
 					"from":    "Address",
 					"spender": "Address",
 				}
@@ -127,6 +152,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["allowance"] = true
 			case "decimals":
 				expectedInputs := map[string]string{}
 				expectedOutputs := set.NewSet(
@@ -136,6 +162,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["decimals"] = true
 			case "name":
 				expectedInputs := map[string]string{}
 				expectedOutputs := set.NewSet(
@@ -145,6 +172,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["name"] = true
 			case "symbol":
 				expectedInputs := map[string]string{}
 				expectedOutputs := set.NewSet(
@@ -154,18 +182,20 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["symbol"] = true
 			case "approve":
 				expectedInputs := map[string]string{
 					"from":              "Address",
 					"spender":           "Address",
 					"amount":            "i128",
-					"live_until_ledger": "u32",
+					"expiration_ledger": "u32",
 				}
 				expectedOutputs := set.NewSet[string]()
 
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["approve"] = true
 			case "transfer":
 				expectedInputs := map[string]string{
 					"from":   "Address",
@@ -177,6 +207,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["transfer"] = true
 			case "transfer_from":
 				expectedInputs := map[string]string{
 					"spender": "Address",
@@ -189,6 +220,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["transfer_from"] = true
 			case "burn":
 				expectedInputs := map[string]string{
 					"from":   "Address",
@@ -199,6 +231,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["burn"] = true
 			case "burn_from":
 				expectedInputs := map[string]string{
 					"spender": "Address",
@@ -210,9 +243,15 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
 					return false
 				}
+				requiredFunctions["burn_from"] = true
 			default:
-				return false
+				continue
 			}
+		}
+	}
+	for _, requiredFunction := range requiredFunctions {
+		if !requiredFunction {
+			return false
 		}
 	}
 	return true
