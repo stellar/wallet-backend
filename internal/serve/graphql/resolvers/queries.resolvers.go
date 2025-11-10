@@ -359,7 +359,21 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					IsAuthorized:      isAuthorized,
 					IsClawbackEnabled: isClawbackEnabled,
 				})
-			case types.ContractTypeCustom, types.ContractTypeSEP41:
+			case types.ContractTypeSEP41:
+				// SEP-41 token balance (must be direct i128 per SEP-41 spec)
+				if contractDataEntry.Val.Type != xdr.ScValTypeScvI128 {
+					return nil, fmt.Errorf("SEP-41 balance must be i128, got: %v", contractDataEntry.Val.Type)
+				}
+
+				i128Parts := contractDataEntry.Val.MustI128()
+				balanceStr := amount.String128(i128Parts)
+
+				balances = append(balances, &graphql1.CustomBalance{
+					TokenID:   tokenID,
+					Balance:   balanceStr,
+					TokenType: graphql1.TokenTypeSep41,
+				})
+			case types.ContractTypeCustom:
 				// Custom token balance (may be i128 or map without authorization fields)
 				var balanceStr string
 				switch contractDataEntry.Val.Type {
@@ -393,16 +407,13 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					if !amountFound {
 						return nil, fmt.Errorf("amount field not found in custom balance map")
 					}
-				}
-				// Native token is treaded as a separate case.
-				contractType := graphql1.TokenTypeSep41
-				if tokenID == MainnetNativeContractAddress {
-					contractType = graphql1.TokenTypeNative
+				default:
+					return nil, fmt.Errorf("custom token balance must be i128 or map, got: %v", contractDataEntry.Val.Type)
 				}
 				balances = append(balances, &graphql1.CustomBalance{
 					TokenID:   tokenID,
 					Balance:   balanceStr,
-					TokenType: contractType,
+					TokenType: graphql1.TokenTypeCustom,
 				})
 			default:
 				return nil, fmt.Errorf("unknown token type: %v", tokenType)
