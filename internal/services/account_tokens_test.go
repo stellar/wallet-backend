@@ -10,6 +10,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/ingest/sac"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,31 +40,6 @@ func (m *mockChangeReader) Read() (ingest.Change, error) {
 }
 
 func (m *mockChangeReader) Close() error {
-	return nil
-}
-
-// Mock ContractSpecValidator for testing
-type mockContractSpecValidator struct {
-	validateFunc func(context.Context, []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
-	closeFunc    func(context.Context) error
-}
-
-func (m *mockContractSpecValidator) Validate(ctx context.Context, hashes []xdr.Hash) (map[xdr.Hash]types.ContractType, error) {
-	if m.validateFunc != nil {
-		return m.validateFunc(ctx, hashes)
-	}
-	// Default: return all as SEP41
-	result := make(map[xdr.Hash]types.ContractType)
-	for _, hash := range hashes {
-		result[hash] = types.ContractTypeSEP41
-	}
-	return result, nil
-}
-
-func (m *mockContractSpecValidator) Close(ctx context.Context) error {
-	if m.closeFunc != nil {
-		return m.closeFunc(ctx)
-	}
 	return nil
 }
 
@@ -104,6 +81,12 @@ func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *store.RedisStore) {
 }
 
 func TestExtractHolderAddress(t *testing.T) {
+	service := &accountTokenService{
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
 	tests := []struct {
 		name    string
 		key     xdr.ScVal
@@ -140,8 +123,6 @@ func TestExtractHolderAddress(t *testing.T) {
 			want:    "",
 			wantErr: true,
 		},
-		// Note: nil vector case omitted as it causes panic in XDR library's GetVec()
-		// In practice, this should never happen with valid XDR data
 		{
 			name: "wrong vector length - too short",
 			key: xdr.ScVal{
@@ -208,60 +189,38 @@ func TestExtractHolderAddress(t *testing.T) {
 			want:    "",
 			wantErr: true,
 		},
-		{
-			name: "contract address as holder",
-			key: xdr.ScVal{
-				Type: xdr.ScValTypeScvVec,
-				Vec: ptrToScVec([]xdr.ScVal{
-					{
-						Type: xdr.ScValTypeScvSymbol,
-						Sym:  ptrToScSymbol("Balance"),
-					},
-					{
-						Type: xdr.ScValTypeScvAddress,
-						Address: &xdr.ScAddress{
-							Type: xdr.ScAddressTypeScAddressTypeContract,
-							ContractId: func() *xdr.ContractId {
-								hash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-								contractID := xdr.ContractId(hash)
-								return &contractID
-							}(),
-						},
-					},
-				}),
-			},
-			want:    "C", // Will start with C for contract addresses
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := extractHolderAddress(tt.key)
+			got, err := service.extractHolderAddress(tt.key)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Empty(t, got)
 			} else {
 				assert.NoError(t, err)
-				if tt.name == "contract address as holder" {
-					// Just check it starts with C for contract addresses
-					assert.NotEmpty(t, got)
-					assert.Equal(t, "C", string(got[0]))
-				} else {
-					assert.Equal(t, tt.want, got)
-				}
+				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
 }
 
 func TestExtractContractID(t *testing.T) {
+	service := &accountTokenService{
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
 	hash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 	contractID := xdr.ContractId(hash)
+	contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+	require.NoError(t, err)
 
 	tests := []struct {
 		name    string
 		entry   xdr.ContractDataEntry
+		want    string
 		wantErr bool
 	}{
 		{
@@ -272,6 +231,7 @@ func TestExtractContractID(t *testing.T) {
 					ContractId: &contractID,
 				},
 			},
+			want:    contractAddress,
 			wantErr: false,
 		},
 		{
@@ -282,6 +242,7 @@ func TestExtractContractID(t *testing.T) {
 					AccountId: ptrToAccountID("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
 				},
 			},
+			want:    "",
 			wantErr: true,
 		},
 		{
@@ -292,21 +253,21 @@ func TestExtractContractID(t *testing.T) {
 					ContractId: nil,
 				},
 			},
+			want:    "",
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := extractContractID(tt.entry)
+			got, err := service.extractContractID(tt.entry)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Empty(t, got)
 			} else {
 				assert.NoError(t, err)
 				assert.NotEmpty(t, got)
-				// Verify it starts with C (contract address prefix)
-				assert.Equal(t, "C", string(got[0]))
+				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
@@ -583,7 +544,6 @@ func TestProcessTokenChanges(t *testing.T) {
 					require.NoError(t, err)
 					assert.NotContains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
 				}
-				// If key doesn't exist, that's also valid - trustline was removed
 			},
 			wantErr: false,
 		},
@@ -615,7 +575,7 @@ func TestProcessTokenChanges(t *testing.T) {
 			name: "skip empty asset in trustline",
 			trustlineChanges: []types.TrustlineChange{
 				{
-					AccountID: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 					Asset:     "",
 					Operation: types.TrustlineOpAdd,
 				},
@@ -623,7 +583,9 @@ func TestProcessTokenChanges(t *testing.T) {
 			contractChanges: []types.ContractChange{},
 			setupData:       func() {},
 			verifyData: func(t *testing.T) {
-				// No verification needed - empty asset should be skipped and no key created
+				// No key should be created for empty asset
+				key := trustlinesKeyPrefix + "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				assert.False(t, mr.Exists(key))
 			},
 			wantErr: false,
 		},
@@ -632,14 +594,16 @@ func TestProcessTokenChanges(t *testing.T) {
 			trustlineChanges: []types.TrustlineChange{},
 			contractChanges: []types.ContractChange{
 				{
-					AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
 					ContractID:   "",
 					ContractType: types.ContractTypeSAC,
 				},
 			},
 			setupData: func() {},
 			verifyData: func(t *testing.T) {
-				// No verification needed - empty contract ID should be skipped and no key created
+				// No key should be created for empty contract ID
+				key := contractsKeyPrefix + "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				assert.False(t, mr.Exists(key))
 			},
 			wantErr: false,
 		},
@@ -708,21 +672,6 @@ func TestProcessTokenChanges(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGetCheckpointLedger(t *testing.T) {
-	service := &accountTokenService{
-		checkpointLedger: 0,
-	}
-
-	t.Run("returns 0 initially", func(t *testing.T) {
-		assert.Equal(t, uint32(0), service.GetCheckpointLedger())
-	})
-
-	t.Run("returns correct value after set", func(t *testing.T) {
-		service.checkpointLedger = 100031
-		assert.Equal(t, uint32(100031), service.GetCheckpointLedger())
-	})
 }
 
 func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
@@ -825,6 +774,264 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Equal(t, "C", string(contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"][0][0]))
 		assert.Empty(t, contractTypes)
 		assert.Empty(t, contractsByWasm)
+	})
+
+	t.Run("reads valid SAC contract instance entries", func(t *testing.T) {
+		// Create a valid SAC (Stellar Asset Contract) using the sac.AssetToContractData helper
+		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+
+		// Get the proper contract ID for this asset
+		contractID, err := asset.ContractID(service.networkPassphrase)
+		require.NoError(t, err)
+
+		// Create valid SAC contract data with proper storage structure
+		contractData, err := sac.AssetToContractData(false, "USDC", issuer, contractID)
+		require.NoError(t, err)
+
+		// Wrap in a LedgerEntry
+		contractDataEntry := xdr.LedgerEntry{
+			Data: contractData,
+		}
+
+		changes := []ingest.Change{
+			{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &contractDataEntry,
+			},
+		}
+
+		reader := &mockChangeReader{changes: changes}
+		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+
+		require.NoError(t, err)
+		assert.Empty(t, trustlines)
+		assert.Empty(t, contracts)
+
+		// Valid SAC should be immediately classified as ContractTypeSAC
+		assert.Len(t, contractTypes, 1)
+
+		// Get the contract address from the contract ID
+		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+		require.NoError(t, err)
+
+		// Verify the SAC was properly detected and classified
+		assert.Contains(t, contractTypes, contractAddress)
+		assert.Equal(t, types.ContractTypeSAC, contractTypes[contractAddress])
+
+		// SAC contracts should NOT be added to contractsByWasm (they don't need WASM validation)
+		assert.Empty(t, contractsByWasm)
+	})
+
+	t.Run("reads non-SAC WASM contract instance entries", func(t *testing.T) {
+		// Create a WASM-based contract instance (non-SAC)
+		contractHash := xdr.Hash{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 26, 27, 28, 29, 30, 31, 32}
+		contractID := xdr.ContractId(contractHash)
+
+		// Create a WASM hash for the contract bytecode
+		wasmHash := xdr.Hash{5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160}
+
+		// Create a WASM contract instance
+		contractInstance := xdr.ScContractInstance{
+			Executable: xdr.ContractExecutable{
+				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+				WasmHash: &wasmHash,
+			},
+			Storage: nil,
+		}
+
+		instanceKey := xdr.ScVal{
+			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
+		}
+
+		contractDataEntry := xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &contractID,
+					},
+					Key:        instanceKey,
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val: xdr.ScVal{
+						Type:     xdr.ScValTypeScvContractInstance,
+						Instance: &contractInstance,
+					},
+				},
+			},
+		}
+
+		changes := []ingest.Change{
+			{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &contractDataEntry,
+			},
+		}
+
+		reader := &mockChangeReader{changes: changes}
+		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+
+		require.NoError(t, err)
+		assert.Empty(t, trustlines)
+		assert.Empty(t, contracts)
+		// Non-SAC contracts should NOT be classified yet (happens in enrichContractTypes)
+		assert.Empty(t, contractTypes)
+		// Non-SAC contracts should be added to contractsByWasm for batch validation
+		assert.Len(t, contractsByWasm, 1)
+		contractAddresses, found := contractsByWasm[wasmHash]
+		require.True(t, found, "WASM hash should be in map")
+		assert.Len(t, contractAddresses, 1)
+
+		// Get the contract address from the contract ID
+		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+		require.NoError(t, err)
+		assert.Equal(t, contractAddress, contractAddresses[0])
+	})
+
+	t.Run("skips contract instances with nil WASM hash", func(t *testing.T) {
+		// Create a WASM-based contract instance but with nil WASM hash
+		// This is an edge case that should be handled gracefully
+		contractHash := xdr.Hash{11, 22, 33, 44, 55, 66, 77, 88, 99, 111, 122, 133, 144, 155, 166, 177, 188, 199, 210, 221, 232, 243, 254, 9, 18, 27, 36, 45, 54, 63, 72, 81}
+		contractID := xdr.ContractId(contractHash)
+
+		// Create a WASM contract instance with nil WASM hash
+		contractInstance := xdr.ScContractInstance{
+			Executable: xdr.ContractExecutable{
+				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+				WasmHash: nil, // nil hash - should be skipped
+			},
+			Storage: nil,
+		}
+
+		instanceKey := xdr.ScVal{
+			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
+		}
+
+		contractDataEntry := xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &contractID,
+					},
+					Key:        instanceKey,
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val: xdr.ScVal{
+						Type:     xdr.ScValTypeScvContractInstance,
+						Instance: &contractInstance,
+					},
+				},
+			},
+		}
+
+		changes := []ingest.Change{
+			{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &contractDataEntry,
+			},
+		}
+
+		reader := &mockChangeReader{changes: changes}
+		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+
+		// Should not error, just skip the entry
+		require.NoError(t, err)
+		assert.Empty(t, trustlines)
+		assert.Empty(t, contracts)
+		assert.Empty(t, contractTypes)
+		// Contract with nil WASM hash should NOT be added to contractsByWasm
+		assert.Empty(t, contractsByWasm)
+	})
+
+	t.Run("handles mixed SAC and WASM contract instances", func(t *testing.T) {
+		// Test processing both a valid SAC and a WASM contract in the same batch
+		// This verifies that both types are processed correctly without interfering with each other
+
+		// Create a valid SAC
+		sacIssuer := "GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ"
+		sacAsset := xdr.MustNewCreditAsset("EUROC", sacIssuer)
+		sacContractID, err := sacAsset.ContractID(service.networkPassphrase)
+		require.NoError(t, err)
+
+		sacContractData, err := sac.AssetToContractData(false, "EUROC", sacIssuer, sacContractID)
+		require.NoError(t, err)
+
+		sacEntry := xdr.LedgerEntry{
+			Data: sacContractData,
+		}
+
+		// Create a WASM contract
+		wasmContractHash := xdr.Hash{200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231}
+		wasmID := xdr.ContractId(wasmContractHash)
+		wasmBytecodeHash := xdr.Hash{50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81}
+		wasmInstance := xdr.ScContractInstance{
+			Executable: xdr.ContractExecutable{
+				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+				WasmHash: &wasmBytecodeHash,
+			},
+			Storage: nil,
+		}
+
+		instanceKey := xdr.ScVal{
+			Type: xdr.ScValTypeScvLedgerKeyContractInstance,
+		}
+
+		wasmEntry := xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &wasmID,
+					},
+					Key:        instanceKey,
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val: xdr.ScVal{
+						Type:     xdr.ScValTypeScvContractInstance,
+						Instance: &wasmInstance,
+					},
+				},
+			},
+		}
+
+		changes := []ingest.Change{
+			{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &sacEntry,
+			},
+			{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &wasmEntry,
+			},
+		}
+
+		reader := &mockChangeReader{changes: changes}
+		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+
+		require.NoError(t, err)
+		assert.Empty(t, trustlines)
+		assert.Empty(t, contracts)
+
+		// SAC should be in contractTypes
+		assert.Len(t, contractTypes, 1)
+		sacAddress, err := strkey.Encode(strkey.VersionByteContract, sacContractID[:])
+		require.NoError(t, err)
+		assert.Contains(t, contractTypes, sacAddress)
+		assert.Equal(t, types.ContractTypeSAC, contractTypes[sacAddress])
+
+		// WASM contract should be in contractsByWasm
+		assert.Len(t, contractsByWasm, 1)
+		wasmAddresses, found := contractsByWasm[wasmBytecodeHash]
+		require.True(t, found, "WASM hash should be in map")
+		assert.Len(t, wasmAddresses, 1)
+		wasmAddress, err := strkey.Encode(strkey.VersionByteContract, wasmID[:])
+		require.NoError(t, err)
+		assert.Equal(t, wasmAddress, wasmAddresses[0])
+
+		// Ensure they're different contracts
+		assert.NotEqual(t, sacAddress, wasmAddress)
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {

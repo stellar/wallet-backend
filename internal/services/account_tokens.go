@@ -365,14 +365,14 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				// Extract the account/contract address from the contract data entry key.
 				// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
 				// However, this could also be valid for any non-SEP41 contract that mimics the same format.
-				holderAddress, err := extractHolderAddress(contractDataEntry.Key)
+				holderAddress, err := s.extractHolderAddress(contractDataEntry.Key)
 				if err != nil {
 					log.Ctx(ctx).Debugf("Failed to extract holder address: %v", err)
 					continue
 				}
 
 				// Extract the contract ID from the contract data entry
-				contractAddress, err := extractContractID(contractDataEntry)
+				contractAddress, err := s.extractContractID(contractDataEntry)
 				if err != nil {
 					log.Ctx(ctx).Debugf("Failed to extract contract ID: %v", err)
 					continue
@@ -384,7 +384,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
 				// Extract the contract ID from the contract data entry
-				contractAddress, err := extractContractID(contractDataEntry)
+				contractAddress, err := s.extractContractID(contractDataEntry)
 				if err != nil {
 					log.Ctx(ctx).Debugf("Failed to extract contract ID from instance: %v", err)
 					continue
@@ -522,7 +522,7 @@ func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32,
 // - First element: ScSymbol("Balance")
 // - Second element: ScAddress (the account/contract holder address)
 // Returns the holder address as a Stellar-encoded string, or empty string if invalid.
-func extractHolderAddress(key xdr.ScVal) (string, error) {
+func (s *accountTokenService) extractHolderAddress(key xdr.ScVal) (string, error) {
 	// Verify the key is a vector
 	keyVecPtr, ok := key.GetVec()
 	if !ok || keyVecPtr == nil {
@@ -559,7 +559,7 @@ func extractHolderAddress(key xdr.ScVal) (string, error) {
 
 // extractContractID extracts the contract ID from a ContractData entry and returns it
 // as a Stellar-encoded contract address (C...).
-func extractContractID(contractData xdr.ContractDataEntry) (string, error) {
+func (s *accountTokenService) extractContractID(contractData xdr.ContractDataEntry) (string, error) {
 	// Check if the Contract field is of type CONTRACT (not ACCOUNT)
 	if contractData.Contract.Type != xdr.ScAddressTypeScAddressTypeContract {
 		return "", fmt.Errorf("contract address type is %v, expected ScAddressTypeContract", contractData.Contract.Type)
