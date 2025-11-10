@@ -579,13 +579,6 @@ func TestProcessTokenChanges(t *testing.T) {
 	}
 }
 
-// TestGetLatestCheckpointLedger tests the helper function
-// Note: This test is skipped because it requires a full ArchiveInterface implementation.
-// The function is tested indirectly through PopulateAccountTokens integration tests.
-func TestGetLatestCheckpointLedger(t *testing.T) {
-	t.Skip("Requires full ArchiveInterface implementation; tested via integration tests")
-}
-
 func TestKeyBuildingHelpers(t *testing.T) {
 	service := &accountTokenService{
 		trustlinesPrefix:   trustlinesKeyPrefix,
