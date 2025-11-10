@@ -23,11 +23,17 @@ type ContractSpecValidator interface {
 
 type contractSpecValidator struct {
 	rpcService RPCService
+	runtime    wazero.Runtime
 }
 
 func NewContractSpecValidator(rpcService RPCService) ContractSpecValidator {
+	// Create wazero runtime with custom sections enabled
+	config := wazero.NewRuntimeConfig().WithCustomSections(true)
+	runtime := wazero.NewRuntimeWithConfig(context.Background(), config)
+
 	return &contractSpecValidator{
 		rpcService: rpcService,
+		runtime:    runtime,
 	}
 }
 
@@ -45,8 +51,6 @@ func (v *contractSpecValidator) Validate(ctx context.Context, wasmHashes []xdr.H
 	for i := 0; i < len(ledgerKeys); i += getLedgerEntriesBatchSize {
 		end := min(i+getLedgerEntriesBatchSize, len(ledgerKeys))
 		batch := ledgerKeys[i:end]
-
-		log.Ctx(ctx).Infof("Validating WASM batch %d-%d of %d", i+1, end, len(ledgerKeys))
 
 		entries, err := v.rpcService.GetLedgerEntries(batch)
 		if err != nil {
@@ -116,23 +120,13 @@ func (v *contractSpecValidator) isContractCodeSEP41(wasmCode []byte) bool {
 }
 
 func (v *contractSpecValidator) extractContractSpecFromWasmCode(wasmCode []byte) ([]xdr.ScSpecEntry, error) {
-	// Create wazero runtime with custom sections enabled
-	ctx := context.Background()
-	config := wazero.NewRuntimeConfig().WithCustomSections(true)
-	runtime := wazero.NewRuntimeWithConfig(ctx, config)
-	defer func() {
-		if err := runtime.Close(ctx); err != nil {
-			log.Warnf("Failed to close wazero runtime: %v", err)
-		}
-	}()
-
 	// Compile WASM module (validates structure and won't panic)
-	compiledModule, err := runtime.CompileModule(ctx, wasmCode)
+	compiledModule, err := v.runtime.CompileModule(context.Background(), wasmCode)
 	if err != nil {
 		return nil, fmt.Errorf("compiling WASM module: %w", err)
 	}
 	defer func() {
-		if err := compiledModule.Close(ctx); err != nil {
+		if err := compiledModule.Close(context.Background()); err != nil {
 			log.Warnf("Failed to close compiled module: %v", err)
 		}
 	}()

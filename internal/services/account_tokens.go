@@ -164,7 +164,8 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	// contracts is a map of both G-... and C-... contract addresses to a list of contract info
 	contracts := make(map[string][]string)
 	// contractTypes tracks the token type for each unique contract ID
-	contractTypes := make(map[string]types.ContractType)
+	contractTypesByContractID := make(map[string]types.ContractType)
+	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
 	contractIDsByWasmHash := make(map[xdr.Hash][]string)
 	uniqueWasmHashes := set.NewSet[xdr.Hash]()
 	entries := 0
@@ -223,7 +224,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 				ledgerEntry := change.Post
 				_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
 				if isSAC {
-					contractTypes[contractAddress] = types.ContractTypeSAC // Verified SAC
+					contractTypesByContractID[contractAddress] = types.ContractTypeSAC // Verified SAC
 				} else {
 					contractInstance := contractDataEntry.Val.MustInstance()
 					if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
@@ -246,18 +247,18 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	log.Ctx(ctx).Infof("Processed %d checkpoint entries in %.2f minutes", entries, time.Since(startTime).Minutes())
 
 	// Validate the contract spec against known contract types
-	contractTypesByWasmHash, err := s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
+	contractTypesByWasmHash, err = s.contractSpecValidator.Validate(ctx, uniqueWasmHashes.ToSlice())
 	if err != nil {
 		return fmt.Errorf("validating contract spec: %w", err)
 	}
 	for wasmHash, contractType := range contractTypesByWasmHash {
 		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
-			contractTypes[contractAddress] = contractType
+			contractTypesByContractID[contractAddress] = contractType
 		}
 	}
 
 	startTime = time.Now()
-	operations := make([]store.RedisPipelineOperation, 0, len(trustlines)+len(contracts)+len(contractTypes))
+	operations := make([]store.RedisPipelineOperation, 0, len(trustlines)+len(contracts)+len(contractTypesByContractID)+len(contractTypesByWasmHash))
 	for accountAddress, assets := range trustlines {
 		operations = append(operations, store.RedisPipelineOperation{
 			Op:      store.SetOpAdd,
@@ -272,10 +273,17 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 			Members: contractAddresses,
 		})
 	}
-	for contractID, contractType := range contractTypes {
+	for contractID, contractType := range contractTypesByContractID {
 		operations = append(operations, store.RedisPipelineOperation{
 			Op:    store.OpSet,
 			Key:   s.contractTypePrefix + contractID,
+			Value: string(contractType),
+		})
+	}
+	for wasmHash, contractType := range contractTypesByWasmHash {
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:    store.OpSet,
+			Key:   s.contractTypePrefix + wasmHash.HexString(),
 			Value: string(contractType),
 		})
 	}
