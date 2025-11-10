@@ -94,7 +94,7 @@ func (v *contractSpecValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEnt
 	- decimals: () -> (u32)
 	- name: () -> (String)
 	- symbol: () -> (String)
-	- approve: (from: Address, spender: Address, amount: i128, live_until_ledger: u32) -> ()
+	- approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
 	- transfer: (from: Address, to: Address, amount: i128) -> ()
 	- transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 	- burn: (from: Address, amount: i128) -> ()
