@@ -2,11 +2,11 @@
 package resolvers
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
-	"bytes"
-	"encoding/base64"
 	"testing"
 
 	"github.com/stellar/go/xdr"
@@ -14,21 +14,22 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/go/strkey"
+
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/go/strkey"
 )
 
 const (
-	testAccountAddress    = "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-	testContractAddress   = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
-	testSACContractAddress    = "CBHBD77PWZ3AXPQVYVDBHDKEMVNOR26UZUZHWCB6QC7J5SETQPRUQAS4"
-	testSEP41ContractAddress  = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
-	testUSDCIssuer        = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-	testEURIssuer         = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
-	testNetworkPassphrase = "Test SDF Network ; September 2015"
+	testAccountAddress       = "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	testContractAddress      = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
+	testSACContractAddress   = "CBHBD77PWZ3AXPQVYVDBHDKEMVNOR26UZUZHWCB6QC7J5SETQPRUQAS4"
+	testSEP41ContractAddress = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
+	testUSDCIssuer           = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	testEURIssuer            = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
+	testNetworkPassphrase    = "Test SDF Network ; September 2015"
 )
 
 // Helper to create ScSymbol pointer
@@ -76,7 +77,7 @@ func encodeLedgerEntryDataToBase64(data xdr.LedgerEntryData) string {
 }
 
 // createAccountLedgerEntry creates a base64 encoded account ledger entry with native balance
-func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntryResult {
+func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntryResult { //nolint:unparam
 	accountID := xdr.MustAddress(address)
 	accountEntry := xdr.AccountEntry{
 		AccountId:     accountID,
@@ -98,7 +99,7 @@ func createAccountLedgerEntry(address string, balance int64) entities.LedgerEntr
 }
 
 // createTrustlineLedgerEntry creates a base64 encoded trustline ledger entry
-func createTrustlineLedgerEntry(accountAddress, assetCode, assetIssuer string, balance, limit int64, flags uint32, buyingLiabilities, sellingLiabilities int64) entities.LedgerEntryResult {
+func createTrustlineLedgerEntry(accountAddress, assetCode, assetIssuer string, balance, limit int64, flags uint32, buyingLiabilities, sellingLiabilities int64) entities.LedgerEntryResult { //nolint:unparam
 	accountID := xdr.MustAddress(accountAddress)
 	asset := xdr.MustNewCreditAsset(assetCode, assetIssuer)
 	trustlineAsset := asset.ToTrustLineAsset()
@@ -233,7 +234,7 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 }
 
 // createSEP41ContractDataEntry creates a SEP-41 balance entry (direct i128)
-func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderContract bool, amount int64) entities.LedgerEntryResult {
+func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderContract bool, amount int64) entities.LedgerEntryResult { //nolint:unparam
 	// Decode contract ID from strkey
 	contractHash := contractIDToHash(contractID)
 
@@ -249,7 +250,7 @@ func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderCont
 	} else {
 		holderAccountID := xdr.MustAddress(holderAddress)
 		holderScAddress = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeAccount,
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
 			AccountId: &holderAccountID,
 		}
 	}
@@ -262,7 +263,7 @@ func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderCont
 				Sym:  balanceSymbol,
 			},
 			{
-				Type: xdr.ScValTypeScvAddress,
+				Type:    xdr.ScValTypeScvAddress,
 				Address: &holderScAddress,
 			},
 		}),
