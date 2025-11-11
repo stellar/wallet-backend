@@ -33,11 +33,13 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
 const (
 	walletBackendAPIContainerName    = "wallet-backend-api"
 	walletBackendIngestContainerName = "wallet-backend-ingest"
+	redisContainerName               = "redis"
 	walletBackendContainerAPIPort    = "8002"
 	walletBackendContainerIngestPort = "8003"
 	walletBackendContainerTag        = "integration-test"
@@ -179,6 +181,7 @@ type SharedContainers struct {
 	StellarCoreContainer          *TestContainer
 	RPCContainer                  *TestContainer
 	WalletDBContainer             *TestContainer
+	RedisContainer                *TestContainer
 	WalletBackendContainer        *WalletBackendContainer
 	clientAuthKeyPair             *keypair.Full
 	primarySourceAccountKeyPair   *keypair.Full
@@ -198,6 +201,9 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Create network
 	var err error
 	shared.TestNetwork, err = network.New(ctx)
+	require.NoError(t, err)
+
+	shared.RedisContainer, err = createRedisContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
 	// Start PostgreSQL for Stellar Core
@@ -485,6 +491,29 @@ func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, versi
 
 	log.Ctx(ctx).Infof("⬆️  Triggered Stellar Core protocol upgrade to version %d", version)
 	return nil
+}
+
+func createRedisContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+	redisContainer, err := tcredis.Run(ctx, "redis:7-alpine",
+		network.WithNetwork([]string{redisContainerName}, testNetwork),
+		testcontainers.WithName(redisContainerName),
+		testcontainers.WithLabels(map[string]string{
+			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+		}),
+		testcontainers.WithExposedPorts("6379/tcp"),
+		testcontainers.WithWaitStrategy(
+			wait.ForListeningPort("6379/tcp"),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating redis container: %w", err)
+	}
+	log.Ctx(ctx).Infof("🔄 Created Redis container")
+
+	return &TestContainer{
+		Container:     redisContainer,
+		MappedPortStr: "6379",
+	}, nil
 }
 
 // createCoreDBContainer starts a PostgreSQL container for Stellar Core
