@@ -23,7 +23,9 @@ import (
 
 const (
 	testAccountAddress    = "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
-	testContractAddress   = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+	testContractAddress   = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
+	testSACContractAddress    = "CBHBD77PWZ3AXPQVYVDBHDKEMVNOR26UZUZHWCB6QC7J5SETQPRUQAS4"
+	testSEP41ContractAddress  = "CAZXRTOKNUQ2JQQF3NCRU7GYMDJNZ2NMQN6IGN4FCT5DWPODMPVEXSND"
 	testUSDCIssuer        = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	testEURIssuer         = "GCEODJVUUVYVFD5KT4TOEDTMXQ76OPFOQC2EMYYMLPXQCUVPOB6XRWPQ"
 	testNetworkPassphrase = "Test SDF Network ; September 2015"
@@ -231,12 +233,26 @@ func createSACContractDataEntry(contractID, holderAddress string, amount int64, 
 }
 
 // createSEP41ContractDataEntry creates a SEP-41 balance entry (direct i128)
-func createSEP41ContractDataEntry(contractID, holderAddress string, amount int64) entities.LedgerEntryResult {
+func createSEP41ContractDataEntry(contractID, holderAddress string, isHolderContract bool, amount int64) entities.LedgerEntryResult {
 	// Decode contract ID from strkey
 	contractHash := contractIDToHash(contractID)
 
 	// Create balance key [Symbol("Balance"), Address(holder)]
-	holderAccountID := xdr.MustAddress(holderAddress)
+	var holderScAddress xdr.ScAddress
+	if isHolderContract {
+		holderContractHash := contractIDToHash(holderAddress)
+		holderContractID := xdr.ContractId(holderContractHash)
+		holderScAddress = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &holderContractID,
+		}
+	} else {
+		holderAccountID := xdr.MustAddress(holderAddress)
+		holderScAddress = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: &holderAccountID,
+		}
+	}
 	balanceSymbol := ptrToScSymbol("Balance")
 	balanceKey := xdr.ScVal{
 		Type: xdr.ScValTypeScvVec,
@@ -247,10 +263,7 @@ func createSEP41ContractDataEntry(contractID, holderAddress string, amount int64
 			},
 			{
 				Type: xdr.ScValTypeScvAddress,
-				Address: &xdr.ScAddress{
-					Type:      xdr.ScAddressTypeScAddressTypeAccount,
-					AccountId: &holderAccountID,
-				},
+				Address: &holderScAddress,
 			},
 		}),
 	}
@@ -413,14 +426,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		// Setup mocks
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]string{}, nil)
 		mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).
-			Return([]string{testContractAddress}, nil)
-		mockAccountTokenService.On("GetContractType", ctx, testContractAddress).
+			Return([]string{testSACContractAddress}, nil)
+		mockAccountTokenService.On("GetContractType", ctx, testSACContractAddress).
 			Return(types.ContractTypeSAC, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Create ledger entries
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		sacEntry := createSACContractDataEntry(testContractAddress, testAccountAddress, 25000000000, true, false)
+		sacEntry := createSACContractDataEntry(testSACContractAddress, testAccountAddress, 25000000000, true, false)
 
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
 			return len(keys) == 2 // account + 1 contract
@@ -444,7 +457,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "2500.0000000", sacBalance.Balance)
 		assert.Equal(t, graphql1.TokenTypeSac, sacBalance.TokenType)
-		assert.Equal(t, testContractAddress, sacBalance.TokenID)
+		assert.Equal(t, testSACContractAddress, sacBalance.TokenID)
 		assert.True(t, sacBalance.IsAuthorized)
 		assert.False(t, sacBalance.IsClawbackEnabled)
 	})
@@ -457,14 +470,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		// Setup mocks
 		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).Return([]string{}, nil)
 		mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).
-			Return([]string{testContractAddress}, nil)
-		mockAccountTokenService.On("GetContractType", ctx, testContractAddress).
+			Return([]string{testSEP41ContractAddress}, nil)
+		mockAccountTokenService.On("GetContractType", ctx, testSEP41ContractAddress).
 			Return(types.ContractTypeSEP41, nil)
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		// Create ledger entries
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		sep41Entry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, 50000000000)
+		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testAccountAddress, false, 50000000000)
 
 		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
 			return len(keys) == 2 // account + 1 contract
@@ -488,94 +501,90 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "5000.0000000", sep41Balance.Balance)
 		assert.Equal(t, graphql1.TokenTypeSep41, sep41Balance.TokenType)
-		assert.Equal(t, testContractAddress, sep41Balance.TokenID)
+		assert.Equal(t, testSEP41ContractAddress, sep41Balance.TokenID)
 	})
 
-	// t.Run("success - mixed balances (native + trustlines + SAC + SEP-41)", func(t *testing.T) {
-	// 	ctx := context.Background()
-	// 	mockAccountTokenService := services.NewAccountTokenServiceMock(t)
-	// 	mockRPCService := services.NewRPCServiceMock(t)
+	t.Run("success - mixed balances (native + trustlines + SAC + SEP-41)", func(t *testing.T) {
+		ctx := context.Background()
+		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
+		mockRPCService := services.NewRPCServiceMock(t)
 
-	// 	sacContractAddress := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-	// 	sep41ContractAddress := "CDU3PZ6SIEUQVHA5XNJM7GXESMMFMZH7R4YTX4J4DDQFCV5DRUPF7ONA"
+		// Setup mocks
+		mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).
+			Return([]string{"USDC:" + testUSDCIssuer}, nil)
+		mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).
+			Return([]string{testSACContractAddress, testSEP41ContractAddress}, nil)
+		mockAccountTokenService.On("GetContractType", ctx, testSACContractAddress).
+			Return(types.ContractTypeSAC, nil)
+		mockAccountTokenService.On("GetContractType", ctx, testSEP41ContractAddress).
+			Return(types.ContractTypeSEP41, nil)
+		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
-	// 	// Setup mocks
-	// 	mockAccountTokenService.On("GetAccountTrustlines", ctx, testAccountAddress).
-	// 		Return([]string{"USDC:" + testUSDCIssuer}, nil)
-	// 	mockAccountTokenService.On("GetAccountContracts", ctx, testAccountAddress).
-	// 		Return([]string{sacContractAddress, sep41ContractAddress}, nil)
-	// 	mockAccountTokenService.On("GetContractType", ctx, sacContractAddress).
-	// 		Return(types.ContractTypeSAC, nil)
-	// 	mockAccountTokenService.On("GetContractType", ctx, sep41ContractAddress).
-	// 		Return(types.ContractTypeSEP41, nil)
-	// 	mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
+		// Create all ledger entries
+		accountEntry := createAccountLedgerEntry(testAccountAddress, 2000000000)
+		usdcTrustline := createTrustlineLedgerEntry(testAccountAddress, "USDC", testUSDCIssuer, 1000000000, 10000000000, uint32(xdr.TrustLineFlagsAuthorizedFlag), 0, 0)
+		sacEntry := createSACContractDataEntry(testSACContractAddress, testAccountAddress, 15000000000, true, true)
+		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testAccountAddress, false, 30000000000)
 
-	// 	// Create all ledger entries
-	// 	accountEntry := createAccountLedgerEntry(testAccountAddress, 2000000000)
-	// 	usdcTrustline := createTrustlineLedgerEntry(testAccountAddress, "USDC", testUSDCIssuer, 1000000000, 10000000000, uint32(xdr.TrustLineFlagsAuthorizedFlag), 0, 0)
-	// 	sacEntry := createSACContractDataEntry(sacContractAddress, testAccountAddress, 15000000000, true, true)
-	// 	sep41Entry := createSEP41ContractDataEntry(sep41ContractAddress, testAccountAddress, 30000000000)
+		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+			return len(keys) == 4 // account + trustline + 2 contracts
+		})).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{accountEntry, usdcTrustline, sacEntry, sep41Entry},
+		}, nil)
 
-	// 	mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-	// 		return len(keys) == 4 // account + trustline + 2 contracts
-	// 	})).Return(entities.RPCGetLedgerEntriesResult{
-	// 		Entries: []entities.LedgerEntryResult{accountEntry, usdcTrustline, sacEntry, sep41Entry},
-	// 	}, nil)
+		resolver := &queryResolver{
+			&Resolver{
+				accountTokenService: mockAccountTokenService,
+				rpcService:          mockRPCService,
+			},
+		}
 
-	// 	resolver := &queryResolver{
-	// 		&Resolver{
-	// 			accountTokenService: mockAccountTokenService,
-	// 			rpcService:          mockRPCService,
-	// 		},
-	// 	}
+		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
+		require.NoError(t, err)
+		require.Len(t, balances, 4)
 
-	// 	balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
-	// 	require.NoError(t, err)
-	// 	require.Len(t, balances, 4)
+		// Verify all balance types are present
+		assert.IsType(t, &graphql1.NativeBalance{}, balances[0])
+		assert.IsType(t, &graphql1.TrustlineBalance{}, balances[1])
+		assert.IsType(t, &graphql1.SACBalance{}, balances[2])
+		assert.IsType(t, &graphql1.SEP41Balance{}, balances[3])
+	})
 
-	// 	// Verify all balance types are present
-	// 	assert.IsType(t, &graphql1.NativeBalance{}, balances[0])
-	// 	assert.IsType(t, &graphql1.TrustlineBalance{}, balances[1])
-	// 	assert.IsType(t, &graphql1.SACBalance{}, balances[2])
-	// 	assert.IsType(t, &graphql1.SEP41Balance{}, balances[3])
-	// })
+	t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
+		ctx := context.Background()
+		mockAccountTokenService := services.NewAccountTokenServiceMock(t)
+		mockRPCService := services.NewRPCServiceMock(t)
 
-	// t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
-	// 	ctx := context.Background()
-	// 	mockAccountTokenService := services.NewAccountTokenServiceMock(t)
-	// 	mockRPCService := services.NewRPCServiceMock(t)
+		// For contract addresses, GetAccountTrustlines should NOT be called
+		// Only GetAccountContracts
+		mockAccountTokenService.On("GetAccountContracts", ctx, testSEP41ContractAddress).
+			Return([]string{testSEP41ContractAddress}, nil)
+		mockAccountTokenService.On("GetContractType", ctx, testSEP41ContractAddress).
+			Return(types.ContractTypeSEP41, nil)
 
-	// 	// For contract addresses, GetAccountTrustlines should NOT be called
-	// 	// Only GetAccountContracts
-	// 	mockAccountTokenService.On("GetAccountContracts", ctx, testContractAddress).
-	// 		Return([]string{testContractAddress}, nil)
-	// 	mockAccountTokenService.On("GetContractType", ctx, testContractAddress).
-	// 		Return(types.ContractTypeSEP41, nil)
-	// 	mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
+		sep41Entry := createSEP41ContractDataEntry(testSEP41ContractAddress, testContractAddress, true, 10000000000)
 
-	// 	sep41Entry := createSEP41ContractDataEntry(testContractAddress, testContractAddress, 10000000000)
+		mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+			return len(keys) == 1 // Only contract data, no account key
+		})).Return(entities.RPCGetLedgerEntriesResult{
+			Entries: []entities.LedgerEntryResult{sep41Entry},
+		}, nil)
 
-	// 	mockRPCService.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
-	// 		return len(keys) == 1 // Only contract data, no account key
-	// 	})).Return(entities.RPCGetLedgerEntriesResult{
-	// 		Entries: []entities.LedgerEntryResult{sep41Entry},
-	// 	}, nil)
+		resolver := &queryResolver{
+			&Resolver{
+				accountTokenService: mockAccountTokenService,
+				rpcService:          mockRPCService,
+			},
+		}
 
-	// 	resolver := &queryResolver{
-	// 		&Resolver{
-	// 			accountTokenService: mockAccountTokenService,
-	// 			rpcService:          mockRPCService,
-	// 		},
-	// 	}
+		balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
+		require.NoError(t, err)
+		require.Len(t, balances, 1)
 
-	// 	balances, err := resolver.BalancesByAccountAddress(ctx, testContractAddress)
-	// 	require.NoError(t, err)
-	// 	require.Len(t, balances, 1)
-
-	// 	sep41Balance, ok := balances[0].(*graphql1.SEP41Balance)
-	// 	require.True(t, ok)
-	// 	assert.Equal(t, "1000.0000000", sep41Balance.Balance)
-	// })
+		sep41Balance, ok := balances[0].(*graphql1.SEP41Balance)
+		require.True(t, ok)
+		assert.Equal(t, "1000.0000000", sep41Balance.Balance)
+	})
 
 	t.Run("success - trustline with V0 extension (no liabilities)", func(t *testing.T) {
 		ctx := context.Background()
@@ -719,7 +728,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		contractEntry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, 10000000000)
+		contractEntry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, false, 10000000000)
 
 		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
 			Entries: []entities.LedgerEntryResult{accountEntry, contractEntry},
@@ -900,7 +909,7 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		mockRPCService.On("NetworkPassphrase").Return(testNetworkPassphrase)
 
 		accountEntry := createAccountLedgerEntry(testAccountAddress, 1000000000)
-		contractEntry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, 10000000000)
+		contractEntry := createSEP41ContractDataEntry(testContractAddress, testAccountAddress, false, 10000000000)
 
 		mockRPCService.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
 			Entries: []entities.LedgerEntryResult{accountEntry, contractEntry},

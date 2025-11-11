@@ -385,7 +385,6 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				// Extract the contract ID from the contract data entry
 				contractAddress, err := s.extractContractID(contractDataEntry)
 				if err != nil {
 					log.Ctx(ctx).Debugf("Failed to extract contract ID from instance: %v", err)
