@@ -242,6 +242,12 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 		shared.distributionAccountKeyPair,
 	})
 
+	// Create test trustlines for primary and secondary accounts
+	shared.createTestTrustlines(ctx, t, []*keypair.Full{
+		shared.primarySourceAccountKeyPair,
+		shared.secondarySourceAccountKeyPair,
+	})
+
 	// Deploy native asset SAC so it can be used in smart contract operations
 	shared.deployNativeAssetSAC(ctx, t)
 
@@ -463,6 +469,78 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	// Log funded accounts
 	for _, kp := range accounts {
 		log.Ctx(ctx).Infof("💰 Funded account: %s", kp.Address())
+	}
+}
+
+// createTestTrustlines creates test trustlines for specified accounts
+func (s *SharedContainers) createTestTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+	// Create test asset issued by master account
+	testAsset := txnbuild.CreditAsset{
+		Code:   "USDC",
+		Issuer: s.masterKeyPair.Address(),
+	}
+
+	// Build ChangeTrust operations for all accounts
+	ops := make([]txnbuild.Operation, len(accounts))
+	for i, kp := range accounts {
+		ops[i] = &txnbuild.ChangeTrust{
+			Line: txnbuild.ChangeTrustAssetWrapper{
+				Asset: testAsset,
+			},
+			Limit:         "1000000", // 1 million units
+			SourceAccount: kp.Address(),
+		}
+	}
+
+	// Build transaction with all operations
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           ops,
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
+		},
+	})
+	require.NoError(t, err)
+
+	// Sign with master key and each account's key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err)
+	for _, kp := range accounts {
+		tx, err = tx.Sign(networkPassphrase, kp)
+		require.NoError(t, err)
+	}
+
+	// Get RPC URL and submit
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err)
+
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+
+	// Submit transaction to RPC
+	client := &http.Client{Timeout: 30 * time.Second}
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit trustline creation transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "trustline creation transaction failed with status: %s", sendResult.Status)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "trustline creation transaction not confirmed after 10 seconds")
+
+	// Log created trustlines
+	for _, kp := range accounts {
+		log.Ctx(ctx).Infof("🔗 Created trustline for account %s: %s:%s", kp.Address(), testAsset.Code, testAsset.Issuer)
 	}
 }
 
