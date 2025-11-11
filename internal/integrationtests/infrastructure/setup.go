@@ -736,8 +736,8 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
 			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
-			"REDIS_HOST":                               "redis",
-			"REDIS_PORT":                               "6379",
+			"REDIS_HOST":                              "redis",
+			"REDIS_PORT":                              "6379",
 		},
 		Networks: []string{testNetwork.Name},
 	}
