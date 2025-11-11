@@ -165,11 +165,11 @@ func createNonSEP41ContractSpec() []xdr.ScSpecEntry {
 
 // createValidWasmWithSpec creates a minimal valid WASM module with contractspecv0 custom section
 func createValidWasmWithSpec(spec []xdr.ScSpecEntry) []byte {
-	/* 
-	Minimal valid WASM module structure
-	Magic number: 0x00 0x61 0x73 0x6D (wasm). 
-	The WASM magic number 0x00 0x61 0x73 0x6D is the file signature that identifies a WebAssembly binary module.
-	Version: 0x01 0x00 0x00 0x00
+	/*
+		Minimal valid WASM module structure
+		Magic number: 0x00 0x61 0x73 0x6D (wasm).
+		The WASM magic number 0x00 0x61 0x73 0x6D is the file signature that identifies a WebAssembly binary module.
+		Version: 0x01 0x00 0x00 0x00
 	*/
 	var buf bytes.Buffer
 	buf.Write([]byte{0x00, 0x61, 0x73, 0x6D}) // Magic number
