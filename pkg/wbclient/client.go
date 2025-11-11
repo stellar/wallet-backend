@@ -120,6 +120,10 @@ type OperationStateChangesData struct {
 	} `json:"operationById"`
 }
 
+type BalancesByAccountAddressData struct {
+	BalancesByAccountAddress []json.RawMessage `json:"balancesByAccountAddress"`
+}
+
 // QueryOptions allows clients to specify which fields to fetch for each entity type
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch
@@ -625,6 +629,29 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	}
 
 	return data.OperationByID.StateChanges, nil
+}
+
+func (c *Client) GetBalancesByAccountAddress(ctx context.Context, address string) ([]types.Balance, error) {
+	variables := map[string]any{
+		"address": address,
+	}
+
+	data, err := executeGraphQL[BalancesByAccountAddressData](c, ctx, buildBalancesByAccountAddressQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal each raw balance into the appropriate concrete type
+	balances := make([]types.Balance, 0, len(data.BalancesByAccountAddress))
+	for i, rawBalance := range data.BalancesByAccountAddress {
+		balance, err := types.UnmarshalBalance(rawBalance)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshaling balance %d: %w", i, err)
+		}
+		balances = append(balances, balance)
+	}
+
+	return balances, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {

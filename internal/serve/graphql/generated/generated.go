@@ -2020,7 +2020,6 @@ enum TokenType {
   CLASSIC
   SAC
   SEP41
-  CUSTOM
 }
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries

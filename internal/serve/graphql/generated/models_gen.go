@@ -195,7 +195,6 @@ const (
 	TokenTypeClassic TokenType = "CLASSIC"
 	TokenTypeSac     TokenType = "SAC"
 	TokenTypeSep41   TokenType = "SEP41"
-	TokenTypeCustom  TokenType = "CUSTOM"
 )
 
 var AllTokenType = []TokenType{
@@ -203,12 +202,11 @@ var AllTokenType = []TokenType{
 	TokenTypeClassic,
 	TokenTypeSac,
 	TokenTypeSep41,
-	TokenTypeCustom,
 }
 
 func (e TokenType) IsValid() bool {
 	switch e {
-	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41, TokenTypeCustom:
+	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41:
 		return true
 	}
 	return false

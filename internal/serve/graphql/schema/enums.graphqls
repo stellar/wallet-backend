@@ -75,5 +75,4 @@ enum TokenType {
   CLASSIC
   SAC
   SEP41
-  CUSTOM
 }

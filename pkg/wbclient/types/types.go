@@ -80,6 +80,126 @@ const (
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
+// TokenType represents the type of token/balance
+type TokenType string
+
+const (
+	TokenTypeNative  TokenType = "NATIVE"
+	TokenTypeClassic TokenType = "CLASSIC"
+	TokenTypeSAC     TokenType = "SAC"
+	TokenTypeSEP41   TokenType = "SEP41"
+)
+
+// Balance is an interface representing different types of account balances
+type Balance interface {
+	GetBalance() string
+	GetTokenID() string
+	GetTokenType() TokenType
+	isBalance()
+}
+
+// NativeBalance represents a native XLM balance
+type NativeBalance struct {
+	BalanceValue string    `json:"balance"`
+	TokenID      string    `json:"tokenId"`
+	TokenType    TokenType `json:"tokenType"`
+}
+
+func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }
+func (b *NativeBalance) GetTokenID() string      { return b.TokenID }
+func (b *NativeBalance) GetTokenType() TokenType { return b.TokenType }
+func (b *NativeBalance) isBalance()              {}
+
+// TrustlineBalance represents a classic Stellar asset trustline balance
+type TrustlineBalance struct {
+	BalanceValue                      string    `json:"balance"`
+	TokenID                           string    `json:"tokenId"`
+	TokenType                         TokenType `json:"tokenType"`
+	Code                              *string   `json:"code,omitempty"`
+	Issuer                            *string   `json:"issuer,omitempty"`
+	Type                              string    `json:"type"`
+	Limit                             string    `json:"limit"`
+	BuyingLiabilities                 string    `json:"buyingLiabilities"`
+	SellingLiabilities                string    `json:"sellingLiabilities"`
+	LastModifiedLedger                int32     `json:"lastModifiedLedger"`
+	IsAuthorized                      bool      `json:"isAuthorized"`
+	IsAuthorizedToMaintainLiabilities bool      `json:"isAuthorizedToMaintainLiabilities"`
+}
+
+func (b *TrustlineBalance) GetBalance() string      { return b.BalanceValue }
+func (b *TrustlineBalance) GetTokenID() string      { return b.TokenID }
+func (b *TrustlineBalance) GetTokenType() TokenType { return b.TokenType }
+func (b *TrustlineBalance) isBalance()              {}
+
+// SACBalance represents a Stellar Asset Contract (Soroban) balance
+type SACBalance struct {
+	BalanceValue      string    `json:"balance"`
+	TokenID           string    `json:"tokenId"`
+	TokenType         TokenType `json:"tokenType"`
+	IsAuthorized      bool      `json:"isAuthorized"`
+	IsClawbackEnabled bool      `json:"isClawbackEnabled"`
+}
+
+func (b *SACBalance) GetBalance() string      { return b.BalanceValue }
+func (b *SACBalance) GetTokenID() string      { return b.TokenID }
+func (b *SACBalance) GetTokenType() TokenType { return b.TokenType }
+func (b *SACBalance) isBalance()              {}
+
+// SEP41Balance represents a SEP-41 token balance
+type SEP41Balance struct {
+	BalanceValue string    `json:"balance"`
+	TokenID      string    `json:"tokenId"`
+	TokenType    TokenType `json:"tokenType"`
+}
+
+func (b *SEP41Balance) GetBalance() string      { return b.BalanceValue }
+func (b *SEP41Balance) GetTokenID() string      { return b.TokenID }
+func (b *SEP41Balance) GetTokenType() TokenType { return b.TokenType }
+func (b *SEP41Balance) isBalance()              {}
+
+// UnmarshalBalance unmarshals a JSON balance into the appropriate concrete type
+// based on the __typename field
+func UnmarshalBalance(data []byte) (Balance, error) {
+	// First, peek at the __typename field
+	var typeInfo struct {
+		TypeName string `json:"__typename"`
+	}
+
+	if err := json.Unmarshal(data, &typeInfo); err != nil {
+		return nil, fmt.Errorf("unmarshaling balance type: %w", err)
+	}
+
+	// Unmarshal into the appropriate concrete type based on __typename
+	switch typeInfo.TypeName {
+	case "NativeBalance":
+		var balance NativeBalance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling native balance: %w", err)
+		}
+		return &balance, nil
+	case "TrustlineBalance":
+		var balance TrustlineBalance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling trustline balance: %w", err)
+		}
+		return &balance, nil
+	case "SACBalance":
+		var balance SACBalance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling SAC balance: %w", err)
+		}
+		return &balance, nil
+	case "SEP41Balance":
+		var balance SEP41Balance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling SEP41 balance: %w", err)
+		}
+		return &balance, nil
+	default:
+		return nil, fmt.Errorf("unknown balance type: %s", typeInfo.TypeName)
+	}
+}
+
 // Account represents a Stellar account
 type Account struct {
 	Address   string    `json:"address"`
