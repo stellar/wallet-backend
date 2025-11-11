@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 type RPCServiceMock struct {
@@ -76,6 +77,62 @@ func NewRPCServiceMock(t interface {
 },
 ) *RPCServiceMock {
 	mock := &RPCServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+type AccountTokenServiceMock struct {
+	mock.Mock
+}
+
+var _ AccountTokenService = (*AccountTokenServiceMock)(nil)
+
+func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
+	args := a.Called()
+	return args.Get(0).(uint32)
+}
+
+func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context) error {
+	args := a.Called(ctx)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) Add(ctx context.Context, accountAddress string, assets []string) error {
+	args := a.Called(ctx, accountAddress, assets)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error) {
+	args := a.Called(ctx, accountAddress)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
+	args := a.Called(ctx, accountAddress)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (a *AccountTokenServiceMock) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
+	args := a.Called(ctx, contractID)
+	return args.Get(0).(types.ContractType), args.Error(1)
+}
+
+func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	args := a.Called(ctx, trustlineChanges, contractChanges)
+	return args.Error(0)
+}
+
+// NewAccountTokenServiceMock creates a new instance of AccountTokenServiceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewAccountTokenServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *AccountTokenServiceMock {
+	mock := &AccountTokenServiceMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })
