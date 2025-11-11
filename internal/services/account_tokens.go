@@ -85,15 +85,22 @@ type accountTokenService struct {
 	contractTypePrefix    string
 }
 
-func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator) (AccountTokenService, error) {
-	archive, err := historyarchive.Connect(
-		archiveURL,
-		historyarchive.ArchiveOptions{
-			NetworkPassphrase: networkPassphrase,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to history archive: %w", err)
+func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator, checkpointFrequency uint32) (AccountTokenService, error) {
+	var archive historyarchive.ArchiveInterface
+
+	// Only connect to archive if URL is provided (needed for ingest, not for serve)
+	if archiveURL != "" {
+		var err error
+		archive, err = historyarchive.Connect(
+			archiveURL,
+			historyarchive.ArchiveOptions{
+				NetworkPassphrase:   networkPassphrase,
+				CheckpointFrequency: checkpointFrequency,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("connecting to history archive: %w", err)
+		}
 	}
 
 	return &accountTokenService{
@@ -113,6 +120,10 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 // It should be called during service initialization before processing live ingestion.
 // Warning: This is a long-running operation that may take several minutes.
 func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
+	if s.archive == nil {
+		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
+	}
+
 	defer func() {
 		if err := s.contractSpecValidator.Close(ctx); err != nil {
 			log.Ctx(ctx).Errorf("error closing contract spec validator: %v", err)

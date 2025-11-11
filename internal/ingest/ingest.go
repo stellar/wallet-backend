@@ -41,6 +41,7 @@ type Configs struct {
 	Network              string
 	NetworkPassphrase    string
 	ArchiveURL           string
+	CheckpointFrequency  int
 	GetLedgersLimit      int
 	AdminPort            int
 	RedisHost            string
@@ -90,7 +91,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
 	contractSpecValidator := services.NewContractSpecValidator(rpcService)
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractSpecValidator)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractSpecValidator, uint32(cfg.CheckpointFrequency))
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}

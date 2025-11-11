@@ -58,6 +58,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
+			Name:        "checkpoint-frequency",
+			Usage:       "Checkpoint frequency for history archive (number of ledgers between checkpoints). Use 64 for production networks, 8 for integration tests with accelerated time.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.CheckpointFrequency,
+			FlagDefault: 64,
+			Required:    false,
+		},
+		{
 			Name:        "redis-host",
 			Usage:       "Redis host for caching",
 			OptType:     types.String,
