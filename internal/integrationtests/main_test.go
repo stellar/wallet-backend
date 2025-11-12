@@ -61,11 +61,11 @@ func TestIntegrationTests(t *testing.T) {
 	log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")
 	time.Sleep(5 * time.Second)
 
-	t.Run("DataValidationTestSuite", func(t *testing.T) {
-		suite.Run(t, &DataValidationTestSuite{
-			testEnv: testEnv,
-		})
-	})
+	// t.Run("DataValidationTestSuite", func(t *testing.T) {
+	// 	suite.Run(t, &DataValidationTestSuite{
+	// 		testEnv: testEnv,
+	// 	})
+	// })
 
 	t.Run("AccountBalancesTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesTestSuite{

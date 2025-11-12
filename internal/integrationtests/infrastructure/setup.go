@@ -195,6 +195,7 @@ type SharedContainers struct {
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
 	usdcContractAddress           string
+	eurcContractAddress           string
 	// sep41ContractAddress is the contract address (C...) of a deployed custom SEP-41 token.
 	// This represents a non-SAC token contract that implements the SEP-41 token interface.
 	// Used for testing contract balances for both G-addresses and C-addresses.
@@ -267,10 +268,13 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	})
 
 	// Create trustlines - these will be use for the account balances test
-	shared.createTrustlines(ctx, t, []*keypair.Full{
+	shared.createUSDCTrustlines(ctx, t, []*keypair.Full{
 		shared.balanceTestAccount1KeyPair,
 		shared.balanceTestAccount2KeyPair,
 	})
+
+	// Create EURC trustlines for balance test account 1 only
+	shared.createEURCTrustlines(ctx, t)
 
 	// Deploy native asset SAC so it can be used in smart contract operations
 	shared.deployNativeAssetSAC(ctx, t)
@@ -447,6 +451,10 @@ func (s *SharedContainers) GetBalanceTestAccount1KeyPair(ctx context.Context) *k
 
 func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *keypair.Full {
 	return s.balanceTestAccount2KeyPair
+}
+
+func (s *SharedContainers) GetMasterKeyPair(ctx context.Context) *keypair.Full {
+	return s.masterKeyPair
 }
 
 // Cleanup cleans up shared containers after all tests complete
@@ -750,7 +758,7 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 }
 
 // createTrustlines creates test trustlines for balance test accounts
-func (s *SharedContainers) createTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
 	// Create test asset issued by master account
 	testAsset := txnbuild.CreditAsset{
 		Code:   "USDC",
@@ -765,6 +773,7 @@ func (s *SharedContainers) createTrustlines(ctx context.Context, t *testing.T, a
 
 	// Deploy the SAC for the USDC credit asset
 	s.deployCreditAssetSAC(ctx, t, "USDC", s.masterKeyPair.Address())
+	log.Ctx(ctx).Infof("✅ Deployed USDC SAC at address: %s", s.usdcContractAddress)
 
 	// Build ChangeTrust operations for all accounts
 	ops := make([]txnbuild.Operation, 0)
@@ -833,6 +842,88 @@ func (s *SharedContainers) createTrustlines(ctx context.Context, t *testing.T, a
 	for _, kp := range accounts {
 		log.Ctx(ctx).Infof("🔗 Created balance test trustline for account %s: %s:%s", kp.Address(), testAsset.Code, testAsset.Issuer)
 	}
+}
+
+// createEURCTrustlines creates EURC trustline for balance test account 1 only
+func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.T) {
+	// Create EURC asset issued by master account
+	eurcAsset := txnbuild.CreditAsset{
+		Code:   "EURC",
+		Issuer: s.masterKeyPair.Address(),
+	}
+	// Convert to XDR Asset to get contract ID
+	xdrAsset, err := eurcAsset.ToXDR()
+	require.NoError(t, err)
+	contractID, err := xdrAsset.ContractID(networkPassphrase)
+	require.NoError(t, err)
+	s.eurcContractAddress = strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+	// Deploy the SAC for the EURC credit asset
+	s.deployCreditAssetSAC(ctx, t, "EURC", s.masterKeyPair.Address())
+	log.Ctx(ctx).Infof("✅ Deployed EURC SAC at address: %s", s.eurcContractAddress)
+
+	// Build ChangeTrust operation for balance test account 1 only
+	ops := []txnbuild.Operation{
+		&txnbuild.ChangeTrust{
+			Line: txnbuild.ChangeTrustAssetWrapper{
+				Asset: eurcAsset,
+			},
+			Limit:         "1000000", // 1 million units
+			SourceAccount: s.balanceTestAccount1KeyPair.Address(),
+		},
+		&txnbuild.Payment{
+			Destination:   s.balanceTestAccount1KeyPair.Address(),
+			Amount:        "100",
+			Asset:         eurcAsset,
+			SourceAccount: s.masterKeyPair.Address(),
+		},
+	}
+
+	// Build transaction with all operations
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           ops,
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewInfiniteTimeout(),
+		},
+	})
+	require.NoError(t, err)
+
+	// Sign with master key and balance test account 1 key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err)
+	tx, err = tx.Sign(networkPassphrase, s.balanceTestAccount1KeyPair)
+	require.NoError(t, err)
+
+	// Get RPC URL and submit
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err)
+
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+
+	// Submit transaction to RPC
+	client := &http.Client{Timeout: 30 * time.Second}
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit EURC trustline creation transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "EURC trustline creation transaction failed with status: %s", sendResult.Status)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "EURC trustline creation transaction not confirmed after 10 seconds")
+
+	log.Ctx(ctx).Infof("🔗 Created EURC trustline for balance test account 1 %s: %s:%s", s.balanceTestAccount1KeyPair.Address(), eurcAsset.Code, eurcAsset.Issuer)
 }
 
 // triggerProtocolUpgrade triggers a protocol upgrade on Stellar Core
@@ -2097,9 +2188,14 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 	for range 20 {
 		time.Sleep(500 * time.Millisecond)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
+		if err == nil {
+			if txResult.Status == entities.SuccessStatus {
+				confirmed = true
+				break
+			}
+			if txResult.Status == entities.FailedStatus {
+				require.Fail(t, "transfer transaction failed with resultXdr: %s", txResult.ResultXDR)
+			}
 		}
 	}
 	require.True(t, confirmed, "transfer transaction not confirmed after 10 seconds")
@@ -2115,6 +2211,7 @@ type TestEnvironment struct {
 	BalanceTestAccount1KP *keypair.Full
 	BalanceTestAccount2KP *keypair.Full
 	USDCContractAddress   string
+	EURCContractAddress   string
 	// SEP41ContractAddress is the address of the deployed custom SEP-41 token contract.
 	// Used for asserting token IDs in balance queries for non-SAC tokens.
 	SEP41ContractAddress string
@@ -2208,7 +2305,22 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	balanceTestAccount2KP := containers.GetBalanceTestAccount2KeyPair(ctx)
 
 	// Prepare use cases
-	fixtures, err := NewFixtures(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
+	masterAccountKP := containers.GetMasterKeyPair(ctx)
+	fixtures, err := NewFixtures(
+		ctx,
+		networkPassphrase,
+		primaryAccountKP,
+		secondaryAccountKP,
+		sponsoredNewAccountKP,
+		balanceTestAccount1KP,
+		balanceTestAccount2KP,
+		masterAccountKP,
+		rpcService,
+		containers.holderContractAddress,
+		containers.eurcContractAddress,
+		containers.sep41ContractAddress,
+		containers.usdcContractAddress,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2228,6 +2340,7 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,
 		USDCContractAddress:   containers.usdcContractAddress,
+		EURCContractAddress:   containers.eurcContractAddress,
 		// Pass through contract addresses for test assertions
 		SEP41ContractAddress:  containers.sep41ContractAddress,
 		HolderContractAddress: containers.holderContractAddress,

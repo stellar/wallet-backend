@@ -187,3 +187,116 @@ func (suite *AccountBalancesTestSuite) TestSEP41BalanceForCAddress() {
 	}
 	suite.Require().True(foundSEP41, "SEP-41 balance not found for C-address")
 }
+
+// TestEURCTransferToContract verifies that EURC SAC tokens can be transferred from a G-address
+// to a C-address (holder contract) and the balance is correctly tracked via live ingestion.
+//
+// This tests the scenario where:
+// 1. Balance test account 1 already has EURC balance (setup in checkpoint)
+// 2. EURC is transferred to holder contract address (G→C transfer)
+// 3. Token transfer processor picks up the transfer event
+// 4. Redis cache is updated with holder contract's EURC balance
+// 5. Balance query returns correct EURC SAC balance for holder contract
+func (suite *AccountBalancesTestSuite) TestEURCTransferToContract() {
+	// Query balances for the holder contract which should now have EURC after the transfer
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.HolderContractAddress,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	// Should have USDC SAC, SEP-41, and now EURC SAC balances
+	suite.Require().GreaterOrEqual(len(balances), 3, "Expected at least 3 balances: USDC SAC, SEP-41, and EURC SAC")
+
+	// Find the EURC SAC balance
+	var foundEURC bool
+	for _, balance := range balances {
+		if contractBalance, ok := balance.(*types.SACBalance); ok {
+			if contractBalance.GetTokenID() == suite.testEnv.EURCContractAddress {
+				foundEURC = true
+				suite.Require().Equal("50.0000000", contractBalance.GetBalance(), "EURC SAC balance should be 50 tokens")
+				suite.Require().Equal(types.TokenTypeSAC, contractBalance.GetTokenType(), "Token type should be SAC")
+				break
+			}
+		}
+	}
+	suite.Require().True(foundEURC, "EURC SAC balance not found for holder contract C-address")
+}
+
+// TestEURCTrustlineCreation verifies that EURC trustline creation and funding for balance test
+// account 2 is correctly tracked via live ingestion through the effects processor.
+//
+// This tests the scenario where:
+// 1. Balance test account 2 does not have EURC trustline initially
+// 2. ChangeTrust operation creates EURC trustline for account 2
+// 3. Payment operation mints 75 EURC to account 2
+// 4. Effects processor picks up the trustline creation
+// 5. Token transfer processor picks up the payment
+// 6. Redis cache is updated with account 2's EURC trustline and balance
+// 7. Balance query returns correct EURC balance for account 2
+func (suite *AccountBalancesTestSuite) TestEURCTrustlineCreation() {
+	// Query balances for balance test account 2 which should now have EURC trustline
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.BalanceTestAccount2KP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	// Should have native XLM, USDC, and now EURC balances
+	suite.Require().GreaterOrEqual(len(balances), 3, "Expected at least 3 balances: native, USDC, and EURC")
+
+	// Find the EURC trustline balance
+	var foundEURC bool
+	for _, balance := range balances {
+		if trustlineBalance, ok := balance.(*types.TrustlineBalance); ok {
+			if trustlineBalance.GetTokenID() == suite.testEnv.EURCContractAddress {
+				foundEURC = true
+				suite.Require().Equal("75.0000000", trustlineBalance.GetBalance(), "EURC trustline balance should be 75 tokens")
+				suite.Require().Equal(types.TokenTypeClassic, trustlineBalance.GetTokenType(), "Token type should be Classic")
+				break
+			}
+		}
+	}
+	suite.Require().True(foundEURC, "EURC trustline balance not found for balance test account 2")
+}
+
+// TestSEP41Transfer verifies that SEP-41 tokens can be transferred from one G-address to another
+// and the balance is correctly tracked via live ingestion through the token transfer processor.
+//
+// This tests the scenario where:
+// 1. Balance test account 1 has SEP-41 tokens (setup in checkpoint)
+// 2. SEP-41 tokens are transferred from account 1 to account 2
+// 3. Token transfer processor picks up the transfer event
+// 4. Redis cache is updated with account 2's SEP-41 balance
+// 5. Balance query returns correct SEP-41 balance for account 2
+func (suite *AccountBalancesTestSuite) TestSEP41Transfer() {
+	// Query balances for balance test account 2 which should now have SEP-41 tokens
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.BalanceTestAccount2KP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	// Should have native XLM, USDC, EURC, and now SEP-41 balances
+	suite.Require().GreaterOrEqual(len(balances), 4, "Expected at least 4 balances: native, USDC, EURC, and SEP-41")
+
+	// Find the SEP-41 balance
+	var foundSEP41 bool
+	for _, balance := range balances {
+		if contractBalance, ok := balance.(*types.SEP41Balance); ok {
+			if contractBalance.GetTokenID() == suite.testEnv.SEP41ContractAddress {
+				foundSEP41 = true
+				suite.Require().Equal("100.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 100 tokens")
+				suite.Require().Equal(types.TokenTypeSEP41, contractBalance.GetTokenType(), "Token type should be SEP41")
+				break
+			}
+		}
+	}
+	suite.Require().True(foundSEP41, "SEP-41 balance not found for balance test account 2")
+}
