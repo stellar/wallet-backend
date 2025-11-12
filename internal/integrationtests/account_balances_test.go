@@ -57,7 +57,7 @@ func (suite *AccountBalancesTestSuite) TestAccountBalancesForClassicTrustlines()
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	suite.Require().Len(balances, 2)
+	suite.Require().Equal(len(balances), 3, "Expected 3 balances: native, USDC, and EURC")
 
 	nativeBalance, ok := balances[0].(*types.NativeBalance)
 	suite.Require().True(ok)
@@ -101,7 +101,7 @@ func (suite *AccountBalancesTestSuite) TestSEP41BalanceForGAddress() {
 		if contractBalance, ok := balance.(*types.SEP41Balance); ok {
 			if contractBalance.GetTokenID() == suite.testEnv.SEP41ContractAddress {
 				foundSEP41 = true
-				suite.Require().Equal("500.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 500 tokens")
+				suite.Require().Equal("400.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 400 tokens")
 				suite.Require().Equal(types.TokenTypeSEP41, contractBalance.GetTokenType(), "Token type should be SEP41")
 				break
 			}
@@ -208,7 +208,7 @@ func (suite *AccountBalancesTestSuite) TestEURCTransferToContract() {
 	suite.Require().NotEmpty(balances)
 
 	// Should have USDC SAC, SEP-41, and now EURC SAC balances
-	suite.Require().GreaterOrEqual(len(balances), 3, "Expected at least 3 balances: USDC SAC, SEP-41, and EURC SAC")
+	suite.Require().Equal(len(balances), 3, "Expected at least 3 balances: USDC SAC, SEP-41, and EURC SAC")
 
 	// Find the EURC SAC balance
 	var foundEURC bool
