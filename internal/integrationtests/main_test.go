@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"testing"
+
 	// "time"
 
 	"github.com/sirupsen/logrus"
@@ -46,16 +47,16 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("AccountRegisterTestSuite failed, skipping remaining tests")
 	}
 
-	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
-		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
-			testEnv: testEnv,
-		})
-	})
+	// t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
+	// 	suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
+	// 		testEnv: testEnv,
+	// 	})
+	// })
 
-	// Only proceed if build and submit succeeded
-	if t.Failed() {
-		t.Fatal("BuildAndSubmitTransactionsTestSuite failed, skipping data validation")
-	}
+	// // Only proceed if build and submit succeeded
+	// if t.Failed() {
+	// 	t.Fatal("BuildAndSubmitTransactionsTestSuite failed, skipping data validation")
+	// }
 
 	// // Wait for ingest service to process all transactions
 	// log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")

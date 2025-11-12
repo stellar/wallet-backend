@@ -19,6 +19,7 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -188,6 +189,9 @@ type SharedContainers struct {
 	secondarySourceAccountKeyPair *keypair.Full
 	distributionAccountKeyPair    *keypair.Full
 	sponsoredNewAccountKeyPair    *keypair.Full
+	balanceTestAccount1KeyPair    *keypair.Full
+	balanceTestAccount2KeyPair    *keypair.Full
+	usdcContractAddress           string
 	masterAccount                 *txnbuild.SimpleAccount
 	masterKeyPair                 *keypair.Full
 }
@@ -230,6 +234,8 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.primarySourceAccountKeyPair = keypair.MustRandom()
 	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
 	shared.distributionAccountKeyPair = keypair.MustRandom()
+	shared.balanceTestAccount1KeyPair = keypair.MustRandom()
+	shared.balanceTestAccount2KeyPair = keypair.MustRandom()
 
 	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
 	shared.sponsoredNewAccountKeyPair = keypair.MustRandom()
@@ -240,12 +246,14 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 		shared.primarySourceAccountKeyPair,
 		shared.secondarySourceAccountKeyPair,
 		shared.distributionAccountKeyPair,
+		shared.balanceTestAccount1KeyPair,
+		shared.balanceTestAccount2KeyPair,
 	})
 
-	// Create test trustlines for primary and secondary accounts
-	shared.createTestTrustlines(ctx, t, []*keypair.Full{
-		shared.primarySourceAccountKeyPair,
-		shared.secondarySourceAccountKeyPair,
+	// Create test trustlines for balance test accounts only
+	shared.createBalanceTestTrustlines(ctx, t, []*keypair.Full{
+		shared.balanceTestAccount1KeyPair,
+		shared.balanceTestAccount2KeyPair,
 	})
 
 	// Deploy native asset SAC so it can be used in smart contract operations
@@ -287,6 +295,14 @@ func (s *SharedContainers) GetSecondarySourceAccountKeyPair(ctx context.Context)
 
 func (s *SharedContainers) GetSponsoredNewAccountKeyPair(ctx context.Context) *keypair.Full {
 	return s.sponsoredNewAccountKeyPair
+}
+
+func (s *SharedContainers) GetBalanceTestAccount1KeyPair(ctx context.Context) *keypair.Full {
+	return s.balanceTestAccount1KeyPair
+}
+
+func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *keypair.Full {
+	return s.balanceTestAccount2KeyPair
 }
 
 // Cleanup cleans up shared containers after all tests complete
@@ -472,24 +488,35 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	}
 }
 
-// createTestTrustlines creates test trustlines for specified accounts
-func (s *SharedContainers) createTestTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+// createBalanceTestTrustlines creates test trustlines for balance test accounts
+func (s *SharedContainers) createBalanceTestTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
 	// Create test asset issued by master account
 	testAsset := txnbuild.CreditAsset{
 		Code:   "USDC",
 		Issuer: s.masterKeyPair.Address(),
 	}
+	// Convert to XDR Asset to get contract ID
+	xdrAsset, err := testAsset.ToXDR()
+	require.NoError(t, err)
+	contractID, err := xdrAsset.ContractID(networkPassphrase)
+	require.NoError(t, err)
+	s.usdcContractAddress = strkey.MustEncode(strkey.VersionByteContract, contractID[:])
 
 	// Build ChangeTrust operations for all accounts
-	ops := make([]txnbuild.Operation, len(accounts))
-	for i, kp := range accounts {
-		ops[i] = &txnbuild.ChangeTrust{
+	ops := make([]txnbuild.Operation, 0)
+	for _, kp := range accounts {
+		ops = append(ops, &txnbuild.ChangeTrust{
 			Line: txnbuild.ChangeTrustAssetWrapper{
 				Asset: testAsset,
 			},
 			Limit:         "1000000", // 1 million units
 			SourceAccount: kp.Address(),
-		}
+		}, &txnbuild.Payment{
+			Destination:   kp.Address(),
+			Amount:        "100",
+			Asset:         testAsset,
+			SourceAccount: s.masterKeyPair.Address(),
+		})
 	}
 
 	// Build transaction with all operations
@@ -540,7 +567,7 @@ func (s *SharedContainers) createTestTrustlines(ctx context.Context, t *testing.
 
 	// Log created trustlines
 	for _, kp := range accounts {
-		log.Ctx(ctx).Infof("🔗 Created trustline for account %s: %s:%s", kp.Address(), testAsset.Code, testAsset.Issuer)
+		log.Ctx(ctx).Infof("🔗 Created balance test trustline for account %s: %s:%s", kp.Address(), testAsset.Code, testAsset.Issuer)
 	}
 }
 
@@ -876,8 +903,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
-			"REDIS_HOST":                               "redis",
-			"REDIS_PORT":                               "6379",
+			"REDIS_HOST":                              "redis",
+			"REDIS_PORT":                              "6379",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
@@ -1044,6 +1071,9 @@ type TestEnvironment struct {
 	PrimaryAccountKP         *keypair.Full
 	SecondaryAccountKP       *keypair.Full
 	SponsoredNewAccountKP    *keypair.Full
+	BalanceTestAccount1KP    *keypair.Full
+	BalanceTestAccount2KP    *keypair.Full
+	USDCContractAddress      string
 	ClaimBalanceID           string
 	ClawbackBalanceID        string
 	LiquidityPoolID          string
@@ -1127,6 +1157,8 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 	primaryAccountKP := containers.GetPrimarySourceAccountKeyPair(ctx)
 	secondaryAccountKP := containers.GetSecondarySourceAccountKeyPair(ctx)
 	sponsoredNewAccountKP := containers.GetSponsoredNewAccountKeyPair(ctx)
+	balanceTestAccount1KP := containers.GetBalanceTestAccount1KeyPair(ctx)
+	balanceTestAccount2KP := containers.GetBalanceTestAccount2KeyPair(ctx)
 
 	// Prepare use cases
 	fixtures, err := NewFixtures(ctx, networkPassphrase, primaryAccountKP, secondaryAccountKP, sponsoredNewAccountKP, rpcService)
@@ -1146,6 +1178,9 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		PrimaryAccountKP:      primaryAccountKP,
 		SecondaryAccountKP:    secondaryAccountKP,
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
+		BalanceTestAccount1KP: balanceTestAccount1KP,
+		BalanceTestAccount2KP: balanceTestAccount2KP,
+		USDCContractAddress:   containers.usdcContractAddress,
 		UseCases:              useCases,
 		NetworkPassphrase:     networkPassphrase,
 		LiquidityPoolID:       fixtures.LiquidityPoolID,
