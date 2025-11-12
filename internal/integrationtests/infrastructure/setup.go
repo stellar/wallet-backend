@@ -4,6 +4,8 @@ package infrastructure
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -192,12 +194,25 @@ type SharedContainers struct {
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
 	usdcContractAddress           string
-	masterAccount                 *txnbuild.SimpleAccount
-	masterKeyPair                 *keypair.Full
+	// sep41ContractAddress is the contract address (C...) of a deployed custom SEP-41 token.
+	// This represents a non-SAC token contract that implements the SEP-41 token interface.
+	// Used for testing contract balances for both G-addresses and C-addresses.
+	sep41ContractAddress string
+	// holderContractAddress is the contract address (C...) of a simple deployed contract
+	// that can hold token balances. This contract doesn't implement token functionality itself,
+	// but can receive and hold balances from both SAC and SEP-41 tokens.
+	// Used for testing C-address token balances.
+	holderContractAddress string
+	masterAccount         *txnbuild.SimpleAccount
+	masterKeyPair         *keypair.Full
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
 func NewSharedContainers(t *testing.T) *SharedContainers {
+	// Get the directory of the current source file
+	_, filename, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(filename)
+
 	shared := &SharedContainers{}
 
 	ctx := context.Background()
@@ -250,14 +265,62 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 		shared.balanceTestAccount2KeyPair,
 	})
 
-	// Create test trustlines for balance test accounts only
-	shared.createBalanceTestTrustlines(ctx, t, []*keypair.Full{
+	// Create trustlines - these will be use for the account balances test
+	shared.createTrustlines(ctx, t, []*keypair.Full{
 		shared.balanceTestAccount1KeyPair,
 		shared.balanceTestAccount2KeyPair,
 	})
 
 	// Deploy native asset SAC so it can be used in smart contract operations
 	shared.deployNativeAssetSAC(ctx, t)
+
+	// Deploy SEP-41 Token Contract
+	// This creates a custom token contract (not a Stellar Asset Contract) that implements
+	// the SEP-41 token interface. When this contract mints or transfers tokens to G-addresses,
+	// it creates contract data entries with key [Balance, G-address] in the ledger.
+	// This is different from classic trustlines and allows testing of pure contract tokens.
+	log.Ctx(ctx).Info("📦 Deploying SEP-41 token contract...")
+	sep41WasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_sac_test.wasm"))
+	require.NoError(t, err, "failed to read SEP-41 token WASM file")
+	sep41WasmHash := shared.uploadContractWasm(ctx, t, sep41WasmBytes)
+	shared.sep41ContractAddress = shared.deployContract(ctx, t, sep41WasmHash)
+	log.Ctx(ctx).Infof("✅ Deployed SEP-41 token contract at: %s", shared.sep41ContractAddress)
+
+	// Deploy Holder Contract
+	// This deploys a simple contract that can receive and hold token balances.
+	// Any Soroban contract can hold SEP-41 token balances - no special interface required.
+	// When tokens are transferred to this contract's address (C...), the token contract
+	// creates a contract data entry with key [Balance, C-address] to track the balance.
+	log.Ctx(ctx).Info("📦 Deploying token holder contract...")
+	holderWasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_increment_contract.wasm"))
+	require.NoError(t, err, "failed to read holder contract WASM file")
+	holderWasmHash := shared.uploadContractWasm(ctx, t, holderWasmBytes)
+	shared.holderContractAddress = shared.deployContract(ctx, t, holderWasmHash)
+	log.Ctx(ctx).Infof("✅ Deployed holder contract at: %s", shared.holderContractAddress)
+
+	// Create SEP-41 Balance for G-Address
+	// Mint SEP-41 tokens to balanceTestAccount1. This creates a contract data entry
+	// in the ledger: LedgerEntryTypeContractData with key [Balance, G-address].
+	// This represents a pure contract token balance (not a classic trustline).
+	log.Ctx(ctx).Info("💰 Minting SEP-41 tokens to G-address...")
+	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.balanceTestAccount1KeyPair.Address(), 5000000000) // 500 tokens with 7 decimals
+	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", shared.balanceTestAccount1KeyPair.Address())
+
+	// Create SAC Balance for C-Address
+	// Transfer USDC SAC tokens to the holder contract. This creates a contract data entry
+	// in the ledger: LedgerEntryTypeContractData with key [Balance, C-address].
+	// This demonstrates that contracts can hold SAC token balances.
+	log.Ctx(ctx).Info("💸 Transferring USDC SAC tokens to C-address...")
+	shared.invokeContractTransfer(ctx, t, shared.usdcContractAddress, shared.masterKeyPair.Address(), shared.holderContractAddress, 2000000000) // 200 tokens with 7 decimals
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", shared.holderContractAddress)
+
+	// Create SEP-41 Balance for C-Address
+	// Transfer SEP-41 tokens to the holder contract. This creates another contract data entry
+	// for the holder contract: LedgerEntryTypeContractData with key [Balance, C-address].
+	// A contract can hold balances from multiple different tokens simultaneously.
+	log.Ctx(ctx).Info("💸 Transferring SEP-41 tokens to C-address...")
+	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, 3000000000) // 300 tokens with 7 decimals
+	log.Ctx(ctx).Infof("✅ Transferred SEP-41 tokens to contract %s", shared.holderContractAddress)
 
 	// Start PostgreSQL for wallet-backend
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
@@ -488,8 +551,8 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	}
 }
 
-// createBalanceTestTrustlines creates test trustlines for balance test accounts
-func (s *SharedContainers) createBalanceTestTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
+// createTrustlines creates test trustlines for balance test accounts
+func (s *SharedContainers) createTrustlines(ctx context.Context, t *testing.T, accounts []*keypair.Full) {
 	// Create test asset issued by master account
 	testAsset := txnbuild.CreditAsset{
 		Code:   "USDC",
@@ -1064,16 +1127,628 @@ func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.
 	return &rpcResp.Result, nil
 }
 
+// uploadContractWasm uploads a Soroban contract WASM bytecode to the ledger.
+// This is the first step in deploying a Soroban smart contract. The WASM code
+// is stored in the ledger and can be referenced by its hash for deployment.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - t: Testing instance for assertions
+//   - wasmBytes: The compiled WASM bytecode to upload
+//
+// Returns:
+//   - xdr.Hash: The hash of the uploaded WASM code, used for deployment
+//
+// The function:
+//  1. Builds an InvokeHostFunction operation with HostFunctionTypeUploadContractWasm
+//  2. Simulates the transaction to get resource footprint and fees
+//  3. Signs the transaction with the master key
+//  4. Submits to RPC and waits for confirmation
+func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T, wasmBytes []byte) xdr.Hash {
+	// Create the InvokeHostFunction operation to upload WASM
+	uploadOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm,
+			Wasm: &wasmBytes,
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{uploadOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build WASM upload transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode WASM upload transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate WASM upload transaction")
+	require.Empty(t, simulationResult.Error, "WASM upload simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	uploadOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{uploadOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild WASM upload transaction")
+
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign WASM upload transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed WASM upload transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit WASM upload transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "WASM upload transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "WASM upload transaction not confirmed after 10 seconds")
+
+	// Compute WASM hash from the uploaded bytecode
+	wasmHash := xdr.Hash(sha256.Sum256(wasmBytes))
+	log.Ctx(ctx).Infof("✅ Uploaded contract WASM with hash: %x", wasmHash)
+
+	return wasmHash
+}
+
+// deployContract deploys a Soroban contract from previously uploaded WASM bytecode.
+// This creates a new contract instance on the ledger with a unique contract address (C...).
+// The contract can then be invoked to execute its functions.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - t: Testing instance for assertions
+//   - wasmHash: The hash returned from uploadContractWasm
+//
+// Returns:
+//   - string: The contract address in Stellar strkey format (C...)
+//
+// The function:
+//  1. Generates a random salt for unique contract address
+//  2. Builds ContractIdPreimageFromAddress using master account and salt
+//  3. Creates InvokeHostFunction with HostFunctionTypeCreateContract
+//  4. Simulates, signs, submits, and waits for confirmation
+//  5. Computes and returns the contract address
+func (s *SharedContainers) deployContract(ctx context.Context, t *testing.T, wasmHash xdr.Hash) string {
+	// Generate random salt for unique contract address
+	salt := make([]byte, 32)
+	_, err := rand.Read(salt)
+	require.NoError(t, err, "failed to generate salt")
+	var saltHash xdr.Uint256
+	copy(saltHash[:], salt)
+
+	// Create deployer address from master account
+	deployerAccountID := xdr.MustAddress(s.masterKeyPair.Address())
+
+	// Create ContractIdPreimage for the deployment
+	// This will be used both for the deployment operation and to compute the contract address
+	preimage := xdr.ContractIdPreimage{
+		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+		FromAddress: &xdr.ContractIdPreimageFromAddress{
+			Address: xdr.ScAddress{
+				Type:      xdr.ScAddressTypeScAddressTypeAccount,
+				AccountId: &deployerAccountID,
+			},
+			Salt: saltHash,
+		},
+	}
+
+	// Create the InvokeHostFunction operation to deploy the contract
+	deployOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeCreateContract,
+			CreateContract: &xdr.CreateContractArgs{
+				ContractIdPreimage: preimage,
+				Executable: xdr.ContractExecutable{
+					Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+					WasmHash: &wasmHash,
+				},
+			},
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build contract deployment transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode contract deployment transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate contract deployment transaction")
+	require.Empty(t, simulationResult.Error, "contract deployment simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	deployOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild contract deployment transaction")
+
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign contract deployment transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed contract deployment transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit contract deployment transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "contract deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil {
+			if txResult.Status == entities.SuccessStatus {
+				confirmed = true
+				break
+			}
+			if txResult.Status == entities.FailedStatus {
+				require.Fail(t, "contract deployment transaction failed with resultXdr: %s", txResult.ResultXDR)
+			}
+		}
+	}
+	require.True(t, confirmed, "contract deployment transaction not confirmed after 20 seconds")
+
+	contractAddress, err := s.calculateContractID(networkPassphrase, preimage.MustFromAddress())
+	require.NoError(t, err, "failed to encode contract ID")
+
+	log.Ctx(ctx).Infof("✅ Deployed contract at address: %s", contractAddress)
+	return contractAddress
+}
+
+// calculateContractID calculates the contract ID for a wallet creation transaction based on the network passphrase, deployer account and salt.
+//
+// More info: https://developers.stellar.org/docs/build/smart-contracts/example-contracts/deployer#how-it-works
+func (s *SharedContainers) calculateContractID(networkPassphrase string, deployerAddress xdr.ContractIdPreimageFromAddress) (string, error) {
+	networkHash := xdr.Hash(sha256.Sum256([]byte(networkPassphrase)))
+
+	hashIDPreimage := xdr.HashIdPreimage{
+		Type: xdr.EnvelopeTypeEnvelopeTypeContractId,
+		ContractId: &xdr.HashIdPreimageContractId{
+			NetworkId: networkHash,
+			ContractIdPreimage: xdr.ContractIdPreimage{
+				Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+				FromAddress: &deployerAddress,
+			},
+		},
+	}
+
+	preimageXDR, err := hashIDPreimage.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("marshaling preimage: %w", err)
+	}
+
+	contractIDHash := sha256.Sum256(preimageXDR)
+	contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDHash[:])
+	if err != nil {
+		return "", fmt.Errorf("encoding contract ID: %w", err)
+	}
+
+	return contractID, nil
+}
+
+// mintSEP41Tokens invokes the mint function on a SEP-41 token contract to create new tokens.
+// This is typically called by the contract admin to issue tokens to an address.
+//
+// For G-addresses (accounts), this creates a contract data entry with key [Balance, G-address]
+// that represents the account's balance in the contract's token.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - t: Testing instance for assertions
+//   - tokenContractAddress: The contract address of the SEP-41 token
+//   - toAddress: Recipient address (G... or C...)
+//   - amount: Amount to mint (in stroops/atomic units)
+//
+// The function:
+//  1. Decodes token contract address to get contract ID
+//  2. Builds ScAddress structure for recipient
+//  3. Creates InvokeContractArgs with "mint" function and arguments
+//  4. Simulates transaction to get resource footprint
+//  5. Signs with master key (contract admin)
+//  6. Submits to RPC and waits for confirmation
+func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, tokenContractAddress, toAddress string, amount int64) {
+	// Decode token contract address to get contract ID
+	tokenContractID, err := strkey.Decode(strkey.VersionByteContract, tokenContractAddress)
+	require.NoError(t, err, "failed to decode token contract address")
+	var tokenID xdr.ContractId
+	copy(tokenID[:], tokenContractID)
+
+	// Build recipient ScAddress (can be account G... or contract C...)
+	var toSCAddress xdr.ScAddress
+	if strings.HasPrefix(toAddress, "G") {
+		// Account address
+		toAccountID := xdr.MustAddress(toAddress)
+		toSCAddress = xdr.ScAddress{
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: &toAccountID,
+		}
+	} else if strings.HasPrefix(toAddress, "C") {
+		// Contract address
+		toContractID, err := strkey.Decode(strkey.VersionByteContract, toAddress)
+		require.NoError(t, err, "failed to decode recipient contract address")
+		var toID xdr.ContractId
+		copy(toID[:], toContractID)
+		toSCAddress = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &toID,
+		}
+	} else {
+		require.Fail(t, "invalid address format: must start with G or C")
+	}
+
+	// Build mint invocation
+	mintSym := xdr.ScSymbol("mint")
+	invokeOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &tokenID,
+				},
+				FunctionName: mintSym,
+				Args: xdr.ScVec{
+					{Type: xdr.ScValTypeScvAddress, Address: &toSCAddress},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: 0,
+							Lo: xdr.Uint64(amount),
+						},
+					},
+				},
+			},
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{invokeOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build mint transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode mint transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate mint transaction")
+	require.Empty(t, simulationResult.Error, "mint simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	invokeOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{invokeOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild mint transaction")
+
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign mint transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed mint transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit mint transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "mint transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "mint transaction not confirmed after 10 seconds")
+
+	log.Ctx(ctx).Infof("✅ Minted %d tokens to %s", amount, toAddress)
+}
+
+// invokeContractTransfer invokes the transfer function on a SEP-41 token contract.
+// This transfers tokens from one address to another. Both sender and recipient can be
+// either account addresses (G...) or contract addresses (C...).
+//
+// When transferring to a contract address (C...), this creates a contract data entry
+// in the ledger with key [Balance, C-address] that stores the contract's token balance.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - t: Testing instance for assertions
+//   - tokenContractAddress: The contract address of the token (SEP-41/SAC)
+//   - fromAddress: Sender address (G... or C...)
+//   - toAddress: Recipient address (G... or C...)
+//   - amount: Amount to transfer (in stroops/atomic units)
+//
+// The function:
+//  1. Decodes token contract address to get contract ID
+//  2. Builds ScAddress structures for from and to addresses
+//  3. Creates InvokeContractArgs with "transfer" function and arguments
+//  4. Simulates transaction to get resource footprint
+//  5. Signs with appropriate keys (master for account transfers)
+//  6. Submits to RPC and waits for confirmation
+func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testing.T, tokenContractAddress, fromAddress, toAddress string, amount int64) {
+	// Decode token contract address to get contract ID
+	tokenContractID, err := strkey.Decode(strkey.VersionByteContract, tokenContractAddress)
+	require.NoError(t, err, "failed to decode token contract address")
+	var tokenID xdr.ContractId
+	copy(tokenID[:], tokenContractID)
+
+	// Build from ScAddress (can be account G... or contract C...)
+	var fromSCAddress xdr.ScAddress
+	if strings.HasPrefix(fromAddress, "G") {
+		// Account address
+		fromAccountID := xdr.MustAddress(fromAddress)
+		fromSCAddress = xdr.ScAddress{
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: &fromAccountID,
+		}
+	} else if strings.HasPrefix(fromAddress, "C") {
+		// Contract address
+		fromContractID, err := strkey.Decode(strkey.VersionByteContract, fromAddress)
+		require.NoError(t, err, "failed to decode sender contract address")
+		var fromID xdr.ContractId
+		copy(fromID[:], fromContractID)
+		fromSCAddress = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &fromID,
+		}
+	} else {
+		require.Fail(t, "invalid from address format: must start with G or C")
+	}
+
+	// Build to ScAddress (can be account G... or contract C...)
+	var toSCAddress xdr.ScAddress
+	if strings.HasPrefix(toAddress, "G") {
+		// Account address
+		toAccountID := xdr.MustAddress(toAddress)
+		toSCAddress = xdr.ScAddress{
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: &toAccountID,
+		}
+	} else if strings.HasPrefix(toAddress, "C") {
+		// Contract address
+		toContractID, err := strkey.Decode(strkey.VersionByteContract, toAddress)
+		require.NoError(t, err, "failed to decode recipient contract address")
+		var toID xdr.ContractId
+		copy(toID[:], toContractID)
+		toSCAddress = xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &toID,
+		}
+	} else {
+		require.Fail(t, "invalid to address format: must start with G or C")
+	}
+
+	// Build transfer invocation
+	transferSym := xdr.ScSymbol("transfer")
+	invokeOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &tokenID,
+				},
+				FunctionName: transferSym,
+				Args: xdr.ScVec{
+					{Type: xdr.ScValTypeScvAddress, Address: &fromSCAddress},
+					{Type: xdr.ScValTypeScvAddress, Address: &toSCAddress},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: 0,
+							Lo: xdr.Uint64(amount),
+						},
+					},
+				},
+			},
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{invokeOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build transfer transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode transfer transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate transfer transaction")
+	require.Empty(t, simulationResult.Error, "transfer simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	invokeOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{invokeOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild transfer transaction")
+
+	// Sign with master key (assuming master has authority to transfer)
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign transfer transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed transfer transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit transfer transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "transfer transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "transfer transaction not confirmed after 10 seconds")
+
+	log.Ctx(ctx).Infof("✅ Transferred %d tokens from %s to %s", amount, fromAddress, toAddress)
+}
+
 // TestEnvironment holds all initialized services and clients for integration tests
 type TestEnvironment struct {
-	WBClient                 *wbclient.Client
-	RPCService               services.RPCService
-	PrimaryAccountKP         *keypair.Full
-	SecondaryAccountKP       *keypair.Full
-	SponsoredNewAccountKP    *keypair.Full
-	BalanceTestAccount1KP    *keypair.Full
-	BalanceTestAccount2KP    *keypair.Full
-	USDCContractAddress      string
+	WBClient              *wbclient.Client
+	RPCService            services.RPCService
+	PrimaryAccountKP      *keypair.Full
+	SecondaryAccountKP    *keypair.Full
+	SponsoredNewAccountKP *keypair.Full
+	BalanceTestAccount1KP *keypair.Full
+	BalanceTestAccount2KP *keypair.Full
+	USDCContractAddress   string
+	// SEP41ContractAddress is the address of the deployed custom SEP-41 token contract.
+	// Used for asserting token IDs in balance queries for non-SAC tokens.
+	SEP41ContractAddress string
+	// HolderContractAddress is the address of the test contract that holds token balances.
+	// Used for querying C-address balances in integration tests.
+	HolderContractAddress    string
 	ClaimBalanceID           string
 	ClawbackBalanceID        string
 	LiquidityPoolID          string
@@ -1181,6 +1856,9 @@ func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*Tes
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,
 		USDCContractAddress:   containers.usdcContractAddress,
+		// Pass through contract addresses for test assertions
+		SEP41ContractAddress:  containers.sep41ContractAddress,
+		HolderContractAddress: containers.holderContractAddress,
 		UseCases:              useCases,
 		NetworkPassphrase:     networkPassphrase,
 		LiquidityPoolID:       fixtures.LiquidityPoolID,
