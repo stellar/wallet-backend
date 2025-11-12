@@ -1,3 +1,40 @@
+// Account Balance Integration Tests
+//
+// This test suite verifies that the wallet backend correctly retrieves different types
+// of token balances for Stellar accounts. It tests three types of balances:
+//
+// 1. Native XLM Balance
+//   - The account's XLM balance stored in the account entry
+//
+// 2. Classic Trustline Balance (TokenTypeClassic)
+//   - Traditional Stellar trustlines created with CHANGE_TRUST operations
+//   - Example: USDC issued by a specific issuer
+//   - Stored as LedgerEntryTypeTrustLine entries
+//
+// 3. SEP-41 Contract Token Balance (TokenTypeSEP41)
+//   - Custom token contracts that implement the SEP-41 interface
+//   - Balances stored as contract data entries with key [Balance, Address]
+//   - This test uses the standard token contract from soroban-examples v22.0.1
+//
+// SEP-41 Token Contract Setup:
+//   - Contract: soroban_token_contract.wasm from stellar/soroban-examples
+//   - Initialization: __constructor(admin, decimal, name, symbol)
+//   - Admin: Master test account
+//   - Decimals: 7
+//   - Name: "USD Coin"
+//   - Symbol: "USDC"
+//   - Functions tested: mint(to, amount)
+//   - Balance storage: Contract data entry with key [Balance, G-address]
+//
+// Test Accounts:
+//   - balanceTestAccount1: Has native XLM, classic USDC trustline, and SEP-41 tokens
+//   - balanceTestAccount2: Has native XLM and classic USDC trustline
+//   - These are separate from transaction test accounts to avoid balance drift
+//
+// References:
+//   - SEP-41 Standard: https://stellar.org/protocol/sep-41
+//   - Token Contract: https://github.com/stellar/soroban-examples/tree/v22.0.1/token
+//   - Setup code: internal/integrationtests/infrastructure/setup.go lines 277-337
 package integrationtests
 
 import (
