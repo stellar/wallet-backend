@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alitto/pond"
+	"github.com/alitto/pond/v2"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 	"github.com/stretchr/testify/assert"
@@ -609,14 +609,12 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 }
 
 func TestPoolMetrics(t *testing.T) {
-	db := setupTestDB(t)
-	defer db.Close()
-
-	ms := NewMetricsService(db)
-
 	t.Run("worker pool metrics - success case", func(t *testing.T) {
+		db := setupTestDB(t)
+		defer db.Close()
+		ms := NewMetricsService(db)
 		channel := "test_channel"
-		pool := pond.New(5, 10)
+		pool := pond.NewPool(5)
 
 		ms.RegisterPoolMetrics(channel, pool)
 
@@ -639,31 +637,27 @@ func TestPoolMetrics(t *testing.T) {
 		for _, mf := range metricFamilies {
 			metric := mf.GetMetric()[0]
 			switch mf.GetName() {
-			case "pool_workers_running_" + channel:
+			case "pool_workers_running":
 				metricValues["workers_running"] = metric.GetGauge().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for workers_running")
 
-			case "pool_workers_idle_" + channel:
-				metricValues["workers_idle"] = metric.GetGauge().GetValue()
-				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for workers_idle")
-
-			case "pool_tasks_submitted_total_" + channel:
+			case "pool_tasks_submitted_total":
 				metricValues["tasks_submitted"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for tasks_submitted")
 
-			case "pool_tasks_completed_total_" + channel:
+			case "pool_tasks_completed_total":
 				metricValues["tasks_completed"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for tasks_completed")
 
-			case "pool_tasks_successful_total_" + channel:
+			case "pool_tasks_successful_total":
 				metricValues["tasks_successful"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for tasks_successful")
 
-			case "pool_tasks_failed_total_" + channel:
+			case "pool_tasks_failed_total":
 				metricValues["tasks_failed"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for tasks_failed")
 
-			case "pool_tasks_waiting_" + channel:
+			case "pool_tasks_waiting":
 				metricValues["tasks_waiting"] = metric.GetGauge().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for tasks_waiting")
 			}
@@ -675,14 +669,16 @@ func TestPoolMetrics(t *testing.T) {
 		assert.Equal(t, float64(0), metricValues["tasks_failed"], "Expected 0 failed tasks")
 		assert.Equal(t, float64(0), metricValues["tasks_waiting"], "Expected 0 waiting tasks")
 
-		// Workers should be idle after tasks complete
-		assert.Equal(t, float64(3), metricValues["workers_idle"], "Should have idle workers")
 		pool.StopAndWait()
 	})
 
 	t.Run("worker pool metrics - with failures", func(t *testing.T) {
+		db := setupTestDB(t)
+		defer db.Close()
+		ms := NewMetricsService(db)
+
 		channel := "test_channel_failures"
-		pool := pond.New(2, 5)
+		pool := pond.NewPool(2)
 
 		ms.RegisterPoolMetrics(channel, pool)
 
@@ -709,16 +705,16 @@ func TestPoolMetrics(t *testing.T) {
 		for _, mf := range metricFamilies {
 			metric := mf.GetMetric()[0]
 			switch mf.GetName() {
-			case "pool_tasks_failed_total_" + channel:
+			case "pool_tasks_failed_total":
 				metricValues["tasks_failed"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for failed tasks")
-			case "pool_tasks_successful_total_" + channel:
+			case "pool_tasks_successful_total":
 				metricValues["tasks_successful"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for successful tasks")
-			case "pool_tasks_submitted_total_" + channel:
+			case "pool_tasks_submitted_total":
 				metricValues["tasks_submitted"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for submitted tasks")
-			case "pool_tasks_completed_total_" + channel:
+			case "pool_tasks_completed_total":
 				metricValues["tasks_completed"] = metric.GetCounter().GetValue()
 				assert.Equal(t, channel, metric.GetLabel()[0].GetValue(), "Unexpected channel label for completed tasks")
 			}

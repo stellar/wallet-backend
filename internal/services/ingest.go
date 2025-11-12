@@ -105,6 +105,14 @@ func NewIngestService(
 		return nil, errors.New("getLedgersLimit must be greater than 0")
 	}
 
+	// Create worker pools
+	ledgerIndexerPool := pond.NewPool(0)
+	ingestPool := pond.NewPool(0)
+
+	// Register pools with metrics service
+	metricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
+	metricsService.RegisterPoolMetrics("ingest", ingestPool)
+
 	return &ingestService{
 		models:            models,
 		ledgerCursorName:  ledgerCursorName,
@@ -116,8 +124,8 @@ func NewIngestService(
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), pond.NewPool(0), metricsService),
-		pool:              pond.NewPool(0),
+		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), ledgerIndexerPool, metricsService),
+		pool:              ingestPool,
 	}, nil
 }
 

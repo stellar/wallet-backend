@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/alitto/pond"
+	"github.com/alitto/pond/v2"
 	"github.com/dlmiddlecote/sqlstats"
 	"github.com/jmoiron/sqlx"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
 type MetricsService interface {
-	RegisterPoolMetrics(channel string, pool *pond.WorkerPool)
+	RegisterPoolMetrics(channel string, pool pond.Pool)
 	GetRegistry() *prometheus.Registry
 	SetLatestLedgerIngested(value float64)
 	ObserveIngestionDuration(ingestionType string, duration float64)
@@ -419,10 +419,10 @@ func (m *metricsService) registerMetrics() {
 }
 
 // RegisterPool registers a worker pool for metrics collection
-func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
+func (m *metricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
 	m.registry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
-			Name:        fmt.Sprintf("pool_workers_running_%s", channel),
+			Name:        "pool_workers_running",
 			Help:        "Number of running worker goroutines",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
@@ -431,20 +431,9 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 		},
 	))
 
-	m.registry.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name:        fmt.Sprintf("pool_workers_idle_%s", channel),
-			Help:        "Number of idle worker goroutines",
-			ConstLabels: prometheus.Labels{"channel": channel},
-		},
-		func() float64 {
-			return float64(pool.IdleWorkers())
-		},
-	))
-
 	m.registry.MustRegister(prometheus.NewCounterFunc(
 		prometheus.CounterOpts{
-			Name:        fmt.Sprintf("pool_tasks_submitted_total_%s", channel),
+			Name:        "pool_tasks_submitted_total",
 			Help:        "Number of tasks submitted",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
@@ -455,7 +444,7 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 
 	m.registry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
-			Name:        fmt.Sprintf("pool_tasks_waiting_%s", channel),
+			Name:        "pool_tasks_waiting",
 			Help:        "Number of tasks currently waiting in the queue",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
@@ -466,7 +455,7 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 
 	m.registry.MustRegister(prometheus.NewCounterFunc(
 		prometheus.CounterOpts{
-			Name:        fmt.Sprintf("pool_tasks_successful_total_%s", channel),
+			Name:        "pool_tasks_successful_total",
 			Help:        "Number of tasks that completed successfully",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
@@ -477,7 +466,7 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 
 	m.registry.MustRegister(prometheus.NewCounterFunc(
 		prometheus.CounterOpts{
-			Name:        fmt.Sprintf("pool_tasks_failed_total_%s", channel),
+			Name:        "pool_tasks_failed_total",
 			Help:        "Number of tasks that completed with panic",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
@@ -488,7 +477,7 @@ func (m *metricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPo
 
 	m.registry.MustRegister(prometheus.NewCounterFunc(
 		prometheus.CounterOpts{
-			Name:        fmt.Sprintf("pool_tasks_completed_total_%s", channel),
+			Name:        "pool_tasks_completed_total",
 			Help:        "Number of tasks that completed either successfully or with panic",
 			ConstLabels: prometheus.Labels{"channel": channel},
 		},
