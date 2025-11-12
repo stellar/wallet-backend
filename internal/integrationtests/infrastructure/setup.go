@@ -397,7 +397,11 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// for the holder contract: LedgerEntryTypeContractData with key [Balance, C-address].
 	// A contract can hold balances from multiple different tokens simultaneously.
 	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, 3000000000) // 300 tokens with 7 decimals
-	log.Ctx(ctx).Infof("✅ Transferred SEP-41 tokens to contract %s", shared.holderContractAddress)
+	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", shared.holderContractAddress)
+
+	// Wait for the contracts to be present in latest checkpoint
+	log.Ctx(ctx).Info("🕒 Waiting for contracts to be present in latest checkpoint...")
+	time.Sleep(10 * time.Second)
 
 	// Start PostgreSQL for wallet-backend
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
@@ -1808,8 +1812,6 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 
 	// Step 6a: Extract and sign authorization entries from simulation
 	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		log.Ctx(ctx).Infof("📝 Signing %d authorization entries for invoke", len(simulationResult.Results[0].Auth))
-
 		// Initialize auth signer with network passphrase
 		authSigner := sorobanauth.AuthSigner{
 			NetworkPassphrase: networkPassphrase,
@@ -1840,7 +1842,6 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		// Attach signed auth entries to the deploy operation
 		// These prove that the deployer authorizes the constructor execution
 		invokeOp.Auth = signedAuthEntries
-		log.Ctx(ctx).Infof("✅ Signed and attached %d authorization entries", len(signedAuthEntries))
 	}
 
 	// Parse MinResourceFee from simulation result
@@ -2030,8 +2031,6 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 
 	// Extract and sign authorization entries from simulation
 	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		log.Ctx(ctx).Infof("📝 Signing %d authorization entries for invoke", len(simulationResult.Results[0].Auth))
-
 		// Initialize auth signer with network passphrase
 		authSigner := sorobanauth.AuthSigner{
 			NetworkPassphrase: networkPassphrase,
@@ -2062,7 +2061,6 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		// Attach signed auth entries to the deploy operation
 		// These prove that the deployer authorizes the constructor execution
 		invokeOp.Auth = signedAuthEntries
-		log.Ctx(ctx).Infof("✅ Signed and attached %d authorization entries", len(signedAuthEntries))
 	}
 
 	// Parse MinResourceFee from string to int64

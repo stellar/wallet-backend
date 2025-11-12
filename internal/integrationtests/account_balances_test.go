@@ -171,7 +171,7 @@ func (suite *AccountBalancesTestSuite) TestSEP41BalanceForCAddress() {
 	suite.Require().NotEmpty(balances)
 
 	// Should have both USDC SAC and SEP-41 balances
-	suite.Require().GreaterOrEqual(len(balances), 2, "Expected at least 2 balances: USDC SAC and SEP-41")
+	suite.Require().Equal(len(balances), 2, "Expected 2 balances: USDC SAC and SEP-41")
 
 	// Find the SEP-41 balance
 	var foundSEP41 bool
