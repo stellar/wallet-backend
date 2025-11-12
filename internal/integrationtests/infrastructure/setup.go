@@ -34,6 +34,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -273,6 +274,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 
 	// Deploy native asset SAC so it can be used in smart contract operations
 	shared.deployNativeAssetSAC(ctx, t)
+	log.Ctx(ctx).Info("✅ Native asset SAC deployed successfully")
 
 	// ============================================================================
 	// SEP-41 Token Contract Setup
@@ -305,8 +307,6 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	//   - SEP-41 Standard: https://stellar.org/protocol/sep-41
 	//   - Token Contract: https://github.com/stellar/soroban-examples/tree/main/token
 	//
-	log.Ctx(ctx).Info("📦 Deploying SEP-41 token contract...")
-
 	// Step 1: Read the token contract WASM file
 	// This is the standard token contract from soroban-examples v22.0.1
 	sep41WasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_token_contract.wasm"))
@@ -315,11 +315,11 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Step 2: Upload the WASM bytecode to the ledger
 	// This creates a LedgerEntryTypeContractCode entry and returns its hash
 	sep41WasmHash := shared.uploadContractWasm(ctx, t, sep41WasmBytes)
+	log.Ctx(ctx).Infof("✅ Uploaded SEP41 contract WASM with hash: %x", sep41WasmHash)
 
 	// Step 3: Build constructor arguments for the token contract
 	// The soroban-examples token __constructor signature: __constructor(admin, decimal, name, symbol)
 	// The constructor runs atomically during deployment, initializing the token in one step
-	log.Ctx(ctx).Info("⚙️  Preparing constructor arguments for SEP-41 token...")
 
 	// Arg 1: admin (Address) - The account that can mint tokens
 	adminAccountID := xdr.MustAddress(shared.masterKeyPair.Address())
@@ -341,7 +341,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 
 	// Arg 3: name (String) - Human-readable token name
 	// Important: Use ScvString (not ScvBytes) for Soroban String types
-	nameStr := xdr.ScString("USD Coin")
+	nameStr := xdr.ScString("SEP41 Token")
 	nameArg := xdr.ScVal{
 		Type: xdr.ScValTypeScvString,
 		Str:  &nameStr,
@@ -349,7 +349,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 
 	// Arg 4: symbol (String) - Token symbol
 	// Important: Use ScvString (not ScvBytes) for Soroban String types
-	symbolStr := xdr.ScString("USDC")
+	symbolStr := xdr.ScString("SEP41")
 	symbolArg := xdr.ScVal{
 		Type: xdr.ScValTypeScvString,
 		Str:  &symbolStr,
@@ -361,7 +361,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Step 4: Deploy and initialize the contract atomically
 	// The __constructor runs during deployment, so no separate initialization call is needed
 	shared.sep41ContractAddress = shared.deployContractWithConstructor(ctx, t, sep41WasmHash, sep41ConstructorArgs)
-	log.Ctx(ctx).Infof("✅ Deployed and initialized SEP-41 token contract at: %s (admin=%s, decimals=7, name=USD Coin, symbol=USDC)",
+	log.Ctx(ctx).Infof("✅ Deployed and initialized SEP-41 token contract at: %s (admin=%s, decimals=7, name=SEP41 Token, symbol=SEP41)",
 		shared.sep41ContractAddress, shared.masterKeyPair.Address())
 
 	// Deploy Holder Contract
@@ -369,10 +369,11 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Any Soroban contract can hold SEP-41 token balances - no special interface required.
 	// When tokens are transferred to this contract's address (C...), the token contract
 	// creates a contract data entry with key [Balance, C-address] to track the balance.
-	log.Ctx(ctx).Info("📦 Deploying token holder contract...")
 	holderWasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_increment_contract.wasm"))
 	require.NoError(t, err, "failed to read holder contract WASM file")
 	holderWasmHash := shared.uploadContractWasm(ctx, t, holderWasmBytes)
+	log.Ctx(ctx).Infof("✅ Uploaded holder contract WASM with hash: %x", holderWasmHash)
+
 	// The increment contract has no constructor, so we pass an empty slice
 	shared.holderContractAddress = shared.deployContractWithConstructor(ctx, t, holderWasmHash, []xdr.ScVal{})
 	log.Ctx(ctx).Infof("✅ Deployed holder contract at: %s", shared.holderContractAddress)
@@ -381,7 +382,6 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Mint SEP-41 tokens to balanceTestAccount1. This creates a contract data entry
 	// in the ledger: LedgerEntryTypeContractData with key [Balance, G-address].
 	// This represents a pure contract token balance (not a classic trustline).
-	log.Ctx(ctx).Info("💰 Minting SEP-41 tokens to G-address...")
 	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.balanceTestAccount1KeyPair.Address(), 5000000000) // 500 tokens with 7 decimals
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", shared.balanceTestAccount1KeyPair.Address())
 
@@ -389,7 +389,6 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Transfer USDC SAC tokens to the holder contract. This creates a contract data entry
 	// in the ledger: LedgerEntryTypeContractData with key [Balance, C-address].
 	// This demonstrates that contracts can hold SAC token balances.
-	log.Ctx(ctx).Info("💸 Transferring USDC SAC tokens to C-address...")
 	shared.invokeContractTransfer(ctx, t, shared.usdcContractAddress, shared.masterKeyPair.Address(), shared.holderContractAddress, 2000000000) // 200 tokens with 7 decimals
 	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", shared.holderContractAddress)
 
@@ -397,7 +396,6 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Transfer SEP-41 tokens to the holder contract. This creates another contract data entry
 	// for the holder contract: LedgerEntryTypeContractData with key [Balance, C-address].
 	// A contract can hold balances from multiple different tokens simultaneously.
-	log.Ctx(ctx).Info("💸 Transferring SEP-41 tokens to C-address...")
 	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, 3000000000) // 300 tokens with 7 decimals
 	log.Ctx(ctx).Infof("✅ Transferred SEP-41 tokens to contract %s", shared.holderContractAddress)
 
@@ -566,8 +564,125 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 		}
 	}
 	require.True(t, confirmed, "SAC deployment transaction not confirmed after 10 seconds")
+}
 
-	log.Ctx(ctx).Info("✅ Native asset SAC deployed successfully")
+// deployCreditAssetSAC deploys the Stellar Asset Contract for a credit asset (non-native)
+func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.T, assetCode, issuer string) {
+	// Create the credit asset XDR based on asset code length
+	var creditAsset xdr.Asset
+
+	if len(assetCode) <= 4 {
+		// AlphaNum4 for asset codes 1-4 characters (e.g., "USDC")
+		var assetCode4 xdr.AssetCode4
+		copy(assetCode4[:], assetCode)
+		creditAsset = xdr.Asset{
+			Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
+			AlphaNum4: &xdr.AlphaNum4{
+				AssetCode: assetCode4,
+				Issuer:    xdr.MustAddress(issuer),
+			},
+		}
+	} else {
+		// AlphaNum12 for asset codes 5-12 characters
+		var assetCode12 xdr.AssetCode12
+		copy(assetCode12[:], assetCode)
+		creditAsset = xdr.Asset{
+			Type: xdr.AssetTypeAssetTypeCreditAlphanum12,
+			AlphaNum12: &xdr.AlphaNum12{
+				AssetCode: assetCode12,
+				Issuer:    xdr.MustAddress(issuer),
+			},
+		}
+	}
+
+	// Create the InvokeHostFunction operation to deploy the credit asset contract
+	deployOp := &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeCreateContract,
+			CreateContract: &xdr.CreateContractArgs{
+				ContractIdPreimage: xdr.ContractIdPreimage{
+					Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
+					FromAsset: &creditAsset,
+				},
+				Executable: xdr.ContractExecutable{
+					Type: xdr.ContractExecutableTypeContractExecutableStellarAsset,
+				},
+			},
+		},
+		SourceAccount: s.masterKeyPair.Address(),
+	}
+
+	// Build initial transaction for simulation
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		IncrementSequenceNum: false, // Don't increment for simulation
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to build credit asset SAC deployment transaction")
+
+	// Get RPC URL
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	require.NoError(t, err, "failed to get RPC connection string")
+
+	// Simulate transaction to get resource footprint
+	txXDR, err := tx.Base64()
+	require.NoError(t, err, "failed to encode credit asset SAC deployment transaction for simulation")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to simulate credit asset SAC deployment transaction")
+	require.Empty(t, simulationResult.Error, "credit asset SAC deployment simulation failed: %s", simulationResult.Error)
+
+	// Apply simulation results to the operation
+	deployOp.Ext = xdr.TransactionExt{
+		V:           1,
+		SorobanData: &simulationResult.TransactionData,
+	}
+
+	// Parse MinResourceFee from string to int64
+	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
+	require.NoError(t, err, "failed to parse MinResourceFee")
+
+	// Rebuild transaction with simulation results and increment sequence
+	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        s.masterAccount,
+		Operations:           []txnbuild.Operation{deployOp},
+		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
+		IncrementSequenceNum: true,
+		Preconditions: txnbuild.Preconditions{
+			TimeBounds: txnbuild.NewTimeout(300),
+		},
+	})
+	require.NoError(t, err, "failed to rebuild credit asset SAC deployment transaction")
+
+	// Sign with master key
+	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
+	require.NoError(t, err, "failed to sign credit asset SAC deployment transaction")
+
+	txXDR, err = tx.Base64()
+	require.NoError(t, err, "failed to encode signed credit asset SAC deployment transaction")
+
+	// Submit transaction to RPC
+	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
+	require.NoError(t, err, "failed to submit credit asset SAC deployment transaction")
+	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "credit asset SAC deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
+
+	// Wait for transaction to be confirmed
+	hash := sendResult.Hash
+	var confirmed bool
+	for range 20 {
+		time.Sleep(500 * time.Millisecond)
+		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
+		if err == nil && txResult.Status == entities.SuccessStatus {
+			confirmed = true
+			break
+		}
+	}
+	require.True(t, confirmed, "credit asset SAC deployment transaction not confirmed after 10 seconds")
 }
 
 // createAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
@@ -643,6 +758,9 @@ func (s *SharedContainers) createTrustlines(ctx context.Context, t *testing.T, a
 	contractID, err := xdrAsset.ContractID(networkPassphrase)
 	require.NoError(t, err)
 	s.usdcContractAddress = strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+	// Deploy the SAC for the USDC credit asset
+	s.deployCreditAssetSAC(ctx, t, "USDC", s.masterKeyPair.Address())
 
 	// Build ChangeTrust operations for all accounts
 	ops := make([]txnbuild.Operation, 0)
@@ -1307,7 +1425,6 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 
 	// Compute WASM hash from the uploaded bytecode
 	wasmHash := xdr.Hash(sha256.Sum256(wasmBytes))
-	log.Ctx(ctx).Infof("✅ Uploaded contract WASM with hash: %x", wasmHash)
 
 	return wasmHash
 }
@@ -1330,6 +1447,7 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 //  3. Creates InvokeHostFunction with HostFunctionTypeCreateContract
 //  4. Simulates, signs, submits, and waits for confirmation
 //  5. Computes and returns the contract address
+//
 // deployContractWithConstructor deploys a Soroban contract with optional constructor arguments.
 // This function uses CreateContractArgsV2 which supports passing arguments to the contract's
 // __constructor function during deployment (if the contract has one).
@@ -1428,6 +1546,43 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 	require.NoError(t, err, "failed to simulate contract deployment transaction")
 	require.Empty(t, simulationResult.Error, "contract deployment simulation failed: %s", simulationResult.Error)
 
+	// Step 6b: Extract and sign authorization entries from simulation
+	// CreateContractV2 with constructor requires deployer authorization, even if the
+	// constructor doesn't explicitly call require_auth(). This is a protocol-level
+	// requirement introduced in Protocol 22 to ensure atomicity of deploy+initialize.
+	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
+		// Initialize auth signer with network passphrase
+		authSigner := sorobanauth.AuthSigner{
+			NetworkPassphrase: networkPassphrase,
+		}
+
+		// Sign each auth entry with the deployer's keypair
+		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
+		for i, authEntry := range simulationResult.Results[0].Auth {
+			// Sign with master keypair (deployer)
+			// - nonce: 0 for first-time authorization
+			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
+			switch authEntry.Credentials.Type {
+			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+				signedEntry, err := authSigner.AuthorizeEntry(
+					authEntry,
+					0, // nonce
+					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
+					s.masterKeyPair,
+				)
+				require.NoError(t, err, "failed to sign auth entry %d", i)
+				signedAuthEntries[i] = signedEntry
+			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
+			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
+				signedAuthEntries[i] = authEntry
+			}
+		}
+
+		// Attach signed auth entries to the deploy operation
+		// These prove that the deployer authorizes the constructor execution
+		deployOp.Auth = signedAuthEntries
+	}
+
 	// Step 7: Apply simulation results to the operation
 	// The TransactionData contains the resource footprint needed for deployment
 	deployOp.Ext = xdr.TransactionExt{
@@ -1485,8 +1640,6 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 	// The contract address is deterministically computed from the deployer address and salt
 	contractAddress, err := s.calculateContractID(networkPassphrase, preimage.MustFromAddress())
 	require.NoError(t, err, "failed to encode contract ID")
-
-	log.Ctx(ctx).Infof("✅ Deployed contract at address: %s", contractAddress)
 	return contractAddress
 }
 
@@ -1653,6 +1806,43 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		SorobanData: &simulationResult.TransactionData,
 	}
 
+	// Step 6a: Extract and sign authorization entries from simulation
+	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
+		log.Ctx(ctx).Infof("📝 Signing %d authorization entries for invoke", len(simulationResult.Results[0].Auth))
+
+		// Initialize auth signer with network passphrase
+		authSigner := sorobanauth.AuthSigner{
+			NetworkPassphrase: networkPassphrase,
+		}
+
+		// Sign each auth entry with the deployer's keypair
+		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
+		for i, authEntry := range simulationResult.Results[0].Auth {
+			// Sign with master keypair (deployer)
+			// - nonce: 0 for first-time authorization
+			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
+			switch authEntry.Credentials.Type {
+			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+				signedEntry, err := authSigner.AuthorizeEntry(
+					authEntry,
+					0, // nonce
+					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
+					s.masterKeyPair,
+				)
+				require.NoError(t, err, "failed to sign auth entry %d", i)
+				signedAuthEntries[i] = signedEntry
+			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
+			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
+				signedAuthEntries[i] = authEntry
+			}
+		}
+
+		// Attach signed auth entries to the deploy operation
+		// These prove that the deployer authorizes the constructor execution
+		invokeOp.Auth = signedAuthEntries
+		log.Ctx(ctx).Infof("✅ Signed and attached %d authorization entries", len(signedAuthEntries))
+	}
+
 	// Parse MinResourceFee from simulation result
 	// This is the fee for resources used (CPU instructions, memory, storage)
 	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
@@ -1689,17 +1879,20 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 	// Poll the RPC server until the transaction status becomes "SUCCESS"
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 { // Try for up to 10 seconds (20 * 500ms)
+	for range 60 {
 		time.Sleep(500 * time.Millisecond)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
+		if err == nil {
+			if txResult.Status == entities.SuccessStatus {
+				confirmed = true
+				break
+			}
+			if txResult.Status == entities.FailedStatus {
+				require.Fail(t, "mint transaction failed with resultXdr: %s", txResult.ResultXDR)
+			}
 		}
 	}
-	require.True(t, confirmed, "mint transaction not confirmed after 10 seconds")
-
-	log.Ctx(ctx).Infof("✅ Minted %d tokens to %s", amount, toAddress)
+	require.True(t, confirmed, "mint transaction not confirmed after 60 seconds")
 }
 
 // invokeContractTransfer invokes the transfer function on a SEP-41 token contract.
@@ -1835,6 +2028,43 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		SorobanData: &simulationResult.TransactionData,
 	}
 
+	// Extract and sign authorization entries from simulation
+	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
+		log.Ctx(ctx).Infof("📝 Signing %d authorization entries for invoke", len(simulationResult.Results[0].Auth))
+
+		// Initialize auth signer with network passphrase
+		authSigner := sorobanauth.AuthSigner{
+			NetworkPassphrase: networkPassphrase,
+		}
+
+		// Sign each auth entry with the deployer's keypair
+		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
+		for i, authEntry := range simulationResult.Results[0].Auth {
+			// Sign with master keypair (deployer)
+			// - nonce: 0 for first-time authorization
+			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
+			switch authEntry.Credentials.Type {
+			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
+				signedEntry, err := authSigner.AuthorizeEntry(
+					authEntry,
+					0, // nonce
+					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
+					s.masterKeyPair,
+				)
+				require.NoError(t, err, "failed to sign auth entry %d", i)
+				signedAuthEntries[i] = signedEntry
+			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
+			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
+				signedAuthEntries[i] = authEntry
+			}
+		}
+
+		// Attach signed auth entries to the deploy operation
+		// These prove that the deployer authorizes the constructor execution
+		invokeOp.Auth = signedAuthEntries
+		log.Ctx(ctx).Infof("✅ Signed and attached %d authorization entries", len(signedAuthEntries))
+	}
+
 	// Parse MinResourceFee from string to int64
 	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
 	require.NoError(t, err, "failed to parse MinResourceFee")
@@ -1875,8 +2105,6 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		}
 	}
 	require.True(t, confirmed, "transfer transaction not confirmed after 10 seconds")
-
-	log.Ctx(ctx).Infof("✅ Transferred %d tokens from %s to %s", amount, fromAddress, toAddress)
 }
 
 // TestEnvironment holds all initialized services and clients for integration tests
