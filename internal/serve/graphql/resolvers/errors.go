@@ -14,7 +14,7 @@ const (
 	ErrMsgAccountDeregisteredSuccess  = "Account deregistered successfully"
 
 	// CreateFeeBumpTransaction errors
-	ErrMsgCouldNotParseTransactionEnvelope = "Could not parse transaction envelope."
+	ErrMsgCouldNotParseTransactionEnvelope = "Could not parse transaction envelope: %s"
 	ErrMsgCannotWrapFeeBumpTransaction     = "Cannot wrap a fee-bump transaction into another fee-bump transaction"
 	ErrMsgInvalidTransaction               = "Transaction is not a valid transaction"
 	ErrMsgFeeBumpCreationFailed            = "Failed to create fee bump transaction: %s"
