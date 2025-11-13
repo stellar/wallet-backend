@@ -43,6 +43,30 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "live_ingest_cursor",
 			Required:    true,
 		},
+		{
+			Name:        "account-tokens-cursor-name",
+			Usage:       "Name of last synced account tokens ledger cursor, used to keep track of the last ledger ingested by the service.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.AccountTokensCursorName,
+			FlagDefault: "live_account_tokens_ingest_cursor",
+			Required:    true,
+		},
+		{
+			Name:        "archive-url",
+			Usage:       "Archive URL for history archives",
+			OptType:     types.String,
+			ConfigKey:   &cfg.ArchiveURL,
+			FlagDefault: "https://history.stellar.org/prd/core-testnet/core_testnet_001/",
+			Required:    true,
+		},
+		{
+			Name:        "checkpoint-frequency",
+			Usage:       "Checkpoint frequency for history archive (number of ledgers between checkpoints). Use 64 for production usage, 8 for integration tests with accelerated time.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.CheckpointFrequency,
+			FlagDefault: 64,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{

@@ -57,11 +57,13 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	models            *data.Models
 	ledgerCursorName  string
+	accountTokensCursorName string
 	advisoryLockID    int
 	appTracker        apptracker.AppTracker
 	rpcService        RPCService
 	chAccStore        store.ChannelAccountStore
 	contractStore     cache.TokenContractStore
+	accountTokenService AccountTokenService
 	metricsService    metrics.MetricsService
 	networkPassphrase string
 	getLedgersLimit   int
@@ -72,10 +74,12 @@ type ingestService struct {
 func NewIngestService(
 	models *data.Models,
 	ledgerCursorName string,
+	accountTokensCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
+	accountTokenService AccountTokenService,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
 	network string,
@@ -85,6 +89,9 @@ func NewIngestService(
 	}
 	if ledgerCursorName == "" {
 		return nil, errors.New("ledgerCursorName cannot be nil")
+	}
+	if accountTokensCursorName == "" {
+		return nil, errors.New("accountTokensCursorName cannot be nil")
 	}
 	if appTracker == nil {
 		return nil, errors.New("appTracker cannot be nil")
@@ -97,6 +104,9 @@ func NewIngestService(
 	}
 	if contractStore == nil {
 		return nil, errors.New("contractStore cannot be nil")
+	}
+	if accountTokenService == nil {
+		return nil, errors.New("accountTokenService cannot be nil")
 	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
@@ -116,11 +126,13 @@ func NewIngestService(
 	return &ingestService{
 		models:            models,
 		ledgerCursorName:  ledgerCursorName,
+		accountTokensCursorName: accountTokensCursorName,
 		advisoryLockID:    generateAdvisoryLockID(network),
 		appTracker:        appTracker,
 		rpcService:        rpcService,
 		chAccStore:        chAccStore,
 		contractStore:     contractStore,
+		accountTokenService: accountTokenService,
 		metricsService:    metricsService,
 		networkPassphrase: rpcService.NetworkPassphrase(),
 		getLedgersLimit:   getLedgersLimit,
@@ -214,14 +226,42 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
+		m.pool.Stop()
 	}()
 
 	// get latest ledger synced, to use as a cursor
+	var latestTrustlinesLedger uint32
 	if startLedger == 0 {
 		var err error
 		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
 			return fmt.Errorf("getting latest ledger synced: %w", err)
+		}
+
+		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
+		if err != nil {
+			return fmt.Errorf("getting latest account-tokens ledger cursor synced: %w", err)
+		}
+	}
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer signal.Stop(signalChan)
+
+	if latestTrustlinesLedger == 0 {
+		err := m.accountTokenService.PopulateAccountTokens(ctx)
+		if err != nil {
+			return fmt.Errorf("populating account tokens cache: %w", err)
+		}
+		checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, checkpointLedger); err != nil {
+				return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 		}
 	}
 
@@ -232,10 +272,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
 	var rpcHealth entities.RPCGetHealthResult
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	defer signal.Stop(signalChan)
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
@@ -271,10 +307,23 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("processing ledger response: %w", err)
 		}
 
-		// update cursor
-		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-		if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", err)
+		// update cursors
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, lastLedger); err != nil {
+				return fmt.Errorf("updating latest synced ledger: %w", err)
+			}
+			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+			if lastLedger > checkpointLedger {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, lastLedger); err != nil {
+					return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
+				}
+			}
+			startLedger = lastLedger
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())

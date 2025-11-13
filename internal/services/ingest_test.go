@@ -114,8 +114,6 @@ func TestGetLedgerTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
@@ -123,7 +121,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
@@ -220,8 +218,6 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	mockMetricsService.On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "UpdateLatestLedgerSynced", "ingest_store").Once()
 	mockMetricsService.On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
@@ -239,7 +235,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
@@ -321,8 +317,6 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	}()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
@@ -333,7 +327,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
 	mockContractStore := &cache.MockTokenContractStore{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	mockMetricsService.On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
@@ -501,8 +495,6 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
-			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
-			mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 			defer mockMetricsService.AssertExpectations(t)
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 			require.NoError(t, err)
@@ -512,7 +504,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockContractStore := &cache.MockTokenContractStore{}
-			ingestService, err := NewIngestService(models, "testCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+			ingestService, err := NewIngestService(models, "testCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, mockContractStore, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta

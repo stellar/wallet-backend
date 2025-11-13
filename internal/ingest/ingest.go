@@ -43,6 +43,9 @@ type Configs struct {
 	NetworkPassphrase string
 	GetLedgersLimit   int
 	AdminPort         int
+	AccountTokensCursorName string
+	ArchiveURL            string
+	CheckpointFrequency   int
 }
 
 func Ingest(cfg Configs) error {
@@ -85,8 +88,15 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract store: %w", err)
 	}
 
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
+	contractValidator := services.NewContractValidator(rpcService)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, uint32(cfg.CheckpointFrequency))
+	if err != nil {
+		return nil, fmt.Errorf("instantiating account token service: %w", err)
+	}
+
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
