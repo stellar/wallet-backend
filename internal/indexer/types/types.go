@@ -74,6 +74,7 @@ const (
 type ContractType string
 
 const (
+	ContractTypeNative  ContractType = "NATIVE"
 	ContractTypeSAC     ContractType = "SAC"
 	ContractTypeSEP41   ContractType = "SEP41"
 	ContractTypeUnknown ContractType = "UNKNOWN"

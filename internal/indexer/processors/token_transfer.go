@@ -22,10 +22,14 @@ var ErrOperationNotFound = errors.New("operation not found")
 
 // getContractType determines if a token is a Stellar Asset Contract (SAC) or a custom token
 // by comparing the contract address with the deterministically derived SAC contract ID from the asset.
-// Returns ContractTypeSAC if verified SAC, ContractTypeSEP41 otherwise.
+// Returns ContractTypeNative if the asset is native, ContractTypeSAC if verified SAC, ContractTypeSEP41 otherwise.
 func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAddress string) types.ContractType {
 	if asset == nil {
 		return types.ContractTypeSEP41
+	}
+
+	if asset.GetNative() {
+		return types.ContractTypeNative
 	}
 
 	// Convert to XDR asset
@@ -158,11 +162,8 @@ func (p *TokenTransferProcessor) processFeeEvents(builder *StateChangeBuilder, f
 
 	builder = builder.
 		WithAccount(firstEvent.GetFee().GetFrom()).
-		WithToken(assetContractID)
-	
-	if asset != nil && !asset.GetNative() {
-		builder = builder.WithTokenType(p.getContractType(asset, assetContractID))
-	}
+		WithToken(assetContractID).
+		WithTokenType(p.getContractType(asset, assetContractID))
 
 	// Calculate net fee by summing all fee events
 	var netFee int64
@@ -198,11 +199,8 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 		WithAmount(amount)
 
 	if contractAddress != "" {
-		b = b.WithToken(contractAddress)
-		
-		if asset != nil && !asset.GetNative() {
-			b = b.WithTokenType(p.getContractType(asset, contractAddress))
-		}
+		b = b.WithToken(contractAddress).
+			WithTokenType(p.getContractType(asset, contractAddress))
 	}
 
 	return b.Build()
@@ -213,11 +211,8 @@ func (p *TokenTransferProcessor) createStateChange(category types.StateChangeCat
 func (p *TokenTransferProcessor) createDebitCreditPair(from, to, amount string, contractAddress string, asset *asset.Asset, builder *StateChangeBuilder) []types.StateChange {
 	change := builder.
 		WithToken(contractAddress).
-		WithAmount(amount)
-	
-	if asset != nil && !asset.GetNative() {
-		change = change.WithTokenType(p.getContractType(asset, contractAddress))
-	}
+		WithAmount(amount).
+		WithTokenType(p.getContractType(asset, contractAddress))
 
 	debitChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonDebit).WithAccount(from).Build()
 	creditChange := change.Clone().WithCategory(types.StateChangeCategoryBalance).WithReason(types.StateChangeReasonCredit).WithAccount(to).Build()
