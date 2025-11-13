@@ -30,6 +30,8 @@ const (
 
 type Configs struct {
 	DatabaseURL       string
+	RedisHost         string
+	RedisPort         int
 	ServerPort        int
 	LedgerCursorName  string
 	StartLedger       int

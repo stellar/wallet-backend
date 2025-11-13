@@ -35,6 +35,8 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
+		utils.RedisHostOption(&cfg.RedisHost),
+		utils.RedisPortOption(&cfg.RedisPort),
 		{
 			Name:        "port",
 			Usage:       "Port to listen and serve on",

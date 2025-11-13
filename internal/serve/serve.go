@@ -39,6 +39,8 @@ import (
 
 type Configs struct {
 	Port                        int
+	RedisHost                   string
+	RedisPort                   int
 	DatabaseURL                 string
 	ServerBaseURL               string
 	ClientAuthPublicKeys        []string

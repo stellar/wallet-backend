@@ -33,6 +33,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.AdminPortOption(&cfg.AdminPort),
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
+		utils.RedisHostOption(&cfg.RedisHost),
+		utils.RedisPortOption(&cfg.RedisPort),
 		{
 			Name:        "ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
