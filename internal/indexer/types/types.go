@@ -50,6 +50,29 @@ const (
 	ContractTypeUnknown ContractType = "UNKNOWN"
 )
 
+type TrustlineChange struct {
+	AccountID    string
+	Asset        string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    TrustlineOpType
+}
+
+type TrustlineOpType string
+
+const (
+	TrustlineOpAdd    TrustlineOpType = "ADD"
+	TrustlineOpRemove TrustlineOpType = "REMOVE"
+)
+
+type ContractChange struct {
+	AccountID    string
+	ContractID   string
+	OperationID  int64
+	LedgerNumber uint32
+	ContractType ContractType
+}
+
 type Account struct {
 	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`

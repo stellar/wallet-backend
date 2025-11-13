@@ -870,6 +870,206 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	})
 }
 
+func TestProcessTokenChanges(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	tests := []struct {
+		name             string
+		trustlineChanges []types.TrustlineChange
+		contractChanges  []types.ContractChange
+		setupData        func()
+		verifyData       func(t *testing.T)
+		wantErr          bool
+	}{
+		{
+			name:             "empty changes",
+			trustlineChanges: []types.TrustlineChange{},
+			contractChanges:  []types.ContractChange{},
+			setupData:        func() {},
+			verifyData:       func(t *testing.T) {},
+			wantErr:          false,
+		},
+		{
+			name: "add trustline",
+			trustlineChanges: []types.TrustlineChange{
+				{
+					AccountID: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					Asset:     "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+					Operation: types.TrustlineOpAdd,
+				},
+			},
+			contractChanges: []types.ContractChange{},
+			setupData:       func() {},
+			verifyData: func(t *testing.T) {
+				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				members, err := mr.SMembers(key)
+				require.NoError(t, err)
+				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+			},
+			wantErr: false,
+		},
+		{
+			name: "remove trustline",
+			trustlineChanges: []types.TrustlineChange{
+				{
+					AccountID: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					Asset:     "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+					Operation: types.TrustlineOpRemove,
+				},
+			},
+			contractChanges: []types.ContractChange{},
+			setupData: func() {
+				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				//nolint:errcheck // test setup
+				_, _ = mr.SetAdd(key, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+			},
+			verifyData: func(t *testing.T) {
+				key := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				// Check if key exists before getting members (set may be deleted if empty)
+				if mr.Exists(key) {
+					members, err := mr.SMembers(key)
+					require.NoError(t, err)
+					assert.NotContains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name:             "add contract",
+			trustlineChanges: []types.TrustlineChange{},
+			contractChanges: []types.ContractChange{
+				{
+					AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+					ContractType: types.ContractTypeSAC,
+				},
+			},
+			setupData: func() {},
+			verifyData: func(t *testing.T) {
+				contractKey := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				members, err := mr.SMembers(contractKey)
+				require.NoError(t, err)
+				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+
+				typeKey := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+				contractType, err := mr.Get(typeKey)
+				assert.NoError(t, err)
+				assert.Equal(t, string(types.ContractTypeSAC), contractType)
+			},
+			wantErr: false,
+		},
+		{
+			name: "skip empty asset in trustline",
+			trustlineChanges: []types.TrustlineChange{
+				{
+					AccountID: "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					Asset:     "",
+					Operation: types.TrustlineOpAdd,
+				},
+			},
+			contractChanges: []types.ContractChange{},
+			setupData:       func() {},
+			verifyData: func(t *testing.T) {
+				// No key should be created for empty asset
+				key := trustlinesKeyPrefix + "GADOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				assert.False(t, mr.Exists(key))
+			},
+			wantErr: false,
+		},
+		{
+			name:             "skip empty contract ID",
+			trustlineChanges: []types.TrustlineChange{},
+			contractChanges: []types.ContractChange{
+				{
+					AccountID:    "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					ContractID:   "",
+					ContractType: types.ContractTypeSAC,
+				},
+			},
+			setupData: func() {},
+			verifyData: func(t *testing.T) {
+				// No key should be created for empty contract ID
+				key := contractsKeyPrefix + "GAFOZCZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				assert.False(t, mr.Exists(key))
+			},
+			wantErr: false,
+		},
+		{
+			name: "mixed operations",
+			trustlineChanges: []types.TrustlineChange{
+				{
+					AccountID: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					Asset:     "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+					Operation: types.TrustlineOpAdd,
+				},
+			},
+			contractChanges: []types.ContractChange{
+				{
+					AccountID:    "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					ContractID:   "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+					ContractType: types.ContractTypeSEP41,
+				},
+			},
+			setupData: func() {},
+			verifyData: func(t *testing.T) {
+				trustlineKey := trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				trustlines, err := mr.SMembers(trustlineKey)
+				require.NoError(t, err)
+				assert.Contains(t, trustlines, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+
+				contractKey := contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+				contracts, err := mr.SMembers(contractKey)
+				require.NoError(t, err)
+				assert.Contains(t, contracts, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+
+				typeKey := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
+				contractType, err := mr.Get(typeKey)
+				assert.NoError(t, err)
+				assert.Equal(t, string(types.ContractTypeSEP41), contractType)
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid trustline operation type",
+			trustlineChanges: []types.TrustlineChange{
+				{
+					AccountID: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+					Asset:     "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+					Operation: "INVALID_OP",
+				},
+			},
+			contractChanges: []types.ContractChange{},
+			setupData:       func() {},
+			verifyData:      func(t *testing.T) {},
+			wantErr:         true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setupData()
+
+			err := service.ProcessTokenChanges(ctx, tt.trustlineChanges, tt.contractChanges)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.verifyData(t)
+			}
+		})
+	}
+}
+
 func TestStoreAccountTokensInRedis(t *testing.T) {
 	ctx := context.Background()
 	mr, redisStore := setupTestRedis(t)
