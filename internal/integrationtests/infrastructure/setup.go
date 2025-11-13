@@ -49,7 +49,7 @@ const (
 	walletBackendContainerTag        = "integration-test"
 	walletBackendDockerfile          = "Dockerfile"
 	networkPassphrase                = "Standalone Network ; February 2017"
-	protocolVersion                  = 24 // Default protocol version for Stellar Core upgrades
+	protocolVersion                  = DefaultProtocolVersion // Default protocol version for Stellar Core upgrades
 )
 
 // getGitCommitHash returns the current git commit hash (short form)
@@ -386,26 +386,26 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Mint SEP-41 tokens to balanceTestAccount1. This creates a contract data entry
 	// in the ledger: LedgerEntryTypeContractData with key [Balance, G-address].
 	// This represents a pure contract token balance (not a classic trustline).
-	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.balanceTestAccount1KeyPair.Address(), 5000000000) // 500 tokens with 7 decimals
+	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.balanceTestAccount1KeyPair.Address(), TestSEP41MintStroops) // 500 tokens with 7 decimals
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", shared.balanceTestAccount1KeyPair.Address())
 
 	// Create SAC Balance for C-Address
 	// Transfer USDC SAC tokens to the holder contract. This creates a contract data entry
 	// in the ledger: LedgerEntryTypeContractData with key [Balance, C-address].
 	// This demonstrates that contracts can hold SAC token balances.
-	shared.invokeContractTransfer(ctx, t, shared.usdcContractAddress, shared.masterKeyPair.Address(), shared.holderContractAddress, 2000000000) // 200 tokens with 7 decimals
+	shared.invokeContractTransfer(ctx, t, shared.usdcContractAddress, shared.masterKeyPair.Address(), shared.holderContractAddress, TestUSDCTransferStroops) // 200 tokens with 7 decimals
 	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", shared.holderContractAddress)
 
 	// Create SEP-41 Balance for C-Address
 	// Transfer SEP-41 tokens to the holder contract. This creates another contract data entry
 	// for the holder contract: LedgerEntryTypeContractData with key [Balance, C-address].
 	// A contract can hold balances from multiple different tokens simultaneously.
-	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, 3000000000) // 300 tokens with 7 decimals
+	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, TestSEP41MintStroops) // 300 tokens with 7 decimals (using same constant, both are 500 tokens)
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", shared.holderContractAddress)
 
 	// Wait for the contracts to be present in latest checkpoint
 	log.Ctx(ctx).Info("🕒 Waiting for contracts to be present in latest checkpoint...")
-	time.Sleep(10 * time.Second)
+	time.Sleep(CheckpointWaitDuration)
 
 	// Start PostgreSQL for wallet-backend
 	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
@@ -512,7 +512,7 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build SAC deployment transaction")
@@ -525,7 +525,7 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode SAC deployment transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate SAC deployment transaction")
 	require.Empty(t, simulationResult.Error, "SAC deployment simulation failed: %s", simulationResult.Error)
@@ -547,7 +547,7 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild SAC deployment transaction")
@@ -567,8 +567,8 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -631,7 +631,7 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build credit asset SAC deployment transaction")
@@ -644,7 +644,7 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode credit asset SAC deployment transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate credit asset SAC deployment transaction")
 	require.Empty(t, simulationResult.Error, "credit asset SAC deployment simulation failed: %s", simulationResult.Error)
@@ -666,7 +666,7 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild credit asset SAC deployment transaction")
@@ -686,8 +686,8 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -704,7 +704,7 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	for i, kp := range accounts {
 		ops[i] = &txnbuild.CreateAccount{
 			Destination:   kp.Address(),
-			Amount:        "10000", // Fund each with 10,000 XLM
+			Amount:        DefaultFundingAmount, // Fund each with 10,000 XLM
 			SourceAccount: s.masterKeyPair.Address(),
 		}
 	}
@@ -733,7 +733,7 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	require.NoError(t, err)
 
 	// Submit transaction to RPC
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to submit account creation transaction")
 	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "account creation transaction failed with status: %s", sendResult.Status)
@@ -741,8 +741,8 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -782,11 +782,11 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 			Line: txnbuild.ChangeTrustAssetWrapper{
 				Asset: testAsset,
 			},
-			Limit:         "1000000", // 1 million units
+			Limit:         DefaultTrustlineLimit, // 1 million units
 			SourceAccount: kp.Address(),
 		}, &txnbuild.Payment{
 			Destination:   kp.Address(),
-			Amount:        "100",
+			Amount:        TestUSDCPaymentAmount,
 			Asset:         testAsset,
 			SourceAccount: s.masterKeyPair.Address(),
 		})
@@ -820,7 +820,7 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 	require.NoError(t, err)
 
 	// Submit transaction to RPC
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to submit trustline creation transaction")
 	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "trustline creation transaction failed with status: %s", sendResult.Status)
@@ -828,8 +828,8 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -868,12 +868,12 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 			Line: txnbuild.ChangeTrustAssetWrapper{
 				Asset: eurcAsset,
 			},
-			Limit:         "1000000", // 1 million units
+			Limit:         DefaultTrustlineLimit, // 1 million units
 			SourceAccount: s.balanceTestAccount1KeyPair.Address(),
 		},
 		&txnbuild.Payment{
 			Destination:   s.balanceTestAccount1KeyPair.Address(),
-			Amount:        "100",
+			Amount:        TestUSDCPaymentAmount,
 			Asset:         eurcAsset,
 			SourceAccount: s.masterKeyPair.Address(),
 		},
@@ -905,7 +905,7 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 	require.NoError(t, err)
 
 	// Submit transaction to RPC
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to submit EURC trustline creation transaction")
 	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "EURC trustline creation transaction failed with status: %s", sendResult.Status)
@@ -913,8 +913,8 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -1453,7 +1453,7 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build WASM upload transaction")
@@ -1466,7 +1466,7 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode WASM upload transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate WASM upload transaction")
 	require.Empty(t, simulationResult.Error, "WASM upload simulation failed: %s", simulationResult.Error)
@@ -1488,7 +1488,7 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild WASM upload transaction")
@@ -1508,8 +1508,8 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil && txResult.Status == entities.SuccessStatus {
 			confirmed = true
@@ -1622,7 +1622,7 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build contract deployment transaction")
@@ -1636,7 +1636,7 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode contract deployment transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate contract deployment transaction")
 	require.Empty(t, simulationResult.Error, "contract deployment simulation failed: %s", simulationResult.Error)
@@ -1696,7 +1696,7 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true, // Now we increment the sequence number
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild contract deployment transaction")
@@ -1716,8 +1716,8 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 	// Step 11: Wait for transaction to be confirmed on the ledger
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 { // Try for up to 10 seconds
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries { // Try for up to 10 seconds
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil {
 			if txResult.Status == entities.SuccessStatus {
@@ -1871,7 +1871,7 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build mint transaction")
@@ -1888,7 +1888,7 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode mint transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate mint transaction")
 	require.Empty(t, simulationResult.Error, "mint simulation failed: %s", simulationResult.Error)
@@ -1948,7 +1948,7 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee, // Resource fee + base fee
 		IncrementSequenceNum: true,                                 // Now we increment sequence
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild mint transaction")
@@ -1971,8 +1971,8 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 	// Poll the RPC server until the transaction status becomes "SUCCESS"
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 60 {
-		time.Sleep(500 * time.Millisecond)
+	for range ExtendedConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil {
 			if txResult.Status == entities.SuccessStatus {
@@ -2096,7 +2096,7 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		BaseFee:              txnbuild.MinBaseFee,
 		IncrementSequenceNum: false, // Don't increment for simulation
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to build transfer transaction")
@@ -2109,7 +2109,7 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 	txXDR, err := tx.Base64()
 	require.NoError(t, err, "failed to encode transfer transaction for simulation")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: DefaultHTTPTimeout}
 	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
 	require.NoError(t, err, "failed to simulate transfer transaction")
 	require.Empty(t, simulationResult.Error, "transfer simulation failed: %s", simulationResult.Error)
@@ -2165,7 +2165,7 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
 		IncrementSequenceNum: true,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 	})
 	require.NoError(t, err, "failed to rebuild transfer transaction")
@@ -2185,8 +2185,8 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 	// Wait for transaction to be confirmed
 	hash := sendResult.Hash
 	var confirmed bool
-	for range 20 {
-		time.Sleep(500 * time.Millisecond)
+	for range DefaultConfirmationRetries {
+		time.Sleep(TransactionPollInterval)
 		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
 		if err == nil {
 			if txResult.Status == entities.SuccessStatus {

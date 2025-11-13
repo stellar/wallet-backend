@@ -110,7 +110,7 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 	paymentOp := &txnbuild.Payment{
 		SourceAccount: f.PrimaryAccountKP.Address(),
 		Destination:   f.SecondaryAccountKP.Address(),
-		Amount:        "10",
+		Amount:        DefaultPaymentAmount,
 		Asset:         txnbuild.NativeAsset{},
 	}
 
@@ -146,7 +146,7 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
 		&txnbuild.CreateAccount{
-			Amount:        "5",
+			Amount:        TestAccountCreationAmount,
 			Destination:   f.SponsoredNewAccountKP.Address(),
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
@@ -202,7 +202,7 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 		},
 		&txnbuild.Payment{
 			Destination:   f.SecondaryAccountKP.Address(),
-			Amount:        "3000",
+			Amount:        TestCustomAssetAmount,
 			Asset:         customAsset,
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
@@ -339,7 +339,7 @@ func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full],
 		},
 		&txnbuild.Payment{
 			Destination:   f.SecondaryAccountKP.Address(),
-			Amount:        "1000",
+			Amount:        TestAuthRequiredPaymentAmount,
 			Asset:         customAsset,
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
@@ -355,7 +355,7 @@ func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full],
 		// Clawback the funds from the Secondary account back to the Primary account.
 		&txnbuild.Clawback{
 			From:          f.SecondaryAccountKP.Address(),
-			Amount:        "1000",
+			Amount:        TestAuthRequiredPaymentAmount,
 			Asset:         customAsset,
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
@@ -410,7 +410,7 @@ func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.F
 
 		// Primary creates a claimable balance for Secondary with unconditional predicate
 		&txnbuild.CreateClaimableBalance{
-			Amount: "1",
+			Amount: TestClaimableBalanceAmount,
 			Asset:  customAsset,
 			Destinations: []txnbuild.Claimant{
 				txnbuild.NewClaimant(f.SecondaryAccountKP.Address(), nil),
@@ -420,7 +420,7 @@ func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.F
 
 		// Primary creates another claimable balance for Secondary with unconditional predicate
 		&txnbuild.CreateClaimableBalance{
-			Amount: "1",
+			Amount: TestClaimableBalanceAmount,
 			Asset:  customAsset,
 			Destinations: []txnbuild.Claimant{
 				txnbuild.NewClaimant(f.SecondaryAccountKP.Address(), nil),
@@ -622,8 +622,8 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 		// Primary deposits into the liquidity pool
 		&txnbuild.LiquidityPoolDeposit{
 			LiquidityPoolID: poolID,
-			MaxAmountA:      "100", // 100 XLM
-			MaxAmountB:      "100", // 100 TEST2
+			MaxAmountA:      TestLiquidityPoolAmount, // 100 XLM
+			MaxAmountB:      TestLiquidityPoolAmount, // 100 TEST2
 			MinPrice: xdr.Price{
 				N: xdr.Int32(1),
 				D: xdr.Int32(1),
@@ -638,9 +638,9 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 		// Primary withdraws from the liquidity pool
 		&txnbuild.LiquidityPoolWithdraw{
 			LiquidityPoolID: poolID,
-			Amount:          "100", // Withdraw all pool shares
-			MinAmountA:      "1",
-			MinAmountB:      "1",
+			Amount:          TestLiquidityPoolAmount, // Withdraw all pool shares
+			MinAmountA:      TestClaimableBalanceAmount,
+			MinAmountB:      TestClaimableBalanceAmount,
 			SourceAccount:   f.PrimaryAccountKP.Address(),
 		},
 
@@ -810,7 +810,7 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 						Type: xdr.ScValTypeScvI128,
 						I128: &xdr.Int128Parts{
 							Hi: xdr.Int64(0),
-							Lo: xdr.Uint64(uint64(amount.MustParse("10"))),
+							Lo: xdr.Uint64(uint64(amount.MustParse(DefaultPaymentAmount))),
 						},
 					},
 				},
@@ -841,7 +841,7 @@ func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnb
 		Operations:    []txnbuild.Operation{&op},
 		BaseFee:       txnbuild.MinBaseFee,
 		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(300),
+			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 		},
 		IncrementSequenceNum: true,
 	})
@@ -874,7 +874,7 @@ func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnb
 			Operations:    []txnbuild.Operation{&op},
 			BaseFee:       txnbuild.MinBaseFee,
 			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewTimeout(300),
+				TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
 			},
 			IncrementSequenceNum: true,
 		})
@@ -969,7 +969,7 @@ func (f *Fixtures) prepareEURCTransferToContractOp(ctx context.Context) (opXDR s
 	}
 
 	// Transfer 50 EURC (with 7 decimals = 500000000 stroops)
-	transferAmount := int64(500000000)
+	transferAmount := int64(TestEURCTransferStroops)
 
 	invokeEURCTransfer := txnbuild.InvokeHostFunction{
 		SourceAccount: f.BalanceTestAccount1KP.Address(),
@@ -1023,12 +1023,12 @@ func (f *Fixtures) prepareEURCPaymentOp() ([]string, *Set[*keypair.Full], error)
 			Line: txnbuild.ChangeTrustAssetWrapper{
 				Asset: eurcAsset,
 			},
-			Limit:         "1000000", // 1 million units
+			Limit:         DefaultTrustlineLimit, // 1 million units
 			SourceAccount: f.BalanceTestAccount2KP.Address(),
 		},
 		&txnbuild.Payment{
 			Destination:   f.BalanceTestAccount2KP.Address(),
-			Amount:        "75", // 75 EURC
+			Amount:        TestEURCPaymentAmount, // 75 EURC
 			Asset:         eurcAsset,
 			SourceAccount: f.MasterAccountKP.Address(),
 		},
@@ -1065,7 +1065,7 @@ func (f *Fixtures) prepareSEP41TransferOp(ctx context.Context) (opXDR string, tx
 	}
 
 	// Transfer 100 SEP-41 tokens (with 7 decimals = 1000000000 stroops)
-	transferAmount := int64(1000000000)
+	transferAmount := int64(TestSEP41TransferStroops)
 
 	invokeSEP41Transfer := txnbuild.InvokeHostFunction{
 		SourceAccount: f.BalanceTestAccount1KP.Address(),
@@ -1111,7 +1111,7 @@ type category string
 const (
 	categoryStellarClassic category      = "STELLAR_CLASSIC"
 	categorySoroban        category      = "SOROBAN"
-	timeout                time.Duration = 120 * time.Second
+	timeout                time.Duration = RPCHealthTimeout
 )
 
 type UseCase struct {
