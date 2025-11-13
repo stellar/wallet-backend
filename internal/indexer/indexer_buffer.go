@@ -310,4 +310,7 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 
 	// Merge trustline changes
 	b.trustlineChanges = append(b.trustlineChanges, otherBuffer.trustlineChanges...)
+
+	// Merge contract changes
+	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
 }
