@@ -1171,6 +1171,8 @@ func (f *Fixtures) buildSingleOperationUseCase(
 }
 
 // buildMultiOperationUseCase creates a UseCase from multiple operation XDRs.
+//
+//nolint:unparam // category parameter kept for API consistency despite always being categoryStellarClassic
 func (f *Fixtures) buildMultiOperationUseCase(
 	opsXDR []string,
 	txSigners *Set[*keypair.Full],

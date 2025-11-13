@@ -2,11 +2,9 @@
 package infrastructure
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -31,10 +28,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
-	"github.com/stellar/wallet-backend/pkg/sorobanauth"
 	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -105,7 +100,10 @@ func ensureWalletBackendImage(ctx context.Context, tag string) (string, error) {
 		log.Ctx(ctx).Infof("Building wallet-backend image: %s", fullImageName)
 
 		// Get the directory of the current source file for relative paths
-		_, filename, _, _ := runtime.Caller(0)
+		_, filename, _, ok := runtime.Caller(0)
+		if !ok {
+			return "", fmt.Errorf("failed to get caller information")
+		}
 		dir := filepath.Dir(filename)
 		contextPath := filepath.Join(dir, "../../../")
 		dockerfilePath := filepath.Join(contextPath, walletBackendDockerfile)
@@ -180,13 +178,19 @@ func (c *TestContainer) GetPort(ctx context.Context) (string, error) {
 
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
-	TestNetwork                   *testcontainers.DockerNetwork
-	PostgresContainer             *TestContainer
-	StellarCoreContainer          *TestContainer
-	RPCContainer                  *TestContainer
-	WalletDBContainer             *TestContainer
-	RedisContainer                *TestContainer
-	WalletBackendContainer        *WalletBackendContainer
+	// Docker infrastructure
+	TestNetwork            *testcontainers.DockerNetwork
+	PostgresContainer      *TestContainer
+	StellarCoreContainer   *TestContainer
+	RPCContainer           *TestContainer
+	WalletDBContainer      *TestContainer
+	RedisContainer         *TestContainer
+	WalletBackendContainer *WalletBackendContainer
+
+	// HTTP client for RPC calls (reusable, safe for concurrent use)
+	httpClient *http.Client
+
+	// Test accounts
 	clientAuthKeyPair             *keypair.Full
 	primarySourceAccountKeyPair   *keypair.Full
 	secondarySourceAccountKeyPair *keypair.Full
@@ -194,8 +198,12 @@ type SharedContainers struct {
 	sponsoredNewAccountKeyPair    *keypair.Full
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
-	usdcContractAddress           string
-	eurcContractAddress           string
+	masterKeyPair                 *keypair.Full
+	masterAccount                 *txnbuild.SimpleAccount
+
+	// Deployed contracts
+	usdcContractAddress string
+	eurcContractAddress string
 	// sep41ContractAddress is the contract address (C...) of a deployed custom SEP-41 token.
 	// This represents a non-SAC token contract that implements the SEP-41 token interface.
 	// Used for testing contract balances for both G-addresses and C-addresses.
@@ -205,12 +213,12 @@ type SharedContainers struct {
 	// but can receive and hold balances from both SAC and SEP-41 tokens.
 	// Used for testing C-address token balances.
 	holderContractAddress string
-	masterAccount         *txnbuild.SimpleAccount
-	masterKeyPair         *keypair.Full
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
 // initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
+//
+//nolint:unparam // t kept for API consistency with other setup methods
 func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context, t *testing.T) error {
 	var err error
 
@@ -248,6 +256,8 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 }
 
 // setupTestAccounts initializes keypairs, creates accounts, and establishes trustlines.
+//
+//nolint:unparam // error return kept for API consistency with other setup methods
 func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) error {
 	// Initialize master account for funding
 	s.masterKeyPair = keypair.Root(networkPassphrase)
@@ -403,6 +413,8 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 }
 
 // setupWalletBackend initializes wallet-backend database and service containers.
+//
+//nolint:unparam // t kept for API consistency with other setup methods
 func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T) error {
 	var err error
 
@@ -438,10 +450,16 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T)
 
 func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Get the directory of the current source file
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		require.Fail(t, "failed to get caller information")
+	}
 	dir := filepath.Dir(filename)
 
-	shared := &SharedContainers{}
+	shared := &SharedContainers{
+		// Initialize reusable HTTP client for RPC calls
+		httpClient: &http.Client{Timeout: DefaultHTTPTimeout},
+	}
 	ctx := context.Background()
 
 	// Initialize container infrastructure
@@ -539,77 +557,9 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Build initial transaction for simulation
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build SAC deployment transaction")
-
-	// Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Simulate transaction to get resource footprint
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode SAC deployment transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate SAC deployment transaction")
-	require.Empty(t, simulationResult.Error, "SAC deployment simulation failed: %s", simulationResult.Error)
-
-	// Apply simulation results to the operation
-	deployOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Parse MinResourceFee from string to int64
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Rebuild transaction with simulation results and increment sequence
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild SAC deployment transaction")
-
-	// Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign SAC deployment transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed SAC deployment transaction")
-
-	// Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit SAC deployment transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "SAC deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "SAC deployment transaction not confirmed after 10 seconds")
+	// Execute the deployment operation
+	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	require.NoError(t, err, "failed to deploy native asset SAC")
 }
 
 // deployCreditAssetSAC deploys the Stellar Asset Contract for a credit asset (non-native)
@@ -658,77 +608,9 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Build initial transaction for simulation
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build credit asset SAC deployment transaction")
-
-	// Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Simulate transaction to get resource footprint
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode credit asset SAC deployment transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate credit asset SAC deployment transaction")
-	require.Empty(t, simulationResult.Error, "credit asset SAC deployment simulation failed: %s", simulationResult.Error)
-
-	// Apply simulation results to the operation
-	deployOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Parse MinResourceFee from string to int64
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Rebuild transaction with simulation results and increment sequence
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild credit asset SAC deployment transaction")
-
-	// Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign credit asset SAC deployment transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed credit asset SAC deployment transaction")
-
-	// Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit credit asset SAC deployment transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "credit asset SAC deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "credit asset SAC deployment transaction not confirmed after 10 seconds")
+	// Execute the deployment operation
+	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	require.NoError(t, err, "failed to deploy credit asset SAC for %s", assetCode)
 }
 
 // createAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
@@ -743,47 +625,9 @@ func (s *SharedContainers) createAndFundAccounts(ctx context.Context, t *testing
 		}
 	}
 
-	// Build transaction with all operations
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           ops,
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewInfiniteTimeout(),
-		},
-	})
-	require.NoError(t, err)
-
-	// Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err)
-
-	// Get RPC URL and submit
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err)
-
-	txXDR, err := tx.Base64()
-	require.NoError(t, err)
-
-	// Submit transaction to RPC
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit account creation transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "account creation transaction failed with status: %s", sendResult.Status)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "transaction not confirmed after 10 seconds")
+	// Execute the account creation operations
+	_, err := executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair})
+	require.NoError(t, err, "failed to create and fund accounts")
 
 	// Log funded accounts
 	for _, kp := range accounts {
@@ -826,51 +670,14 @@ func (s *SharedContainers) createUSDCTrustlines(ctx context.Context, t *testing.
 		})
 	}
 
-	// Build transaction with all operations
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           ops,
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewInfiniteTimeout(),
-		},
-	})
-	require.NoError(t, err)
+	// Build signers list: master key + all account keys
+	signers := make([]*keypair.Full, 0, len(accounts)+1)
+	signers = append(signers, s.masterKeyPair)
+	signers = append(signers, accounts...)
 
-	// Sign with master key and each account's key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err)
-	for _, kp := range accounts {
-		tx, err = tx.Sign(networkPassphrase, kp)
-		require.NoError(t, err)
-	}
-
-	// Get RPC URL and submit
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err)
-
-	txXDR, err := tx.Base64()
-	require.NoError(t, err)
-
-	// Submit transaction to RPC
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit trustline creation transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "trustline creation transaction failed with status: %s", sendResult.Status)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "trustline creation transaction not confirmed after 10 seconds")
+	// Execute the trustline creation operations
+	_, err = executeClassicOperation(ctx, t, s, ops, signers)
+	require.NoError(t, err, "failed to create USDC trustlines")
 
 	// Log created trustlines
 	for _, kp := range accounts {
@@ -913,49 +720,9 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 		},
 	}
 
-	// Build transaction with all operations
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           ops,
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewInfiniteTimeout(),
-		},
-	})
-	require.NoError(t, err)
-
-	// Sign with master key and balance test account 1 key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err)
-	tx, err = tx.Sign(networkPassphrase, s.balanceTestAccount1KeyPair)
-	require.NoError(t, err)
-
-	// Get RPC URL and submit
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err)
-
-	txXDR, err := tx.Base64()
-	require.NoError(t, err)
-
-	// Submit transaction to RPC
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit EURC trustline creation transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "EURC trustline creation transaction failed with status: %s", sendResult.Status)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "EURC trustline creation transaction not confirmed after 10 seconds")
+	// Execute the trustline creation operations
+	_, err = executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair, s.balanceTestAccount1KeyPair})
+	require.NoError(t, err, "failed to create EURC trustline")
 
 	log.Ctx(ctx).Infof("🔗 Created EURC trustline for balance test account 1 %s: %s:%s", s.balanceTestAccount1KeyPair.Address(), eurcAsset.Code, eurcAsset.Issuer)
 }
@@ -1054,7 +821,10 @@ func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.Dock
 // createStellarCoreContainer starts a Stellar Core container in standalone mode
 func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	// Get the directory of the current source file
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("failed to get caller information")
+	}
 	dir := filepath.Dir(filename)
 
 	containerRequest := testcontainers.ContainerRequest{
@@ -1118,7 +888,10 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 // createRPCContainer starts a Stellar RPC container for testing
 func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	// Get the directory of the current source file
-	_, filename, _, _ := runtime.Caller(0)
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("failed to get caller information")
+	}
 	dir := filepath.Dir(filename)
 
 	containerRequest := testcontainers.ContainerRequest{
@@ -1324,135 +1097,6 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 	}, nil
 }
 
-// simulateTransactionRPC simulates a transaction via RPC to get resource footprint
-func simulateTransactionRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSimulateTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "simulateTransaction",
-		"params": map[string]string{
-			"transaction": txXDR,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close() //nolint:errcheck
-	}()
-
-	var rpcResp struct {
-		Result entities.RPCSimulateTransactionResult `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
-}
-
-// submitTransactionToRPC submits a transaction XDR to the RPC endpoint
-func submitTransactionToRPC(client *http.Client, rpcURL, txXDR string) (*entities.RPCSendTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "sendTransaction",
-		"params": map[string]string{
-			"transaction": txXDR,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close() //nolint:errcheck
-	}()
-
-	var rpcResp struct {
-		Result entities.RPCSendTransactionResult `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
-}
-
-// getTransactionFromRPC polls RPC for transaction status
-func getTransactionFromRPC(client *http.Client, rpcURL, hash string) (*entities.RPCGetTransactionResult, error) {
-	requestBody := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "getTransaction",
-		"params": map[string]string{
-			"hash": hash,
-		},
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
-	}
-
-	resp, err := client.Post(rpcURL, "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("posting to RPC: %w", err)
-	}
-	defer func() {
-		_ = resp.Body.Close() //nolint:errcheck
-	}()
-
-	var rpcResp struct {
-		Result entities.RPCGetTransactionResult `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
-	}
-
-	return &rpcResp.Result, nil
-}
-
 // uploadContractWasm uploads a Soroban contract WASM bytecode to the ledger.
 // This is the first step in deploying a Soroban smart contract. The WASM code
 // is stored in the ledger and can be referenced by its hash for deployment.
@@ -1480,81 +1124,12 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Build initial transaction for simulation
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{uploadOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build WASM upload transaction")
+	// Execute the WASM upload operation
+	_, err := executeSorobanOperation(ctx, t, s, uploadOp, false, DefaultConfirmationRetries)
+	require.NoError(t, err, "failed to upload WASM")
 
-	// Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Simulate transaction to get resource footprint
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode WASM upload transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate WASM upload transaction")
-	require.Empty(t, simulationResult.Error, "WASM upload simulation failed: %s", simulationResult.Error)
-
-	// Apply simulation results to the operation
-	uploadOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Parse MinResourceFee from string to int64
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Rebuild transaction with simulation results and increment sequence
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{uploadOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild WASM upload transaction")
-
-	// Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign WASM upload transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed WASM upload transaction")
-
-	// Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit WASM upload transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "WASM upload transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil && txResult.Status == entities.SuccessStatus {
-			confirmed = true
-			break
-		}
-	}
-	require.True(t, confirmed, "WASM upload transaction not confirmed after 10 seconds")
-
-	// Compute WASM hash from the uploaded bytecode
+	// Compute and return WASM hash from the uploaded bytecode
 	wasmHash := xdr.Hash(sha256.Sum256(wasmBytes))
-
 	return wasmHash
 }
 
@@ -1648,127 +1223,15 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Step 5: Build initial transaction for simulation
-	// Simulation is required to determine resource footprint before actual deployment
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build contract deployment transaction")
+	// Step 5: Execute the contract deployment operation
+	// requireAuth=true because CreateContractV2 with constructor requires deployer authorization
+	_, err = executeSorobanOperation(ctx, t, s, deployOp, true, DefaultConfirmationRetries)
+	require.NoError(t, err, "failed to deploy contract with constructor")
 
-	// Get RPC URL for simulation and submission
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Step 6: Simulate transaction to get resource footprint
-	// If the contract has a constructor, this simulation will execute it
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode contract deployment transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate contract deployment transaction")
-	require.Empty(t, simulationResult.Error, "contract deployment simulation failed: %s", simulationResult.Error)
-
-	// Step 6b: Extract and sign authorization entries from simulation
-	// CreateContractV2 with constructor requires deployer authorization, even if the
-	// constructor doesn't explicitly call require_auth(). This is a protocol-level
-	// requirement introduced in Protocol 22 to ensure atomicity of deploy+initialize.
-	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		// Initialize auth signer with network passphrase
-		authSigner := sorobanauth.AuthSigner{
-			NetworkPassphrase: networkPassphrase,
-		}
-
-		// Sign each auth entry with the deployer's keypair
-		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
-		for i, authEntry := range simulationResult.Results[0].Auth {
-			// Sign with master keypair (deployer)
-			// - nonce: 0 for first-time authorization
-			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
-			switch authEntry.Credentials.Type {
-			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-				signedEntry, err := authSigner.AuthorizeEntry(
-					authEntry,
-					0, // nonce
-					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
-					s.masterKeyPair,
-				)
-				require.NoError(t, err, "failed to sign auth entry %d", i)
-				signedAuthEntries[i] = signedEntry
-			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
-			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				signedAuthEntries[i] = authEntry
-			}
-		}
-
-		// Attach signed auth entries to the deploy operation
-		// These prove that the deployer authorizes the constructor execution
-		deployOp.Auth = signedAuthEntries
-	}
-
-	// Step 7: Apply simulation results to the operation
-	// The TransactionData contains the resource footprint needed for deployment
-	deployOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Parse MinResourceFee from simulation result
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Step 8: Rebuild transaction with simulation results and increment sequence
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{deployOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true, // Now we increment the sequence number
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild contract deployment transaction")
-
-	// Step 9: Sign with master key
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign contract deployment transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed contract deployment transaction")
-
-	// Step 10: Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit contract deployment transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "contract deployment transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Step 11: Wait for transaction to be confirmed on the ledger
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries { // Try for up to 10 seconds
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil {
-			if txResult.Status == entities.SuccessStatus {
-				confirmed = true
-				break
-			}
-			if txResult.Status == entities.FailedStatus {
-				require.Fail(t, "contract deployment transaction failed with resultXdr: %s", txResult.ResultXDR)
-			}
-		}
-	}
-	require.True(t, confirmed, "contract deployment transaction not confirmed after 20 seconds")
-
-	// Step 12: Calculate the contract address from the preimage
+	// Step 6: Calculate and return the contract address from the preimage
 	// The contract address is deterministically computed from the deployer address and salt
 	contractAddress, err := s.calculateContractID(networkPassphrase, preimage.MustFromAddress())
-	require.NoError(t, err, "failed to encode contract ID")
+	require.NoError(t, err, "failed to calculate contract ID")
 	return contractAddress
 }
 
@@ -1821,52 +1284,18 @@ func (s *SharedContainers) calculateContractID(networkPassphrase string, deploye
 //   - tokenContractAddress: The contract address of the SEP-41 token (C...)
 //   - toAddress: Recipient address (can be G... for accounts or C... for contracts)
 //   - amount: Amount to mint in stroops/base units (e.g., 5000000000 = 500 tokens with 7 decimals)
-//
-// Process:
-//  1. Decode contract and recipient addresses to XDR format
-//  2. Encode amount as i128 XDR type (128-bit integer for large token amounts)
-//  3. Build contract invocation with "mint" function
-//  4. Simulate to get resource limits (CPU, memory, storage)
-//  5. Sign with admin account (master key)
-//  6. Submit and wait for confirmation
 func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, tokenContractAddress, toAddress string, amount int64) {
-	// Step 1: Decode token contract address to get contract ID
-	// Contract addresses (C...) are base32-encoded 32-byte identifiers
+	// Decode token contract address to get contract ID
 	tokenContractID, err := strkey.Decode(strkey.VersionByteContract, tokenContractAddress)
 	require.NoError(t, err, "failed to decode token contract address")
 	var tokenID xdr.ContractId
 	copy(tokenID[:], tokenContractID)
 
-	// Step 2: Build recipient ScAddress
-	// Stellar has two address types: accounts (G...) and contracts (C...)
-	// We need to detect which type and encode appropriately for XDR
-	var toSCAddress xdr.ScAddress
-	if strings.HasPrefix(toAddress, "G") {
-		// G-address: Account address (user wallet)
-		// When minting to a G-address, the token contract creates a LedgerEntryTypeContractData
-		// entry with key [Balance, G-address] to store the account's token balance
-		toAccountID := xdr.MustAddress(toAddress)
-		toSCAddress = xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &toAccountID,
-		}
-	} else if strings.HasPrefix(toAddress, "C") {
-		// C-address: Contract address (smart contract)
-		// Contracts can also hold token balances. The balance is stored similarly but
-		// with key [Balance, C-address] instead
-		toContractID, err := strkey.Decode(strkey.VersionByteContract, toAddress)
-		require.NoError(t, err, "failed to decode recipient contract address")
-		var toID xdr.ContractId
-		copy(toID[:], toContractID)
-		toSCAddress = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &toID,
-		}
-	} else {
-		require.Fail(t, "invalid address format: must start with G or C")
-	}
+	// Build recipient ScAddress using helper
+	toSCAddress, err := parseAddressToScAddress(toAddress)
+	require.NoError(t, err, "failed to parse recipient address")
 
-	// Step 3: Build the mint invocation
+	// Build the mint invocation
 	// Function signature: mint(to: Address, amount: i128)
 	mintSym := xdr.ScSymbol("mint")
 	invokeOp := &txnbuild.InvokeHostFunction{
@@ -1883,7 +1312,6 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 					{Type: xdr.ScValTypeScvAddress, Address: &toSCAddress},
 					// Arg 2: amount to mint (amount: i128)
 					// i128 is a 128-bit signed integer used for token amounts.
-					// For simplicity, we use Lo (lower 64 bits) and set Hi to 0
 					{
 						Type: xdr.ScValTypeScvI128,
 						I128: &xdr.Int128Parts{
@@ -1897,128 +1325,9 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 		SourceAccount: s.masterKeyPair.Address(), // Must be admin for mint to succeed
 	}
 
-	// Step 4: Build initial transaction for simulation
-	// Simulation is mandatory for Soroban contracts to determine resource requirements
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{invokeOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build mint transaction")
-
-	// Get RPC URL for simulation and submission
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Step 5: Simulate transaction to get resource footprint
-	// Simulation executes the contract and returns:
-	//   - TransactionData: Resource footprint (which ledger entries to read/write)
-	//   - MinResourceFee: Minimum fee required for the resources used
-	//   - Result: The contract's return value (if successful)
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode mint transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate mint transaction")
-	require.Empty(t, simulationResult.Error, "mint simulation failed: %s", simulationResult.Error)
-
-	// Step 6: Apply simulation results to the operation
-	// The TransactionData contains the resource footprint - which ledger entries
-	// the transaction will read/write. This is required for the actual transaction.
-	invokeOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Step 6a: Extract and sign authorization entries from simulation
-	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		// Initialize auth signer with network passphrase
-		authSigner := sorobanauth.AuthSigner{
-			NetworkPassphrase: networkPassphrase,
-		}
-
-		// Sign each auth entry with the deployer's keypair
-		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
-		for i, authEntry := range simulationResult.Results[0].Auth {
-			// Sign with master keypair (deployer)
-			// - nonce: 0 for first-time authorization
-			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
-			switch authEntry.Credentials.Type {
-			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-				signedEntry, err := authSigner.AuthorizeEntry(
-					authEntry,
-					0, // nonce
-					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
-					s.masterKeyPair,
-				)
-				require.NoError(t, err, "failed to sign auth entry %d", i)
-				signedAuthEntries[i] = signedEntry
-			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
-			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				signedAuthEntries[i] = authEntry
-			}
-		}
-
-		// Attach signed auth entries to the deploy operation
-		// These prove that the deployer authorizes the constructor execution
-		invokeOp.Auth = signedAuthEntries
-	}
-
-	// Parse MinResourceFee from simulation result
-	// This is the fee for resources used (CPU instructions, memory, storage)
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Step 7: Rebuild transaction with simulation results and increment sequence
-	// Now we create the actual transaction with correct resource limits
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{invokeOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee, // Resource fee + base fee
-		IncrementSequenceNum: true,                                 // Now we increment sequence
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild mint transaction")
-
-	// Step 8: Sign with admin key (master key)
-	// Only the admin account can mint tokens, so we sign with the master keypair
-	// that was set as admin during token initialization
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign mint transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed mint transaction")
-
-	// Step 9: Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit mint transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "mint transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Step 10: Wait for transaction to be confirmed on the ledger
-	// Poll the RPC server until the transaction status becomes "SUCCESS"
-	hash := sendResult.Hash
-	var confirmed bool
-	for range ExtendedConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil {
-			if txResult.Status == entities.SuccessStatus {
-				confirmed = true
-				break
-			}
-			if txResult.Status == entities.FailedStatus {
-				require.Fail(t, "mint transaction failed with resultXdr: %s", txResult.ResultXDR)
-			}
-		}
-	}
-	require.True(t, confirmed, "mint transaction not confirmed after 60 seconds")
+	// Execute using helper with extended retries for mint operations
+	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, ExtendedConfirmationRetries)
+	require.NoError(t, err, "failed to mint SEP-41 tokens")
 }
 
 // invokeContractTransfer invokes the transfer function on a SEP-41 token contract.
@@ -2035,14 +1344,6 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 //   - fromAddress: Sender address (G... or C...)
 //   - toAddress: Recipient address (G... or C...)
 //   - amount: Amount to transfer (in stroops/atomic units)
-//
-// The function:
-//  1. Decodes token contract address to get contract ID
-//  2. Builds ScAddress structures for from and to addresses
-//  3. Creates InvokeContractArgs with "transfer" function and arguments
-//  4. Simulates transaction to get resource footprint
-//  5. Signs with appropriate keys (master for account transfers)
-//  6. Submits to RPC and waits for confirmation
 func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testing.T, tokenContractAddress, fromAddress, toAddress string, amount int64) {
 	// Decode token contract address to get contract ID
 	tokenContractID, err := strkey.Decode(strkey.VersionByteContract, tokenContractAddress)
@@ -2050,51 +1351,12 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 	var tokenID xdr.ContractId
 	copy(tokenID[:], tokenContractID)
 
-	// Build from ScAddress (can be account G... or contract C...)
-	var fromSCAddress xdr.ScAddress
-	if strings.HasPrefix(fromAddress, "G") {
-		// Account address
-		fromAccountID := xdr.MustAddress(fromAddress)
-		fromSCAddress = xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &fromAccountID,
-		}
-	} else if strings.HasPrefix(fromAddress, "C") {
-		// Contract address
-		fromContractID, err := strkey.Decode(strkey.VersionByteContract, fromAddress)
-		require.NoError(t, err, "failed to decode sender contract address")
-		var fromID xdr.ContractId
-		copy(fromID[:], fromContractID)
-		fromSCAddress = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &fromID,
-		}
-	} else {
-		require.Fail(t, "invalid from address format: must start with G or C")
-	}
+	// Build addresses using helper
+	fromSCAddress, err := parseAddressToScAddress(fromAddress)
+	require.NoError(t, err, "failed to parse sender address")
 
-	// Build to ScAddress (can be account G... or contract C...)
-	var toSCAddress xdr.ScAddress
-	if strings.HasPrefix(toAddress, "G") {
-		// Account address
-		toAccountID := xdr.MustAddress(toAddress)
-		toSCAddress = xdr.ScAddress{
-			Type:      xdr.ScAddressTypeScAddressTypeAccount,
-			AccountId: &toAccountID,
-		}
-	} else if strings.HasPrefix(toAddress, "C") {
-		// Contract address
-		toContractID, err := strkey.Decode(strkey.VersionByteContract, toAddress)
-		require.NoError(t, err, "failed to decode recipient contract address")
-		var toID xdr.ContractId
-		copy(toID[:], toContractID)
-		toSCAddress = xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &toID,
-		}
-	} else {
-		require.Fail(t, "invalid to address format: must start with G or C")
-	}
+	toSCAddress, err := parseAddressToScAddress(toAddress)
+	require.NoError(t, err, "failed to parse recipient address")
 
 	// Build transfer invocation
 	transferSym := xdr.ScSymbol("transfer")
@@ -2123,116 +1385,9 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Build initial transaction for simulation
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{invokeOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		IncrementSequenceNum: false, // Don't increment for simulation
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to build transfer transaction")
-
-	// Get RPC URL
-	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
-	require.NoError(t, err, "failed to get RPC connection string")
-
-	// Simulate transaction to get resource footprint
-	txXDR, err := tx.Base64()
-	require.NoError(t, err, "failed to encode transfer transaction for simulation")
-
-	client := &http.Client{Timeout: DefaultHTTPTimeout}
-	simulationResult, err := simulateTransactionRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to simulate transfer transaction")
-	require.Empty(t, simulationResult.Error, "transfer simulation failed: %s", simulationResult.Error)
-
-	// Apply simulation results to the operation
-	invokeOp.Ext = xdr.TransactionExt{
-		V:           1,
-		SorobanData: &simulationResult.TransactionData,
-	}
-
-	// Extract and sign authorization entries from simulation
-	if len(simulationResult.Results) > 0 && len(simulationResult.Results[0].Auth) > 0 {
-		// Initialize auth signer with network passphrase
-		authSigner := sorobanauth.AuthSigner{
-			NetworkPassphrase: networkPassphrase,
-		}
-
-		// Sign each auth entry with the deployer's keypair
-		signedAuthEntries := make([]xdr.SorobanAuthorizationEntry, len(simulationResult.Results[0].Auth))
-		for i, authEntry := range simulationResult.Results[0].Auth {
-			// Sign with master keypair (deployer)
-			// - nonce: 0 for first-time authorization
-			// - validUntilLedgerSeq: current ledger + 100 (safe buffer for test environment)
-			switch authEntry.Credentials.Type {
-			case xdr.SorobanCredentialsTypeSorobanCredentialsAddress:
-				signedEntry, err := authSigner.AuthorizeEntry(
-					authEntry,
-					0, // nonce
-					uint32(simulationResult.LatestLedger+100), // validUntilLedgerSeq
-					s.masterKeyPair,
-				)
-				require.NoError(t, err, "failed to sign auth entry %d", i)
-				signedAuthEntries[i] = signedEntry
-			// Source auth entries dont need explicit signing as they are authorized by transaction signature.
-			case xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount:
-				signedAuthEntries[i] = authEntry
-			}
-		}
-
-		// Attach signed auth entries to the deploy operation
-		// These prove that the deployer authorizes the constructor execution
-		invokeOp.Auth = signedAuthEntries
-	}
-
-	// Parse MinResourceFee from string to int64
-	minResourceFee, err := strconv.ParseInt(simulationResult.MinResourceFee, 10, 64)
-	require.NoError(t, err, "failed to parse MinResourceFee")
-
-	// Rebuild transaction with simulation results and increment sequence
-	tx, err = txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        s.masterAccount,
-		Operations:           []txnbuild.Operation{invokeOp},
-		BaseFee:              minResourceFee + txnbuild.MinBaseFee,
-		IncrementSequenceNum: true,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(DefaultTransactionTimeout),
-		},
-	})
-	require.NoError(t, err, "failed to rebuild transfer transaction")
-
-	// Sign with master key (assuming master has authority to transfer)
-	tx, err = tx.Sign(networkPassphrase, s.masterKeyPair)
-	require.NoError(t, err, "failed to sign transfer transaction")
-
-	txXDR, err = tx.Base64()
-	require.NoError(t, err, "failed to encode signed transfer transaction")
-
-	// Submit transaction to RPC
-	sendResult, err := submitTransactionToRPC(client, rpcURL, txXDR)
-	require.NoError(t, err, "failed to submit transfer transaction")
-	require.NotEqual(t, entities.ErrorStatus, sendResult.Status, "transfer transaction failed with status: %s, hash: %s, errorResultXdr: %s", sendResult.Status, sendResult.Hash, sendResult.ErrorResultXDR)
-
-	// Wait for transaction to be confirmed
-	hash := sendResult.Hash
-	var confirmed bool
-	for range DefaultConfirmationRetries {
-		time.Sleep(TransactionPollInterval)
-		txResult, err := getTransactionFromRPC(client, rpcURL, hash)
-		if err == nil {
-			if txResult.Status == entities.SuccessStatus {
-				confirmed = true
-				break
-			}
-			if txResult.Status == entities.FailedStatus {
-				require.Fail(t, "transfer transaction failed with resultXdr: %s", txResult.ResultXDR)
-			}
-		}
-	}
-	require.True(t, confirmed, "transfer transaction not confirmed after 10 seconds")
+	// Execute using helper
+	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, DefaultConfirmationRetries)
+	require.NoError(t, err, "failed to transfer tokens")
 }
 
 // TestEnvironment holds all initialized services and clients for integration tests
@@ -2261,7 +1416,7 @@ type TestEnvironment struct {
 }
 
 // createWalletBackendClient initializes the wallet-backend client
-func createWalletBackendClient(containers *SharedContainers, ctx context.Context) (*wbclient.Client, error) {
+func createWalletBackendClient(ctx context.Context, containers *SharedContainers) (*wbclient.Client, error) {
 	wbURL, err := containers.WalletBackendContainer.API.GetConnectionString(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get wallet-backend connection string: %w", err)
@@ -2278,7 +1433,7 @@ func createWalletBackendClient(containers *SharedContainers, ctx context.Context
 }
 
 // createRPCService initializes the RPC service
-func createRPCService(containers *SharedContainers, ctx context.Context) (services.RPCService, error) {
+func createRPCService(ctx context.Context, containers *SharedContainers) (services.RPCService, error) {
 	rpcURL, err := containers.RPCContainer.GetConnectionString(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RPC connection string: %w", err)
@@ -2318,15 +1473,15 @@ func createRPCService(containers *SharedContainers, ctx context.Context) (servic
 }
 
 // NewTestEnvironment creates and initializes a test environment with all required services
-func NewTestEnvironment(containers *SharedContainers, ctx context.Context) (*TestEnvironment, error) {
+func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*TestEnvironment, error) {
 	// Initialize wallet-backend client
-	wbClient, err := createWalletBackendClient(containers, ctx)
+	wbClient, err := createWalletBackendClient(ctx, containers)
 	if err != nil {
 		return nil, err
 	}
 
 	// Initialize RPC service
-	rpcService, err := createRPCService(containers, ctx)
+	rpcService, err := createRPCService(ctx, containers)
 	if err != nil {
 		return nil, err
 	}

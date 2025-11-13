@@ -34,6 +34,9 @@ const (
 	DefaultConfirmationRetries  = 20
 	ExtendedConfirmationRetries = 60
 
+	// Ledger configuration
+	LedgerValidityBuffer = 100 // Buffer for auth entry validity (ledgers)
+
 	// Protocol configuration
 	DefaultProtocolVersion = 24
 
