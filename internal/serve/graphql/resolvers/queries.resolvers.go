@@ -13,8 +13,6 @@ import (
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
-	"github.com/stellar/go/support/log"
-
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -157,7 +155,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		if err != nil {
 			return nil, fmt.Errorf("getting trustlines for account: %w", err)
 		}
-		log.Ctx(ctx).Infof("🔍 Trustlines for account %s: %v", address, trustlines)
 
 		// Build ledger keys for all trustlines
 		for _, trustline := range trustlines {
@@ -183,7 +180,6 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account: %w", err)
 	}
-	log.Ctx(ctx).Infof("🔍 Contracts for account %s: %v", address, contracts)
 
 	// Build ledger keys for all contracts
 	for _, contract := range contracts {

@@ -670,7 +670,6 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	}
 
 	contractChanges := indexerBuffer.GetContractChanges()
-	fmt.Printf("🔍 Contract changes: %+v\n", contractChanges)
 	filteredContractChanges := make([]types.ContractChange, 0, len(contractChanges))
 	if len(contractChanges) > 0 {
 		for _, change := range contractChanges {
@@ -679,8 +678,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			}
 		}
 	}
-	fmt.Printf("🔍 Filtered contract changes: %+v\n", filteredContractChanges)
-	
+
 	// Process all trustline and contract changes in a single batch using Redis pipelining
 	if err := m.accountTokenService.ProcessTokenChanges(ctx, filteredTrustlineChanges, filteredContractChanges); err != nil {
 		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
