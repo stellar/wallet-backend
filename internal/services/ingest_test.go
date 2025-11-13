@@ -114,6 +114,8 @@ func TestGetLedgerTransactions(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
@@ -218,6 +220,8 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	}()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	mockMetricsService.On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "UpdateLatestLedgerSynced", "ingest_store").Once()
 	mockMetricsService.On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
@@ -317,6 +321,8 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	}()
 
 	mockMetricsService := metrics.NewMockMetricsService()
+	mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+	mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 	require.NoError(t, err)
 	mockAppTracker := apptracker.MockAppTracker{}
@@ -495,6 +501,8 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockMetricsService := metrics.NewMockMetricsService()
+			mockMetricsService.On("RegisterPoolMetrics", "ledger_indexer", mock.Anything).Return()
+			mockMetricsService.On("RegisterPoolMetrics", "ingest", mock.Anything).Return()
 			defer mockMetricsService.AssertExpectations(t)
 			models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 			require.NoError(t, err)

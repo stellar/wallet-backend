@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"github.com/alitto/pond"
+	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/mock"
 )
@@ -16,7 +16,7 @@ func NewMockMetricsService() *MockMetricsService {
 	return &MockMetricsService{}
 }
 
-func (m *MockMetricsService) RegisterPoolMetrics(channel string, pool *pond.WorkerPool) {
+func (m *MockMetricsService) RegisterPoolMetrics(channel string, pool pond.Pool) {
 	m.Called(channel, pool)
 }
 
