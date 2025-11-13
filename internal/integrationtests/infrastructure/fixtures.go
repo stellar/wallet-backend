@@ -13,6 +13,7 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/keypair"
 	operations "github.com/stellar/go/processors/operation"
+	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
@@ -57,17 +58,45 @@ type Fixtures struct {
 	PrimaryAccountKP      *keypair.Full
 	SecondaryAccountKP    *keypair.Full
 	SponsoredNewAccountKP *keypair.Full
+	BalanceTestAccount1KP *keypair.Full
+	BalanceTestAccount2KP *keypair.Full
 	LiquidityPoolID       string
 	RPCService            services.RPCService
+	HolderContractAddress string
+	EURCContractAddress   string
+	SEP41ContractAddress  string
+	USDCContractAddress   string
+	MasterAccountKP       *keypair.Full
 }
 
-func NewFixtures(ctx context.Context, networkPassphrase string, primaryAccountKP *keypair.Full, secondaryAccountKP *keypair.Full, sponsoredNewAccountKP *keypair.Full, rpcService services.RPCService) (*Fixtures, error) {
+func NewFixtures(
+	ctx context.Context,
+	networkPassphrase string,
+	primaryAccountKP *keypair.Full,
+	secondaryAccountKP *keypair.Full,
+	sponsoredNewAccountKP *keypair.Full,
+	balanceTestAccount1KP *keypair.Full,
+	balanceTestAccount2KP *keypair.Full,
+	masterAccountKP *keypair.Full,
+	rpcService services.RPCService,
+	holderContractAddress string,
+	eurcContractAddress string,
+	sep41ContractAddress string,
+	usdcContractAddress string,
+) (*Fixtures, error) {
 	return &Fixtures{
 		NetworkPassphrase:     networkPassphrase,
 		PrimaryAccountKP:      primaryAccountKP,
 		SecondaryAccountKP:    secondaryAccountKP,
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
+		BalanceTestAccount1KP: balanceTestAccount1KP,
+		BalanceTestAccount2KP: balanceTestAccount2KP,
+		MasterAccountKP:       masterAccountKP,
 		RPCService:            rpcService,
+		HolderContractAddress: holderContractAddress,
+		EURCContractAddress:   eurcContractAddress,
+		SEP41ContractAddress:  sep41ContractAddress,
+		USDCContractAddress:   usdcContractAddress,
 	}, nil
 }
 
@@ -729,7 +758,7 @@ func (f *Fixtures) prepareInvokeContractOp(ctx context.Context, sourceAccountKP 
 		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating invoke contract operation: %w", err)
 	}
 
-	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC)
+	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, invokeXLMTransferSAC, f.PrimaryAccountKP)
 	if err != nil {
 		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("preparing simulate and sign contract operation: %w", err)
 	}
@@ -796,7 +825,7 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 // The function performs two simulations:
 // 1. The first simulation retrieves the authorization entries and the initial simulation result.
 // 2. The second simulation verifies that the authorization entries are correctly signed and obtains the updated simulation result with the signed entries.
-func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnbuild.InvokeHostFunction) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
+func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnbuild.InvokeHostFunction, signer *keypair.Full) (opXDR string, simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	// Step 1: Get health to get the latest ledger
 	healthResult, err := f.RPCService.GetHealth()
 	if err != nil {
@@ -834,7 +863,7 @@ func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnb
 
 	// 3. If there are auth entries, sign them
 	if len(simulationResponse.Results) > 0 {
-		op, err = f.signInvokeContractOp(ctx, op, latestLedger+100, simulationResponse.Results)
+		op, err = f.signInvokeContractOp(ctx, op, signer, latestLedger+100, simulationResponse.Results)
 		if err != nil {
 			return "", entities.RPCSimulateTransactionResult{}, fmt.Errorf("signing auth entries: %w", err)
 		}
@@ -877,7 +906,7 @@ func (f *Fixtures) prepareSimulateAndSignContractOp(ctx context.Context, op txnb
 }
 
 // signInvokeContractOp signs the auth entries of an invokeContractOp.
-func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeHostFunction, validUntilLedgerSeq uint32, simulationResponseResults []entities.RPCSimulateHostFunctionResult) (txnbuild.InvokeHostFunction, error) {
+func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeHostFunction, signer *keypair.Full, validUntilLedgerSeq uint32, simulationResponseResults []entities.RPCSimulateHostFunctionResult) (txnbuild.InvokeHostFunction, error) {
 	authSigner := sorobanauth.AuthSigner{NetworkPassphrase: f.NetworkPassphrase}
 
 	simulateResults := make([]entities.RPCSimulateHostFunctionResult, len(simulationResponseResults))
@@ -888,7 +917,7 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 			if err != nil {
 				return txnbuild.InvokeHostFunction{}, fmt.Errorf("generating random nonce: %w", err)
 			}
-			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, f.PrimaryAccountKP); err != nil {
+			if updatedResult.Auth[j], err = authSigner.AuthorizeEntry(auth, nonce.Int64(), validUntilLedgerSeq, signer); err != nil {
 				var unsupportedCredentialsTypeError *sorobanauth.UnsupportedCredentialsTypeError
 				if errors.As(err, &unsupportedCredentialsTypeError) {
 					log.Ctx(ctx).Warnf("Skipping auth entry signature at [i=%d,j=%d]", i, j)
@@ -907,6 +936,174 @@ func (f *Fixtures) signInvokeContractOp(ctx context.Context, op txnbuild.InvokeH
 	// The slice structure is just a leftover from that earlier design that never fully landed.
 	op.Auth = simulateResults[0].Auth
 	return op, nil
+}
+
+// prepareEURCTransferToContractOp creates an EURC SAC transfer operation from balance test account 1 to holder contract.
+// This tests G→C transfer and token transfer processor picking up holder contract address balance changes.
+func (f *Fixtures) prepareEURCTransferToContractOp(ctx context.Context) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	// Parse EURC contract ID from address
+	eurcContractIDBytes, err := strkey.Decode(strkey.VersionByteContract, f.EURCContractAddress)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("decoding EURC contract address: %w", err)
+	}
+	var eurcContractID xdr.ContractId
+	copy(eurcContractID[:], eurcContractIDBytes)
+
+	// Parse holder contract ID from address
+	holderContractIDBytes, err := strkey.Decode(strkey.VersionByteContract, f.HolderContractAddress)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("decoding holder contract address: %w", err)
+	}
+	var holderContractID xdr.ContractId
+	copy(holderContractID[:], holderContractIDBytes)
+
+	// Create SC addresses
+	fromSCAddress, err := SCAccountID(f.BalanceTestAccount1KP.Address())
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating from SC address: %w", err)
+	}
+
+	toSCAddress := xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: &holderContractID,
+	}
+
+	// Transfer 50 EURC (with 7 decimals = 500000000 stroops)
+	transferAmount := int64(500000000)
+
+	invokeEURCTransfer := txnbuild.InvokeHostFunction{
+		SourceAccount: f.BalanceTestAccount1KP.Address(),
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &eurcContractID,
+				},
+				FunctionName: "transfer",
+				Args: xdr.ScVec{
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &fromSCAddress,
+					},
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &toSCAddress,
+					},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: xdr.Int64(0),
+							Lo: xdr.Uint64(transferAmount),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, invokeEURCTransfer, f.BalanceTestAccount1KP)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("preparing EURC transfer operation: %w", err)
+	}
+
+	return opXDR, NewSet(f.BalanceTestAccount1KP), simulationResponse, nil
+}
+
+// prepareEURCPaymentOp creates a Payment operation to mint EURC to balance test account 2.
+// This should be called after prepareEURCChangeTrustOp to fund the newly created trustline.
+func (f *Fixtures) prepareEURCPaymentOp() ([]string, *Set[*keypair.Full], error) {
+	eurcAsset := txnbuild.CreditAsset{
+		Code:   "EURC",
+		Issuer: f.MasterAccountKP.Address(),
+	}
+
+	operations := []txnbuild.Operation{
+		&txnbuild.ChangeTrust{
+			Line: txnbuild.ChangeTrustAssetWrapper{
+				Asset: eurcAsset,
+			},
+			Limit:         "1000000", // 1 million units
+			SourceAccount: f.BalanceTestAccount2KP.Address(),
+		},
+		&txnbuild.Payment{
+			Destination:   f.BalanceTestAccount2KP.Address(),
+			Amount:        "75", // 75 EURC
+			Asset:         eurcAsset,
+			SourceAccount: f.MasterAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.BalanceTestAccount2KP, f.MasterAccountKP), nil
+}
+
+// prepareSEP41TransferOp creates a SEP-41 token transfer operation from balance test account 1 to account 2.
+// This tests SEP-41 token transfer via token transfer processor during live ingestion.
+func (f *Fixtures) prepareSEP41TransferOp(ctx context.Context) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	// Parse SEP-41 contract ID from address
+	sep41ContractIDBytes, err := strkey.Decode(strkey.VersionByteContract, f.SEP41ContractAddress)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("decoding SEP-41 contract address: %w", err)
+	}
+	var sep41ContractID xdr.ContractId
+	copy(sep41ContractID[:], sep41ContractIDBytes)
+
+	// Create SC addresses
+	fromSCAddress, err := SCAccountID(f.BalanceTestAccount1KP.Address())
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating from SC address: %w", err)
+	}
+
+	toSCAddress, err := SCAccountID(f.BalanceTestAccount2KP.Address())
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating to SC address: %w", err)
+	}
+
+	// Transfer 100 SEP-41 tokens (with 7 decimals = 1000000000 stroops)
+	transferAmount := int64(1000000000)
+
+	invokeSEP41Transfer := txnbuild.InvokeHostFunction{
+		SourceAccount: f.BalanceTestAccount1KP.Address(),
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &sep41ContractID,
+				},
+				FunctionName: "transfer",
+				Args: xdr.ScVec{
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &fromSCAddress,
+					},
+					{
+						Type:    xdr.ScValTypeScvAddress,
+						Address: &toSCAddress,
+					},
+					{
+						Type: xdr.ScValTypeScvI128,
+						I128: &xdr.Int128Parts{
+							Hi: xdr.Int64(0),
+							Lo: xdr.Uint64(transferAmount),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, invokeSEP41Transfer, f.BalanceTestAccount1KP)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("preparing SEP-41 transfer operation: %w", err)
+	}
+
+	return opXDR, NewSet(f.BalanceTestAccount1KP), simulationResponse, nil
 }
 
 type category string
@@ -1131,6 +1328,60 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 			category:             categoryStellarClassic,
 			TxSigners:            txSigners,
 			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
+
+	// EURC Transfer to Contract (G→C transfer for balance test)
+	eurcTransferOpXDR, eurcTransferSigners, simulationResponse, err := f.prepareEURCTransferToContractOp(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("preparing EURC transfer to contract operation: %w", err)
+	} else {
+		txXDR, err := f.buildTransactionXDR([]string{eurcTransferOpXDR}, timeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("building transaction XDR for EURC transfer to contract: %w", err)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "eurcTransferToContractOp",
+			category:             categorySoroban,
+			TxSigners:            eurcTransferSigners,
+			DelayTime:            2 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
+		})
+	}
+
+	// EURC Change Trust and Payment (trustline creation for balance test)
+	eurcPaymentOpXDRs, eurcPaymentSigners, err := f.prepareEURCPaymentOp()
+	if err != nil {
+		return nil, fmt.Errorf("preparing EURC payment operation: %w", err)
+	} else {
+		txXDR, err = f.buildTransactionXDR(eurcPaymentOpXDRs, timeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("building transaction XDR for EURC trustline and payment: %w", err)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "eurcTrustlineAndPaymentOps",
+			category:             categoryStellarClassic,
+			TxSigners:            eurcPaymentSigners,
+			DelayTime:            2 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+		})
+	}
+
+	// SEP-41 Transfer (contract token transfer for balance test)
+	sep41TransferOpXDR, sep41TransferSigners, simulationResponse, err := f.prepareSEP41TransferOp(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("preparing SEP-41 transfer operation: %w", err)
+	} else {
+		txXDR, err := f.buildTransactionXDR([]string{sep41TransferOpXDR}, timeoutSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("building transaction XDR for SEP-41 transfer: %w", err)
+		}
+		useCases = append(useCases, &UseCase{
+			name:                 "sep41TransferOp",
+			category:             categorySoroban,
+			TxSigners:            sep41TransferSigners,
+			DelayTime:            2 * time.Second,
+			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
 		})
 	}
 
