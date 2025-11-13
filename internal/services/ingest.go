@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -660,6 +661,41 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	if dbTxErr != nil {
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
 	}
+
+	trustlineChanges := indexerBuffer.GetTrustlineChanges()
+	filteredTrustlineChanges := make([]types.TrustlineChange, 0, len(trustlineChanges))
+	if len(trustlineChanges) > 0 {
+		// Insert trustline changes in the ascending order of operation IDs using batch processing
+		sort.Slice(trustlineChanges, func(i, j int) bool {
+			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+		})
+
+		// Filter out changes that are older than the checkpoint ledger
+		// This check is required since we initialize trustlines and contracts using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
+		// We will skip changes that are older than the latest checkpoint ledger as the wallet backend catches up to the tip. We only need to ingest changes that are newer than the latest checkpoint ledger.
+		for _, change := range trustlineChanges {
+			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
+				filteredTrustlineChanges = append(filteredTrustlineChanges, change)
+			}
+		}
+	}
+
+	contractChanges := indexerBuffer.GetContractChanges()
+	filteredContractChanges := make([]types.ContractChange, 0, len(contractChanges))
+	if len(contractChanges) > 0 {
+		for _, change := range contractChanges {
+			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
+				filteredContractChanges = append(filteredContractChanges, change)
+			}
+		}
+	}
+
+	// Process all trustline and contract changes in a single batch using Redis pipelining
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, filteredTrustlineChanges, filteredContractChanges); err != nil {
+		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+		return fmt.Errorf("processing trustline changes batch: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredTrustlineChanges), len(filteredContractChanges))
 
 	return nil
 }
