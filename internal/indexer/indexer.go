@@ -186,6 +186,7 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 							ContractType: stateChange.ContractType,
 						}
 						contractChanges = append(contractChanges, contractChange)
+						fmt.Printf("🔍 Contract change: %+v\n", contractChange)
 					}
 				default:
 					continue
