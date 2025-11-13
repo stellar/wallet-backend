@@ -35,6 +35,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	complexityreporter "github.com/basemachina/gqlgen-complexity-reporter"
 	"github.com/vektah/gqlparser/v2/ast"
+
+	cache "github.com/stellar/wallet-backend/internal/store"
 )
 
 type Configs struct {
@@ -47,6 +49,11 @@ type Configs struct {
 	LogLevel                    logrus.Level
 	EncryptionPassphrase        string
 	NumberOfChannelAccounts     int
+
+	// Redis
+	RedisHost     string
+	RedisPort     int
+	RedisPassword string
 
 	// Horizon
 	SupportedAssets                    []entities.Asset
@@ -75,11 +82,12 @@ type handlerDeps struct {
 
 	// Services
 
-	AccountService     services.AccountService
-	FeeBumpService     services.FeeBumpService
-	MetricsService     metrics.MetricsService
-	TransactionService services.TransactionService
-	RPCService         services.RPCService
+	AccountService      services.AccountService
+	FeeBumpService      services.FeeBumpService
+	MetricsService      metrics.MetricsService
+	TransactionService  services.TransactionService
+	RPCService          services.RPCService
+	AccountTokenService services.AccountTokenService
 	// GraphQL
 	GraphQLComplexityLimit int
 	// Error Tracker
@@ -152,6 +160,14 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating fee bump service: %w", err)
 	}
 
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
+	contractSpecValidator := services.NewContractSpecValidator(rpcService)
+	// Serve command only reads from Redis cache, doesn't need history archive
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, "", redisStore, contractSpecValidator, 0)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
+	}
+
 	txService, err := services.NewTransactionService(services.TransactionServiceOptions{
 		DB:                                 dbConnectionPool,
 		DistributionAccountSignatureClient: cfg.DistributionAccountSignatureClient,
@@ -188,6 +204,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		FeeBumpService:         feeBumpService,
 		MetricsService:         metricsService,
 		RPCService:             rpcService,
+		AccountTokenService:    accountTokenService,
 		AppTracker:             cfg.AppTracker,
 		NetworkPassphrase:      cfg.NetworkPassphrase,
 		TransactionService:     txService,
@@ -231,7 +248,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Route("/graphql", func(r chi.Router) {
 			r.Use(middleware.DataloaderMiddleware(deps.Models))
 
-			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.MetricsService)
+			resolver := resolvers.NewResolver(deps.Models, deps.AccountService, deps.TransactionService, deps.FeeBumpService, deps.RPCService, deps.AccountTokenService, deps.MetricsService)
 
 			config := generated.Config{
 				Resolvers: resolver,

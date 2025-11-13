@@ -1,0 +1,42 @@
+interface Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+}
+
+type NativeBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+}
+
+type TrustlineBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+
+    code: String
+    issuer: String
+    type: String!
+    limit: String!
+    buyingLiabilities: String!
+    sellingLiabilities: String!
+    lastModifiedLedger: Int!
+    isAuthorized: Boolean!
+    isAuthorizedToMaintainLiabilities: Boolean!
+}
+
+type SACBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+
+    isAuthorized: Boolean!
+    isClawbackEnabled: Boolean!
+}
+
+type SEP41Balance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+}

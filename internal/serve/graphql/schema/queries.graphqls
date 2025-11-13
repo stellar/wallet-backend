@@ -7,4 +7,5 @@ type Query {
     operations(first: Int, after: String, last: Int, before: String):     OperationConnection
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+    balancesByAccountAddress(address: String!):                           [Balance!]!
 }

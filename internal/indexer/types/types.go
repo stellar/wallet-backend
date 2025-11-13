@@ -56,6 +56,38 @@ type AccountWithOperationID struct {
 	OperationID int64 `json:"operationId,omitempty" db:"operation_id"`
 }
 
+type TrustlineChange struct {
+	AccountID    string
+	Asset        string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    TrustlineOpType
+}
+
+type TrustlineOpType string
+
+const (
+	TrustlineOpAdd    TrustlineOpType = "ADD"
+	TrustlineOpRemove TrustlineOpType = "REMOVE"
+)
+
+type ContractType string
+
+const (
+	ContractTypeNative  ContractType = "NATIVE"
+	ContractTypeSAC     ContractType = "SAC"
+	ContractTypeSEP41   ContractType = "SEP41"
+	ContractTypeUnknown ContractType = "UNKNOWN"
+)
+
+type ContractChange struct {
+	AccountID    string
+	ContractID   string
+	OperationID  int64
+	LedgerNumber uint32
+	ContractType ContractType
+}
+
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
@@ -283,6 +315,10 @@ type StateChange struct {
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
+	// code:issuer formatted asset string
+	TrustlineAsset string `json:"-"`
+	// Internal only: used for filtering contract changes and identifying token type
+	ContractType ContractType `json:"-"`
 }
 
 type StateChangeWithCursor struct {

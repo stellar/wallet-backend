@@ -29,18 +29,24 @@ const (
 )
 
 type Configs struct {
-	DatabaseURL       string
-	ServerPort        int
-	LedgerCursorName  string
-	StartLedger       int
-	EndLedger         int
-	LogLevel          logrus.Level
-	AppTracker        apptracker.AppTracker
-	RPCURL            string
-	Network           string
-	NetworkPassphrase string
-	GetLedgersLimit   int
-	AdminPort         int
+	DatabaseURL          string
+	ServerPort           int
+	LedgerCursorName     string
+	TrustlinesCursorName string
+	StartLedger          int
+	EndLedger            int
+	LogLevel             logrus.Level
+	AppTracker           apptracker.AppTracker
+	RPCURL               string
+	Network              string
+	NetworkPassphrase    string
+	ArchiveURL           string
+	CheckpointFrequency  int
+	GetLedgersLimit      int
+	AdminPort            int
+	RedisHost            string
+	RedisPort            int
+	RedisPassword        string
 }
 
 func Ingest(cfg Configs) error {
@@ -83,8 +89,15 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract store: %w", err)
 	}
 
+	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, cfg.RedisPassword)
+	contractSpecValidator := services.NewContractSpecValidator(rpcService)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractSpecValidator, uint32(cfg.CheckpointFrequency))
+	if err != nil {
+		return nil, fmt.Errorf("instantiating account token service: %w", err)
+	}
+
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.TrustlinesCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, metricsService, accountTokenService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

@@ -27,6 +27,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
+const (
+	MainnetNativeContractAddress = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+)
+
 var ErrNotStateChange = errors.New("object is not a StateChange")
 
 // Resolver is the main resolver struct for gqlgen
@@ -41,7 +45,9 @@ type Resolver struct {
 	// transactionService provides transaction building and signing operations
 	transactionService services.TransactionService
 	// feeBumpService provides fee-bump transaction wrapping operations
-	feeBumpService services.FeeBumpService
+	feeBumpService      services.FeeBumpService
+	rpcService          services.RPCService
+	accountTokenService services.AccountTokenService
 	// metricsService provides metrics collection capabilities
 	metricsService metrics.MetricsService
 }
@@ -49,13 +55,15 @@ type Resolver struct {
 // NewResolver creates a new resolver instance with required dependencies
 // This constructor is called during server startup to initialize the resolver
 // Dependencies are injected here and available to all resolver functions.
-func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, metricsService metrics.MetricsService) *Resolver {
+func NewResolver(models *data.Models, accountService services.AccountService, transactionService services.TransactionService, feeBumpService services.FeeBumpService, rpcService services.RPCService, accountTokenService services.AccountTokenService, metricsService metrics.MetricsService) *Resolver {
 	return &Resolver{
-		models:             models,
-		accountService:     accountService,
-		transactionService: transactionService,
-		feeBumpService:     feeBumpService,
-		metricsService:     metricsService,
+		models:              models,
+		accountService:      accountService,
+		transactionService:  transactionService,
+		feeBumpService:      feeBumpService,
+		rpcService:          rpcService,
+		accountTokenService: accountTokenService,
+		metricsService:      metricsService,
 	}
 }
 

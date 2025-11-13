@@ -406,6 +406,7 @@ func (p *EffectsProcessor) extractSponsorshipKeyValue(effectType effects.EffectT
 }
 
 func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+	var assetCode, assetIssuer string
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
@@ -419,11 +420,11 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 			"liquidity_pool_id": poolID,
 		})
 	} else {
-		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
 		}
-		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		assetIssuer, err = safeStringFromDetails(effect.Details, "asset_issuer")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
 		}
@@ -440,7 +441,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		// Create the trustline state change
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer)).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
@@ -449,7 +450,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case effects.EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer)).Build()
 
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
@@ -502,7 +503,6 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		}
 
 		// Map XDR trustline flags to our internal flag representation
-		log.Debugf("processor: %s: trustline flags: %+v", p.Name(), trustlineFlags)
 		defaultFlags = p.mapTrustlineFlagsToStrings(trustlineFlags)
 	}
 

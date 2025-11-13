@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -55,28 +56,32 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models            *data.Models
-	ledgerCursorName  string
-	advisoryLockID    int
-	appTracker        apptracker.AppTracker
-	rpcService        RPCService
-	chAccStore        store.ChannelAccountStore
-	contractStore     cache.TokenContractStore
-	metricsService    metrics.MetricsService
-	networkPassphrase string
-	getLedgersLimit   int
-	ledgerIndexer     *indexer.Indexer
-	pool              pond.Pool
+	models                  *data.Models
+	ledgerCursorName        string
+	accountTokensCursorName string
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	chAccStore              store.ChannelAccountStore
+	contractStore           cache.TokenContractStore
+	metricsService          metrics.MetricsService
+	accountTokenService     AccountTokenService
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	pool                    pond.Pool
 }
 
 func NewIngestService(
 	models *data.Models,
 	ledgerCursorName string,
+	accountTokensCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
 	contractStore cache.TokenContractStore,
 	metricsService metrics.MetricsService,
+	accountTokenService AccountTokenService,
 	getLedgersLimit int,
 	network string,
 ) (*ingestService, error) {
@@ -106,18 +111,20 @@ func NewIngestService(
 	}
 
 	return &ingestService{
-		models:            models,
-		ledgerCursorName:  ledgerCursorName,
-		advisoryLockID:    generateAdvisoryLockID(network),
-		appTracker:        appTracker,
-		rpcService:        rpcService,
-		chAccStore:        chAccStore,
-		contractStore:     contractStore,
-		metricsService:    metricsService,
-		networkPassphrase: rpcService.NetworkPassphrase(),
-		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), pond.NewPool(0), metricsService),
-		pool:              pond.NewPool(0),
+		models:                  models,
+		ledgerCursorName:        ledgerCursorName,
+		accountTokensCursorName: accountTokensCursorName,
+		advisoryLockID:          generateAdvisoryLockID(network),
+		appTracker:              appTracker,
+		rpcService:              rpcService,
+		chAccStore:              chAccStore,
+		contractStore:           contractStore,
+		metricsService:          metricsService,
+		accountTokenService:     accountTokenService,
+		networkPassphrase:       rpcService.NetworkPassphrase(),
+		getLedgersLimit:         getLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(rpcService.NetworkPassphrase(), pond.NewPool(0), metricsService),
+		pool:                    pond.NewPool(0),
 	}, nil
 }
 
@@ -206,14 +213,42 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
+		m.pool.Stop()
 	}()
 
 	// get latest ledger synced, to use as a cursor
+	var latestTrustlinesLedger uint32
 	if startLedger == 0 {
 		var err error
 		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
 		if err != nil {
-			return fmt.Errorf("getting latest ledger synced: %w", err)
+			return fmt.Errorf("getting latest ledger cursorsynced: %w", err)
+		}
+
+		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
+		if err != nil {
+			return fmt.Errorf("getting latest account-tokens ledger cursor synced: %w", err)
+		}
+	}
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer signal.Stop(signalChan)
+
+	if latestTrustlinesLedger == 0 {
+		err := m.accountTokenService.PopulateAccountTokens(ctx)
+		if err != nil {
+			return fmt.Errorf("populating account tokens cache: %w", err)
+		}
+		checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, checkpointLedger); err != nil {
+				return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 		}
 	}
 
@@ -224,10 +259,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
 	var rpcHealth entities.RPCGetHealthResult
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	defer signal.Stop(signalChan)
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
@@ -263,10 +294,23 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("processing ledger response: %w", err)
 		}
 
-		// update cursor
-		startLedger = getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-		if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, startLedger); err != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", err)
+		// update cursors
+		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, lastLedger); err != nil {
+				return fmt.Errorf("updating latest synced ledger: %w", err)
+			}
+			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+			if lastLedger > checkpointLedger {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, lastLedger); err != nil {
+					return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
+				}
+			}
+			startLedger = lastLedger
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
@@ -606,6 +650,41 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	if dbTxErr != nil {
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
 	}
+
+	trustlineChanges := indexerBuffer.GetTrustlineChanges()
+	filteredTrustlineChanges := make([]types.TrustlineChange, 0, len(trustlineChanges))
+	if len(trustlineChanges) > 0 {
+		// Insert trustline changes in the ascending order of operation IDs using batch processing
+		sort.Slice(trustlineChanges, func(i, j int) bool {
+			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
+		})
+
+		// Filter out changes that are older than the checkpoint ledger
+		// This check is required since we initialize trustlines and contracts using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
+		// We will skip changes that are older than the latest checkpoint ledger as the wallet backend catches up to the tip. We only need to ingest changes that are newer than the latest checkpoint ledger.
+		for _, change := range trustlineChanges {
+			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
+				filteredTrustlineChanges = append(filteredTrustlineChanges, change)
+			}
+		}
+	}
+
+	contractChanges := indexerBuffer.GetContractChanges()
+	filteredContractChanges := make([]types.ContractChange, 0, len(contractChanges))
+	if len(contractChanges) > 0 {
+		for _, change := range contractChanges {
+			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
+				filteredContractChanges = append(filteredContractChanges, change)
+			}
+		}
+	}
+
+	// Process all trustline and contract changes in a single batch using Redis pipelining
+	if err := m.accountTokenService.ProcessTokenChanges(ctx, filteredTrustlineChanges, filteredContractChanges); err != nil {
+		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+		return fmt.Errorf("processing trustline changes batch: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredTrustlineChanges), len(filteredContractChanges))
 
 	return nil
 }

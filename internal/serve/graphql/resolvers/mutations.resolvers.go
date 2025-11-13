@@ -94,7 +94,7 @@ func (r *mutationResolver) BuildTransaction(ctx context.Context, input graphql1.
 	genericTx, err := txnbuild.TransactionFromXDR(input.TransactionXdr)
 	if err != nil {
 		return nil, &gqlerror.Error{
-			Message: ErrMsgCouldNotParseTransactionEnvelope,
+			Message: fmt.Sprintf(ErrMsgCouldNotParseTransactionEnvelope, err.Error()),
 			Extensions: map[string]any{
 				"code": "INVALID_TRANSACTION_XDR",
 			},
