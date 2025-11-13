@@ -30,7 +30,6 @@ func RedisPortOption(configKey *int) *config.ConfigOption {
 	}
 }
 
-
 func IngestServerPortOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "ingest-server-port",

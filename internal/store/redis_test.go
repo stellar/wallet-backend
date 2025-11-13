@@ -3,10 +3,10 @@ package store
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,11 +15,10 @@ import (
 func setupTestRedis(t *testing.T) (*RedisStore, *miniredis.Miniredis) {
 	mr := miniredis.RunT(t)
 
-	store := &RedisStore{
-		client: redis.NewClient(&redis.Options{
-			Addr: mr.Addr(),
-		}),
-	}
+	port, err := strconv.Atoi(mr.Port())
+	require.NoError(t, err)
+
+	store := NewRedisStore(mr.Host(), port, "")
 
 	return store, mr
 }
