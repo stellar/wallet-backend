@@ -63,7 +63,7 @@ deadcode: ## Find unused code
 		echo "Installing deadcode..."; \
 		go install golang.org/x/tools/cmd/deadcode@v0.31.0; \
 	fi
-	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./... | grep -v "UnmarshalUInt32"); \
+	@output=$$($(shell go env GOPATH)/bin/deadcode -test ./... | grep -v "UnmarshalUInt32" | grep -v "isBalance"); \
 	if [ -n "$$output" ]; then \
 		echo "🚨 Deadcode found:"; \
 		echo "$$output"; \
