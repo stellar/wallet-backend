@@ -105,9 +105,6 @@ func NewIngestService(
 	if contractStore == nil {
 		return nil, errors.New("contractStore cannot be nil")
 	}
-	if accountTokenService == nil {
-		return nil, errors.New("accountTokenService cannot be nil")
-	}
 	if metricsService == nil {
 		return nil, errors.New("metricsService cannot be nil")
 	}
