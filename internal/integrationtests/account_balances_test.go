@@ -155,7 +155,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	// Verify SEP-41 contract token balance
 	sep41Balance, ok := balances[1].(*types.SEP41Balance)
 	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
-	suite.Require().Equal("300.0000000", sep41Balance.GetBalance())
+	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
 	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
 }
@@ -285,7 +285,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 	// Verify SEP-41 contract token balance (unchanged)
 	sep41Balance, ok := balances[1].(*types.SEP41Balance)
 	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
-	suite.Require().Equal("300.0000000", sep41Balance.GetBalance())
+	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
 	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
 

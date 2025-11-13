@@ -170,32 +170,9 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair
 
 // prepareCustomAssetsOps creates a customAsset, creates liquidity for it through a passive sell offer, and then
 // consumes that liquidity through path payments and manage offers.
-func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
-	/*
-		Should generate ~15+ state changes (variable based on trade execution):
-
-		Guaranteed state changes (minimum 7):
-		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
-		- 3 changes for TEST2 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
-		- 1 TRUSTLINE/REMOVE change for removing trustline
-		- 1 BALANCE/DEBIT for Secondary when all remaining TEST2 is sent back
-
-		Variable trade-related changes (7+ additional):
-		- CreatePassiveSellOffer: May not generate state changes if not immediately matched
-		- PathPaymentStrictSend: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
-		- ManageSellOffer: Generates trade state changes when matched
-		- ManageBuyOffer: Generates trade state changes when matched
-		- PathPaymentStrictReceive: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
-		- Each trade execution creates additional debit/credit pairs based on liquidity consumed
-	*/
-	xlmAsset := txnbuild.NativeAsset{}
-	customAsset := txnbuild.CreditAsset{
-		Issuer: f.PrimaryAccountKP.Address(),
-		Code:   "TEST2",
-	}
-
-	operations := []txnbuild.Operation{
-		// The Secondary account creates a trustline and gets customAsset minted by the Primary account.
+// buildTrustlineSetupOperations creates operations for trustline creation and initial payment.
+func (f *Fixtures) buildTrustlineSetupOperations(customAsset txnbuild.CreditAsset) []txnbuild.Operation {
+	return []txnbuild.Operation{
 		&txnbuild.ChangeTrust{
 			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
 			SourceAccount: f.SecondaryAccountKP.Address(),
@@ -206,20 +183,26 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 			Asset:         customAsset,
 			SourceAccount: f.PrimaryAccountKP.Address(),
 		},
+	}
+}
 
-		// The Primary account creates a passive sell offer to create customAsset liquidity.
-		&txnbuild.CreatePassiveSellOffer{
-			Selling: xlmAsset,
-			Buying:  customAsset,
-			Amount:  "3",
-			Price: xdr.Price{
-				N: xdr.Int32(1000),
-				D: xdr.Int32(1),
-			},
-			SourceAccount: f.PrimaryAccountKP.Address(),
+// buildLiquidityCreationOperation creates a passive sell offer for establishing liquidity.
+func (f *Fixtures) buildLiquidityCreationOperation(xlmAsset txnbuild.NativeAsset, customAsset txnbuild.CreditAsset) txnbuild.Operation {
+	return &txnbuild.CreatePassiveSellOffer{
+		Selling: xlmAsset,
+		Buying:  customAsset,
+		Amount:  "3",
+		Price: xdr.Price{
+			N: xdr.Int32(1000),
+			D: xdr.Int32(1),
 		},
+		SourceAccount: f.PrimaryAccountKP.Address(),
+	}
+}
 
-		// The secondary account uses the customAsset liquidity through offers and path payments.
+// buildLiquidityConsumptionOperations creates operations that consume the established liquidity.
+func (f *Fixtures) buildLiquidityConsumptionOperations(xlmAsset txnbuild.NativeAsset, customAsset txnbuild.CreditAsset) []txnbuild.Operation {
+	return []txnbuild.Operation{
 		&txnbuild.PathPaymentStrictSend{
 			SendAsset:     customAsset,
 			SendAmount:    "1000",
@@ -256,15 +239,47 @@ func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], erro
 			Destination:   f.PrimaryAccountKP.Address(),
 			SourceAccount: f.SecondaryAccountKP.Address(),
 		},
-
-		// With the liquidity worn out, and all the customAsset being burned back to the Primary account,
-		// the Secondary account removes the trustline.
-		&txnbuild.ChangeTrust{
-			Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
-			Limit:         "0",
-			SourceAccount: f.SecondaryAccountKP.Address(),
-		},
 	}
+}
+
+// buildTrustlineRemovalOperation creates an operation to remove the custom asset trustline.
+func (f *Fixtures) buildTrustlineRemovalOperation(customAsset txnbuild.CreditAsset) txnbuild.Operation {
+	return &txnbuild.ChangeTrust{
+		Line:          txnbuild.ChangeTrustAssetWrapper{Asset: customAsset},
+		Limit:         "0",
+		SourceAccount: f.SecondaryAccountKP.Address(),
+	}
+}
+
+func (f *Fixtures) prepareCustomAssetsOps() ([]string, *Set[*keypair.Full], error) {
+	/*
+		Should generate ~15+ state changes (variable based on trade execution):
+
+		Guaranteed state changes (minimum 7):
+		- 2 changes for creating trustline (1 TRUSTLINE/ADD + 1 BALANCE_AUTHORIZATION based on issuer flags)
+		- 3 changes for TEST2 payment (1 BALANCE/MINT for Primary as issuer, 1 BALANCE/CREDIT for Secondary, 1 BALANCE/DEBIT from Primary)
+		- 1 TRUSTLINE/REMOVE change for removing trustline
+		- 1 BALANCE/DEBIT for Secondary when all remaining TEST2 is sent back
+
+		Variable trade-related changes (7+ additional):
+		- CreatePassiveSellOffer: May not generate state changes if not immediately matched
+		- PathPaymentStrictSend: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
+		- ManageSellOffer: Generates trade state changes when matched
+		- ManageBuyOffer: Generates trade state changes when matched
+		- PathPaymentStrictReceive: Generates BALANCE/DEBIT for sender and BALANCE/CREDIT for receiver per trade
+		- Each trade execution creates additional debit/credit pairs based on liquidity consumed
+	*/
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.PrimaryAccountKP.Address(),
+		Code:   "TEST2",
+	}
+
+	operations := []txnbuild.Operation{}
+	operations = append(operations, f.buildTrustlineSetupOperations(customAsset)...)
+	operations = append(operations, f.buildLiquidityCreationOperation(xlmAsset, customAsset))
+	operations = append(operations, f.buildLiquidityConsumptionOperations(xlmAsset, customAsset)...)
+	operations = append(operations, f.buildTrustlineRemovalOperation(customAsset))
 
 	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
 	if err != nil {
@@ -1133,256 +1148,271 @@ func (u *UseCase) Name() string {
 	return fmt.Sprintf("%s/%s", category, u.name)
 }
 
-func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
-	useCases := []*UseCase{}
-	timeoutSeconds := int64(timeout.Seconds())
+// buildSingleOperationUseCase creates a UseCase from a single operation XDR.
+func (f *Fixtures) buildSingleOperationUseCase(
+	opXDR string,
+	txSigners *Set[*keypair.Full],
+	name string,
+	category category,
+	timeoutSeconds int64,
+) (*UseCase, error) {
+	txXDR, err := f.buildTransactionXDR([]string{opXDR}, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for %s: %w", name, err)
+	}
+
+	return &UseCase{
+		name:                 name,
+		category:             category,
+		TxSigners:            txSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	}, nil
+}
+
+// buildMultiOperationUseCase creates a UseCase from multiple operation XDRs.
+func (f *Fixtures) buildMultiOperationUseCase(
+	opsXDR []string,
+	txSigners *Set[*keypair.Full],
+	name string,
+	category category,
+	timeoutSeconds int64,
+) (*UseCase, error) {
+	txXDR, err := f.buildTransactionXDR(opsXDR, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for %s: %w", name, err)
+	}
+
+	return &UseCase{
+		name:                 name,
+		category:             category,
+		TxSigners:            txSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
+	}, nil
+}
+
+// buildSorobanUseCase creates a UseCase for Soroban operations with simulation results.
+func (f *Fixtures) buildSorobanUseCase(
+	opXDR string,
+	txSigners *Set[*keypair.Full],
+	simulationResult entities.RPCSimulateTransactionResult,
+	name string,
+	timeoutSeconds int64,
+) (*UseCase, error) {
+	txXDR, err := f.buildTransactionXDR([]string{opXDR}, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("building transaction XDR for %s: %w", name, err)
+	}
+
+	return &UseCase{
+		name:                 name,
+		category:             categorySoroban,
+		TxSigners:            txSigners,
+		DelayTime:            2 * time.Second,
+		RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResult},
+	}, nil
+}
+
+// appendClassicUseCases appends all classic Stellar protocol use cases.
+func (f *Fixtures) appendClassicUseCases(ctx context.Context, useCases []*UseCase, timeoutSeconds int64) ([]*UseCase, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+	default:
+	}
 
 	// PaymentOp
-	if paymentOpXDR, txSigners, err := f.preparePaymentOp(); err != nil {
+	paymentOpXDR, txSigners, err := f.preparePaymentOp()
+	if err != nil {
 		return nil, fmt.Errorf("preparing payment operation: %w", err)
-	} else {
-		txXDR, err := f.buildTransactionXDR([]string{paymentOpXDR}, timeoutSeconds)
-		if err != nil {
-			return nil, fmt.Errorf("building transaction XDR for paymentOp: %w", err)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "paymentOp",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
 	}
+	useCase, err := f.buildSingleOperationUseCase(paymentOpXDR, txSigners, "paymentOp", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
 
 	// SponsoredAccountCreationOps
 	sponsoredAccountCreationOps, txSigners, err := f.prepareSponsoredAccountCreationOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing sponsored account creation operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(sponsoredAccountCreationOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for sponsoredAccountCreationOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "sponsoredAccountCreationOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
 	}
+	useCase, err = f.buildMultiOperationUseCase(sponsoredAccountCreationOps, txSigners, "sponsoredAccountCreationOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
 
 	// CustomAssetsOps
 	customAssetsOps, txSigners, err := f.prepareCustomAssetsOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing custom assets operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(customAssetsOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for customAssetsOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "customAssetsOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
 	}
+	useCase, err = f.buildMultiOperationUseCase(customAssetsOps, txSigners, "customAssetsOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
 
-	// AuthRequiredIssuerSetupOps - Transaction 1: Set up issuer with auth flags
+	// AuthRequiredIssuerSetupOps
 	authRequiredIssuerSetupOps, txSigners, err := f.prepareAuthRequiredIssuerSetupOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing auth required issuer setup operations: %w", err)
 	}
-	txXDR, txErr := f.buildTransactionXDR(authRequiredIssuerSetupOps, timeoutSeconds)
-	if txErr != nil {
-		return nil, fmt.Errorf("building transaction XDR for authRequiredIssuerSetupOps: %w", txErr)
+	useCase, err = f.buildMultiOperationUseCase(authRequiredIssuerSetupOps, txSigners, "authRequiredIssuerSetupOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
 	}
-	useCases = append(useCases, &UseCase{
-		name:                 "authRequiredIssuerSetupOps",
-		category:             categoryStellarClassic,
-		TxSigners:            txSigners,
-		DelayTime:            2 * time.Second,
-		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	})
+	useCases = append(useCases, useCase)
 
-	// AuthRequiredAssetOps - Transaction 2: Perform trustline and payment operations
-	// This must execute after the issuer setup to ensure flags are persisted
+	// AuthRequiredAssetOps
 	authRequiredAssetOps, txSigners, err := f.prepareAuthRequiredAssetOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing auth required asset operations: %w", err)
 	}
-	txXDR, txErr = f.buildTransactionXDR(authRequiredAssetOps, timeoutSeconds)
-	if txErr != nil {
-		return nil, fmt.Errorf("building transaction XDR for authRequiredAssetOps: %w", txErr)
+	useCase, err = f.buildMultiOperationUseCase(authRequiredAssetOps, txSigners, "authRequiredAssetOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
 	}
-	useCases = append(useCases, &UseCase{
-		name:                 "authRequiredAssetOps",
-		category:             categoryStellarClassic,
-		TxSigners:            txSigners,
-		DelayTime:            2 * time.Second,
-		RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-	})
+	useCases = append(useCases, useCase)
 
-	// ClaimableBalanceOps
+	// CreateClaimableBalanceOps
 	createClaimableBalanceOps, txSigners, err := f.prepareCreateClaimableBalanceOps()
 	if err != nil {
 		return nil, fmt.Errorf("preparing create claimable balance operations: %w", err)
 	}
-	if txXDR, txErr := f.buildTransactionXDR(createClaimableBalanceOps, timeoutSeconds); txErr != nil {
-		return nil, fmt.Errorf("building transaction XDR for createClaimableBalanceOps: %w", txErr)
-	} else {
-		useCases = append(useCases, &UseCase{
-			name:                 "createClaimableBalanceOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
+	useCase, err = f.buildMultiOperationUseCase(createClaimableBalanceOps, txSigners, "createClaimableBalanceOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
 	}
+	useCases = append(useCases, useCase)
 
 	// AccountMergeOp
 	accountMergeOp, txSigners, err := f.prepareAccountMergeOp()
 	if err != nil {
 		return nil, fmt.Errorf("preparing account merge operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{accountMergeOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for accountMergeOp: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "accountMergeOp",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
+	}
+	useCase, err = f.buildSingleOperationUseCase(accountMergeOp, txSigners, "accountMergeOp", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	// LiquidityPoolOps
+	liquidityPoolOps, txSigners, err := f.prepareLiquidityPoolOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
+	}
+	useCase, err = f.buildMultiOperationUseCase(liquidityPoolOps, txSigners, "liquidityPoolOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	// RevokeSponsorshipOps
+	revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing revoke sponsorship operations: %w", err)
+	}
+	useCase, err = f.buildMultiOperationUseCase(revokeSponsorshipOps, txSigners, "revokeSponsorshipOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	// EURC Change Trust and Payment (trustline creation for balance test)
+	eurcPaymentOpXDRs, eurcPaymentSigners, err := f.prepareEURCPaymentOp()
+	if err != nil {
+		return nil, fmt.Errorf("preparing EURC payment operation: %w", err)
+	}
+	useCase, err = f.buildMultiOperationUseCase(eurcPaymentOpXDRs, eurcPaymentSigners, "eurcTrustlineAndPaymentOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	return useCases, nil
+}
+
+// appendSorobanUseCases appends all Soroban contract use cases.
+func (f *Fixtures) appendSorobanUseCases(ctx context.Context, useCases []*UseCase, timeoutSeconds int64) ([]*UseCase, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+	default:
 	}
 
 	// InvokeContractOp w/ SorobanAuth
 	invokeContractOp, txSigners, simulationResponse, err := f.prepareInvokeContractOp(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SorobanAuth: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "invokeContractOp/SorobanAuth",
-			category:             categorySoroban,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
 	}
+	useCase, err := f.buildSorobanUseCase(invokeContractOp, txSigners, simulationResponse, "invokeContractOp/SorobanAuth", timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
 
 	// InvokeContractOp w/ SourceAccountAuth
 	invokeContractOp, txSigners, simulationResponse, err = f.prepareInvokeContractOp(ctx, f.SecondaryAccountKP)
 	if err != nil {
 		return nil, fmt.Errorf("preparing invoke contract operation: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR([]string{invokeContractOp}, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for invokeContractOp/SourceAccountAuth: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "invokeContractOp/SourceAccountAuth",
-			category:             categorySoroban,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
 	}
-
-	// LiquidityPoolOps
-	liquidityPoolOps, txSigners, err := f.prepareLiquidityPoolOps()
+	useCase, err = f.buildSorobanUseCase(invokeContractOp, txSigners, simulationResponse, "invokeContractOp/SourceAccountAuth", timeoutSeconds)
 	if err != nil {
-		return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(liquidityPoolOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for liquidityPoolOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "liquidityPoolOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
+		return nil, err
 	}
-
-	// RevokeSponsorshipOps
-	revokeSponsorshipOps, txSigners, err := f.prepareRevokeSponsorshipOps()
-	if err != nil {
-		return nil, fmt.Errorf("preparing revoke sponsorship operations: %w", err)
-	} else {
-		txXDR, txErr := f.buildTransactionXDR(revokeSponsorshipOps, timeoutSeconds)
-		if txErr != nil {
-			return nil, fmt.Errorf("building transaction XDR for revokeSponsorshipOps: %w", txErr)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "revokeSponsorshipOps",
-			category:             categoryStellarClassic,
-			TxSigners:            txSigners,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
-	}
+	useCases = append(useCases, useCase)
 
 	// EURC Transfer to Contract (G→C transfer for balance test)
 	eurcTransferOpXDR, eurcTransferSigners, simulationResponse, err := f.prepareEURCTransferToContractOp(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("preparing EURC transfer to contract operation: %w", err)
-	} else {
-		txXDR, err := f.buildTransactionXDR([]string{eurcTransferOpXDR}, timeoutSeconds)
-		if err != nil {
-			return nil, fmt.Errorf("building transaction XDR for EURC transfer to contract: %w", err)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "eurcTransferToContractOp",
-			category:             categorySoroban,
-			TxSigners:            eurcTransferSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
 	}
-
-	// EURC Change Trust and Payment (trustline creation for balance test)
-	eurcPaymentOpXDRs, eurcPaymentSigners, err := f.prepareEURCPaymentOp()
+	useCase, err = f.buildSorobanUseCase(eurcTransferOpXDR, eurcTransferSigners, simulationResponse, "eurcTransferToContractOp", timeoutSeconds)
 	if err != nil {
-		return nil, fmt.Errorf("preparing EURC payment operation: %w", err)
-	} else {
-		txXDR, err = f.buildTransactionXDR(eurcPaymentOpXDRs, timeoutSeconds)
-		if err != nil {
-			return nil, fmt.Errorf("building transaction XDR for EURC trustline and payment: %w", err)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "eurcTrustlineAndPaymentOps",
-			category:             categoryStellarClassic,
-			TxSigners:            eurcPaymentSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR},
-		})
+		return nil, err
 	}
+	useCases = append(useCases, useCase)
 
 	// SEP-41 Transfer (contract token transfer for balance test)
 	sep41TransferOpXDR, sep41TransferSigners, simulationResponse, err := f.prepareSEP41TransferOp(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("preparing SEP-41 transfer operation: %w", err)
-	} else {
-		txXDR, err := f.buildTransactionXDR([]string{sep41TransferOpXDR}, timeoutSeconds)
-		if err != nil {
-			return nil, fmt.Errorf("building transaction XDR for SEP-41 transfer: %w", err)
-		}
-		useCases = append(useCases, &UseCase{
-			name:                 "sep41TransferOp",
-			category:             categorySoroban,
-			TxSigners:            sep41TransferSigners,
-			DelayTime:            2 * time.Second,
-			RequestedTransaction: types.Transaction{TransactionXdr: txXDR, SimulationResult: simulationResponse},
-		})
+	}
+	useCase, err = f.buildSorobanUseCase(sep41TransferOpXDR, sep41TransferSigners, simulationResponse, "sep41TransferOp", timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	return useCases, nil
+}
+
+func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+	default:
+	}
+
+	useCases := []*UseCase{}
+	timeoutSeconds := int64(timeout.Seconds())
+
+	// Append classic Stellar protocol use cases
+	useCases, err := f.appendClassicUseCases(ctx, useCases, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("appending classic use cases: %w", err)
+	}
+
+	// Append Soroban contract use cases
+	useCases, err = f.appendSorobanUseCases(ctx, useCases, timeoutSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("appending soroban use cases: %w", err)
 	}
 
 	return useCases, nil

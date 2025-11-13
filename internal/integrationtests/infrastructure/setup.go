@@ -210,74 +210,89 @@ type SharedContainers struct {
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
-func NewSharedContainers(t *testing.T) *SharedContainers {
-	// Get the directory of the current source file
-	_, filename, _, _ := runtime.Caller(0)
-	dir := filepath.Dir(filename)
-
-	shared := &SharedContainers{}
-
-	ctx := context.Background()
+// initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
+func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context, t *testing.T) error {
+	var err error
 
 	// Create network
-	var err error
-	shared.TestNetwork, err = network.New(ctx)
-	require.NoError(t, err)
+	s.TestNetwork, err = network.New(ctx)
+	if err != nil {
+		return fmt.Errorf("creating test network: %w", err)
+	}
 
-	shared.RedisContainer, err = createRedisContainer(ctx, shared.TestNetwork)
-	require.NoError(t, err)
+	// Start Redis container
+	s.RedisContainer, err = createRedisContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating Redis container: %w", err)
+	}
 
 	// Start PostgreSQL for Stellar Core
-	shared.PostgresContainer, err = createCoreDBContainer(ctx, shared.TestNetwork)
-	require.NoError(t, err)
+	s.PostgresContainer, err = createCoreDBContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating core DB container: %w", err)
+	}
 
 	// Start Stellar Core
-	shared.StellarCoreContainer, err = createStellarCoreContainer(ctx, shared.TestNetwork)
-	require.NoError(t, err)
+	s.StellarCoreContainer, err = createStellarCoreContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating Stellar Core container: %w", err)
+	}
 
 	// Start Stellar RPC
-	shared.RPCContainer, err = createRPCContainer(ctx, shared.TestNetwork)
-	require.NoError(t, err)
+	s.RPCContainer, err = createRPCContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating RPC container: %w", err)
+	}
 
+	return nil
+}
+
+// setupTestAccounts initializes keypairs, creates accounts, and establishes trustlines.
+func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) error {
 	// Initialize master account for funding
-	shared.masterKeyPair = keypair.Root(networkPassphrase)
-	shared.masterAccount = &txnbuild.SimpleAccount{
-		AccountID: shared.masterKeyPair.Address(),
+	s.masterKeyPair = keypair.Root(networkPassphrase)
+	s.masterAccount = &txnbuild.SimpleAccount{
+		AccountID: s.masterKeyPair.Address(),
 		Sequence:  0,
 	}
 
 	// Create keypairs for all test accounts
-	shared.clientAuthKeyPair = keypair.MustRandom()
-	shared.primarySourceAccountKeyPair = keypair.MustRandom()
-	shared.secondarySourceAccountKeyPair = keypair.MustRandom()
-	shared.distributionAccountKeyPair = keypair.MustRandom()
-	shared.balanceTestAccount1KeyPair = keypair.MustRandom()
-	shared.balanceTestAccount2KeyPair = keypair.MustRandom()
+	s.clientAuthKeyPair = keypair.MustRandom()
+	s.primarySourceAccountKeyPair = keypair.MustRandom()
+	s.secondarySourceAccountKeyPair = keypair.MustRandom()
+	s.distributionAccountKeyPair = keypair.MustRandom()
+	s.balanceTestAccount1KeyPair = keypair.MustRandom()
+	s.balanceTestAccount2KeyPair = keypair.MustRandom()
 
 	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
-	shared.sponsoredNewAccountKeyPair = keypair.MustRandom()
+	s.sponsoredNewAccountKeyPair = keypair.MustRandom()
 
 	// Create and fund all accounts in a single transaction
-	shared.createAndFundAccounts(ctx, t, []*keypair.Full{
-		shared.clientAuthKeyPair,
-		shared.primarySourceAccountKeyPair,
-		shared.secondarySourceAccountKeyPair,
-		shared.distributionAccountKeyPair,
-		shared.balanceTestAccount1KeyPair,
-		shared.balanceTestAccount2KeyPair,
+	s.createAndFundAccounts(ctx, t, []*keypair.Full{
+		s.clientAuthKeyPair,
+		s.primarySourceAccountKeyPair,
+		s.secondarySourceAccountKeyPair,
+		s.distributionAccountKeyPair,
+		s.balanceTestAccount1KeyPair,
+		s.balanceTestAccount2KeyPair,
 	})
 
-	// Create trustlines - these will be use for the account balances test
-	shared.createUSDCTrustlines(ctx, t, []*keypair.Full{
-		shared.balanceTestAccount1KeyPair,
-		shared.balanceTestAccount2KeyPair,
+	// Create trustlines - these will be used for the account balances test
+	s.createUSDCTrustlines(ctx, t, []*keypair.Full{
+		s.balanceTestAccount1KeyPair,
+		s.balanceTestAccount2KeyPair,
 	})
 
 	// Create EURC trustlines for balance test account 1 only
-	shared.createEURCTrustlines(ctx, t)
+	s.createEURCTrustlines(ctx, t)
 
+	return nil
+}
+
+// setupContracts deploys and initializes all Soroban contracts and tokens.
+func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir string) error {
 	// Deploy native asset SAC so it can be used in smart contract operations
-	shared.deployNativeAssetSAC(ctx, t)
+	s.deployNativeAssetSAC(ctx, t)
 	log.Ctx(ctx).Info("✅ Native asset SAC deployed successfully")
 
 	// ============================================================================
@@ -296,8 +311,8 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	//   - Query: balance(address), decimals(), name(), symbol(), allowance(from, spender)
 	//
 	// Token Configuration:
-	//   - Name: "USD Coin"
-	//   - Symbol: "USDC"
+	//   - Name: "SEP41 Token"
+	//   - Symbol: "SEP41"
 	//   - Decimals: 7
 	//   - Admin: Master test account
 	//
@@ -310,23 +325,19 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// References:
 	//   - SEP-41 Standard: https://stellar.org/protocol/sep-41
 	//   - Token Contract: https://github.com/stellar/soroban-examples/tree/main/token
-	//
+
 	// Step 1: Read the token contract WASM file
-	// This is the standard token contract from soroban-examples v22.0.1
 	sep41WasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_token_contract.wasm"))
-	require.NoError(t, err, "failed to read SEP-41 token WASM file")
+	if err != nil {
+		return fmt.Errorf("reading SEP-41 token WASM file: %w", err)
+	}
 
 	// Step 2: Upload the WASM bytecode to the ledger
-	// This creates a LedgerEntryTypeContractCode entry and returns its hash
-	sep41WasmHash := shared.uploadContractWasm(ctx, t, sep41WasmBytes)
+	sep41WasmHash := s.uploadContractWasm(ctx, t, sep41WasmBytes)
 	log.Ctx(ctx).Infof("✅ Uploaded SEP41 contract WASM with hash: %x", sep41WasmHash)
 
 	// Step 3: Build constructor arguments for the token contract
-	// The soroban-examples token __constructor signature: __constructor(admin, decimal, name, symbol)
-	// The constructor runs atomically during deployment, initializing the token in one step
-
-	// Arg 1: admin (Address) - The account that can mint tokens
-	adminAccountID := xdr.MustAddress(shared.masterKeyPair.Address())
+	adminAccountID := xdr.MustAddress(s.masterKeyPair.Address())
 	adminSCAddress := xdr.ScAddress{
 		Type:      xdr.ScAddressTypeScAddressTypeAccount,
 		AccountId: &adminAccountID,
@@ -336,95 +347,118 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 		Address: &adminSCAddress,
 	}
 
-	// Arg 2: decimal (u32) - Number of decimal places (7 for USDC-like tokens)
 	decimalXDR := xdr.Uint32(7)
 	decimalArg := xdr.ScVal{
 		Type: xdr.ScValTypeScvU32,
 		U32:  &decimalXDR,
 	}
 
-	// Arg 3: name (String) - Human-readable token name
-	// Important: Use ScvString (not ScvBytes) for Soroban String types
 	nameStr := xdr.ScString("SEP41 Token")
 	nameArg := xdr.ScVal{
 		Type: xdr.ScValTypeScvString,
 		Str:  &nameStr,
 	}
 
-	// Arg 4: symbol (String) - Token symbol
-	// Important: Use ScvString (not ScvBytes) for Soroban String types
 	symbolStr := xdr.ScString("SEP41")
 	symbolArg := xdr.ScVal{
 		Type: xdr.ScValTypeScvString,
 		Str:  &symbolStr,
 	}
 
-	// Build the constructor arguments slice
 	sep41ConstructorArgs := []xdr.ScVal{adminArg, decimalArg, nameArg, symbolArg}
 
 	// Step 4: Deploy and initialize the contract atomically
-	// The __constructor runs during deployment, so no separate initialization call is needed
-	shared.sep41ContractAddress = shared.deployContractWithConstructor(ctx, t, sep41WasmHash, sep41ConstructorArgs)
+	s.sep41ContractAddress = s.deployContractWithConstructor(ctx, t, sep41WasmHash, sep41ConstructorArgs)
 	log.Ctx(ctx).Infof("✅ Deployed and initialized SEP-41 token contract at: %s (admin=%s, decimals=7, name=SEP41 Token, symbol=SEP41)",
-		shared.sep41ContractAddress, shared.masterKeyPair.Address())
+		s.sep41ContractAddress, s.masterKeyPair.Address())
 
 	// Deploy Holder Contract
-	// This deploys a simple contract that can receive and hold token balances.
-	// Any Soroban contract can hold SEP-41 token balances - no special interface required.
-	// When tokens are transferred to this contract's address (C...), the token contract
-	// creates a contract data entry with key [Balance, C-address] to track the balance.
 	holderWasmBytes, err := os.ReadFile(filepath.Join(dir, "testdata", "soroban_increment_contract.wasm"))
-	require.NoError(t, err, "failed to read holder contract WASM file")
-	holderWasmHash := shared.uploadContractWasm(ctx, t, holderWasmBytes)
+	if err != nil {
+		return fmt.Errorf("reading holder contract WASM file: %w", err)
+	}
+	holderWasmHash := s.uploadContractWasm(ctx, t, holderWasmBytes)
 	log.Ctx(ctx).Infof("✅ Uploaded holder contract WASM with hash: %x", holderWasmHash)
 
-	// The increment contract has no constructor, so we pass an empty slice
-	shared.holderContractAddress = shared.deployContractWithConstructor(ctx, t, holderWasmHash, []xdr.ScVal{})
-	log.Ctx(ctx).Infof("✅ Deployed holder contract at: %s", shared.holderContractAddress)
+	s.holderContractAddress = s.deployContractWithConstructor(ctx, t, holderWasmHash, []xdr.ScVal{})
+	log.Ctx(ctx).Infof("✅ Deployed holder contract at: %s", s.holderContractAddress)
 
 	// Create SEP-41 Balance for G-Address
-	// Mint SEP-41 tokens to balanceTestAccount1. This creates a contract data entry
-	// in the ledger: LedgerEntryTypeContractData with key [Balance, G-address].
-	// This represents a pure contract token balance (not a classic trustline).
-	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.balanceTestAccount1KeyPair.Address(), TestSEP41MintStroops) // 500 tokens with 7 decimals
-	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", shared.balanceTestAccount1KeyPair.Address())
+	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.balanceTestAccount1KeyPair.Address(), TestSEP41MintStroops)
+	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", s.balanceTestAccount1KeyPair.Address())
 
 	// Create SAC Balance for C-Address
-	// Transfer USDC SAC tokens to the holder contract. This creates a contract data entry
-	// in the ledger: LedgerEntryTypeContractData with key [Balance, C-address].
-	// This demonstrates that contracts can hold SAC token balances.
-	shared.invokeContractTransfer(ctx, t, shared.usdcContractAddress, shared.masterKeyPair.Address(), shared.holderContractAddress, TestUSDCTransferStroops) // 200 tokens with 7 decimals
-	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", shared.holderContractAddress)
+	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), s.holderContractAddress, TestUSDCTransferStroops)
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", s.holderContractAddress)
 
 	// Create SEP-41 Balance for C-Address
-	// Transfer SEP-41 tokens to the holder contract. This creates another contract data entry
-	// for the holder contract: LedgerEntryTypeContractData with key [Balance, C-address].
-	// A contract can hold balances from multiple different tokens simultaneously.
-	shared.mintSEP41Tokens(ctx, t, shared.sep41ContractAddress, shared.holderContractAddress, TestSEP41MintStroops) // 300 tokens with 7 decimals (using same constant, both are 500 tokens)
-	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", shared.holderContractAddress)
+	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.holderContractAddress, TestSEP41MintStroops)
+	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", s.holderContractAddress)
 
 	// Wait for the contracts to be present in latest checkpoint
 	log.Ctx(ctx).Info("🕒 Waiting for contracts to be present in latest checkpoint...")
 	time.Sleep(CheckpointWaitDuration)
 
+	return nil
+}
+
+// setupWalletBackend initializes wallet-backend database and service containers.
+func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T) error {
+	var err error
+
 	// Start PostgreSQL for wallet-backend
-	shared.WalletDBContainer, err = createWalletDBContainer(ctx, shared.TestNetwork)
-	require.NoError(t, err)
+	s.WalletDBContainer, err = createWalletDBContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating wallet DB container: %w", err)
+	}
 
 	// Build or verify wallet-backend Docker image
 	walletBackendImage, err := ensureWalletBackendImage(ctx, walletBackendContainerTag)
-	require.NoError(t, err)
+	if err != nil {
+		return fmt.Errorf("ensuring wallet backend image: %w", err)
+	}
 
 	// Start wallet-backend ingest
-	shared.WalletBackendContainer = &WalletBackendContainer{}
-	shared.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		walletBackendImage, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
-	require.NoError(t, err)
+	s.WalletBackendContainer = &WalletBackendContainer{}
+	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
+		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+	if err != nil {
+		return fmt.Errorf("creating wallet backend ingest container: %w", err)
+	}
 
 	// Start wallet-backend service
-	shared.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		walletBackendImage, shared.TestNetwork, shared.clientAuthKeyPair, shared.distributionAccountKeyPair)
-	require.NoError(t, err)
+	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
+		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+	if err != nil {
+		return fmt.Errorf("creating wallet backend API container: %w", err)
+	}
+
+	return nil
+}
+
+func NewSharedContainers(t *testing.T) *SharedContainers {
+	// Get the directory of the current source file
+	_, filename, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(filename)
+
+	shared := &SharedContainers{}
+	ctx := context.Background()
+
+	// Initialize container infrastructure
+	err := shared.initializeContainerInfrastructure(ctx, t)
+	require.NoError(t, err, "failed to initialize container infrastructure")
+
+	// Setup test accounts
+	err = shared.setupTestAccounts(ctx, t)
+	require.NoError(t, err, "failed to setup test accounts")
+
+	// Setup contracts
+	err = shared.setupContracts(ctx, t, dir)
+	require.NoError(t, err, "failed to setup contracts")
+
+	// Setup wallet backend
+	err = shared.setupWalletBackend(ctx, t)
+	require.NoError(t, err, "failed to setup wallet backend")
 
 	return shared
 }
