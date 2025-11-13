@@ -373,7 +373,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 					Balance:   balanceStr,
 					TokenType: graphql1.TokenTypeSep41,
 				})
-			case types.ContractTypeUnknown:
+			case types.ContractTypeUnknown, types.ContractTypeNative:
 				continue
 			}
 		}

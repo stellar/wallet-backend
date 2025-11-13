@@ -46,44 +46,23 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
-type AccountBalancesTestSuite struct {
+// AccountBalancesAfterCheckpointTestSuite validates that balances are correctly calculated
+// using tokens populated from the checkpoint ledger before any fixture transactions are submitted.
+//
+// This suite tests the initial state after checkpoint setup completes but before
+// the BuildAndSubmitTransactionsTestSuite executes any transactions.
+type AccountBalancesAfterCheckpointTestSuite struct {
 	suite.Suite
 	testEnv *infrastructure.TestEnvironment
 }
 
-func (suite *AccountBalancesTestSuite) TestAccountBalancesForClassicTrustlines() {
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(context.Background(), suite.testEnv.BalanceTestAccount2KP.Address())
-	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
-
-	suite.Require().Equal(len(balances), 3, "Expected 3 balances: native, USDC, and EURC")
-
-	nativeBalance, ok := balances[0].(*types.NativeBalance)
-	suite.Require().True(ok)
-	suite.Require().Equal("10000.0000000", nativeBalance.GetBalance())
-	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
-
-	usdcBalance, ok := balances[1].(*types.TrustlineBalance)
-	suite.Require().True(ok)
-	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
-}
-
-// TestSEP41BalanceForGAddress verifies that the wallet backend correctly retrieves
-// SEP-41 token balances for account addresses (G...).
-//
-// This tests the scenario where:
-// 1. A custom SEP-41 token contract is deployed (not a SAC)
-// 2. Tokens are minted to a G-address
-// 3. A contract data entry is created with key [Balance, G-address]
-// 4. The wallet backend reads this entry from the checkpoint ledger cache
-// 5. The balance is returned via GetBalancesByAccountAddress API
-//
-// This is different from classic trustlines - it's a pure contract token balance.
-func (suite *AccountBalancesTestSuite) TestSEP41BalanceForGAddress() {
-	// Query balances for balanceTestAccount1 which has SEP-41 tokens
+// TestCheckpoint_Account1_HasInitialBalances verifies that balance test account 1
+// has the expected initial balances from checkpoint setup:
+// - Native XLM (~10000)
+// - USDC trustline (100)
+// - EURC trustline (100)
+// - SEP-41 contract tokens (500)
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount1KP.Address(),
@@ -92,152 +71,41 @@ func (suite *AccountBalancesTestSuite) TestSEP41BalanceForGAddress() {
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	// Should have native balance, classic USDC trustline, and SEP-41 contract balance
-	suite.Require().GreaterOrEqual(len(balances), 3, "Expected at least 3 balances: native, USDC, and SEP-41")
+	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC trustline, EURC trustline, and SEP-41 tokens")
 
-	// Find the SEP-41 balance
-	var foundSEP41 bool
-	for _, balance := range balances {
-		if contractBalance, ok := balance.(*types.SEP41Balance); ok {
-			if contractBalance.GetTokenID() == suite.testEnv.SEP41ContractAddress {
-				foundSEP41 = true
-				suite.Require().Equal("400.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 400 tokens")
-				suite.Require().Equal(types.TokenTypeSEP41, contractBalance.GetTokenType(), "Token type should be SEP41")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundSEP41, "SEP-41 balance not found for G-address")
+	// Verify native XLM balance
+	nativeBalance, ok := balances[0].(*types.NativeBalance)
+	suite.Require().True(ok, "First balance should be native XLM")
+	suite.Require().Equal("10000.0000000", nativeBalance.GetBalance())
+	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+
+	// Verify EURC trustline balance
+	eurcBalance, ok := balances[1].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Third balance should be EURC trustline")
+	suite.Require().Equal("100.0000000", eurcBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+
+	// Verify USDC trustline balance
+	usdcBalance, ok := balances[2].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Second balance should be USDC trustline")
+	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+
+	// Verify SEP-41 contract token balance
+	sep41Balance, ok := balances[3].(*types.SEP41Balance)
+	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
+	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
 }
 
-// TestSACBalanceForCAddress verifies that the wallet backend correctly retrieves
-// SAC token balances for contract addresses (C...).
-//
-// This tests the scenario where:
-// 1. A SAC token (USDC) is deployed for a classic asset
-// 2. Tokens are transferred to a C-address (contract)
-// 3. A contract data entry is created with key [Balance, C-address]
-// 4. The wallet backend reads this entry from the checkpoint ledger cache
-// 5. The balance is returned when querying the contract's address
-//
-// This demonstrates that contracts can hold SAC token balances.
-func (suite *AccountBalancesTestSuite) TestSACBalanceForCAddress() {
-	// Query balances for the holder contract which has USDC SAC tokens
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
-		context.Background(),
-		suite.testEnv.HolderContractAddress,
-	)
-	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
-
-	// Should have at least USDC SAC balance
-	suite.Require().GreaterOrEqual(len(balances), 1, "Expected at least 1 balance: USDC SAC")
-
-	// Find the USDC SAC balance
-	var foundUSDC bool
-	for _, balance := range balances {
-		if contractBalance, ok := balance.(*types.SACBalance); ok {
-			if contractBalance.GetTokenID() == suite.testEnv.USDCContractAddress {
-				foundUSDC = true
-				suite.Require().Equal("200.0000000", contractBalance.GetBalance(), "USDC SAC balance should be 200 tokens")
-				suite.Require().Equal(types.TokenTypeSAC, contractBalance.GetTokenType(), "Token type should be SAC")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundUSDC, "USDC SAC balance not found for C-address")
-}
-
-// TestSEP41BalanceForCAddress verifies that the wallet backend correctly retrieves
-// SEP-41 token balances for contract addresses (C...).
-//
-// This tests the scenario where:
-// 1. A custom SEP-41 token contract is deployed
-// 2. Tokens are transferred to a C-address (contract)
-// 3. A contract data entry is created with key [Balance, C-address]
-// 4. The wallet backend reads this entry from the checkpoint ledger cache
-// 5. The balance is returned when querying the contract's address
-//
-// This demonstrates that contracts can hold multiple token types simultaneously.
-func (suite *AccountBalancesTestSuite) TestSEP41BalanceForCAddress() {
-	// Query balances for the holder contract which has SEP-41 tokens
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
-		context.Background(),
-		suite.testEnv.HolderContractAddress,
-	)
-	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
-
-	// Should have both USDC SAC and SEP-41 balances
-	suite.Require().Equal(len(balances), 2, "Expected 2 balances: USDC SAC and SEP-41")
-
-	// Find the SEP-41 balance
-	var foundSEP41 bool
-	for _, balance := range balances {
-		if contractBalance, ok := balance.(*types.SEP41Balance); ok {
-			if contractBalance.GetTokenID() == suite.testEnv.SEP41ContractAddress {
-				foundSEP41 = true
-				suite.Require().Equal("300.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 300 tokens")
-				suite.Require().Equal(types.TokenTypeSEP41, contractBalance.GetTokenType(), "Token type should be SEP41")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundSEP41, "SEP-41 balance not found for C-address")
-}
-
-// TestEURCTransferToContract verifies that EURC SAC tokens can be transferred from a G-address
-// to a C-address (holder contract) and the balance is correctly tracked via live ingestion.
-//
-// This tests the scenario where:
-// 1. Balance test account 1 already has EURC balance (setup in checkpoint)
-// 2. EURC is transferred to holder contract address (G→C transfer)
-// 3. Token transfer processor picks up the transfer event
-// 4. Redis cache is updated with holder contract's EURC balance
-// 5. Balance query returns correct EURC SAC balance for holder contract
-func (suite *AccountBalancesTestSuite) TestEURCTransferToContract() {
-	// Query balances for the holder contract which should now have EURC after the transfer
-	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
-		context.Background(),
-		suite.testEnv.HolderContractAddress,
-	)
-	suite.Require().NoError(err)
-	suite.Require().NotNil(balances)
-	suite.Require().NotEmpty(balances)
-
-	// Should have USDC SAC, SEP-41, and now EURC SAC balances
-	suite.Require().Equal(len(balances), 3, "Expected at least 3 balances: USDC SAC, SEP-41, and EURC SAC")
-
-	// Find the EURC SAC balance
-	var foundEURC bool
-	for _, balance := range balances {
-		if contractBalance, ok := balance.(*types.SACBalance); ok {
-			if contractBalance.GetTokenID() == suite.testEnv.EURCContractAddress {
-				foundEURC = true
-				suite.Require().Equal("50.0000000", contractBalance.GetBalance(), "EURC SAC balance should be 50 tokens")
-				suite.Require().Equal(types.TokenTypeSAC, contractBalance.GetTokenType(), "Token type should be SAC")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundEURC, "EURC SAC balance not found for holder contract C-address")
-}
-
-// TestEURCTrustlineCreation verifies that EURC trustline creation and funding for balance test
-// account 2 is correctly tracked via live ingestion through the effects processor.
-//
-// This tests the scenario where:
-// 1. Balance test account 2 does not have EURC trustline initially
-// 2. ChangeTrust operation creates EURC trustline for account 2
-// 3. Payment operation mints 75 EURC to account 2
-// 4. Effects processor picks up the trustline creation
-// 5. Token transfer processor picks up the payment
-// 6. Redis cache is updated with account 2's EURC trustline and balance
-// 7. Balance query returns correct EURC balance for account 2
-func (suite *AccountBalancesTestSuite) TestEURCTrustlineCreation() {
-	// Query balances for balance test account 2 which should now have EURC trustline
+// TestCheckpoint_Account2_HasInitialBalances verifies that balance test account 2
+// has the expected initial balances from checkpoint setup:
+// - Native XLM (~10000)
+// - USDC trustline (100)
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
@@ -246,35 +114,114 @@ func (suite *AccountBalancesTestSuite) TestEURCTrustlineCreation() {
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	// Should have native XLM, USDC, and now EURC balances
-	suite.Require().GreaterOrEqual(len(balances), 3, "Expected at least 3 balances: native, USDC, and EURC")
+	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and USDC trustline")
 
-	// Find the EURC trustline balance
-	var foundEURC bool
-	for _, balance := range balances {
-		if trustlineBalance, ok := balance.(*types.TrustlineBalance); ok {
-			if trustlineBalance.GetTokenID() == suite.testEnv.EURCContractAddress {
-				foundEURC = true
-				suite.Require().Equal("75.0000000", trustlineBalance.GetBalance(), "EURC trustline balance should be 75 tokens")
-				suite.Require().Equal(types.TokenTypeClassic, trustlineBalance.GetTokenType(), "Token type should be Classic")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundEURC, "EURC trustline balance not found for balance test account 2")
+	// Verify native XLM balance
+	nativeBalance, ok := balances[0].(*types.NativeBalance)
+	suite.Require().True(ok, "First balance should be native XLM")
+	suite.Require().Equal("10000.0000000", nativeBalance.GetBalance())
+	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+
+	// Verify USDC trustline balance
+	usdcBalance, ok := balances[1].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Second balance should be USDC trustline")
+	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
 }
 
-// TestSEP41Transfer verifies that SEP-41 tokens can be transferred from one G-address to another
-// and the balance is correctly tracked via live ingestion through the token transfer processor.
+// TestCheckpoint_HolderContract_HasInitialBalances verifies that the holder contract
+// has the expected initial balances from checkpoint setup:
+// - USDC SAC tokens (200)
+// - SEP-41 contract tokens (300)
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.HolderContractAddress,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and SEP-41 tokens")
+
+	// Verify USDC SAC balance
+	usdcSACBalance, ok := balances[0].(*types.SACBalance)
+	suite.Require().True(ok, "First balance should be USDC SAC")
+	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
+
+	// Verify SEP-41 contract token balance
+	sep41Balance, ok := balances[1].(*types.SEP41Balance)
+	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
+	suite.Require().Equal("300.0000000", sep41Balance.GetBalance())
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+}
+
+// AccountBalancesAfterLiveIngestionTestSuite validates that balances are correctly calculated
+// after fixture transactions are submitted and processed by the live ingestion pipeline. These new transactions
+// will lead to new tokens being inserted into the token cache and new balances being calculated.
 //
-// This tests the scenario where:
-// 1. Balance test account 1 has SEP-41 tokens (setup in checkpoint)
-// 2. SEP-41 tokens are transferred from account 1 to account 2
-// 3. Token transfer processor picks up the transfer event
-// 4. Redis cache is updated with account 2's SEP-41 balance
-// 5. Balance query returns correct SEP-41 balance for account 2
-func (suite *AccountBalancesTestSuite) TestSEP41Transfer() {
-	// Query balances for balance test account 2 which should now have SEP-41 tokens
+// This suite tests the final state after BuildAndSubmitTransactionsTestSuite executes
+// the fixture transactions and the ingest service processes them.
+type AccountBalancesAfterLiveIngestionTestSuite struct {
+	suite.Suite
+	testEnv *infrastructure.TestEnvironment
+}
+
+// TestLiveIngestion_Account1_HasUpdatedBalances verifies that balance test account 1
+// has the expected balances after fixture transactions are processed:
+// - Native XLM
+// - USDC trustline (100) - unchanged
+// - EURC trustline (50) - reduced from 100 after transfer to contract
+// - SEP-41 contract tokens (400) - reduced from 500 after transfer to account 2
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.BalanceTestAccount1KP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
+
+	// Verify native XLM balance (may have changed due to fees)
+	nativeBalance, ok := balances[0].(*types.NativeBalance)
+	suite.Require().True(ok, "First balance should be native XLM")
+	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+
+	// Verify EURC trustline balance (reduced from 100 to 50)
+	eurcBalance, ok := balances[1].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Third balance should be EURC trustline")
+	suite.Require().Equal("50.0000000", eurcBalance.GetBalance(), "EURC balance should be reduced to 50 after transfer")
+	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+
+	// Verify USDC trustline balance (unchanged)
+	usdcBalance, ok := balances[2].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Second balance should be USDC trustline")
+	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+
+	// Verify SEP-41 contract token balance (reduced from 500 to 400)
+	sep41Balance, ok := balances[3].(*types.SEP41Balance)
+	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
+	suite.Require().Equal("400.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be reduced to 400 after transfer")
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+}
+
+// TestLiveIngestion_Account2_HasNewBalances verifies that balance test account 2
+// has the expected balances after fixture transactions create new token holdings:
+// - Native XLM
+// - USDC trustline (100) - unchanged
+// - EURC trustline (75) - NEW from trustline creation and payment
+// - SEP-41 contract tokens (100) - NEW from transfer from account 1
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
 		suite.testEnv.BalanceTestAccount2KP.Address(),
@@ -283,20 +230,69 @@ func (suite *AccountBalancesTestSuite) TestSEP41Transfer() {
 	suite.Require().NotNil(balances)
 	suite.Require().NotEmpty(balances)
 
-	// Should have native XLM, USDC, EURC, and now SEP-41 balances
-	suite.Require().GreaterOrEqual(len(balances), 4, "Expected at least 4 balances: native, USDC, EURC, and SEP-41")
+	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
 
-	// Find the SEP-41 balance
-	var foundSEP41 bool
-	for _, balance := range balances {
-		if contractBalance, ok := balance.(*types.SEP41Balance); ok {
-			if contractBalance.GetTokenID() == suite.testEnv.SEP41ContractAddress {
-				foundSEP41 = true
-				suite.Require().Equal("100.0000000", contractBalance.GetBalance(), "SEP-41 balance should be 100 tokens")
-				suite.Require().Equal(types.TokenTypeSEP41, contractBalance.GetTokenType(), "Token type should be SEP41")
-				break
-			}
-		}
-	}
-	suite.Require().True(foundSEP41, "SEP-41 balance not found for balance test account 2")
+	// Verify native XLM balance
+	nativeBalance, ok := balances[0].(*types.NativeBalance)
+	suite.Require().True(ok, "First balance should be native XLM")
+	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+
+	// Verify USDC trustline balance (unchanged)
+	usdcBalance, ok := balances[1].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Second balance should be USDC trustline")
+	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+
+	// Verify EURC trustline balance (NEW - 75 tokens from payment)
+	eurcBalance, ok := balances[2].(*types.TrustlineBalance)
+	suite.Require().True(ok, "Third balance should be EURC trustline")
+	suite.Require().Equal("75.0000000", eurcBalance.GetBalance(), "EURC balance should be 75 from payment")
+	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+
+	// Verify SEP-41 contract token balance (NEW - 100 tokens from transfer)
+	sep41Balance, ok := balances[3].(*types.SEP41Balance)
+	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
+	suite.Require().Equal("100.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be 100 from transfer")
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+}
+
+// TestLiveIngestion_HolderContract_HasNewEURC verifies that the holder contract
+// has the expected balances after fixture transactions add EURC:
+// - USDC SAC tokens (200) - unchanged
+// - SEP-41 contract tokens (300) - unchanged
+// - EURC SAC tokens (50) - NEW from transfer from account 1
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
+	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
+		context.Background(),
+		suite.testEnv.HolderContractAddress,
+	)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(balances)
+	suite.Require().NotEmpty(balances)
+
+	suite.Require().Equal(3, len(balances), "Expected 3 balances: USDC SAC, SEP-41, and EURC SAC")
+
+	// Verify USDC SAC balance (unchanged)
+	usdcSACBalance, ok := balances[0].(*types.SACBalance)
+	suite.Require().True(ok, "First balance should be USDC SAC")
+	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
+
+	// Verify SEP-41 contract token balance (unchanged)
+	sep41Balance, ok := balances[1].(*types.SEP41Balance)
+	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
+	suite.Require().Equal("300.0000000", sep41Balance.GetBalance())
+	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+
+	// Verify EURC SAC balance (NEW - 50 tokens from transfer)
+	eurcSACBalance, ok := balances[2].(*types.SACBalance)
+	suite.Require().True(ok, "Third balance should be EURC SAC")
+	suite.Require().Equal("50.0000000", eurcSACBalance.GetBalance(), "EURC SAC balance should be 50 from transfer")
+	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcSACBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSAC, eurcSACBalance.GetTokenType())
 }

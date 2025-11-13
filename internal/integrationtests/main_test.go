@@ -46,6 +46,18 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("AccountRegisterTestSuite failed, skipping remaining tests")
 	}
 
+	// Phase 1: Validate balances from checkpoint before fixture transactions
+	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Only proceed if checkpoint balance validation succeeded
+	if t.Failed() {
+		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
+	}
+
 	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
 		suite.Run(t, &BuildAndSubmitTransactionsTestSuite{
 			testEnv: testEnv,
@@ -61,14 +73,15 @@ func TestIntegrationTests(t *testing.T) {
 	log.Ctx(ctx).Info("⏳ Waiting for ingest service to process transactions...")
 	time.Sleep(5 * time.Second)
 
-	// t.Run("DataValidationTestSuite", func(t *testing.T) {
-	// 	suite.Run(t, &DataValidationTestSuite{
-	// 		testEnv: testEnv,
-	// 	})
-	// })
+	t.Run("DataValidationTestSuite", func(t *testing.T) {
+		suite.Run(t, &DataValidationTestSuite{
+			testEnv: testEnv,
+		})
+	})
 
-	t.Run("AccountBalancesTestSuite", func(t *testing.T) {
-		suite.Run(t, &AccountBalancesTestSuite{
+	// Phase 2: Validate balances after live ingestion processes fixture transactions
+	t.Run("AccountBalancesAfterLiveIngestionTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterLiveIngestionTestSuite{
 			testEnv: testEnv,
 		})
 	})

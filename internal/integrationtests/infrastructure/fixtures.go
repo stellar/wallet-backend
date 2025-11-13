@@ -1349,7 +1349,7 @@ func (f *Fixtures) PrepareUseCases(ctx context.Context) ([]*UseCase, error) {
 		})
 	}
 
-	// EURC Change Trust and Payment (trustline creation for balance test)	
+	// EURC Change Trust and Payment (trustline creation for balance test)
 	eurcPaymentOpXDRs, eurcPaymentSigners, err := f.prepareEURCPaymentOp()
 	if err != nil {
 		return nil, fmt.Errorf("preparing EURC payment operation: %w", err)
