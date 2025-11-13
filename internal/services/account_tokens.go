@@ -167,7 +167,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 // during live ingestion. Called by the indexer for each ledger's state changes.
 //
 // For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
-// For SAC balances: only ADD operations are processed (contract tokens are never explicitly removed).
+// For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
 func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
 		return nil
