@@ -587,7 +587,6 @@ func (f *Fixtures) PrepareClaimAndClawbackUseCases(balanceIDToBeClaimed, balance
 }
 
 // prepareLiquidityPoolOps creates liquidity pool operations.
-// Currently commented out pending further testing.
 func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 7 state changes:
@@ -676,7 +675,6 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 }
 
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
-// Currently commented out pending further testing.
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 4 state changes:
