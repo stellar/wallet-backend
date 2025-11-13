@@ -10,6 +10,26 @@ import (
 	"github.com/stellar/wallet-backend/internal/signing"
 )
 
+func RedisHostOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "redis-host",
+		Usage:       "The host of the Redis server.",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "localhost",
+	}
+}
+
+func RedisPortOption(configKey *int) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "redis-port",
+		Usage:       "The port of the Redis server.",
+		OptType:     types.Int,
+		ConfigKey:   configKey,
+		FlagDefault: 6379,
+	}
+}
+
 func IngestServerPortOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "ingest-server-port",
