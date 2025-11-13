@@ -202,7 +202,6 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	shared.TestNetwork, err = network.New(ctx)
 	require.NoError(t, err)
 
-	
 	shared.RedisContainer, err = createRedisContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
@@ -734,8 +733,8 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
 			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
-			"REDIS_HOST":                             redisContainerName,
-			"REDIS_PORT":                             "6379",
+			"REDIS_HOST":                              redisContainerName,
+			"REDIS_PORT":                              "6379",
 		},
 		Networks: []string{testNetwork.Name},
 	}
@@ -796,8 +795,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
-			"REDIS_HOST":                             redisContainerName,
-			"REDIS_PORT":                             "6379",
+			"REDIS_HOST":                              redisContainerName,
+			"REDIS_PORT":                              "6379",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
