@@ -55,20 +55,20 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	models            *data.Models
-	ledgerCursorName  string
+	models                  *data.Models
+	ledgerCursorName        string
 	accountTokensCursorName string
-	advisoryLockID    int
-	appTracker        apptracker.AppTracker
-	rpcService        RPCService
-	chAccStore        store.ChannelAccountStore
-	contractStore     cache.TokenContractStore
-	accountTokenService AccountTokenService
-	metricsService    metrics.MetricsService
-	networkPassphrase string
-	getLedgersLimit   int
-	ledgerIndexer     *indexer.Indexer
-	pool              pond.Pool
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	chAccStore              store.ChannelAccountStore
+	contractStore           cache.TokenContractStore
+	accountTokenService     AccountTokenService
+	metricsService          metrics.MetricsService
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	pool                    pond.Pool
 }
 
 func NewIngestService(
@@ -124,20 +124,20 @@ func NewIngestService(
 	metricsService.RegisterPoolMetrics("ingest", ingestPool)
 
 	return &ingestService{
-		models:            models,
-		ledgerCursorName:  ledgerCursorName,
+		models:                  models,
+		ledgerCursorName:        ledgerCursorName,
 		accountTokensCursorName: accountTokensCursorName,
-		advisoryLockID:    generateAdvisoryLockID(network),
-		appTracker:        appTracker,
-		rpcService:        rpcService,
-		chAccStore:        chAccStore,
-		contractStore:     contractStore,
-		accountTokenService: accountTokenService,
-		metricsService:    metricsService,
-		networkPassphrase: rpcService.NetworkPassphrase(),
-		getLedgersLimit:   getLedgersLimit,
-		ledgerIndexer:     indexer.NewIndexer(rpcService.NetworkPassphrase(), ledgerIndexerPool, metricsService),
-		pool:              ingestPool,
+		advisoryLockID:          generateAdvisoryLockID(network),
+		appTracker:              appTracker,
+		rpcService:              rpcService,
+		chAccStore:              chAccStore,
+		contractStore:           contractStore,
+		accountTokenService:     accountTokenService,
+		metricsService:          metricsService,
+		networkPassphrase:       rpcService.NetworkPassphrase(),
+		getLedgersLimit:         getLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(rpcService.NetworkPassphrase(), ledgerIndexerPool, metricsService),
+		pool:                    ingestPool,
 	}, nil
 }
 

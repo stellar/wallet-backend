@@ -70,14 +70,14 @@ type AccountTokenService interface {
 var _ AccountTokenService = (*accountTokenService)(nil)
 
 type accountTokenService struct {
-	checkpointLedger      uint32
-	archive               historyarchive.ArchiveInterface
-	contractValidator ContractValidator
-	redisStore            *store.RedisStore
-	networkPassphrase     string
-	trustlinesPrefix      string
-	contractsPrefix       string
-	contractTypePrefix    string
+	checkpointLedger   uint32
+	archive            historyarchive.ArchiveInterface
+	contractValidator  ContractValidator
+	redisStore         *store.RedisStore
+	networkPassphrase  string
+	trustlinesPrefix   string
+	contractsPrefix    string
+	contractTypePrefix string
 }
 
 func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractValidator ContractValidator, checkpointFrequency uint32) (AccountTokenService, error) {
@@ -99,14 +99,14 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 	}
 
 	return &accountTokenService{
-		checkpointLedger:      0,
-		archive:               archive,
-		contractValidator: contractValidator,
-		redisStore:            redisStore,
-		networkPassphrase:     networkPassphrase,
-		trustlinesPrefix:      trustlinesKeyPrefix,
-		contractsPrefix:       contractsKeyPrefix,
-		contractTypePrefix:    contractTypePrefix,
+		checkpointLedger:   0,
+		archive:            archive,
+		contractValidator:  contractValidator,
+		redisStore:         redisStore,
+		networkPassphrase:  networkPassphrase,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
 	}, nil
 }
 
