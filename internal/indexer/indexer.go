@@ -173,11 +173,11 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 				case types.StateChangeCategoryBalance:
 					// Only store contract changes when:
 					// - Account is C-address, OR
-					// - Account is G-address AND contract is NOT SAC (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
+					// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
 					accountIsContract := isContractAddress(stateChange.AccountID)
-					tokenIsSAC := stateChange.ContractType == types.ContractTypeSAC
+					tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
 
-					if accountIsContract || !tokenIsSAC {
+					if accountIsContract || !tokenIsSACOrNative {
 						contractChange := types.ContractChange{
 							AccountID:    stateChange.AccountID,
 							OperationID:  stateChange.OperationID,
