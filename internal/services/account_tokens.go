@@ -28,7 +28,8 @@ const (
 	contractsKeyPrefix  = "contracts:"
 	contractTypePrefix  = "contract_type:"
 
-	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
+	// redisPipelineBatchSize is the number of operations to batch 
+	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
 
 	// progressInterval is the number of checkpoint entries to process before logging progress.
@@ -43,14 +44,13 @@ type AccountTokenService interface {
 	GetCheckpointLedger() uint32
 
 	// PopulateAccountTokens performs initial Redis cache population from Stellar
-	// history archive for the latest checkpoint. This is a long-running operation
-	// that may take several minutes and should be called during service initialization.
-	// It reads all trustlines and contract balances and stores them in Redis.
+	// history archive for the latest checkpoint. It extracts all trustlines and contract 
+	// tokens from checkpoint ledger entries and stores them in Redis.
 	PopulateAccountTokens(ctx context.Context) error
 
-	// Add adds token identifiers (trustline assets or contract IDs) to an account's
+	// Add adds tokens (trustline assets or contract IDs) to an account's
 	// Redis set. For trustlines, assets should be formatted as "CODE:ISSUER".
-	// For contracts, assets should be contract addresses starting with "C".
+	// For contract tokens, assets should be contract addresses starting with "C".
 	// Returns nil if assets is empty (no-op).
 	Add(ctx context.Context, accountAddress string, assets []string) error
 
@@ -58,8 +58,7 @@ type AccountTokenService interface {
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
 
-	// GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract
-	// IDs for an account. Returns contract addresses (C...) or empty slice if none exist.
+	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
 
 	// GetContractType determines the token type (SAC, SEP41, or UNKNOWN) for a contract.
@@ -111,8 +110,7 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
-// This reads the latest checkpoint ledger and extracts all trustlines and contracts that an account has.
-// It should be called during service initialization before processing live ingestion.
+// This reads the latest checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // Warning: This is a long-running operation that may take several minutes.
 func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	if s.archive == nil {
@@ -172,9 +170,9 @@ func (s *accountTokenService) buildContractTypeKey(contractID string) string {
 	return s.contractTypePrefix + contractID
 }
 
-// Add adds token identifiers to an account's Redis set.
+// Add adds tokens to an account's Redis set.
 // For trustlines, assets are formatted as "CODE:ISSUER".
-// For SAC balances, assets are contract addresses (C...).
+// For contract tokens, assets are contract addresses (C...).
 // Returns nil if assets is empty (no-op).
 func (s *accountTokenService) Add(ctx context.Context, redisKey string, assets []string) error {
 	if len(assets) == 0 {
@@ -199,7 +197,9 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	return trustlines, nil
 }
 
-// GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract IDs for an account from Redis.
+// GetAccountContracts retrieves all contract token IDs for an account from Redis.
+// For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
+// For C-address: all contract tokens (SAC, custom)
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("account address cannot be empty")
@@ -212,7 +212,7 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 	return contracts, nil
 }
 
-// GetContractType retrieves the token type (SAC or CUSTOM) for a given contract ID from Redis.
+// GetContractType retrieves the token type (SAC, SEP41, or UNKNOWN) for a given contract ID from Redis.
 func (s *accountTokenService) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
 	if contractID == "" {
 		return types.ContractTypeUnknown, fmt.Errorf("contract ID cannot be empty")
@@ -435,6 +435,7 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	return nil
 }
 
+// getLatestCheckpointLedger gets the latest checkpoint ledger from the history archive.
 func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
 	// Get latest ledger from archive
 	latestLedger, err := archive.GetLatestLedgerSequence()
@@ -452,7 +453,7 @@ func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32,
 	return manager.PrevCheckpoint(latestLedger), nil
 }
 
-// extractHolderAddress extracts the account address from a Stellar Asset Contract balance entry.
+// extractHolderAddress extracts the account address from a contract balance entry key.
 // Balance entries have a key that is a ScVec with 2 elements:
 // - First element: ScSymbol("Balance")
 // - Second element: ScAddress (the account/contract holder address)
