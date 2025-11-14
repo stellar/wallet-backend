@@ -50,6 +50,29 @@ const (
 	ContractTypeUnknown ContractType = "UNKNOWN"
 )
 
+type TrustlineChange struct {
+	AccountID    string
+	Asset        string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    TrustlineOpType
+}
+
+type TrustlineOpType string
+
+const (
+	TrustlineOpAdd    TrustlineOpType = "ADD"
+	TrustlineOpRemove TrustlineOpType = "REMOVE"
+)
+
+type ContractChange struct {
+	AccountID    string
+	ContractID   string
+	OperationID  int64
+	LedgerNumber uint32
+	ContractType ContractType
+}
+
 type Account struct {
 	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
@@ -292,6 +315,10 @@ type StateChange struct {
 	// Internal IDs used for sorting state changes within an operation.
 	SortKey string `json:"-"`
 	TxID    int64  `json:"-"`
+	// code:issuer formatted asset string
+	TrustlineAsset string `json:"-"`
+	// Internal only: used for filtering contract changes and identifying token type
+	ContractType ContractType `json:"-"`
 }
 
 type StateChangeWithCursor struct {

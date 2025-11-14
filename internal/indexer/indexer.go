@@ -18,6 +18,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// isContractAddress determines if the given address is a contract address (C...) or account address (G...)
+func isContractAddress(address string) bool {
+	// Contract addresses start with 'C' and account addresses start with 'G'
+	return len(address) > 0 && address[0] == 'C'
+}
+
 type IndexerBufferInterface interface {
 	PushTransaction(participant string, transaction types.Transaction)
 	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
@@ -29,6 +35,10 @@ type IndexerBufferInterface interface {
 	GetTransactions() []types.Transaction
 	GetOperations() []types.Operation
 	GetStateChanges() []types.StateChange
+	GetTrustlineChanges() []types.TrustlineChange
+	GetContractChanges() []types.ContractChange
+	PushContractChange(contractChange types.ContractChange)
+	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	MergeBuffer(other IndexerBufferInterface)
 }
 
@@ -53,11 +63,13 @@ type AccountModelInterface interface {
 // PrecomputedTransactionData holds all the data needed to process a transaction
 // without re-computing participants, operations participants, and state changes.
 type PrecomputedTransactionData struct {
-	Transaction     ingest.LedgerTransaction
-	TxParticipants  set.Set[string]
-	OpsParticipants map[int64]processors.OperationParticipants
-	StateChanges    []types.StateChange
-	AllParticipants set.Set[string] // Union of all participants for this transaction
+	Transaction      ingest.LedgerTransaction
+	TxParticipants   set.Set[string]
+	OpsParticipants  map[int64]processors.OperationParticipants
+	StateChanges     []types.StateChange
+	TrustlineChanges []types.TrustlineChange
+	ContractChanges  []types.ContractChange
+	AllParticipants  set.Set[string] // Union of all participants for this transaction
 }
 
 type Indexer struct {
@@ -136,6 +148,51 @@ func (i *Indexer) CollectAllTransactionData(ctx context.Context, transactions []
 			for _, stateChange := range stateChanges {
 				txData.AllParticipants.Add(stateChange.AccountID)
 			}
+
+			trustlineChanges := []types.TrustlineChange{}
+			contractChanges := []types.ContractChange{}
+			for _, stateChange := range stateChanges {
+				switch stateChange.StateChangeCategory {
+				case types.StateChangeCategoryTrustline:
+					trustlineChange := types.TrustlineChange{
+						AccountID:    stateChange.AccountID,
+						OperationID:  stateChange.OperationID,
+						Asset:        stateChange.TrustlineAsset,
+						LedgerNumber: tx.Ledger.LedgerSequence(),
+					}
+					//exhaustive:ignore
+					switch *stateChange.StateChangeReason {
+					case types.StateChangeReasonAdd:
+						trustlineChange.Operation = types.TrustlineOpAdd
+					case types.StateChangeReasonRemove:
+						trustlineChange.Operation = types.TrustlineOpRemove
+					case types.StateChangeReasonUpdate:
+						continue
+					}
+					trustlineChanges = append(trustlineChanges, trustlineChange)
+				case types.StateChangeCategoryBalance:
+					// Only store contract changes when:
+					// - Account is C-address, OR
+					// - Account is G-address AND contract is NOT SAC or NATIVE (custom/SEP41 tokens): SAC token balances for G-addresses are stored in trustlines
+					accountIsContract := isContractAddress(stateChange.AccountID)
+					tokenIsSACOrNative := stateChange.ContractType == types.ContractTypeSAC || stateChange.ContractType == types.ContractTypeNative
+
+					if accountIsContract || !tokenIsSACOrNative {
+						contractChange := types.ContractChange{
+							AccountID:    stateChange.AccountID,
+							OperationID:  stateChange.OperationID,
+							ContractID:   stateChange.TokenID.String,
+							LedgerNumber: tx.Ledger.LedgerSequence(),
+							ContractType: stateChange.ContractType,
+						}
+						contractChanges = append(contractChanges, contractChange)
+					}
+				default:
+					continue
+				}
+			}
+			txData.TrustlineChanges = trustlineChanges
+			txData.ContractChanges = contractChanges
 
 			// Add to collection
 			precomputedData[index] = txData
@@ -223,6 +280,16 @@ func (i *Indexer) processPrecomputedTransaction(ctx context.Context, precomputed
 			}
 			buffer.PushOperation(participant, *dataOp, *dataTx)
 		}
+	}
+
+	// Insert trustline changes
+	for _, trustlineChange := range precomputedData.TrustlineChanges {
+		buffer.PushTrustlineChange(trustlineChange)
+	}
+
+	// Insert contract changes
+	for _, contractChange := range precomputedData.ContractChanges {
+		buffer.PushContractChange(contractChange)
 	}
 
 	// Sort state changes and set order for this transaction

@@ -110,6 +110,18 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
+// WithTrustlineAsset sets the trustline asset
+func (b *StateChangeBuilder) WithTrustlineAsset(asset string) *StateChangeBuilder {
+	b.base.TrustlineAsset = asset
+	return b
+}
+
+// WithTokenType sets the token type (SAC or CUSTOM)
+func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
+	b.base.ContractType = tokenType
+	return b
+}
+
 // WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
 func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
 	b.base.SponsoredAccountID = utils.SQLNullString(sponsoredAccountID)
