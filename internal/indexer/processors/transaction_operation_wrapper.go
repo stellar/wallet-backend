@@ -1,19 +1,15 @@
+// TransactionOperationWrapper and related functionality.
 package processors
 
 import (
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/stellar/go/hash"
-
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/protocols/horizon/base"
 	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 )
@@ -24,69 +20,10 @@ type Claimant struct {
 	Predicate   xdr.ClaimPredicate `json:"predicate"`
 }
 
-// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
-func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
-	ledgerKeyByte, err := ledgerKey.MarshalBinary()
-	if err != nil {
-		return ""
-	}
-	hashedLedgerKeyByte := hash.Hash(ledgerKeyByte)
-	ledgerKeyHash := hex.EncodeToString(hashedLedgerKeyByte[:])
+// ErrLiquidityPoolChangeNotFound is returned when a liquidity pool change is not found
+var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found")
 
-	return ledgerKeyHash
-}
-
-type liquidityPoolDelta struct {
-	ReserveA        xdr.Int64
-	ReserveB        xdr.Int64
-	TotalPoolShares xdr.Int64
-}
-
-func PoolIDToString(id xdr.PoolId) string {
-	return xdr.Hash(id).HexString()
-}
-
-func formatPrefix(p string) string {
-	if p != "" {
-		p += "_"
-	}
-	return p
-}
-
-func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.LiquidityPoolParameters) error {
-	result["asset_type"] = "liquidity_pool_shares"
-	if lpp.Type != xdr.LiquidityPoolTypeLiquidityPoolConstantProduct {
-		return fmt.Errorf("unknown liquidity pool type %d", lpp.Type)
-	}
-	cp := lpp.ConstantProduct
-	poolID, err := xdr.NewPoolId(cp.AssetA, cp.AssetB, cp.Fee)
-	if err != nil {
-		return err
-	}
-	result["liquidity_pool_id"] = PoolIDToString(poolID)
-	return nil
-}
-
-func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
-	account_id := a.ToAccountId()
-	result[prefix] = account_id.Address()
-	prefix = formatPrefix(prefix)
-	if a.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		muxedAccountAddress, err := a.GetAddress()
-		if err != nil {
-			return err
-		}
-		result[prefix+"muxed"] = muxedAccountAddress
-		muxedAccountId, err := a.GetId()
-		if err != nil {
-			return err
-		}
-		result[prefix+"muxed_id"] = muxedAccountId
-	}
-	return nil
-}
-
-// transactionOperationWrapper represents the data for a single operation within a transaction
+// TransactionOperationWrapper represents the data for a single operation within a transaction
 type TransactionOperationWrapper struct {
 	Index          uint32
 	Transaction    ingest.LedgerTransaction
@@ -195,57 +132,6 @@ func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, erro
 	return nil, nil
 }
 
-var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found")
-
-func (operation *TransactionOperationWrapper) GetLiquidityPoolAndProductDelta(lpID *xdr.PoolId) (*xdr.LiquidityPoolEntry, *liquidityPoolDelta, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, c := range changes {
-		if c.Type != xdr.LedgerEntryTypeLiquidityPool {
-			continue
-		}
-		// The delta can be caused by a full removal or full creation of the liquidity pool
-		var lp *xdr.LiquidityPoolEntry
-		var preA, preB, preShares xdr.Int64
-		if c.Pre != nil {
-			if lpID != nil && c.Pre.Data.LiquidityPool.LiquidityPoolId != *lpID {
-				// if we were looking for specific pool id, then check on it
-				continue
-			}
-			lp = c.Pre.Data.LiquidityPool
-			if c.Pre.Data.LiquidityPool.Body.Type != xdr.LiquidityPoolTypeLiquidityPoolConstantProduct {
-				return nil, nil, fmt.Errorf("unexpected liquity pool body type %d", c.Pre.Data.LiquidityPool.Body.Type)
-			}
-			cpPre := c.Pre.Data.LiquidityPool.Body.ConstantProduct
-			preA, preB, preShares = cpPre.ReserveA, cpPre.ReserveB, cpPre.TotalPoolShares
-		}
-		var postA, postB, postShares xdr.Int64
-		if c.Post != nil {
-			if lpID != nil && c.Post.Data.LiquidityPool.LiquidityPoolId != *lpID {
-				// if we were looking for specific pool id, then check on it
-				continue
-			}
-			lp = c.Post.Data.LiquidityPool
-			if c.Post.Data.LiquidityPool.Body.Type != xdr.LiquidityPoolTypeLiquidityPoolConstantProduct {
-				return nil, nil, fmt.Errorf("unexpected liquity pool body type %d", c.Post.Data.LiquidityPool.Body.Type)
-			}
-			cpPost := c.Post.Data.LiquidityPool.Body.ConstantProduct
-			postA, postB, postShares = cpPost.ReserveA, cpPost.ReserveB, cpPost.TotalPoolShares
-		}
-		delta := &liquidityPoolDelta{
-			ReserveA:        postA - preA,
-			ReserveB:        postB - preB,
-			TotalPoolShares: postShares - preShares,
-		}
-		return lp, delta, nil
-	}
-
-	return nil, nil, ErrLiquidityPoolChangeNotFound
-}
-
 // OperationResult returns the operation's result record
 func (operation *TransactionOperationWrapper) OperationResult() *xdr.OperationResultTr {
 	results, _ := operation.Transaction.Result.OperationResults()
@@ -279,94 +165,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 	details := map[string]interface{}{}
 	source := operation.SourceAccount()
 	switch operation.OperationType() {
-	case xdr.OperationTypeCreateAccount:
-		op := operation.Operation.Body.MustCreateAccountOp()
-		AddAccountAndMuxedAccountDetails(details, *source, "funder")
-		details["account"] = op.Destination.Address()
-		details["starting_balance"] = amount.String(op.StartingBalance)
-	case xdr.OperationTypePayment:
-		op := operation.Operation.Body.MustPaymentOp()
-		AddAccountAndMuxedAccountDetails(details, *source, "from")
-		AddAccountAndMuxedAccountDetails(details, op.Destination, "to")
-		details["amount"] = amount.String(op.Amount)
-		AddAssetDetails(details, op.Asset, "")
-	case xdr.OperationTypePathPaymentStrictReceive:
-		op := operation.Operation.Body.MustPathPaymentStrictReceiveOp()
-		AddAccountAndMuxedAccountDetails(details, *source, "from")
-		AddAccountAndMuxedAccountDetails(details, op.Destination, "to")
-
-		details["amount"] = amount.String(op.DestAmount)
-		details["source_amount"] = amount.String(0)
-		details["source_max"] = amount.String(op.SendMax)
-		AddAssetDetails(details, op.DestAsset, "")
-		AddAssetDetails(details, op.SendAsset, "source_")
-
-		if operation.Transaction.Result.Successful() {
-			result := operation.OperationResult().MustPathPaymentStrictReceiveResult()
-			details["source_amount"] = amount.String(result.SendAmount())
-		}
-
-		path := make([]map[string]interface{}, len(op.Path))
-		for i := range op.Path {
-			path[i] = make(map[string]interface{})
-			AddAssetDetails(path[i], op.Path[i], "")
-		}
-		details["path"] = path
-
-	case xdr.OperationTypePathPaymentStrictSend:
-		op := operation.Operation.Body.MustPathPaymentStrictSendOp()
-		AddAccountAndMuxedAccountDetails(details, *source, "from")
-		AddAccountAndMuxedAccountDetails(details, op.Destination, "to")
-
-		details["amount"] = amount.String(0)
-		details["source_amount"] = amount.String(op.SendAmount)
-		details["destination_min"] = amount.String(op.DestMin)
-		AddAssetDetails(details, op.DestAsset, "")
-		AddAssetDetails(details, op.SendAsset, "source_")
-
-		if operation.Transaction.Result.Successful() {
-			result := operation.OperationResult().MustPathPaymentStrictSendResult()
-			details["amount"] = amount.String(result.DestAmount())
-		}
-
-		path := make([]map[string]interface{}, len(op.Path))
-		for i := range op.Path {
-			path[i] = make(map[string]interface{})
-			AddAssetDetails(path[i], op.Path[i], "")
-		}
-		details["path"] = path
-	case xdr.OperationTypeManageBuyOffer:
-		op := operation.Operation.Body.MustManageBuyOfferOp()
-		details["offer_id"] = op.OfferId
-		details["amount"] = amount.String(op.BuyAmount)
-		details["price"] = op.Price.String()
-		details["price_r"] = map[string]interface{}{
-			"n": op.Price.N,
-			"d": op.Price.D,
-		}
-		AddAssetDetails(details, op.Buying, "buying_")
-		AddAssetDetails(details, op.Selling, "selling_")
-	case xdr.OperationTypeManageSellOffer:
-		op := operation.Operation.Body.MustManageSellOfferOp()
-		details["offer_id"] = op.OfferId
-		details["amount"] = amount.String(op.Amount)
-		details["price"] = op.Price.String()
-		details["price_r"] = map[string]interface{}{
-			"n": op.Price.N,
-			"d": op.Price.D,
-		}
-		AddAssetDetails(details, op.Buying, "buying_")
-		AddAssetDetails(details, op.Selling, "selling_")
-	case xdr.OperationTypeCreatePassiveSellOffer:
-		op := operation.Operation.Body.MustCreatePassiveSellOfferOp()
-		details["amount"] = amount.String(op.Amount)
-		details["price"] = op.Price.String()
-		details["price_r"] = map[string]interface{}{
-			"n": op.Price.N,
-			"d": op.Price.D,
-		}
-		AddAssetDetails(details, op.Buying, "buying_")
-		AddAssetDetails(details, op.Selling, "selling_")
 	case xdr.OperationTypeSetOptions:
 		op := operation.Operation.Body.MustSetOptionsOp()
 
@@ -432,11 +230,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		if clawbackEnabled {
 			details["clawback_enabled"] = clawbackEnabled
 		}
-	case xdr.OperationTypeAccountMerge:
-		AddAccountAndMuxedAccountDetails(details, *source, "account")
-		AddAccountAndMuxedAccountDetails(details, operation.Operation.Body.MustDestination(), "into")
-	case xdr.OperationTypeInflation:
-		// no inflation details, presently
 	case xdr.OperationTypeManageData:
 		op := operation.Operation.Body.MustManageDataOp()
 		details["name"] = string(op.DataName)
@@ -445,30 +238,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		} else {
 			details["value"] = nil
 		}
-	case xdr.OperationTypeBumpSequence:
-		op := operation.Operation.Body.MustBumpSequenceOp()
-		details["bump_to"] = fmt.Sprintf("%d", op.BumpTo)
-	case xdr.OperationTypeCreateClaimableBalance:
-		op := operation.Operation.Body.MustCreateClaimableBalanceOp()
-		details["asset"] = op.Asset.StringCanonical()
-		details["amount"] = amount.String(op.Amount)
-		var claimants []Claimant
-		for _, c := range op.Claimants {
-			cv0 := c.MustV0()
-			claimants = append(claimants, Claimant{
-				Destination: cv0.Destination.Address(),
-				Predicate:   cv0.Predicate,
-			})
-		}
-		details["claimants"] = claimants
-	case xdr.OperationTypeClaimClaimableBalance:
-		op := operation.Operation.Body.MustClaimClaimableBalanceOp()
-		balanceID, err := xdr.MarshalHex(op.BalanceId)
-		if err != nil {
-			panic(fmt.Errorf("invalid balanceId in op: %d", operation.Index))
-		}
-		details["balance_id"] = balanceID
-		AddAccountAndMuxedAccountDetails(details, *source, "claimant")
 	case xdr.OperationTypeBeginSponsoringFutureReserves:
 		op := operation.Operation.Body.MustBeginSponsoringFutureReservesOp()
 		details["sponsored_id"] = op.SponsoredId.Address()
@@ -489,18 +258,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 			details["signer_account_id"] = op.Signer.AccountId.Address()
 			details["signer_key"] = op.Signer.SignerKey.Address()
 		}
-	case xdr.OperationTypeClawback:
-		op := operation.Operation.Body.MustClawbackOp()
-		AddAssetDetails(details, op.Asset, "")
-		AddAccountAndMuxedAccountDetails(details, op.From, "from")
-		details["amount"] = amount.String(op.Amount)
-	case xdr.OperationTypeClawbackClaimableBalance:
-		op := operation.Operation.Body.MustClawbackClaimableBalanceOp()
-		balanceID, err := xdr.MarshalHex(op.BalanceId)
-		if err != nil {
-			panic(fmt.Errorf("invalid balanceId in op: %d", operation.Index))
-		}
-		details["balance_id"] = balanceID
 	case xdr.OperationTypeSetTrustLineFlags:
 		op := operation.Operation.Body.MustSetTrustLineFlagsOp()
 		details["trustor"] = op.Trustor.Address()
@@ -511,70 +268,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 
 		if op.ClearFlags > 0 {
 			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.ClearFlags), "clear")
-		}
-	case xdr.OperationTypeLiquidityPoolDeposit:
-		op := operation.Operation.Body.MustLiquidityPoolDepositOp()
-		details["liquidity_pool_id"] = PoolIDToString(op.LiquidityPoolId)
-		var (
-			assetA, assetB         string
-			depositedA, depositedB xdr.Int64
-			sharesReceived         xdr.Int64
-		)
-		if operation.Transaction.Result.Successful() {
-			// we will use the defaults (omitted asset and 0 amounts) if the transaction failed
-			lp, delta, err := operation.GetLiquidityPoolAndProductDelta(&op.LiquidityPoolId)
-			if err != nil {
-				return nil, err
-			}
-			params := lp.Body.ConstantProduct.Params
-			assetA, assetB = params.AssetA.StringCanonical(), params.AssetB.StringCanonical()
-			depositedA, depositedB = delta.ReserveA, delta.ReserveB
-			sharesReceived = delta.TotalPoolShares
-		}
-		details["reserves_max"] = []base.AssetAmount{
-			{Asset: assetA, Amount: amount.String(op.MaxAmountA)},
-			{Asset: assetB, Amount: amount.String(op.MaxAmountB)},
-		}
-		details["min_price"] = op.MinPrice.String()
-		details["min_price_r"] = map[string]interface{}{
-			"n": op.MinPrice.N,
-			"d": op.MinPrice.D,
-		}
-		details["max_price"] = op.MaxPrice.String()
-		details["max_price_r"] = map[string]interface{}{
-			"n": op.MaxPrice.N,
-			"d": op.MaxPrice.D,
-		}
-		details["reserves_deposited"] = []base.AssetAmount{
-			{Asset: assetA, Amount: amount.String(depositedA)},
-			{Asset: assetB, Amount: amount.String(depositedB)},
-		}
-		details["shares_received"] = amount.String(sharesReceived)
-	case xdr.OperationTypeLiquidityPoolWithdraw:
-		op := operation.Operation.Body.MustLiquidityPoolWithdrawOp()
-		details["liquidity_pool_id"] = PoolIDToString(op.LiquidityPoolId)
-		var (
-			assetA, assetB       string
-			receivedA, receivedB xdr.Int64
-		)
-		if operation.Transaction.Result.Successful() {
-			// we will use the defaults (omitted asset and 0 amounts) if the transaction failed
-			lp, delta, err := operation.GetLiquidityPoolAndProductDelta(&op.LiquidityPoolId)
-			if err != nil {
-				return nil, err
-			}
-			params := lp.Body.ConstantProduct.Params
-			assetA, assetB = params.AssetA.StringCanonical(), params.AssetB.StringCanonical()
-			receivedA, receivedB = -delta.ReserveA, -delta.ReserveB
-		}
-		details["reserves_min"] = []base.AssetAmount{
-			{Asset: assetA, Amount: amount.String(op.MinAmountA)},
-			{Asset: assetB, Amount: amount.String(op.MinAmountB)},
-		}
-		details["shares"] = amount.String(op.Amount)
-		details["reserves_received"] = []base.AssetAmount{
-			{Asset: assetA, Amount: amount.String(receivedA)},
-			{Asset: assetB, Amount: amount.String(receivedB)},
 		}
 	case xdr.OperationTypeInvokeHostFunction:
 		op := operation.Operation.Body.MustInvokeHostFunctionOp()
@@ -601,12 +294,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
 
 			details["parameters"], details["parameters_decoded"] = serializeParameters(args)
-
-			if balanceChanges, err := operation.parseAssetBalanceChangesFromContractEvents(); err != nil {
-				return nil, err
-			} else {
-				details["asset_balance_changes"] = balanceChanges
-			}
 
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
 			args := op.HostFunction.MustCreateContract()
@@ -652,22 +339,6 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		default:
 			panic(fmt.Errorf("unknown host function type: %s", op.HostFunction.Type))
 		}
-	case xdr.OperationTypeExtendFootprintTtl:
-		op := operation.Operation.Body.MustExtendFootprintTtlOp()
-		details["type"] = "extend_footprint_ttl"
-		details["extend_to"] = op.ExtendTo
-
-		transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-		details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-		details["contract_id"] = contractIdFromTxEnvelope(transactionEnvelope)
-		details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
-	case xdr.OperationTypeRestoreFootprint:
-		details["type"] = "restore_footprint"
-
-		transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-		details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-		details["contract_id"] = contractIdFromTxEnvelope(transactionEnvelope)
-		details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
 	default:
 		panic(fmt.Errorf("unknown operation type: %s", operation.OperationType()))
 	}
@@ -770,154 +441,6 @@ func contractCodeFromContractData(ledgerKey xdr.LedgerKey) string {
 
 	contractCodeHash := contractCode.Hash.HexString()
 	return contractCodeHash
-}
-
-// Searches an operation for SAC events that are of a type which represent
-// asset balances having changed.
-//
-// SAC events have a one-to-one association to SAC contract fn invocations.
-// i.e. invoke the 'mint' function, will trigger one Mint Event to be emitted capturing the fn args.
-//
-// SAC events that involve asset balance changes follow some standard data formats.
-// The 'amount' in the event is expressed as Int128Parts, which carries a sign, however it's expected
-// that value will not be signed as it represents a absolute delta, the event type can provide the
-// context of whether an amount was considered incremental or decremental, i.e. credit or debit to a balance.
-func (operation *TransactionOperationWrapper) parseAssetBalanceChangesFromContractEvents() ([]map[string]interface{}, error) {
-	balanceChanges := []map[string]interface{}{}
-
-	contractEvents, err := operation.Transaction.GetContractEvents()
-	if err != nil {
-		// this operation in this context must be an InvokeHostFunctionOp, therefore V3Meta should be present
-		// as it's in same soroban model, so if any err, it's real,
-		return nil, err
-	}
-
-	for _, contractEvent := range contractEvents {
-		// Parse the xdr contract event to contractevents.StellarAssetContractEvent model
-
-		// has some convenience like to/from attributes are expressed in strkey format for accounts(G...) and contracts(C...)
-		if sacEvent, err := contractevents.NewStellarAssetContractEvent(&contractEvent, operation.Network); err == nil {
-			switch sacEvent.GetType() {
-			case contractevents.EventTypeTransfer:
-				transferEvt := sacEvent.(*contractevents.TransferEvent)
-				balanceChanges = append(balanceChanges, createSACBalanceChangeEntry(transferEvt.From, transferEvt.To, transferEvt.Amount, transferEvt.Asset, "transfer"))
-			case contractevents.EventTypeMint:
-				mintEvt := sacEvent.(*contractevents.MintEvent)
-				balanceChanges = append(balanceChanges, createSACBalanceChangeEntry("", mintEvt.To, mintEvt.Amount, mintEvt.Asset, "mint"))
-			case contractevents.EventTypeClawback:
-				clawbackEvt := sacEvent.(*contractevents.ClawbackEvent)
-				balanceChanges = append(balanceChanges, createSACBalanceChangeEntry(clawbackEvt.From, "", clawbackEvt.Amount, clawbackEvt.Asset, "clawback"))
-			case contractevents.EventTypeBurn:
-				burnEvt := sacEvent.(*contractevents.BurnEvent)
-				balanceChanges = append(balanceChanges, createSACBalanceChangeEntry(burnEvt.From, "", burnEvt.Amount, burnEvt.Asset, "burn"))
-			}
-		}
-	}
-
-	return balanceChanges, nil
-}
-
-// fromAccount   - strkey format of contract or address
-// toAccount     - strkey format of contract or address, or nillable
-// amountChanged - absolute value that asset balance changed
-// asset         - the fully qualified issuer:code for asset that had balance change
-// changeType    - the type of source sac event that triggered this change
-//
-// return        - a balance changed record expressed as map of key/value's
-func createSACBalanceChangeEntry(fromAccount string, toAccount string, amountChanged xdr.Int128Parts, asset xdr.Asset, changeType string) map[string]interface{} {
-	balanceChange := map[string]interface{}{}
-
-	if fromAccount != "" {
-		balanceChange["from"] = fromAccount
-	}
-	if toAccount != "" {
-		balanceChange["to"] = toAccount
-	}
-
-	balanceChange["type"] = changeType
-	balanceChange["amount"] = amount.String128(amountChanged)
-	AddAssetDetails(balanceChange, asset, "")
-	return balanceChange
-}
-
-// addAssetDetails sets the details for `a` on `result` using keys with `prefix`
-func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) error {
-	var (
-		assetType string
-		code      string
-		issuer    string
-	)
-	err := a.Extract(&assetType, &code, &issuer)
-	if err != nil {
-		err = errors.Wrap(err, "xdr.Asset.Extract error")
-		return err
-	}
-	result[prefix+"asset_type"] = assetType
-
-	if a.Type == xdr.AssetTypeAssetTypeNative {
-		return nil
-	}
-
-	result[prefix+"asset_code"] = code
-	result[prefix+"asset_issuer"] = issuer
-	return nil
-}
-
-// addAuthFlagDetails adds the account flag details for `f` on `result`.
-func addAuthFlagDetails(result map[string]interface{}, f xdr.AccountFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
-
-	if f.IsAuthRequired() {
-		n = append(n, int32(xdr.AccountFlagsAuthRequiredFlag))
-		s = append(s, "auth_required")
-	}
-
-	if f.IsAuthRevocable() {
-		n = append(n, int32(xdr.AccountFlagsAuthRevocableFlag))
-		s = append(s, "auth_revocable")
-	}
-
-	if f.IsAuthImmutable() {
-		n = append(n, int32(xdr.AccountFlagsAuthImmutableFlag))
-		s = append(s, "auth_immutable")
-	}
-
-	if f.IsAuthClawbackEnabled() {
-		n = append(n, int32(xdr.AccountFlagsAuthClawbackEnabledFlag))
-		s = append(s, "auth_clawback_enabled")
-	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
-}
-
-// addTrustLineFlagDetails adds the trustline flag details for `f` on `result`.
-func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
-
-	if f.IsAuthorized() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedFlag))
-		s = append(s, "authorized")
-	}
-
-	if f.IsAuthorizedToMaintainLiabilitiesFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag))
-		s = append(s, "authorized_to_maintain_liabilites")
-	}
-
-	if f.IsClawbackEnabledFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag))
-		s = append(s, "clawback_enabled")
-	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
 }
 
 func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey) error {

@@ -11,7 +11,174 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"encoding/hex"
+
+	"github.com/pkg/errors"
+	"github.com/stellar/go/amount"
+	"github.com/stellar/go/hash"
 )
+
+// PoolIDToString converts a pool ID to its string representation
+func PoolIDToString(id xdr.PoolId) string {
+	return xdr.Hash(id).HexString()
+}
+
+// formatPrefix adds an underscore suffix to a prefix if it's not empty
+func formatPrefix(p string) string {
+	if p != "" {
+		p += "_"
+	}
+	return p
+}
+
+// AddLiquidityPoolAssetDetails adds liquidity pool asset details to the result map
+func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.LiquidityPoolParameters) error {
+	result["asset_type"] = "liquidity_pool_shares"
+	if lpp.Type != xdr.LiquidityPoolTypeLiquidityPoolConstantProduct {
+		return fmt.Errorf("unknown liquidity pool type %d", lpp.Type)
+	}
+	cp := lpp.ConstantProduct
+	poolID, err := xdr.NewPoolId(cp.AssetA, cp.AssetB, cp.Fee)
+	if err != nil {
+		return err
+	}
+	result["liquidity_pool_id"] = PoolIDToString(poolID)
+	return nil
+}
+
+// AddAccountAndMuxedAccountDetails adds account and muxed account details to the result map
+func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
+	account_id := a.ToAccountId()
+	result[prefix] = account_id.Address()
+	prefix = formatPrefix(prefix)
+	if a.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
+		muxedAccountAddress, err := a.GetAddress()
+		if err != nil {
+			return err
+		}
+		result[prefix+"muxed"] = muxedAccountAddress
+		muxedAccountId, err := a.GetId()
+		if err != nil {
+			return err
+		}
+		result[prefix+"muxed_id"] = muxedAccountId
+	}
+	return nil
+}
+
+// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
+func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
+	ledgerKeyByte, err := ledgerKey.MarshalBinary()
+	if err != nil {
+		return ""
+	}
+	hashedLedgerKeyByte := hash.Hash(ledgerKeyByte)
+	ledgerKeyHash := hex.EncodeToString(hashedLedgerKeyByte[:])
+
+	return ledgerKeyHash
+}
+
+// AddAssetDetails adds asset details to the result map with an optional prefix
+func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) error {
+	var (
+		assetType string
+		code      string
+		issuer    string
+	)
+	err := a.Extract(&assetType, &code, &issuer)
+	if err != nil {
+		err = errors.Wrap(err, "xdr.Asset.Extract error")
+		return err
+	}
+	result[prefix+"asset_type"] = assetType
+
+	if a.Type == xdr.AssetTypeAssetTypeNative {
+		return nil
+	}
+
+	result[prefix+"asset_code"] = code
+	result[prefix+"asset_issuer"] = issuer
+	return nil
+}
+
+// addAuthFlagDetails adds account flag details to the result map
+func addAuthFlagDetails(result map[string]interface{}, f xdr.AccountFlags, prefix string) {
+	var (
+		n []int32
+		s []string
+	)
+
+	if f.IsAuthRequired() {
+		n = append(n, int32(xdr.AccountFlagsAuthRequiredFlag))
+		s = append(s, "auth_required")
+	}
+
+	if f.IsAuthRevocable() {
+		n = append(n, int32(xdr.AccountFlagsAuthRevocableFlag))
+		s = append(s, "auth_revocable")
+	}
+
+	if f.IsAuthImmutable() {
+		n = append(n, int32(xdr.AccountFlagsAuthImmutableFlag))
+		s = append(s, "auth_immutable")
+	}
+
+	if f.IsAuthClawbackEnabled() {
+		n = append(n, int32(xdr.AccountFlagsAuthClawbackEnabledFlag))
+		s = append(s, "auth_clawback_enabled")
+	}
+
+	result[prefix+"_flags"] = n
+	result[prefix+"_flags_s"] = s
+}
+
+// addTrustLineFlagDetails adds trustline flag details to the result map
+func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags, prefix string) {
+	var (
+		n []int32
+		s []string
+	)
+
+	if f.IsAuthorized() {
+		n = append(n, int32(xdr.TrustLineFlagsAuthorizedFlag))
+		s = append(s, "authorized")
+	}
+
+	if f.IsAuthorizedToMaintainLiabilitiesFlag() {
+		n = append(n, int32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag))
+		s = append(s, "authorized_to_maintain_liabilites")
+	}
+
+	if f.IsClawbackEnabledFlag() {
+		n = append(n, int32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag))
+		s = append(s, "clawback_enabled")
+	}
+
+	result[prefix+"_flags"] = n
+	result[prefix+"_flags_s"] = s
+}
+
+// createSACBalanceChangeEntry creates a balance change entry from SAC event data
+// fromAccount   - strkey format of contract or address
+// toAccount     - strkey format of contract or address, or nillable
+// amountChanged - absolute value that asset balance changed
+// asset         - the fully qualified issuer:code for asset that had balance change
+// changeType    - the type of source sac event that triggered this change
+func createSACBalanceChangeEntry(fromAccount string, toAccount string, amountChanged xdr.Int128Parts, asset xdr.Asset, changeType string) map[string]interface{} {
+	balanceChange := map[string]interface{}{}
+
+	if fromAccount != "" {
+		balanceChange["from"] = fromAccount
+	}
+	if toAccount != "" {
+		balanceChange["to"] = toAccount
+	}
+
+	balanceChange["type"] = changeType
+	balanceChange["amount"] = amount.String128(amountChanged)
+	AddAssetDetails(balanceChange, asset, "")
+	return balanceChange
+}
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	var asset xdr.Asset
