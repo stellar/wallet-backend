@@ -43,6 +43,89 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 	xdr.ScSpecTypeScSpecTypeVoid:    "void",
 }
 
+// sep41FunctionSpec defines the expected signature for a SEP-41 token function.
+type sep41FunctionSpec struct {
+	name            string
+	expectedInputs  map[string]string
+	expectedOutputs []string
+}
+
+// sep41RequiredFunctions defines all required functions for SEP-41 token standard compliance.
+// A contract must implement all of these functions with the exact signatures specified.
+var sep41RequiredFunctions = []sep41FunctionSpec{
+	{
+		name:            "balance",
+		expectedInputs:  map[string]string{"id": "Address"},
+		expectedOutputs: []string{"i128"},
+	},
+	{
+		name:            "allowance",
+		expectedInputs:  map[string]string{"from": "Address", "spender": "Address"},
+		expectedOutputs: []string{"i128"},
+	},
+	{
+		name:            "decimals",
+		expectedInputs:  map[string]string{},
+		expectedOutputs: []string{"u32"},
+	},
+	{
+		name:            "name",
+		expectedInputs:  map[string]string{},
+		expectedOutputs: []string{"String"},
+	},
+	{
+		name:            "symbol",
+		expectedInputs:  map[string]string{},
+		expectedOutputs: []string{"String"},
+	},
+	{
+		name: "approve",
+		expectedInputs: map[string]string{
+			"from":              "Address",
+			"spender":           "Address",
+			"amount":            "i128",
+			"expiration_ledger": "u32",
+		},
+		expectedOutputs: []string{},
+	},
+	{
+		name: "transfer",
+		expectedInputs: map[string]string{
+			"from":   "Address",
+			"to":     "Address",
+			"amount": "i128",
+		},
+		expectedOutputs: []string{},
+	},
+	{
+		name: "transfer_from",
+		expectedInputs: map[string]string{
+			"spender": "Address",
+			"from":    "Address",
+			"to":      "Address",
+			"amount":  "i128",
+		},
+		expectedOutputs: []string{},
+	},
+	{
+		name: "burn",
+		expectedInputs: map[string]string{
+			"from":   "Address",
+			"amount": "i128",
+		},
+		expectedOutputs: []string{},
+	},
+	{
+		name: "burn_from",
+		expectedInputs: map[string]string{
+			"spender": "Address",
+			"from":    "Address",
+			"amount":  "i128",
+		},
+		expectedOutputs: []string{},
+	},
+}
+
 type ContractValidator interface {
 	ValidateFromWasmHash(_ context.Context, _ []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
 	Close(_ context.Context) error
@@ -65,7 +148,12 @@ func NewContractValidator(rpcService RPCService) ContractValidator {
 }
 
 func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes []xdr.Hash) (map[xdr.Hash]types.ContractType, error) {
-	ledgerKeys := make([]string, 0)
+	// Check context before starting expensive operations
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("validation cancelled before start: %w", err)
+	}
+
+	ledgerKeys := make([]string, 0, len(wasmHashes))
 	for _, wasmHash := range wasmHashes {
 		ledgerKey, err := v.getContractCodeLedgerKey(wasmHash)
 		if err != nil {
@@ -75,14 +163,23 @@ func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes
 	}
 
 	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
+	totalBatches := (len(ledgerKeys) + getLedgerEntriesBatchSize - 1) / getLedgerEntriesBatchSize
+
 	for i := 0; i < len(ledgerKeys); i += getLedgerEntriesBatchSize {
+		// Check for context cancellation before each RPC batch
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("validation cancelled during batch processing: %w", err)
+		}
+
 		end := min(i+getLedgerEntriesBatchSize, len(ledgerKeys))
 		batch := ledgerKeys[i:end]
+		batchNum := i/getLedgerEntriesBatchSize + 1
 
 		entries, err := v.rpcService.GetLedgerEntries(batch)
 		if err != nil {
-			return nil, fmt.Errorf("getting ledger entries: %w", err)
+			return nil, fmt.Errorf("getting ledger entries batch %d/%d (size %d): %w", batchNum, totalBatches, len(batch), err)
 		}
+
 		for _, entry := range entries.Entries {
 			var ledgerEntryData xdr.LedgerEntryData
 			err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
@@ -97,7 +194,7 @@ func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes
 			contractCodeEntry := ledgerEntryData.MustContractCode()
 			wasmCode := contractCodeEntry.Code
 			wasmHash := contractCodeEntry.Hash
-			contractSpec, err := v.extractContractSpecFromWasmCode(wasmCode)
+			contractSpec, err := v.extractContractSpecFromWasmCode(ctx, wasmCode)
 			if err != nil {
 				return nil, fmt.Errorf("extracting contract spec from WASM: %w", err)
 			}
@@ -119,175 +216,69 @@ func (v *contractValidator) Close(ctx context.Context) error {
 	return nil
 }
 
+// isContractCodeSEP41 validates whether a contract spec implements the SEP-41 token standard.
+// For a contract to be SEP-41 compliant, it must implement all required functions with exact signatures:
+//   - balance: (id: Address) -> (i128)
+//   - allowance: (from: Address, spender: Address) -> (i128)
+//   - decimals: () -> (u32)
+//   - name: () -> (String)
+//   - symbol: () -> (String)
+//   - approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
+//   - transfer: (from: Address, to: Address, amount: i128) -> ()
+//   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
+//   - burn: (from: Address, amount: i128) -> ()
+//   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
 func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
-	/*
-		For a contract to be SEP-41, it must atleast have the following functions and inputs/outputs:
-		- balance: (id: Address) -> (i128)
-		- allowance: (from: Address, spender: Address) -> (i128)
-		- decimals: () -> (u32)
-		- name: () -> (String)
-		- symbol: () -> (String)
-		- approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
-		- transfer: (from: Address, to: Address, amount: i128) -> ()
-		- transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
-		- burn: (from: Address, amount: i128) -> ()
-		- burn_from: (spender: Address, from: Address, amount: i128) -> ()
-	*/
-	requiredFunctions := map[string]bool{
-		"balance":       false,
-		"allowance":     false,
-		"decimals":      false,
-		"name":          false,
-		"symbol":        false,
-		"approve":       false,
-		"transfer":      false,
-		"transfer_from": false,
-		"burn":          false,
-		"burn_from":     false,
+	// Build a map of required function names to their specs for quick lookup
+	requiredFuncsMap := make(map[string]sep41FunctionSpec, len(sep41RequiredFunctions))
+	for _, spec := range sep41RequiredFunctions {
+		requiredFuncsMap[spec.name] = spec
 	}
+
+	// Track which required functions we've found and validated
+	foundFunctions := make(map[string]bool, len(sep41RequiredFunctions))
+
+	// Iterate through the contract spec to find and validate SEP-41 functions
 	for _, spec := range contractSpec {
-		if spec.Kind == xdr.ScSpecEntryKindScSpecEntryFunctionV0 && spec.FunctionV0 != nil {
-			function := spec.FunctionV0
-
-			funcName := string(function.Name)
-			inputs := make(map[string]string, 0)
-			for _, input := range function.Inputs {
-				inputs[input.Name] = getTypeName(input.Type.Type)
-			}
-
-			outputs := set.NewSet[string]()
-			for _, output := range function.Outputs {
-				outputs.Add(getTypeName(output.Type))
-			}
-
-			switch funcName {
-			case "balance":
-				expectedInputs := map[string]string{
-					"id": "Address",
-				}
-				expectedOutputs := set.NewSet(
-					"i128",
-				)
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["balance"] = true
-			case "allowance":
-				expectedInputs := map[string]string{
-					"from":    "Address",
-					"spender": "Address",
-				}
-				expectedOutputs := set.NewSet(
-					"i128",
-				)
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["allowance"] = true
-			case "decimals":
-				expectedInputs := map[string]string{}
-				expectedOutputs := set.NewSet(
-					"u32",
-				)
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["decimals"] = true
-			case "name":
-				expectedInputs := map[string]string{}
-				expectedOutputs := set.NewSet(
-					"String",
-				)
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["name"] = true
-			case "symbol":
-				expectedInputs := map[string]string{}
-				expectedOutputs := set.NewSet(
-					"String",
-				)
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["symbol"] = true
-			case "approve":
-				expectedInputs := map[string]string{
-					"from":              "Address",
-					"spender":           "Address",
-					"amount":            "i128",
-					"expiration_ledger": "u32",
-				}
-				expectedOutputs := set.NewSet[string]()
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["approve"] = true
-			case "transfer":
-				expectedInputs := map[string]string{
-					"from":   "Address",
-					"to":     "Address",
-					"amount": "i128",
-				}
-				expectedOutputs := set.NewSet[string]()
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["transfer"] = true
-			case "transfer_from":
-				expectedInputs := map[string]string{
-					"spender": "Address",
-					"from":    "Address",
-					"to":      "Address",
-					"amount":  "i128",
-				}
-				expectedOutputs := set.NewSet[string]()
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["transfer_from"] = true
-			case "burn":
-				expectedInputs := map[string]string{
-					"from":   "Address",
-					"amount": "i128",
-				}
-				expectedOutputs := set.NewSet[string]()
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["burn"] = true
-			case "burn_from":
-				expectedInputs := map[string]string{
-					"spender": "Address",
-					"from":    "Address",
-					"amount":  "i128",
-				}
-				expectedOutputs := set.NewSet[string]()
-
-				if !v.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs) {
-					return false
-				}
-				requiredFunctions["burn_from"] = true
-			default:
-				continue
-			}
+		if spec.Kind != xdr.ScSpecEntryKindScSpecEntryFunctionV0 || spec.FunctionV0 == nil {
+			continue
 		}
-	}
-	for _, requiredFunction := range requiredFunctions {
-		if !requiredFunction {
+
+		function := spec.FunctionV0
+		funcName := string(function.Name)
+
+		// Check if this is a SEP-41 required function
+		expectedSpec, isRequired := requiredFuncsMap[funcName]
+		if !isRequired {
+			continue
+		}
+
+		// Extract actual inputs from the contract function
+		actualInputs := make(map[string]string, len(function.Inputs))
+		for _, input := range function.Inputs {
+			actualInputs[input.Name] = getTypeName(input.Type.Type)
+		}
+
+		// Extract actual outputs from the contract function
+		actualOutputs := set.NewSet[string]()
+		for _, output := range function.Outputs {
+			actualOutputs.Add(getTypeName(output.Type))
+		}
+
+		// Convert expected outputs to set for comparison
+		expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
+
+		// Validate the function signature matches SEP-41 requirements
+		if !v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
+			// If a required function exists but has wrong signature, fail immediately
 			return false
 		}
+
+		foundFunctions[funcName] = true
 	}
-	return true
+
+	// All required functions must be present
+	return len(foundFunctions) == len(sep41RequiredFunctions)
 }
 
 func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]string, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
@@ -311,15 +302,15 @@ func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]s
 	return true
 }
 
-func (v *contractValidator) extractContractSpecFromWasmCode(wasmCode []byte) ([]xdr.ScSpecEntry, error) {
+func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context, wasmCode []byte) ([]xdr.ScSpecEntry, error) {
 	// Compile WASM module (validates structure and won't panic)
-	compiledModule, err := v.runtime.CompileModule(context.Background(), wasmCode)
+	compiledModule, err := v.runtime.CompileModule(ctx, wasmCode)
 	if err != nil {
 		return nil, fmt.Errorf("compiling WASM module: %w", err)
 	}
 	defer func() {
-		if err := compiledModule.Close(context.Background()); err != nil {
-			log.Warnf("Failed to close compiled module: %v", err)
+		if closeErr := compiledModule.Close(ctx); closeErr != nil {
+			log.Warnf("Failed to close compiled module: %v", closeErr)
 		}
 	}()
 
