@@ -30,6 +30,7 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 	xdr.ScSpecTypeScSpecTypeU256:    "u256",
 	xdr.ScSpecTypeScSpecTypeI256:    "i256",
 	xdr.ScSpecTypeScSpecTypeAddress: "Address",
+	xdr.ScSpecTypeScSpecTypeMuxedAddress: "MuxedAddress",
 	xdr.ScSpecTypeScSpecTypeString:  "String",
 	xdr.ScSpecTypeScSpecTypeBytes:   "Bytes",
 	xdr.ScSpecTypeScSpecTypeSymbol:  "Symbol",
@@ -46,7 +47,7 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 // sep41FunctionSpec defines the expected signature for a SEP-41 token function.
 type sep41FunctionSpec struct {
 	name            string
-	expectedInputs  map[string]string
+	expectedInputs  map[string]any
 	expectedOutputs []string
 }
 
@@ -55,32 +56,32 @@ type sep41FunctionSpec struct {
 var sep41RequiredFunctions = []sep41FunctionSpec{
 	{
 		name:            "balance",
-		expectedInputs:  map[string]string{"id": "Address"},
+		expectedInputs:  map[string]any{"id": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "allowance",
-		expectedInputs:  map[string]string{"from": "Address", "spender": "Address"},
+		expectedInputs:  map[string]any{"from": "Address", "spender": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "decimals",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  map[string]any{},
 		expectedOutputs: []string{"u32"},
 	},
 	{
 		name:            "name",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  map[string]any{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name:            "symbol",
-		expectedInputs:  map[string]string{},
+		expectedInputs:  map[string]any{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name: "approve",
-		expectedInputs: map[string]string{
+		expectedInputs: map[string]any{
 			"from":              "Address",
 			"spender":           "Address",
 			"amount":            "i128",
@@ -90,8 +91,8 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "transfer",
-		expectedInputs: map[string]string{
-			"from":   "Address",
+		expectedInputs: map[string]any{
+			"from":   set.NewSet("Address", "MuxedAddress"), // Support the new MuxedAddress type change introduced in CAP-67
 			"to":     "Address",
 			"amount": "i128",
 		},
@@ -99,7 +100,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "transfer_from",
-		expectedInputs: map[string]string{
+		expectedInputs: map[string]any{
 			"spender": "Address",
 			"from":    "Address",
 			"to":      "Address",
@@ -109,7 +110,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn",
-		expectedInputs: map[string]string{
+		expectedInputs: map[string]any{
 			"from":   "Address",
 			"amount": "i128",
 		},
@@ -117,7 +118,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn_from",
-		expectedInputs: map[string]string{
+		expectedInputs: map[string]any{
 			"spender": "Address",
 			"from":    "Address",
 			"amount":  "i128",
@@ -254,7 +255,7 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 		}
 
 		// Extract actual inputs from the contract function
-		actualInputs := make(map[string]string, len(function.Inputs))
+		actualInputs := make(map[string]any, len(function.Inputs))
 		for _, input := range function.Inputs {
 			actualInputs[input.Name] = getTypeName(input.Type.Type)
 		}
@@ -281,14 +282,23 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 	return len(foundFunctions) == len(sep41RequiredFunctions)
 }
 
-func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]string, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
+func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]any, expectedOutputs set.Set[string]) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
 	}
 
 	for expectedInput, expectedInputType := range expectedInputs {
-		if inputs[expectedInput] != expectedInputType {
-			return false
+		switch inputType := expectedInputType.(type) {
+		// This handles the case where new input types are introduced in the future CAPs.
+		// We need to support both old and new input types.
+		case set.Set[string]:
+			if !inputType.Contains(inputs[expectedInput].(string)) {
+				return false
+			}
+		default:
+			if inputs[expectedInput] != inputType {
+				return false
+			}
 		}
 	}
 
