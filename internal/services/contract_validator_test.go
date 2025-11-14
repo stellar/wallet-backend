@@ -320,7 +320,7 @@ func TestNewContractSpecValidator(t *testing.T) {
 	})
 }
 
-func TestValidate(t *testing.T) {
+func TestValidateFromWasmHash(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("returns empty map for empty input", func(t *testing.T) {
@@ -574,18 +574,15 @@ func TestValidate(t *testing.T) {
 
 		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 
-		// Even with cancelled context, the function may still proceed with RPC call
-		// Setup mock to allow the call
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{}, nil)
-
 		// The Validate function doesn't explicitly check context before making calls
 		// So it will proceed normally
 		result, err := validator.ValidateFromWasmHash(cancelledCtx, []xdr.Hash{wasmHash})
 
 		// Test should complete without panic
 		// Results may vary depending on when context is checked
-		assert.NotNil(t, result)
-		assert.NoError(t, err)
+		assert.Nil(t, result)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "validation cancelled before start: context canceled")
 	})
 }
 
@@ -759,13 +756,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	validator := &contractValidator{rpcService: mockRPC}
 
 	t.Run("returns true for exact match", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -776,12 +773,12 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too few inputs", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -792,14 +789,14 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too many inputs", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from":   "Address",
 			"to":     "Address",
 			"amount": "i128",
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -810,13 +807,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong input parameter name", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"sender":   "Address",
 			"receiver": "Address",
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -827,13 +824,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong input parameter type", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 			"to":   "u32", // Wrong type
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -844,13 +841,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too few outputs", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
 		outputs := set.NewSet[string]()
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -861,13 +858,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for too many outputs", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
 		outputs := set.NewSet("i128", "u32")
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -878,13 +875,13 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns false for wrong output type", func(t *testing.T) {
-		inputs := map[string]string{
+		inputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
 		outputs := set.NewSet("u32") // Wrong type
 
-		expectedInputs := map[string]string{
+		expectedInputs := map[string]any{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -895,13 +892,34 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 	})
 
 	t.Run("returns true for empty inputs and outputs", func(t *testing.T) {
-		inputs := map[string]string{}
+		inputs := map[string]any{}
 		outputs := set.NewSet[string]()
 
-		expectedInputs := map[string]string{}
+		expectedInputs := map[string]any{}
 		expectedOutputs := set.NewSet[string]()
 
 		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		assert.True(t, result)
+	})
+
+	t.Run("returns true for matching with one of the many input types in a set", func(t *testing.T) {
+		inputs := map[string]any{
+			"from": "MuxedAddress",
+		}
+		outputs := set.NewSet("i128")
+
+		expectedInputs := map[string]any{
+			"from": set.NewSet("Address", "MuxedAddress"),
+		}
+		expectedOutputs := set.NewSet("i128")
+
+		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
+		assert.True(t, result)
+
+		inputs = map[string]any{
+			"from": "Address",
+		}
+		result = validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
 }
@@ -920,7 +938,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 		spec := createSEP41ContractSpec()
 		wasmCode := createValidWasmWithSpec(spec)
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		require.NoError(t, err)
 		assert.Len(t, result, len(spec))
@@ -933,7 +951,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 	t.Run("returns error for WASM without contractspecv0 section", func(t *testing.T) {
 		wasmCode := createWasmWithoutSpec()
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "contractspecv0 section not found")
@@ -943,7 +961,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 	t.Run("returns error for invalid WASM bytes", func(t *testing.T) {
 		wasmCode := createInvalidWasm()
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "compiling WASM module")
@@ -953,7 +971,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 	t.Run("returns error for empty WASM bytes", func(t *testing.T) {
 		wasmCode := []byte{}
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "compiling WASM module")
@@ -978,7 +996,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 
 		wasmCode := buf.Bytes()
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unmarshaling spec entry")
@@ -1018,7 +1036,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 
 		wasmCode := buf.Bytes()
 
-		result, err := v.extractContractSpecFromWasmCode(wasmCode)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
 		require.NoError(t, err)
 		assert.Len(t, result, len(spec))

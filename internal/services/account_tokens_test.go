@@ -870,6 +870,292 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	})
 }
 
+func TestAddTrustlines(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	tests := []struct {
+		name           string
+		accountAddress string
+		assets         []string
+		wantErr        bool
+		setupData      func()
+		verify         func(t *testing.T)
+	}{
+		{
+			name:           "empty account address",
+			accountAddress: "",
+			assets:         []string{"USDC:issuer1"},
+			wantErr:        true,
+			setupData:      func() {},
+			verify:         func(t *testing.T) {},
+		},
+		{
+			name:           "empty assets list - no-op",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets:         []string{},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				// No verification needed - the no-op behavior is confirmed by no error
+			},
+		},
+		{
+			name:           "successfully add single trustline",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets:         []string{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 1)
+				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+			},
+		},
+		{
+			name:           "successfully add multiple trustlines",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets: []string{
+				"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+				"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
+			},
+			wantErr:   false,
+			setupData: func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 2)
+				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+				assert.Contains(t, members, "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setupData()
+
+			err := service.AddTrustlines(ctx, tt.accountAddress, tt.assets)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.verify(t)
+			}
+		})
+	}
+}
+
+func TestAddContracts(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	tests := []struct {
+		name           string
+		accountAddress string
+		contractIDs    []string
+		wantErr        bool
+		setupData      func()
+		verify         func(t *testing.T)
+	}{
+		{
+			name:           "empty account address",
+			accountAddress: "",
+			contractIDs:    []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"},
+			wantErr:        true,
+			setupData:      func() {},
+			verify:         func(t *testing.T) {},
+		},
+		{
+			name:           "empty contracts list - no-op",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs:    []string{},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				// No verification needed - the no-op behavior is confirmed by no error
+			},
+		},
+		{
+			name:           "successfully add single contract",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs:    []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 1)
+				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+			},
+		},
+		{
+			name:           "successfully add multiple contracts",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs: []string{
+				"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+				"CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+			},
+			wantErr:   false,
+			setupData: func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 2)
+				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+				assert.Contains(t, members, "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setupData()
+
+			err := service.AddContracts(ctx, tt.accountAddress, tt.contractIDs)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.verify(t)
+			}
+		})
+	}
+}
+
+func TestStoreAccountTokensInRedis(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	t.Run("stores trustlines in Redis", func(t *testing.T) {
+		mr.FlushAll()
+
+		trustlines := map[string][]string{
+			"account1": {"USDC:issuer1", "EUROC:issuer2"},
+			"account2": {"XLM:native"},
+		}
+		contracts := make(map[string][]string)
+		contractTypes := make(map[string]types.ContractType)
+
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		require.NoError(t, err)
+
+		// Verify trustlines were stored
+		members1, err := mr.SMembers(trustlinesKeyPrefix + "account1")
+		require.NoError(t, err)
+		assert.Contains(t, members1, "USDC:issuer1")
+		assert.Contains(t, members1, "EUROC:issuer2")
+
+		members2, err := mr.SMembers(trustlinesKeyPrefix + "account2")
+		require.NoError(t, err)
+		assert.Contains(t, members2, "XLM:native")
+	})
+
+	t.Run("stores contracts in Redis", func(t *testing.T) {
+		mr.FlushAll()
+
+		trustlines := make(map[string][]string)
+		contracts := map[string][]string{
+			"account1": {"contract1", "contract2"},
+			"account2": {"contract3"},
+		}
+		contractTypes := make(map[string]types.ContractType)
+
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		require.NoError(t, err)
+
+		// Verify contracts were stored
+		members1, err := mr.SMembers(contractsKeyPrefix + "account1")
+		require.NoError(t, err)
+		assert.Contains(t, members1, "contract1")
+		assert.Contains(t, members1, "contract2")
+
+		members2, err := mr.SMembers(contractsKeyPrefix + "account2")
+		require.NoError(t, err)
+		assert.Contains(t, members2, "contract3")
+	})
+
+	t.Run("stores contract types in Redis", func(t *testing.T) {
+		mr.FlushAll()
+
+		trustlines := make(map[string][]string)
+		contracts := make(map[string][]string)
+		contractTypes := map[string]types.ContractType{
+			"contract1": types.ContractTypeSAC,
+			"contract2": types.ContractTypeSEP41,
+		}
+
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		require.NoError(t, err)
+
+		// Verify contract types were stored
+		type1, err := mr.Get(contractTypePrefix + "contract1")
+		assert.NoError(t, err)
+		assert.Equal(t, string(types.ContractTypeSAC), type1)
+
+		type2, err := mr.Get(contractTypePrefix + "contract2")
+		assert.NoError(t, err)
+		assert.Equal(t, string(types.ContractTypeSEP41), type2)
+	})
+
+	t.Run("stores all types together", func(t *testing.T) {
+		mr.FlushAll()
+
+		trustlines := map[string][]string{
+			"account1": {"USDC:issuer1"},
+		}
+		contracts := map[string][]string{
+			"account2": {"contract1"},
+		}
+		contractTypes := map[string]types.ContractType{
+			"contract1": types.ContractTypeSAC,
+		}
+
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		require.NoError(t, err)
+
+		// Verify all were stored
+		trustlineMembers, err := mr.SMembers(trustlinesKeyPrefix + "account1")
+		require.NoError(t, err)
+		assert.Contains(t, trustlineMembers, "USDC:issuer1")
+
+		contractMembers, err := mr.SMembers(contractsKeyPrefix + "account2")
+		require.NoError(t, err)
+		assert.Contains(t, contractMembers, "contract1")
+
+		contractType, err := mr.Get(contractTypePrefix + "contract1")
+		assert.NoError(t, err)
+		assert.Equal(t, string(types.ContractTypeSAC), contractType)
+	})
+}
+
 func TestProcessTokenChanges(t *testing.T) {
 	ctx := context.Background()
 	mr, redisStore := setupTestRedis(t)
@@ -1068,118 +1354,4 @@ func TestProcessTokenChanges(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestStoreAccountTokensInRedis(t *testing.T) {
-	ctx := context.Background()
-	mr, redisStore := setupTestRedis(t)
-	defer mr.Close()
-
-	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
-	}
-
-	t.Run("stores trustlines in Redis", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := map[string][]string{
-			"account1": {"USDC:issuer1", "EUROC:issuer2"},
-			"account2": {"XLM:native"},
-		}
-		contracts := make(map[string][]string)
-		contractTypes := make(map[string]types.ContractType)
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify trustlines were stored
-		members1, err := mr.SMembers(trustlinesKeyPrefix + "account1")
-		require.NoError(t, err)
-		assert.Contains(t, members1, "USDC:issuer1")
-		assert.Contains(t, members1, "EUROC:issuer2")
-
-		members2, err := mr.SMembers(trustlinesKeyPrefix + "account2")
-		require.NoError(t, err)
-		assert.Contains(t, members2, "XLM:native")
-	})
-
-	t.Run("stores contracts in Redis", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := make(map[string][]string)
-		contracts := map[string][]string{
-			"account1": {"contract1", "contract2"},
-			"account2": {"contract3"},
-		}
-		contractTypes := make(map[string]types.ContractType)
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contracts were stored
-		members1, err := mr.SMembers(contractsKeyPrefix + "account1")
-		require.NoError(t, err)
-		assert.Contains(t, members1, "contract1")
-		assert.Contains(t, members1, "contract2")
-
-		members2, err := mr.SMembers(contractsKeyPrefix + "account2")
-		require.NoError(t, err)
-		assert.Contains(t, members2, "contract3")
-	})
-
-	t.Run("stores contract types in Redis", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := make(map[string][]string)
-		contracts := make(map[string][]string)
-		contractTypes := map[string]types.ContractType{
-			"contract1": types.ContractTypeSAC,
-			"contract2": types.ContractTypeSEP41,
-		}
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract types were stored
-		type1, err := mr.Get(contractTypePrefix + "contract1")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSAC), type1)
-
-		type2, err := mr.Get(contractTypePrefix + "contract2")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSEP41), type2)
-	})
-
-	t.Run("stores all types together", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := map[string][]string{
-			"account1": {"USDC:issuer1"},
-		}
-		contracts := map[string][]string{
-			"account2": {"contract1"},
-		}
-		contractTypes := map[string]types.ContractType{
-			"contract1": types.ContractTypeSAC,
-		}
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify all were stored
-		trustlineMembers, err := mr.SMembers(trustlinesKeyPrefix + "account1")
-		require.NoError(t, err)
-		assert.Contains(t, trustlineMembers, "USDC:issuer1")
-
-		contractMembers, err := mr.SMembers(contractsKeyPrefix + "account2")
-		require.NoError(t, err)
-		assert.Contains(t, contractMembers, "contract1")
-
-		contractType, err := mr.Get(contractTypePrefix + "contract1")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSAC), contractType)
-	})
 }
