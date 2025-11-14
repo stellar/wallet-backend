@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/keypair"
-	operations "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/support/errors"
 	"github.com/stellar/go/xdr"
 )
@@ -99,7 +98,7 @@ var EffectTypeNames = map[EffectType]string{
 }
 
 // Effects returns the operation effects
-func Effects(operation *operations.TransactionOperationWrapper) ([]EffectOutput, error) {
+func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 	if !operation.Transaction.Result.Successful() {
 		return []EffectOutput{}, nil
 	}
@@ -160,7 +159,7 @@ func Effects(operation *operations.TransactionOperationWrapper) ([]EffectOutput,
 
 type effectsWrapper struct {
 	effects   []EffectOutput
-	operation *operations.TransactionOperationWrapper
+	operation *TransactionOperationWrapper
 }
 
 func (e *effectsWrapper) add(address string, addressMuxed null.String, effectType EffectType, details map[string]interface{}) {
@@ -330,7 +329,7 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		accountID = &tl.AccountId
 		if tl.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
 			details["asset_type"] = "liquidity_pool"
-			details["liquidity_pool_id"] = operations.PoolIDToString(*tl.Asset.LiquidityPoolId)
+			details["liquidity_pool_id"] = PoolIDToString(*tl.Asset.LiquidityPoolId)
 		} else {
 			details["asset"] = tl.Asset.ToAsset().StringCanonical()
 		}
@@ -529,11 +528,11 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 		if trustLine.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
 			// The only change_trust ops that can modify LP are those with
 			// asset=liquidity_pool so *op.Line.LiquidityPool below is available.
-			if addErr := operations.AddLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); addErr != nil {
+			if addErr := AddLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); addErr != nil {
 				return fmt.Errorf("adding liquidity pool asset details: %w", addErr)
 			}
 		} else {
-			if addErr := operations.AddAssetDetails(details, op.Line.ToAsset(), ""); addErr != nil {
+			if addErr := AddAssetDetails(details, op.Line.ToAsset(), ""); addErr != nil {
 				return fmt.Errorf("adding asset details: %w", addErr)
 			}
 		}
@@ -552,7 +551,7 @@ func (e *effectsWrapper) addAllowTrustEffects() {
 	details := map[string]interface{}{
 		"trustor": op.Trustor.Address(),
 	}
-	err := operations.AddAssetDetails(details, asset, "")
+	err := AddAssetDetails(details, asset, "")
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}
@@ -637,7 +636,7 @@ func (e *effectsWrapper) addTrustLineFlagsEffect(
 	details := map[string]interface{}{
 		"trustor": trustor.Address(),
 	}
-	err := operations.AddAssetDetails(details, asset, "")
+	err := AddAssetDetails(details, asset, "")
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}

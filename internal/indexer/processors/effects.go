@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/stellar/go/ingest"
-	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/go/support/log"
@@ -85,7 +84,7 @@ func (p *EffectsProcessor) Name() string {
 // It processes account state changes like signer modifications, threshold updates, flag changes,
 // home domain updates, data entry changes, and sponsorship relationship modifications.
 // Returns a slice of state changes representing various account state changes.
-func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *operation_processor.TransactionOperationWrapper) ([]types.StateChange, error) {
+func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
