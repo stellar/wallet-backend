@@ -69,3 +69,10 @@ enum StateChangeReason {
   SPONSOR
   UNSPONSOR
 }
+
+enum TokenType {
+  NATIVE
+  CLASSIC
+  SAC
+  SEP41
+}
