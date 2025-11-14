@@ -870,6 +870,178 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	})
 }
 
+func TestAddTrustlines(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	tests := []struct {
+		name           string
+		accountAddress string
+		assets         []string
+		wantErr        bool
+		setupData      func()
+		verify         func(t *testing.T)
+	}{
+		{
+			name:           "empty account address",
+			accountAddress: "",
+			assets:         []string{"USDC:issuer1"},
+			wantErr:        true,
+			setupData:      func() {},
+			verify:         func(t *testing.T) {},
+		},
+		{
+			name:           "empty assets list - no-op",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets:         []string{},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				// No verification needed - the no-op behavior is confirmed by no error
+			},
+		},
+		{
+			name:           "successfully add single trustline",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets:         []string{"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 1)
+				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+			},
+		},
+		{
+			name:           "successfully add multiple trustlines",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			assets: []string{
+				"USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+				"EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ",
+			},
+			wantErr:   false,
+			setupData: func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(trustlinesKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 2)
+				assert.Contains(t, members, "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+				assert.Contains(t, members, "EUROC:GA7FCCMTTSUIC37PODEL6EOOSPDRILP6OQI5FWCWDDVDBLJV72W6RINZ")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setupData()
+
+			err := service.AddTrustlines(ctx, tt.accountAddress, tt.assets)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.verify(t)
+			}
+		})
+	}
+}
+
+func TestAddContracts(t *testing.T) {
+	ctx := context.Background()
+	mr, redisStore := setupTestRedis(t)
+	defer mr.Close()
+
+	service := &accountTokenService{
+		redisStore:         redisStore,
+		trustlinesPrefix:   trustlinesKeyPrefix,
+		contractsPrefix:    contractsKeyPrefix,
+		contractTypePrefix: contractTypePrefix,
+	}
+
+	tests := []struct {
+		name           string
+		accountAddress string
+		contractIDs    []string
+		wantErr        bool
+		setupData      func()
+		verify         func(t *testing.T)
+	}{
+		{
+			name:           "empty account address",
+			accountAddress: "",
+			contractIDs:    []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"},
+			wantErr:        true,
+			setupData:      func() {},
+			verify:         func(t *testing.T) {},
+		},
+		{
+			name:           "empty contracts list - no-op",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs:    []string{},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				// No verification needed - the no-op behavior is confirmed by no error
+			},
+		},
+		{
+			name:           "successfully add single contract",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs:    []string{"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"},
+			wantErr:        false,
+			setupData:      func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 1)
+				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+			},
+		},
+		{
+			name:           "successfully add multiple contracts",
+			accountAddress: "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N",
+			contractIDs: []string{
+				"CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
+				"CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+			},
+			wantErr:   false,
+			setupData: func() {},
+			verify: func(t *testing.T) {
+				members, err := mr.SMembers(contractsKeyPrefix + "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+				require.NoError(t, err)
+				assert.Len(t, members, 2)
+				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
+				assert.Contains(t, members, "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mr.FlushAll()
+			tt.setupData()
+
+			err := service.AddContracts(ctx, tt.accountAddress, tt.contractIDs)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				tt.verify(t)
+			}
+		})
+	}
+}
+
 func TestStoreAccountTokensInRedis(t *testing.T) {
 	ctx := context.Background()
 	mr, redisStore := setupTestRedis(t)
