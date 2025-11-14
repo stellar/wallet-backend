@@ -37,13 +37,13 @@ func (m *IngestStoreModel) GetLatestLedgerSynced(ctx context.Context, cursorName
 	return lastSyncedLedger, nil
 }
 
-func (m *IngestStoreModel) UpdateLatestLedgerSynced(ctx context.Context, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) UpdateLatestLedgerSynced(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
 	`
 	start := time.Now()
-	_, err := m.DB.ExecContext(ctx, query, cursorName, ledger)
+	_, err := dbTx.ExecContext(ctx, query, cursorName, ledger)
 	duration := time.Since(start).Seconds()
 	m.MetricsService.ObserveDBQueryDuration("UpdateLatestLedgerSynced", "ingest_store", duration)
 	if err != nil {

@@ -33,6 +33,7 @@ require (
 	github.com/stellar/stellar-rpc v0.9.6-0.20250618231249-2d3e8ff69365
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.37.0
+	github.com/tetratelabs/wazero v1.10.1
 	github.com/vektah/gqlparser/v2 v2.5.30
 	github.com/vikstrous/dataloadgen v0.0.9
 	golang.org/x/term v0.33.0
