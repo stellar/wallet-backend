@@ -189,7 +189,12 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 			}
 
 			// update cursor
-			err = m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, ingestLedger)
+			err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, ingestLedger); err != nil {
+					return fmt.Errorf("updating latest synced ledger: %w", err)
+				}
+				return nil
+			})
 			if err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
@@ -252,7 +257,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 		checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, checkpointLedger); err != nil {
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, checkpointLedger); err != nil {
 				return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 			}
 			return nil
@@ -307,12 +312,12 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		// update cursors
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
-			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.ledgerCursorName, lastLedger); err != nil {
+			if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); err != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 			if lastLedger > checkpointLedger {
-				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, m.accountTokensCursorName, lastLedger); err != nil {
+				if err := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); err != nil {
 					return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
 				}
 			}

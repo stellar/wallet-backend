@@ -28,7 +28,7 @@ const (
 	contractsKeyPrefix  = "contracts:"
 	contractTypePrefix  = "contract_type:"
 
-	// redisPipelineBatchSize is the number of operations to batch 
+	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
 
@@ -44,7 +44,7 @@ type AccountTokenService interface {
 	GetCheckpointLedger() uint32
 
 	// PopulateAccountTokens performs initial Redis cache population from Stellar
-	// history archive for the latest checkpoint. It extracts all trustlines and contract 
+	// history archive for the latest checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in Redis.
 	PopulateAccountTokens(ctx context.Context) error
 
