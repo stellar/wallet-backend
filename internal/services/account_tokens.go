@@ -251,6 +251,7 @@ func (s *accountTokenService) GetContractType(ctx context.Context, contractID st
 	return types.ContractType(tokenType), nil
 }
 
+// GetCheckpointLedger returns the ledger sequence number of the checkpoint used for initial cache population.
 func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
 }
@@ -504,7 +505,8 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	return nil
 }
 
-// getLatestCheckpointLedger gets the latest checkpoint ledger from the history archive.
+// getLatestCheckpointLedger retrieves the most recent checkpoint ledger sequence from the history archive.
+// Returns the checkpoint ledger number that is on or before the latest available ledger.
 func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
 	// Get latest ledger from archive
 	latestLedger, err := archive.GetLatestLedgerSequence()

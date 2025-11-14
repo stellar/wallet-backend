@@ -137,6 +137,8 @@ type contractValidator struct {
 	runtime    wazero.Runtime
 }
 
+// NewContractValidator creates a new ContractValidator with a configured wazero runtime.
+// The runtime is initialized with custom sections enabled to extract contract specifications from WASM bytecode.
 func NewContractValidator(rpcService RPCService) ContractValidator {
 	// Create wazero runtime with custom sections enabled
 	config := wazero.NewRuntimeConfig().WithCustomSections(true)
@@ -148,6 +150,9 @@ func NewContractValidator(rpcService RPCService) ContractValidator {
 	}
 }
 
+// ValidateFromWasmHash validates contract types for a list of WASM hashes by fetching their contract code
+// from the RPC service and checking if they implement the SEP-41 token standard.
+// Returns a map of WASM hash to contract type (SAC, SEP41, or Unknown).
 func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes []xdr.Hash) (map[xdr.Hash]types.ContractType, error) {
 	// Check context before starting expensive operations
 	if err := ctx.Err(); err != nil {
@@ -210,6 +215,8 @@ func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes
 	return contractTypesByWasmHash, nil
 }
 
+// Close shuts down the wazero runtime and releases associated resources.
+// Should be called when the validator is no longer needed to prevent resource leaks.
 func (v *contractValidator) Close(ctx context.Context) error {
 	if err := v.runtime.Close(ctx); err != nil {
 		return fmt.Errorf("closing contract spec validator: %w", err)
@@ -282,6 +289,9 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 	return len(foundFunctions) == len(sep41RequiredFunctions)
 }
 
+// validateFunctionInputsAndOutputs checks if a function's signature matches the expected SEP-41 specification.
+// It compares input parameter names/types and output types, supporting both exact matches and sets of valid types
+// (e.g., for CAP-67 where "from" parameter accepts both Address and MuxedAddress).
 func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]any, expectedOutputs set.Set[string]) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
@@ -312,6 +322,9 @@ func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]a
 	return true
 }
 
+// extractContractSpecFromWasmCode parses the contract specification from WASM bytecode.
+// It compiles the WASM module, extracts the "contractspecv0" custom section, and unmarshals
+// the XDR-encoded contract specification entries.
 func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context, wasmCode []byte) ([]xdr.ScSpecEntry, error) {
 	// Compile WASM module (validates structure and won't panic)
 	compiledModule, err := v.runtime.CompileModule(ctx, wasmCode)
@@ -356,6 +369,8 @@ func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context,
 	return specs, nil
 }
 
+// getContractCodeLedgerKey constructs a base64-encoded ledger key for retrieving contract code from RPC.
+// Takes a WASM hash and returns the encoded ledger key used in getLedgerEntries RPC calls.
 func (v *contractValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (string, error) {
 	// Create a LedgerKey for ContractCode
 	var ledgerKey xdr.LedgerKey
@@ -373,7 +388,8 @@ func (v *contractValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (string,
 	return keyBase64, nil
 }
 
-// Helper function to get type name as string
+// getTypeName converts an XDR ScSpecType to its human-readable string representation.
+// Returns "unknown" for unmapped types.
 func getTypeName(scType xdr.ScSpecType) string {
 	if name, ok := scSpecTypeNames[scType]; ok {
 		return name
