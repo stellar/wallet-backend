@@ -1,5 +1,3 @@
-// Package services provides account token management with Redis caching.
-// This file handles trustlines and Stellar Asset Contract (SAC) balance tracking.
 package services
 
 import (
@@ -28,7 +26,8 @@ const (
 	contractsKeyPrefix  = "contracts:"
 	contractTypePrefix  = "contract_type:"
 
-	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
+	// redisPipelineBatchSize is the number of operations to batch
+	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
 
 	// progressInterval is the number of checkpoint entries to process before logging progress.
@@ -43,23 +42,25 @@ type AccountTokenService interface {
 	GetCheckpointLedger() uint32
 
 	// PopulateAccountTokens performs initial Redis cache population from Stellar
-	// history archive for the latest checkpoint. This is a long-running operation
-	// that may take several minutes and should be called during service initialization.
-	// It reads all trustlines and contract balances and stores them in Redis.
+	// history archive for the latest checkpoint. It extracts all trustlines and contract
+	// tokens from checkpoint ledger entries and stores them in Redis.
 	PopulateAccountTokens(ctx context.Context) error
 
-	// Add adds token identifiers (trustline assets or contract IDs) to an account's
-	// Redis set. For trustlines, assets should be formatted as "CODE:ISSUER".
-	// For contracts, assets should be contract addresses starting with "C".
+	// AddTrustlines adds trustline assets to an account's Redis set.
+	// Assets should be formatted as "CODE:ISSUER".
 	// Returns nil if assets is empty (no-op).
-	Add(ctx context.Context, accountAddress string, assets []string) error
+	AddTrustlines(ctx context.Context, accountAddress string, assets []string) error
+
+	// AddContracts adds contract token IDs to an account's Redis set.
+	// Assets should be contract addresses starting with "C".
+	// Returns nil if assets is empty (no-op).
+	AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error
 
 	// GetAccountTrustlines retrieves all classic trustline assets for an account.
 	// Returns a slice of assets formatted as "CODE:ISSUER", or empty slice if none exist.
 	GetAccountTrustlines(ctx context.Context, accountAddress string) ([]string, error)
 
-	// GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract
-	// IDs for an account. Returns contract addresses (C...) or empty slice if none exist.
+	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
 
 	// GetContractType determines the token type (SAC, SEP41, or UNKNOWN) for a contract.
@@ -116,8 +117,7 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
-// This reads the latest checkpoint ledger and extracts all trustlines and contracts that an account has.
-// It should be called during service initialization before processing live ingestion.
+// This reads the latest checkpoint ledger and extracts all trustlines and contract tokens that an account has.
 // Warning: This is a long-running operation that may take several minutes.
 func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	if s.archive == nil {
@@ -155,6 +155,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		return err
 	}
 
+	// Extract contract spec from WASM hash and validate SEP-41 contracts
 	if err := s.enrichContractTypes(ctx, contractTypesByContractID, contractIDsByWasmHash); err != nil {
 		return err
 	}
@@ -249,16 +250,36 @@ func (s *accountTokenService) buildContractTypeKey(contractID string) string {
 	return s.contractTypePrefix + contractID
 }
 
-// Add adds token identifiers to an account's Redis set.
-// For trustlines, assets are formatted as "CODE:ISSUER".
-// For SAC balances, assets are contract addresses (C...).
+// AddTrustlines adds trustline assets to an account's Redis set.
+// Assets are formatted as "CODE:ISSUER".
 // Returns nil if assets is empty (no-op).
-func (s *accountTokenService) Add(ctx context.Context, redisKey string, assets []string) error {
+func (s *accountTokenService) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
+	if accountAddress == "" {
+		return fmt.Errorf("account address cannot be empty")
+	}
 	if len(assets) == 0 {
 		return nil
 	}
-	if err := s.redisStore.SAdd(ctx, redisKey, assets...); err != nil {
-		return fmt.Errorf("adding members to set %s: %w", redisKey, err)
+	key := s.buildTrustlineKey(accountAddress)
+	if err := s.redisStore.SAdd(ctx, key, assets...); err != nil {
+		return fmt.Errorf("adding trustlines for account %s (key: %s): %w", accountAddress, key, err)
+	}
+	return nil
+}
+
+// AddContracts adds contract token IDs to an account's Redis set.
+// Contract IDs are contract addresses starting with "C".
+// Returns nil if contractIDs is empty (no-op).
+func (s *accountTokenService) AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error {
+	if accountAddress == "" {
+		return fmt.Errorf("account address cannot be empty")
+	}
+	if len(contractIDs) == 0 {
+		return nil
+	}
+	key := s.buildContractKey(accountAddress)
+	if err := s.redisStore.SAdd(ctx, key, contractIDs...); err != nil {
+		return fmt.Errorf("adding contracts for account %s (key: %s): %w", accountAddress, key, err)
 	}
 	return nil
 }
@@ -276,7 +297,9 @@ func (s *accountTokenService) GetAccountTrustlines(ctx context.Context, accountA
 	return trustlines, nil
 }
 
-// GetAccountContracts retrieves all Stellar Asset Contract (SAC) balance contract IDs for an account from Redis.
+// GetAccountContracts retrieves all contract token IDs for an account from Redis.
+// For G-address: all non-SAC custom tokens because SAC tokens are already tracked in trustlines
+// For C-address: all contract tokens (SAC, custom)
 func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
 	if accountAddress == "" {
 		return nil, fmt.Errorf("account address cannot be empty")
@@ -289,7 +312,7 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 	return contracts, nil
 }
 
-// GetContractType retrieves the token type (SAC or CUSTOM) for a given contract ID from Redis.
+// GetContractType retrieves the token type (SAC, SEP41, or UNKNOWN) for a given contract ID from Redis.
 func (s *accountTokenService) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
 	if contractID == "" {
 		return types.ContractTypeUnknown, fmt.Errorf("contract ID cannot be empty")
@@ -305,8 +328,89 @@ func (s *accountTokenService) GetContractType(ctx context.Context, contractID st
 	return types.ContractType(tokenType), nil
 }
 
+// GetCheckpointLedger returns the ledger sequence number of the checkpoint used for initial cache population.
 func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
+}
+
+// processTrustlineChange extracts trustline information from a ledger change entry.
+// Returns the account address and asset string, with skip=true if the entry should be skipped.
+func (s *accountTokenService) processTrustlineChange(ctx context.Context, change ingest.Change) (accountAddress string, assetStr string, skip bool) {
+	trustlineEntry := change.Post.Data.MustTrustLine()
+	accountAddress = trustlineEntry.AccountId.Address()
+	asset := trustlineEntry.Asset
+
+	// Skip liquidity pool shares as they're tracked separately via pool-specific indexing
+	// and don't represent traditional trustlines.
+	if asset.Type == xdr.AssetTypeAssetTypePoolShare {
+		return "", "", true
+	}
+
+	var assetType, assetCode, assetIssuer string
+	if err := trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
+		log.Ctx(ctx).Warnf("Failed to extract asset from trustline for account %s: %v", accountAddress, err)
+		return "", "", true
+	}
+
+	assetStr = fmt.Sprintf("%s:%s", assetCode, assetIssuer)
+	return accountAddress, assetStr, false
+}
+
+// processContractBalanceChange extracts contract balance information from a contract data entry.
+// Returns the holder address and contract ID, with skip=true if extraction fails.
+func (s *accountTokenService) processContractBalanceChange(ctx context.Context, contractDataEntry xdr.ContractDataEntry) (holderAddress string, contractAddress string, skip bool) {
+	// Extract the account/contract address from the contract data entry key.
+	// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
+	// However, this could also be valid for any non-SEP41 contract that mimics the same format.
+	var err error
+	holderAddress, err = s.extractHolderAddress(contractDataEntry.Key)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Failed to extract holder address from contract data: %v", err)
+		return "", "", true
+	}
+
+	// Extract the contract ID from the contract data entry
+	contractAddress, err = s.extractContractID(contractDataEntry)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Failed to extract contract ID from contract data: %v", err)
+		return "", "", true
+	}
+
+	return holderAddress, contractAddress, false
+}
+
+// processContractInstanceChange extracts contract type information from a contract instance entry.
+// Updates the contractTypesByContractID map with SAC types, and returns WASM hash for non-SAC contracts.
+func (s *accountTokenService) processContractInstanceChange(
+	ctx context.Context,
+	change ingest.Change,
+	contractDataEntry xdr.ContractDataEntry,
+	contractTypesByContractID map[string]types.ContractType,
+) (contractAddress string, wasmHash *xdr.Hash, skip bool) {
+	var err error
+	contractAddress, err = s.extractContractID(contractDataEntry)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Failed to extract contract ID from instance: %v", err)
+		return "", nil, true
+	}
+
+	ledgerEntry := change.Post
+	_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
+	if isSAC {
+		contractTypesByContractID[contractAddress] = types.ContractTypeSAC // Verified SAC
+		return contractAddress, nil, false
+	}
+
+	// For non-SAC contracts, extract WASM hash for later validation
+	contractInstance := contractDataEntry.Val.MustInstance()
+	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
+		if contractInstance.Executable.WasmHash != nil {
+			hash := *contractInstance.Executable.WasmHash
+			return contractAddress, &hash, false
+		}
+	}
+
+	return contractAddress, nil, false
 }
 
 // collectAccountTokensFromCheckpoint reads from a ChangeReader and collects all trustlines and contract balances.
@@ -353,20 +457,11 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		//exhaustive:ignore
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
-			trustlineEntry := change.Post.Data.MustTrustLine()
-			accountAddress := trustlineEntry.AccountId.Address()
-			asset := trustlineEntry.Asset
-			if asset.Type == xdr.AssetTypeAssetTypePoolShare {
-				continue
-			}
-			var assetType, assetCode, assetIssuer string
-			err = trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer)
-			if err != nil {
-				log.Ctx(ctx).Debugf("Failed to extract asset from trustline: %v", err)
+			accountAddress, assetStr, skip := s.processTrustlineChange(ctx, change)
+			if skip {
 				continue
 			}
 			entries++
-			assetStr := fmt.Sprintf("%s:%s", assetCode, assetIssuer)
 			trustlines[accountAddress] = append(trustlines[accountAddress], assetStr)
 
 		case xdr.LedgerEntryTypeContractData:
@@ -375,47 +470,22 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			//exhaustive:ignore
 			switch contractDataEntry.Key.Type {
 			case xdr.ScValTypeScvVec:
-				// Extract the account/contract address from the contract data entry key.
-				// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
-				// However, this could also be valid for any non-SEP41 contract that mimics the same format.
-				holderAddress, err := s.extractHolderAddress(contractDataEntry.Key)
-				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract holder address: %v", err)
+				holderAddress, contractAddress, skip := s.processContractBalanceChange(ctx, contractDataEntry)
+				if skip {
 					continue
 				}
-
-				// Extract the contract ID from the contract data entry
-				contractAddress, err := s.extractContractID(contractDataEntry)
-				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract contract ID: %v", err)
-					continue
-				}
-
-				// Store contract info: map holder address to contract address and type
 				contracts[holderAddress] = append(contracts[holderAddress], contractAddress)
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				contractAddress, err := s.extractContractID(contractDataEntry)
-				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract contract ID from instance: %v", err)
+				contractAddress, wasmHash, skip := s.processContractInstanceChange(ctx, change, contractDataEntry, contractTypesByContractID)
+				if skip {
 					continue
 				}
-				ledgerEntry := change.Post
-				_, isSAC := sac.AssetFromContractData(*ledgerEntry, s.networkPassphrase)
-				if isSAC {
-					contractTypesByContractID[contractAddress] = types.ContractTypeSAC // Verified SAC
-				} else {
-					// For non-SAC contracts, we need to validate the contract spec to determine if it is a SEP-41 token.
-					contractInstance := contractDataEntry.Val.MustInstance()
-					if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
-						// Extract the WASM hash
-						if contractInstance.Executable.WasmHash != nil {
-							wasmHash := *contractInstance.Executable.WasmHash
-							contractIDsByWasmHash[wasmHash] = append(contractIDsByWasmHash[wasmHash], contractAddress)
-							uniqueWasmHashes.Add(wasmHash)
-						}
-					}
+				// For non-SAC contracts with WASM hash, track for later validation
+				if wasmHash != nil {
+					contractIDsByWasmHash[*wasmHash] = append(contractIDsByWasmHash[*wasmHash], contractAddress)
+					uniqueWasmHashes.Add(*wasmHash)
 				}
 				entries++
 			}
@@ -512,6 +582,8 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	return nil
 }
 
+// getLatestCheckpointLedger retrieves the most recent checkpoint ledger sequence from the history archive.
+// Returns the checkpoint ledger number that is on or before the latest available ledger.
 func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
 	// Get latest ledger from archive
 	latestLedger, err := archive.GetLatestLedgerSequence()
@@ -529,7 +601,7 @@ func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32,
 	return manager.PrevCheckpoint(latestLedger), nil
 }
 
-// extractHolderAddress extracts the account address from a Stellar Asset Contract balance entry.
+// extractHolderAddress extracts the account address from a contract balance entry key.
 // Balance entries have a key that is a ScVec with 2 elements:
 // - First element: ScSymbol("Balance")
 // - Second element: ScAddress (the account/contract holder address)
