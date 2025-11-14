@@ -2,20 +2,39 @@ package processors
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/stellar/go/hash"
 
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/ingest"
-	"github.com/stellar/go/processors/utils"
 	"github.com/stellar/go/protocols/horizon/base"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/contractevents"
 	"github.com/stellar/go/toid"
 	"github.com/stellar/go/xdr"
 )
+
+// Claimant represents a claimant for a claimable balance
+type Claimant struct {
+	Destination string             `json:"destination"`
+	Predicate   xdr.ClaimPredicate `json:"predicate"`
+}
+
+// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
+func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
+	ledgerKeyByte, err := ledgerKey.MarshalBinary()
+	if err != nil {
+		return ""
+	}
+	hashedLedgerKeyByte := hash.Hash(ledgerKeyByte)
+	ledgerKeyHash := hex.EncodeToString(hashedLedgerKeyByte[:])
+
+	return ledgerKeyHash
+}
 
 type liquidityPoolDelta struct {
 	ReserveA        xdr.Int64
@@ -433,10 +452,10 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		op := operation.Operation.Body.MustCreateClaimableBalanceOp()
 		details["asset"] = op.Asset.StringCanonical()
 		details["amount"] = amount.String(op.Amount)
-		var claimants []utils.Claimant
+		var claimants []Claimant
 		for _, c := range op.Claimants {
 			cv0 := c.MustV0()
-			claimants = append(claimants, utils.Claimant{
+			claimants = append(claimants, Claimant{
 				Destination: cv0.Destination.Address(),
 				Predicate:   cv0.Predicate,
 			})
@@ -729,14 +748,14 @@ func contractCodeHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelop
 func ledgerKeyHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) []string {
 	var ledgerKeyHash []string
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		if utils.LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, utils.LedgerKeyToLedgerKeyHash(ledgerKey))
+		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
+			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
 		}
 	}
 
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		if utils.LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, utils.LedgerKeyToLedgerKeyHash(ledgerKey))
+		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
+			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
 		}
 	}
 
