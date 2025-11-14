@@ -18,6 +18,31 @@ const (
 	getLedgerEntriesBatchSize = 10
 )
 
+// Map of XDR ScSpecType to human-readable type names
+var scSpecTypeNames = map[xdr.ScSpecType]string{
+	xdr.ScSpecTypeScSpecTypeBool:    "bool",
+	xdr.ScSpecTypeScSpecTypeU32:     "u32",
+	xdr.ScSpecTypeScSpecTypeI32:     "i32",
+	xdr.ScSpecTypeScSpecTypeU64:     "u64",
+	xdr.ScSpecTypeScSpecTypeI64:     "i64",
+	xdr.ScSpecTypeScSpecTypeU128:    "u128",
+	xdr.ScSpecTypeScSpecTypeI128:    "i128",
+	xdr.ScSpecTypeScSpecTypeU256:    "u256",
+	xdr.ScSpecTypeScSpecTypeI256:    "i256",
+	xdr.ScSpecTypeScSpecTypeAddress: "Address",
+	xdr.ScSpecTypeScSpecTypeString:  "String",
+	xdr.ScSpecTypeScSpecTypeBytes:   "Bytes",
+	xdr.ScSpecTypeScSpecTypeSymbol:  "Symbol",
+	xdr.ScSpecTypeScSpecTypeVec:     "Vec",
+	xdr.ScSpecTypeScSpecTypeMap:     "Map",
+	xdr.ScSpecTypeScSpecTypeOption:  "Option",
+	xdr.ScSpecTypeScSpecTypeResult:  "Result",
+	xdr.ScSpecTypeScSpecTypeTuple:   "Tuple",
+	xdr.ScSpecTypeScSpecTypeBytesN:  "BytesN",
+	xdr.ScSpecTypeScSpecTypeUdt:     "UDT",
+	xdr.ScSpecTypeScSpecTypeVoid:    "void",
+}
+
 type ContractValidator interface {
 	ValidateFromWasmHash(_ context.Context, _ []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
 	Close(_ context.Context) error
@@ -349,50 +374,8 @@ func (v *contractValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (string,
 
 // Helper function to get type name as string
 func getTypeName(scType xdr.ScSpecType) string {
-	switch scType {
-	case xdr.ScSpecTypeScSpecTypeBool:
-		return "bool"
-	case xdr.ScSpecTypeScSpecTypeU32:
-		return "u32"
-	case xdr.ScSpecTypeScSpecTypeI32:
-		return "i32"
-	case xdr.ScSpecTypeScSpecTypeU64:
-		return "u64"
-	case xdr.ScSpecTypeScSpecTypeI64:
-		return "i64"
-	case xdr.ScSpecTypeScSpecTypeU128:
-		return "u128"
-	case xdr.ScSpecTypeScSpecTypeI128:
-		return "i128"
-	case xdr.ScSpecTypeScSpecTypeU256:
-		return "u256"
-	case xdr.ScSpecTypeScSpecTypeI256:
-		return "i256"
-	case xdr.ScSpecTypeScSpecTypeAddress:
-		return "Address"
-	case xdr.ScSpecTypeScSpecTypeString:
-		return "String"
-	case xdr.ScSpecTypeScSpecTypeBytes:
-		return "Bytes"
-	case xdr.ScSpecTypeScSpecTypeSymbol:
-		return "Symbol"
-	case xdr.ScSpecTypeScSpecTypeVec:
-		return "Vec"
-	case xdr.ScSpecTypeScSpecTypeMap:
-		return "Map"
-	case xdr.ScSpecTypeScSpecTypeOption:
-		return "Option"
-	case xdr.ScSpecTypeScSpecTypeResult:
-		return "Result"
-	case xdr.ScSpecTypeScSpecTypeTuple:
-		return "Tuple"
-	case xdr.ScSpecTypeScSpecTypeBytesN:
-		return "BytesN"
-	case xdr.ScSpecTypeScSpecTypeUdt:
-		return "UDT"
-	case xdr.ScSpecTypeScSpecTypeVoid:
-		return "void"
-	default:
-		return "unknown"
+	if name, ok := scSpecTypeNames[scType]; ok {
+		return name
 	}
+	return "unknown"
 }
