@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"github.com/stellar/go/ingest"
@@ -11,15 +12,14 @@ import (
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"encoding/hex"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/hash"
 )
 
-// poolIDToString converts a pool ID to its string representation
-func poolIDToString(id xdr.PoolId) string {
+// PoolIDToString converts a pool ID to its string representation
+func PoolIDToString(id xdr.PoolId) string {
 	return xdr.Hash(id).HexString()
 }
 
@@ -42,7 +42,7 @@ func addLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 	if err != nil {
 		return err
 	}
-	result["liquidity_pool_id"] = poolIDToString(poolID)
+	result["liquidity_pool_id"] = PoolIDToString(poolID)
 	return nil
 }
 

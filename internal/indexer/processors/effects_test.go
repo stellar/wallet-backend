@@ -296,12 +296,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].AccountID)
 		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].SponsorAccountID.String)
 
-		/* 
-		Sponsorship update creates 4 state changes:
-		1. 1 RESERVES/UNSPONSOR for sponsored account
-		2. 1 RESERVES/UNSPONSOR for old sponsor account
-		3. 1 RESERVES/SPONSOR for sponsored account
-		4. 1 RESERVES/SPONSOR for new sponsor account
+		/*
+			Sponsorship update creates 4 state changes:
+			1. 1 RESERVES/UNSPONSOR for sponsored account
+			2. 1 RESERVES/UNSPONSOR for old sponsor account
+			3. 1 RESERVES/SPONSOR for sponsored account
+			4. 1 RESERVES/SPONSOR for new sponsor account
 		*/
 		assert.Equal(t, types.StateChangeCategoryReserves, changes[2].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonSponsor, *changes[2].StateChangeReason)

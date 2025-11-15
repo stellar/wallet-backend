@@ -326,7 +326,7 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		accountID = &tl.AccountId
 		if tl.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
 			details["asset_type"] = "liquidity_pool"
-			details["liquidity_pool_id"] = poolIDToString(*tl.Asset.LiquidityPoolId)
+			details["liquidity_pool_id"] = PoolIDToString(*tl.Asset.LiquidityPoolId)
 		} else {
 			details["asset"] = tl.Asset.ToAsset().StringCanonical()
 		}

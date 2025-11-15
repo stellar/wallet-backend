@@ -461,12 +461,12 @@ func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey)
 	case xdr.LedgerEntryTypeTrustline:
 		result["trustline_account_id"] = ledgerKey.TrustLine.AccountId.Address()
 		if ledgerKey.TrustLine.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
-			result["trustline_liquidity_pool_id"] = poolIDToString(*ledgerKey.TrustLine.Asset.LiquidityPoolId)
+			result["trustline_liquidity_pool_id"] = PoolIDToString(*ledgerKey.TrustLine.Asset.LiquidityPoolId)
 		} else {
 			result["trustline_asset"] = ledgerKey.TrustLine.Asset.ToAsset().StringCanonical()
 		}
 	case xdr.LedgerEntryTypeLiquidityPool:
-		result["liquidity_pool_id"] = poolIDToString(ledgerKey.LiquidityPool.LiquidityPoolId)
+		result["liquidity_pool_id"] = PoolIDToString(ledgerKey.LiquidityPool.LiquidityPoolId)
 	}
 	return nil
 }
