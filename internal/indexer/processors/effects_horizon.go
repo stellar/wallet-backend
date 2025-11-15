@@ -326,7 +326,7 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		accountID = &tl.AccountId
 		if tl.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
 			details["asset_type"] = "liquidity_pool"
-			details["liquidity_pool_id"] = PoolIDToString(*tl.Asset.LiquidityPoolId)
+			details["liquidity_pool_id"] = poolIDToString(*tl.Asset.LiquidityPoolId)
 		} else {
 			details["asset"] = tl.Asset.ToAsset().StringCanonical()
 		}
@@ -512,11 +512,11 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 		if trustLine.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
 			// The only change_trust ops that can modify LP are those with
 			// asset=liquidity_pool so *op.Line.LiquidityPool below is available.
-			if addErr := AddLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); addErr != nil {
+			if addErr := addLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); addErr != nil {
 				return fmt.Errorf("adding liquidity pool asset details: %w", addErr)
 			}
 		} else {
-			if addErr := AddAssetDetails(details, op.Line.ToAsset(), ""); addErr != nil {
+			if addErr := addAssetDetails(details, op.Line.ToAsset(), ""); addErr != nil {
 				return fmt.Errorf("adding asset details: %w", addErr)
 			}
 		}
@@ -535,7 +535,7 @@ func (e *effectsWrapper) addAllowTrustEffects() {
 	details := map[string]interface{}{
 		"trustor": op.Trustor.Address(),
 	}
-	err := AddAssetDetails(details, asset, "")
+	err := addAssetDetails(details, asset, "")
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}
@@ -620,7 +620,7 @@ func (e *effectsWrapper) addTrustLineFlagsEffect(
 	details := map[string]interface{}{
 		"trustor": trustor.Address(),
 	}
-	err := AddAssetDetails(details, asset, "")
+	err := addAssetDetails(details, asset, "")
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}

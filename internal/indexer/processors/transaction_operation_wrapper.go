@@ -207,19 +207,19 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 	case xdr.OperationTypeChangeTrust:
 		op := operation.Operation.Body.MustChangeTrustOp()
 		if op.Line.Type == xdr.AssetTypeAssetTypePoolShare {
-			if err := AddLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); err != nil {
+			if err := addLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); err != nil {
 				return nil, err
 			}
 		} else {
-			AddAssetDetails(details, op.Line.ToAsset(), "")
+			addAssetDetails(details, op.Line.ToAsset(), "")
 			details["trustee"] = details["asset_issuer"]
 		}
-		AddAccountAndMuxedAccountDetails(details, *source, "trustor")
+		addAccountAndMuxedAccountDetails(details, *source, "trustor")
 		details["limit"] = amount.String(op.Limit)
 	case xdr.OperationTypeAllowTrust:
 		op := operation.Operation.Body.MustAllowTrustOp()
-		AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), "")
-		AddAccountAndMuxedAccountDetails(details, *source, "trustee")
+		addAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), "")
+		addAccountAndMuxedAccountDetails(details, *source, "trustee")
 		details["trustor"] = op.Trustor.Address()
 		details["authorize"] = xdr.TrustLineFlags(op.Authorize).IsAuthorized()
 		authLiabilities := xdr.TrustLineFlags(op.Authorize).IsAuthorizedToMaintainLiabilitiesFlag()
@@ -245,7 +245,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		beginSponsorshipOp := operation.findInitatingBeginSponsoringOp()
 		if beginSponsorshipOp != nil {
 			beginSponsorshipSource := beginSponsorshipOp.SourceAccount()
-			AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor")
+			addAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor")
 		}
 	case xdr.OperationTypeRevokeSponsorship:
 		op := operation.Operation.Body.MustRevokeSponsorshipOp()
@@ -261,7 +261,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 	case xdr.OperationTypeSetTrustLineFlags:
 		op := operation.Operation.Body.MustSetTrustLineFlagsOp()
 		details["trustor"] = op.Trustor.Address()
-		AddAssetDetails(details, op.Asset, "")
+		addAssetDetails(details, op.Asset, "")
 		if op.SetFlags > 0 {
 			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.SetFlags), "set")
 		}
@@ -419,14 +419,14 @@ func contractCodeHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelop
 func ledgerKeyHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) []string {
 	var ledgerKeyHash []string
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
+		if ledgerKeyToLedgerKeyHash(ledgerKey) != "" {
+			ledgerKeyHash = append(ledgerKeyHash, ledgerKeyToLedgerKeyHash(ledgerKey))
 		}
 	}
 
 	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
+		if ledgerKeyToLedgerKeyHash(ledgerKey) != "" {
+			ledgerKeyHash = append(ledgerKeyHash, ledgerKeyToLedgerKeyHash(ledgerKey))
 		}
 	}
 
@@ -461,12 +461,12 @@ func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey)
 	case xdr.LedgerEntryTypeTrustline:
 		result["trustline_account_id"] = ledgerKey.TrustLine.AccountId.Address()
 		if ledgerKey.TrustLine.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
-			result["trustline_liquidity_pool_id"] = PoolIDToString(*ledgerKey.TrustLine.Asset.LiquidityPoolId)
+			result["trustline_liquidity_pool_id"] = poolIDToString(*ledgerKey.TrustLine.Asset.LiquidityPoolId)
 		} else {
 			result["trustline_asset"] = ledgerKey.TrustLine.Asset.ToAsset().StringCanonical()
 		}
 	case xdr.LedgerEntryTypeLiquidityPool:
-		result["liquidity_pool_id"] = PoolIDToString(ledgerKey.LiquidityPool.LiquidityPoolId)
+		result["liquidity_pool_id"] = poolIDToString(ledgerKey.LiquidityPool.LiquidityPoolId)
 	}
 	return nil
 }

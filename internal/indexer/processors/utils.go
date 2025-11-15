@@ -18,8 +18,8 @@ import (
 	"github.com/stellar/go/hash"
 )
 
-// PoolIDToString converts a pool ID to its string representation
-func PoolIDToString(id xdr.PoolId) string {
+// poolIDToString converts a pool ID to its string representation
+func poolIDToString(id xdr.PoolId) string {
 	return xdr.Hash(id).HexString()
 }
 
@@ -31,8 +31,8 @@ func formatPrefix(p string) string {
 	return p
 }
 
-// AddLiquidityPoolAssetDetails adds liquidity pool asset details to the result map
-func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.LiquidityPoolParameters) error {
+// addLiquidityPoolAssetDetails adds liquidity pool asset details to the result map
+func addLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.LiquidityPoolParameters) error {
 	result["asset_type"] = "liquidity_pool_shares"
 	if lpp.Type != xdr.LiquidityPoolTypeLiquidityPoolConstantProduct {
 		return fmt.Errorf("unknown liquidity pool type %d", lpp.Type)
@@ -42,12 +42,12 @@ func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 	if err != nil {
 		return err
 	}
-	result["liquidity_pool_id"] = PoolIDToString(poolID)
+	result["liquidity_pool_id"] = poolIDToString(poolID)
 	return nil
 }
 
-// AddAccountAndMuxedAccountDetails adds account and muxed account details to the result map
-func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
+// addAccountAndMuxedAccountDetails adds account and muxed account details to the result map
+func addAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
 	account_id := a.ToAccountId()
 	result[prefix] = account_id.Address()
 	prefix = formatPrefix(prefix)
@@ -66,8 +66,8 @@ func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.Muxed
 	return nil
 }
 
-// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
-func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
+// ledgerKeyToLedgerKeyHash converts a ledger key to its hash representation
+func ledgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
 	ledgerKeyByte, err := ledgerKey.MarshalBinary()
 	if err != nil {
 		return ""
@@ -78,8 +78,8 @@ func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
 	return ledgerKeyHash
 }
 
-// AddAssetDetails adds asset details to the result map with an optional prefix
-func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) error {
+// addAssetDetails adds asset details to the result map with an optional prefix
+func addAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) error {
 	var (
 		assetType string
 		code      string
@@ -176,7 +176,7 @@ func createSACBalanceChangeEntry(fromAccount string, toAccount string, amountCha
 
 	balanceChange["type"] = changeType
 	balanceChange["amount"] = amount.String128(amountChanged)
-	AddAssetDetails(balanceChange, asset, "")
+	addAssetDetails(balanceChange, asset, "")
 	return balanceChange
 }
 
