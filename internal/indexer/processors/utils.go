@@ -14,7 +14,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 
 	"github.com/pkg/errors"
-	"github.com/stellar/go/amount"
 	"github.com/stellar/go/hash"
 )
 
@@ -40,7 +39,7 @@ func addLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 	cp := lpp.ConstantProduct
 	poolID, err := xdr.NewPoolId(cp.AssetA, cp.AssetB, cp.Fee)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating pool ID: %w", err)
 	}
 	result["liquidity_pool_id"] = PoolIDToString(poolID)
 	return nil
@@ -48,20 +47,20 @@ func addLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 
 // addAccountAndMuxedAccountDetails adds account and muxed account details to the result map
 func addAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
-	account_id := a.ToAccountId()
-	result[prefix] = account_id.Address()
+	accountID := a.ToAccountId()
+	result[prefix] = accountID.Address()
 	prefix = formatPrefix(prefix)
 	if a.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
 		muxedAccountAddress, err := a.GetAddress()
 		if err != nil {
-			return err
+			return fmt.Errorf("getting muxed account address: %w", err)
 		}
 		result[prefix+"muxed"] = muxedAccountAddress
-		muxedAccountId, err := a.GetId()
+		muxedAccountID, err := a.GetId()
 		if err != nil {
-			return err
+			return fmt.Errorf("getting muxed account ID: %w", err)
 		}
-		result[prefix+"muxed_id"] = muxedAccountId
+		result[prefix+"muxed_id"] = muxedAccountID
 	}
 	return nil
 }
@@ -78,8 +77,8 @@ func ledgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
 	return ledgerKeyHash
 }
 
-// addAssetDetails adds asset details to the result map with an optional prefix
-func addAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) error {
+// addAssetDetails adds asset details to the result map
+func addAssetDetails(result map[string]interface{}, a xdr.Asset) error {
 	var (
 		assetType string
 		code      string
@@ -90,14 +89,14 @@ func addAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) 
 		err = errors.Wrap(err, "xdr.Asset.Extract error")
 		return err
 	}
-	result[prefix+"asset_type"] = assetType
+	result["asset_type"] = assetType
 
 	if a.Type == xdr.AssetTypeAssetTypeNative {
 		return nil
 	}
 
-	result[prefix+"asset_code"] = code
-	result[prefix+"asset_issuer"] = issuer
+	result["asset_code"] = code
+	result["asset_issuer"] = issuer
 	return nil
 }
 
@@ -156,28 +155,6 @@ func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags
 
 	result[prefix+"_flags"] = n
 	result[prefix+"_flags_s"] = s
-}
-
-// createSACBalanceChangeEntry creates a balance change entry from SAC event data
-// fromAccount   - strkey format of contract or address
-// toAccount     - strkey format of contract or address, or nillable
-// amountChanged - absolute value that asset balance changed
-// asset         - the fully qualified issuer:code for asset that had balance change
-// changeType    - the type of source sac event that triggered this change
-func createSACBalanceChangeEntry(fromAccount string, toAccount string, amountChanged xdr.Int128Parts, asset xdr.Asset, changeType string) map[string]interface{} {
-	balanceChange := map[string]interface{}{}
-
-	if fromAccount != "" {
-		balanceChange["from"] = fromAccount
-	}
-	if toAccount != "" {
-		balanceChange["to"] = toAccount
-	}
-
-	balanceChange["type"] = changeType
-	balanceChange["amount"] = amount.String128(amountChanged)
-	addAssetDetails(balanceChange, asset, "")
-	return balanceChange
 }
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {

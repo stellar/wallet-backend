@@ -516,7 +516,7 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 				return fmt.Errorf("adding liquidity pool asset details: %w", addErr)
 			}
 		} else {
-			if addErr := addAssetDetails(details, op.Line.ToAsset(), ""); addErr != nil {
+			if addErr := addAssetDetails(details, op.Line.ToAsset()); addErr != nil {
 				return fmt.Errorf("adding asset details: %w", addErr)
 			}
 		}
@@ -535,7 +535,7 @@ func (e *effectsWrapper) addAllowTrustEffects() {
 	details := map[string]interface{}{
 		"trustor": op.Trustor.Address(),
 	}
-	err := addAssetDetails(details, asset, "")
+	err := addAssetDetails(details, asset)
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}
@@ -620,7 +620,7 @@ func (e *effectsWrapper) addTrustLineFlagsEffect(
 	details := map[string]interface{}{
 		"trustor": trustor.Address(),
 	}
-	err := addAssetDetails(details, asset, "")
+	err := addAssetDetails(details, asset)
 	if err != nil {
 		panic(fmt.Errorf("failed to add asset details: %w", err))
 	}
