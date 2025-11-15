@@ -7,7 +7,6 @@ import (
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/network"
-	operation_processor "github.com/stellar/go/processors/operation"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
@@ -52,8 +51,8 @@ func makeScContract(contractID string) xdr.ScAddress {
 }
 
 // makeBasicSorobanOp creates a basic Soroban operation wrapper for testing.
-func makeBasicSorobanOp() *operation_processor.TransactionOperationWrapper {
-	return &operation_processor.TransactionOperationWrapper{
+func makeBasicSorobanOp() *TransactionOperationWrapper {
+	return &TransactionOperationWrapper{
 		Network:        network.TestNetworkPassphrase,
 		LedgerClosed:   closeTime,
 		LedgerSequence: 12345,
@@ -90,7 +89,7 @@ func makeBasicSorobanOp() *operation_processor.TransactionOperationWrapper {
 // setFromAddress configures a Soroban operation with FromAddress contract creation.
 //
 //nolint:unparam
-func setFromAddress(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, fromSourceAccount string) {
+func setFromAddress(op *TransactionOperationWrapper, hostFnType xdr.HostFunctionType, fromSourceAccount string) {
 	setFrom(op, hostFnType, xdr.ContractIdPreimage{
 		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
 		FromAddress: &xdr.ContractIdPreimageFromAddress{
@@ -101,7 +100,7 @@ func setFromAddress(op *operation_processor.TransactionOperationWrapper, hostFnT
 }
 
 // setFromAsset configures a Soroban operation with FromAsset contract creation.
-func setFromAsset(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, asset xdr.Asset) {
+func setFromAsset(op *TransactionOperationWrapper, hostFnType xdr.HostFunctionType, asset xdr.Asset) {
 	setFrom(op, hostFnType, xdr.ContractIdPreimage{
 		Type:      xdr.ContractIdPreimageTypeContractIdPreimageFromAsset,
 		FromAsset: &asset,
@@ -109,7 +108,7 @@ func setFromAsset(op *operation_processor.TransactionOperationWrapper, hostFnTyp
 }
 
 // setFrom configures a Soroban operation with From(Asset|Address) contract creation.
-func setFrom(op *operation_processor.TransactionOperationWrapper, hostFnType xdr.HostFunctionType, preimage xdr.ContractIdPreimage) {
+func setFrom(op *TransactionOperationWrapper, hostFnType xdr.HostFunctionType, preimage xdr.ContractIdPreimage) {
 	op.Operation.Body = xdr.OperationBody{
 		Type: xdr.OperationTypeInvokeHostFunction,
 		InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
@@ -135,7 +134,7 @@ func setFrom(op *operation_processor.TransactionOperationWrapper, hostFnType xdr
 }
 
 // makeFeeBumpOp updates the envelope type to a fee bump envelope and sets the fee source account.
-func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *operation_processor.TransactionOperationWrapper) *operation_processor.TransactionOperationWrapper {
+func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *TransactionOperationWrapper) *TransactionOperationWrapper {
 	op := *baseOp
 	op.Transaction.Envelope.V0 = nil
 	op.Transaction.Envelope.V1 = nil
