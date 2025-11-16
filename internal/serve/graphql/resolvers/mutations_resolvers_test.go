@@ -367,7 +367,7 @@ func TestMutationResolver_CreateFeeBumpTransaction(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorContains(t, err, ErrMsgCouldNotParseTransactionEnvelope)
+		assert.ErrorContains(t, err, "Could not parse transaction envelope")
 
 		var gqlErr *gqlerror.Error
 		if errors.As(err, &gqlErr) {

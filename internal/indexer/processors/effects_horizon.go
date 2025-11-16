@@ -10,6 +10,7 @@ import (
 	"github.com/guregu/null"
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/errors"
 	"github.com/stellar/go/xdr"
 )
@@ -113,6 +114,8 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 	}
 
 	switch operation.OperationType() {
+	case xdr.OperationTypeCreateAccount:
+		wrapper.addAccountCreatedEffects()
 	case xdr.OperationTypeSetOptions:
 		err = wrapper.addSetOptionsEffects()
 	case xdr.OperationTypeChangeTrust:
@@ -354,6 +357,19 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 	}
 
 	return nil
+}
+
+func (e *effectsWrapper) addAccountCreatedEffects() {
+	op := e.operation.Operation.Body.MustCreateAccountOp()
+
+	e.addUnmuxed(
+		&op.Destination,
+		EffectSignerCreated,
+		map[string]interface{}{
+			"public_key": op.Destination.Address(),
+			"weight":     keypair.DefaultSignerWeight,
+		},
+	)
 }
 
 func (e *effectsWrapper) addSetOptionsEffects() error {
