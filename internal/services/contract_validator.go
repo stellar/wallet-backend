@@ -128,91 +128,36 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 }
 
 type ContractValidator interface {
-	ValidateFromWasmHash(_ context.Context, _ []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
+	ValidateFromContractCode(_ context.Context, _ []byte) (types.ContractType, error)
 	Close(_ context.Context) error
 }
 
 type contractValidator struct {
-	rpcService RPCService
-	runtime    wazero.Runtime
+	runtime wazero.Runtime
 }
 
 // NewContractValidator creates a new ContractValidator with a configured wazero runtime.
 // The runtime is initialized with custom sections enabled to extract contract specifications from WASM bytecode.
-func NewContractValidator(rpcService RPCService) ContractValidator {
+func NewContractValidator() ContractValidator {
 	// Create wazero runtime with custom sections enabled
 	config := wazero.NewRuntimeConfig().WithCustomSections(true)
 	runtime := wazero.NewRuntimeWithConfig(context.Background(), config)
 
 	return &contractValidator{
-		rpcService: rpcService,
-		runtime:    runtime,
+		runtime: runtime,
 	}
 }
 
-// ValidateFromWasmHash validates contract types for a list of WASM hashes by fetching their contract code
-// from the RPC service and checking if they implement the SEP-41 token standard.
-// Returns a map of WASM hash to contract type (SAC, SEP41, or Unknown).
-func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes []xdr.Hash) (map[xdr.Hash]types.ContractType, error) {
-	// Check context before starting expensive operations
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("validation cancelled before start: %w", err)
+func (v *contractValidator) ValidateFromContractCode(ctx context.Context, contractCode []byte) (types.ContractType, error) {
+	contractSpec, err := v.extractContractSpecFromWasmCode(ctx, contractCode)
+	if err != nil {
+		return types.ContractTypeUnknown, fmt.Errorf("extracting contract spec from WASM: %w", err)
 	}
-
-	ledgerKeys := make([]string, 0, len(wasmHashes))
-	for _, wasmHash := range wasmHashes {
-		ledgerKey, err := v.getContractCodeLedgerKey(wasmHash)
-		if err != nil {
-			return nil, fmt.Errorf("getting contract code ledger key: %w", err)
-		}
-		ledgerKeys = append(ledgerKeys, ledgerKey)
+	isSep41 := v.isContractCodeSEP41(contractSpec)
+	if isSep41 {
+		return types.ContractTypeSEP41, nil
 	}
-
-	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
-	totalBatches := (len(ledgerKeys) + getLedgerEntriesBatchSize - 1) / getLedgerEntriesBatchSize
-
-	for i := 0; i < len(ledgerKeys); i += getLedgerEntriesBatchSize {
-		// Check for context cancellation before each RPC batch
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("validation cancelled during batch processing: %w", err)
-		}
-
-		end := min(i+getLedgerEntriesBatchSize, len(ledgerKeys))
-		batch := ledgerKeys[i:end]
-		batchNum := i/getLedgerEntriesBatchSize + 1
-
-		entries, err := v.rpcService.GetLedgerEntries(batch)
-		if err != nil {
-			return nil, fmt.Errorf("getting ledger entries batch %d/%d (size %d): %w", batchNum, totalBatches, len(batch), err)
-		}
-
-		for _, entry := range entries.Entries {
-			var ledgerEntryData xdr.LedgerEntryData
-			err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshalling ledger entry data: %w", err)
-			}
-
-			if ledgerEntryData.Type != xdr.LedgerEntryTypeContractCode {
-				continue
-			}
-
-			contractCodeEntry := ledgerEntryData.MustContractCode()
-			wasmCode := contractCodeEntry.Code
-			wasmHash := contractCodeEntry.Hash
-			contractSpec, err := v.extractContractSpecFromWasmCode(ctx, wasmCode)
-			if err != nil {
-				return nil, fmt.Errorf("extracting contract spec from WASM: %w", err)
-			}
-			isSep41 := v.isContractCodeSEP41(contractSpec)
-			if isSep41 {
-				contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
-			} else {
-				contractTypesByWasmHash[wasmHash] = types.ContractTypeUnknown
-			}
-		}
-	}
-	return contractTypesByWasmHash, nil
+	return types.ContractTypeUnknown, nil
 }
 
 // Close shuts down the wazero runtime and releases associated resources.
