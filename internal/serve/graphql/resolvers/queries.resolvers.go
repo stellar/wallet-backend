@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"strings"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/amount"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -179,6 +181,20 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 	contracts, err := r.accountTokenService.GetAccountContracts(ctx, address)
 	if err != nil {
 		return nil, fmt.Errorf("getting contracts for account: %w", err)
+	}
+
+	// Get evicted balances for the account
+	evictedBalances, err := r.accountTokenService.GetEvictedBalances(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("getting evicted balances for account: %w", err)
+	}
+
+	filteredBalances := make([]services.EvictedBalance, 0)
+	contractsSet := set.NewSet(contracts...)
+	for _, balance := range evictedBalances {
+		if !contractsSet.Contains(balance.ContractID) {
+			filteredBalances = append(filteredBalances, balance)
+		}
 	}
 
 	// Build ledger keys for all contracts
@@ -377,6 +393,15 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				continue
 			}
 		}
+	}
+	for _, balance := range filteredBalances {
+		balances = append(balances, &graphql1.SACBalance{
+			TokenID:           balance.ContractID,
+			Balance:           balance.Balance,
+			TokenType:         graphql1.TokenTypeSac,
+			IsAuthorized:      balance.IsAuthorized,
+			IsClawbackEnabled: balance.IsClawbackEnabled,
+		})
 	}
 	return balances, nil
 }

@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,9 +25,10 @@ import (
 
 const (
 	// Redis key prefixes for account token storage
-	trustlinesKeyPrefix = "trustlines:"
-	contractsKeyPrefix  = "contracts:"
-	contractTypePrefix  = "contract_type:"
+	trustlinesKeyPrefix      = "trustlines:"
+	contractsKeyPrefix       = "contracts:"
+	contractTypePrefix       = "contract_type:"
+	evictedBalancesKeyPrefix = "evicted_balances:"
 
 	// redisPipelineBatchSize is the number of operations to batch in a single Redis pipeline.
 	redisPipelineBatchSize = 50000
@@ -66,6 +68,11 @@ type AccountTokenService interface {
 	// Returns ContractTypeUnknown if the contract ID is not found in the cache.
 	GetContractType(ctx context.Context, contractID string) (types.ContractType, error)
 
+	// GetEvictedBalances retrieves all evicted SAC balances for an account from Redis.
+	// Returns a slice of evicted balances with contract ID, balance, token type, and authorization info.
+	// Returns empty slice if no evicted balances exist for the account.
+	GetEvictedBalances(ctx context.Context, accountAddress string) ([]EvictedBalance, error)
+
 	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
 	// using pipelining for performance. This is called by the indexer for each ledger's
 	// state changes during live ingestion.
@@ -73,6 +80,14 @@ type AccountTokenService interface {
 }
 
 var _ AccountTokenService = (*accountTokenService)(nil)
+
+type EvictedBalance struct {
+	ContractID        string
+	Balance           string
+	TokenType         types.ContractType
+	IsAuthorized      bool
+	IsClawbackEnabled bool
+}
 
 type accountTokenService struct {
 	checkpointLedger      uint32
@@ -83,6 +98,7 @@ type accountTokenService struct {
 	trustlinesPrefix      string
 	contractsPrefix       string
 	contractTypePrefix    string
+	evictedBalancesPrefix string
 }
 
 func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractSpecValidator ContractSpecValidator, checkpointFrequency uint32) (AccountTokenService, error) {
@@ -112,6 +128,7 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 		trustlinesPrefix:      trustlinesKeyPrefix,
 		contractsPrefix:       contractsKeyPrefix,
 		contractTypePrefix:    contractTypePrefix,
+		evictedBalancesPrefix: evictedBalancesKeyPrefix,
 	}, nil
 }
 
@@ -155,11 +172,20 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		return err
 	}
 
+	evictedBalances, err := s.getEvictedContractBalances(ctx)
+	if err != nil {
+		return fmt.Errorf("getting evicted contract balances: %w", err)
+	}
+
 	if err := s.enrichContractTypes(ctx, contractTypesByContractID, contractIDsByWasmHash); err != nil {
 		return err
 	}
 
-	return s.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypesByContractID)
+	if err := s.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypesByContractID); err != nil {
+		return err
+	}
+
+	return s.storeEvictedBalancesInRedis(ctx, evictedBalances)
 }
 
 // ProcessTokenChanges processes token changes efficiently using Redis pipelining.
@@ -249,6 +275,11 @@ func (s *accountTokenService) buildContractTypeKey(contractID string) string {
 	return s.contractTypePrefix + contractID
 }
 
+// buildEvictedBalancesKey constructs the Redis key for an account's evicted balances.
+func (s *accountTokenService) buildEvictedBalancesKey(accountAddress string) string {
+	return s.evictedBalancesPrefix + accountAddress
+}
+
 // Add adds token identifiers to an account's Redis set.
 // For trustlines, assets are formatted as "CODE:ISSUER".
 // For SAC balances, assets are contract addresses (C...).
@@ -305,8 +336,78 @@ func (s *accountTokenService) GetContractType(ctx context.Context, contractID st
 	return types.ContractType(tokenType), nil
 }
 
+// GetEvictedBalances retrieves all evicted SAC balances for an account from Redis.
+func (s *accountTokenService) GetEvictedBalances(ctx context.Context, accountAddress string) ([]EvictedBalance, error) {
+	if accountAddress == "" {
+		return nil, fmt.Errorf("account address cannot be empty")
+	}
+
+	key := s.buildEvictedBalancesKey(accountAddress)
+	val, err := s.redisStore.Get(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("getting evicted balances for account %s: %w", accountAddress, err)
+	}
+
+	// No evicted balances for this account
+	if val == "" {
+		return []EvictedBalance{}, nil
+	}
+
+	var balances []EvictedBalance
+	if err := json.Unmarshal([]byte(val), &balances); err != nil {
+		return nil, fmt.Errorf("unmarshaling evicted balances: %w", err)
+	}
+
+	return balances, nil
+}
+
 func (s *accountTokenService) GetCheckpointLedger() uint32 {
 	return s.checkpointLedger
+}
+
+func (s *accountTokenService) getEvictedContractBalances(ctx context.Context) (map[string][]EvictedBalance, error) {
+	balancesByAccountAddress := make(map[string][]EvictedBalance)
+	archiveIterator := ingest.NewHotArchiveIterator(ctx, s.archive, s.checkpointLedger)
+	for ledgerEntry, err := range archiveIterator {
+		if err != nil {
+			return nil, fmt.Errorf("reading ledger entry: %w", err)
+		}
+
+		switch ledgerEntry.Data.Type {
+		case xdr.LedgerEntryTypeContractData:
+			contractDataEntry := ledgerEntry.Data.MustContractData()
+			contractID, ok := contractDataEntry.Contract.GetContractId()
+			if !ok {
+				continue
+			}
+			contractIDStr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+			holderAddress, balance, ok := sac.ContractBalanceFromContractData(ledgerEntry, s.networkPassphrase)
+			if !ok {
+				continue
+			}
+
+			// Now that we have confirmed the contract is an SAC, we extract the authorization fields
+			isAuthorized, isClawbackEnabled, err := s.extractAuthorizationFields(contractDataEntry)
+			if err != nil {
+				continue
+			}
+
+			holderAddressStr := strkey.MustEncode(strkey.VersionByteAccountID, holderAddress[:])
+			balancesByAccountAddress[holderAddressStr] = append(balancesByAccountAddress[holderAddressStr], EvictedBalance{
+				ContractID:        contractIDStr,
+				Balance:           balance.String(),
+				TokenType:         types.ContractTypeSAC,
+				IsAuthorized:      isAuthorized,
+				IsClawbackEnabled: isClawbackEnabled,
+			})
+		default:
+			continue
+		}
+
+	}
+
+	return balancesByAccountAddress, nil
 }
 
 // collectAccountTokensFromCheckpoint reads from a ChangeReader and collects all trustlines and contract balances.
@@ -362,7 +463,6 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			var assetType, assetCode, assetIssuer string
 			err = trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer)
 			if err != nil {
-				log.Ctx(ctx).Debugf("Failed to extract asset from trustline: %v", err)
 				continue
 			}
 			entries++
@@ -380,14 +480,12 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				// However, this could also be valid for any non-SEP41 contract that mimics the same format.
 				holderAddress, err := s.extractHolderAddress(contractDataEntry.Key)
 				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract holder address: %v", err)
 					continue
 				}
 
 				// Extract the contract ID from the contract data entry
 				contractAddress, err := s.extractContractID(contractDataEntry)
 				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract contract ID: %v", err)
 					continue
 				}
 
@@ -398,7 +496,6 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
 				contractAddress, err := s.extractContractID(contractDataEntry)
 				if err != nil {
-					log.Ctx(ctx).Debugf("Failed to extract contract ID from instance: %v", err)
 					continue
 				}
 				ledgerEntry := change.Post
@@ -512,6 +609,44 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	return nil
 }
 
+// storeEvictedBalancesInRedis stores evicted SAC balances into Redis using JSON serialization.
+// Each account's balances are stored as a JSON array under the key evicted_balances:{accountAddress}.
+func (s *accountTokenService) storeEvictedBalancesInRedis(
+	ctx context.Context,
+	balancesByAccountAddress map[string][]EvictedBalance,
+) error {
+	if len(balancesByAccountAddress) == 0 {
+		return nil
+	}
+
+	startTime := time.Now()
+	operations := make([]store.RedisPipelineOperation, 0, len(balancesByAccountAddress))
+
+	// Serialize each account's balances as JSON and create pipeline operations
+	for accountAddr, balances := range balancesByAccountAddress {
+		data, err := json.Marshal(balances)
+		if err != nil {
+			return fmt.Errorf("marshaling evicted balances for %s: %w", accountAddr, err)
+		}
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:    store.OpSet,
+			Key:   s.buildEvictedBalancesKey(accountAddr),
+			Value: string(data),
+		})
+	}
+
+	// Execute operations in batches using existing pipeline
+	for i := 0; i < len(operations); i += redisPipelineBatchSize {
+		end := min(i+redisPipelineBatchSize, len(operations))
+		if err := s.redisStore.ExecutePipeline(ctx, operations[i:end]); err != nil {
+			return fmt.Errorf("executing evicted balances pipeline: %w", err)
+		}
+	}
+
+	log.Ctx(ctx).Infof("Stored evicted balances for %d accounts in Redis in %.2f seconds", len(balancesByAccountAddress), time.Since(startTime).Seconds())
+	return nil
+}
+
 func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
 	// Get latest ledger from archive
 	latestLedger, err := archive.GetLatestLedgerSequence()
@@ -589,4 +724,59 @@ func (s *accountTokenService) extractContractID(contractData xdr.ContractDataEnt
 	}
 
 	return contractAddress, nil
+}
+
+// extractAuthorizationFields extracts the authorized and clawback enabled fields from a SAC balance entry.
+// SAC balance entries store these as boolean fields in a map with keys "authorized" and "clawback".
+func (s *accountTokenService) extractAuthorizationFields(contractData xdr.ContractDataEntry) (isAuthorized bool, isClawbackEnabled bool, err error) {
+	// Get the balance map from the contract data value
+	balanceMap, ok := contractData.Val.GetMap()
+	if !ok || balanceMap == nil {
+		return false, false, fmt.Errorf("contract data value is not a map")
+	}
+
+	var authorizedFound, clawbackFound bool
+
+	// Iterate through the map entries to find authorized and clawback fields
+	for _, entry := range *balanceMap {
+		// Check if the key is a symbol
+		if entry.Key.Type != xdr.ScValTypeScvSymbol {
+			continue
+		}
+
+		keySymbol := string(entry.Key.MustSym())
+		switch keySymbol {
+		case "authorized":
+			if entry.Val.Type != xdr.ScValTypeScvBool {
+				return false, false, fmt.Errorf("authorized field is not bool type")
+			}
+			boolVal, ok := entry.Val.GetB()
+			if !ok {
+				return false, false, fmt.Errorf("failed to extract authorized boolean value")
+			}
+			isAuthorized = boolVal
+			authorizedFound = true
+
+		case "clawback":
+			if entry.Val.Type != xdr.ScValTypeScvBool {
+				return false, false, fmt.Errorf("clawback field is not bool type")
+			}
+			boolVal, ok := entry.Val.GetB()
+			if !ok {
+				return false, false, fmt.Errorf("failed to extract clawback boolean value")
+			}
+			isClawbackEnabled = boolVal
+			clawbackFound = true
+		}
+	}
+
+	// Validate that both required fields were found
+	if !authorizedFound {
+		return false, false, fmt.Errorf("authorized field not found in balance map")
+	}
+	if !clawbackFound {
+		return false, false, fmt.Errorf("clawback field not found in balance map")
+	}
+
+	return isAuthorized, isClawbackEnabled, nil
 }

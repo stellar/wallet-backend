@@ -120,6 +120,11 @@ func (a *AccountTokenServiceMock) GetContractType(ctx context.Context, contractI
 	return args.Get(0).(types.ContractType), args.Error(1)
 }
 
+func (a *AccountTokenServiceMock) GetEvictedBalances(ctx context.Context, accountAddress string) ([]EvictedBalance, error) {
+	args := a.Called(ctx, accountAddress)
+	return args.Get(0).([]EvictedBalance), args.Error(1)
+}
+
 func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
 	args := a.Called(ctx, trustlineChanges, contractChanges)
 	return args.Error(0)
