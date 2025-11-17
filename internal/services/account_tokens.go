@@ -2,21 +2,23 @@ package services
 
 import (
 	"context"
-	"io"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
-	"errors"
-	"github.com/stellar/go/keypair"
-	"github.com/stellar/go/txnbuild"
-	"github.com/stellar/wallet-backend/internal/entities"
+
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/sac"
+	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
+	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
+
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/entities"
 
 	"github.com/stellar/go/support/log"
 
@@ -591,7 +593,7 @@ func (s *accountTokenService) extractContractID(contractData xdr.ContractDataEnt
 // Returns the XDR ScVal response from the contract function.
 func (s *accountTokenService) fetchContractMetadata(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
 	if err := ctx.Err(); err != nil {
-		return xdr.ScVal{}, err
+		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
 	}
 
 	// Decode contract ID from string

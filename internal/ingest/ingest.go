@@ -84,10 +84,6 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-	contractStore, err := cache.NewContractTokenStore(models.Contract)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating contract store: %w", err)
-	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
@@ -102,7 +98,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
