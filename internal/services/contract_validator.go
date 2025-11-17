@@ -46,7 +46,7 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 // sep41FunctionSpec defines the expected signature for a SEP-41 token function.
 type sep41FunctionSpec struct {
 	name            string
-	expectedInputs  map[string]any
+	expectedInputs  map[string]string
 	expectedOutputs []string
 }
 
@@ -55,32 +55,32 @@ type sep41FunctionSpec struct {
 var sep41RequiredFunctions = []sep41FunctionSpec{
 	{
 		name:            "balance",
-		expectedInputs:  map[string]any{"id": "Address"},
+		expectedInputs:  map[string]string{"id": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "allowance",
-		expectedInputs:  map[string]any{"from": "Address", "spender": "Address"},
+		expectedInputs:  map[string]string{"from": "Address", "spender": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "decimals",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"u32"},
 	},
 	{
 		name:            "name",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name:            "symbol",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name: "approve",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"from":              "Address",
 			"spender":           "Address",
 			"amount":            "i128",
@@ -90,16 +90,24 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "transfer",
-		expectedInputs: map[string]any{
-			"from":   set.NewSet("Address", "MuxedAddress"), // Support the new MuxedAddress type change introduced in CAP-67
+		expectedInputs: map[string]string{
+			"from":   "Address",
 			"to":     "Address",
 			"amount": "i128",
 		},
-		expectedOutputs: []string{},
+	},
+	// transfer: (from: Address, to_muxed: MuxedAddress, amount: i128) -> () -> CAP-67
+	{
+		name: "transfer",
+		expectedInputs: map[string]string{
+			"from":     "Address",
+			"to_muxed": "MuxedAddress",
+			"amount":   "i128",
+		},
 	},
 	{
 		name: "transfer_from",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"spender": "Address",
 			"from":    "Address",
 			"to":      "Address",
@@ -109,7 +117,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"from":   "Address",
 			"amount": "i128",
 		},
@@ -117,7 +125,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn_from",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"spender": "Address",
 			"from":    "Address",
 			"amount":  "i128",
@@ -177,19 +185,19 @@ func (v *contractValidator) Close(ctx context.Context) error {
 //   - name: () -> (String)
 //   - symbol: () -> (String)
 //   - approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
-//   - transfer: (from: Address, to: Address, amount: i128) -> ()
+//   - transfer: (from: Address, to: Address, amount: i128) -> () or (from: Address, to_muxed: MuxedAddress, amount: i128) -> ()
 //   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 //   - burn: (from: Address, amount: i128) -> ()
 //   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
 func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
 	// Build a map of required function names to their specs for quick lookup
-	requiredFuncsMap := make(map[string]sep41FunctionSpec, len(sep41RequiredFunctions))
+	requiredSpecs := make(map[string][]sep41FunctionSpec, len(sep41RequiredFunctions))
 	for _, spec := range sep41RequiredFunctions {
-		requiredFuncsMap[spec.name] = spec
+		requiredSpecs[spec.name] = append(requiredSpecs[spec.name], spec)
 	}
 
 	// Track which required functions we've found and validated
-	foundFunctions := make(map[string]bool, len(sep41RequiredFunctions))
+	foundFunctions := set.NewSet[string]()
 
 	// Iterate through the contract spec to find and validate SEP-41 functions
 	for _, spec := range contractSpec {
@@ -201,7 +209,7 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 		funcName := string(function.Name)
 
 		// Check if this is a SEP-41 required function
-		expectedSpec, isRequired := requiredFuncsMap[funcName]
+		expectedSpecs, isRequired := requiredSpecs[funcName]
 		if !isRequired {
 			continue
 		}
@@ -218,42 +226,33 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 			actualOutputs.Add(getTypeName(output.Type))
 		}
 
-		// Convert expected outputs to set for comparison
-		expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
+		for _, expectedSpec := range expectedSpecs {
+			// Convert expected outputs to set for comparison
+			expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
 
-		// Validate the function signature matches SEP-41 requirements
-		if !v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
-			// If a required function exists but has wrong signature, fail immediately
-			return false
+			// Validate the function signature matches SEP-41 requirements
+			if v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
+				foundFunctions.Add(funcName)
+				break
+			}
 		}
-
-		foundFunctions[funcName] = true
 	}
 
 	// All required functions must be present
-	return len(foundFunctions) == len(sep41RequiredFunctions)
+	return foundFunctions.Cardinality() == len(requiredSpecs)
 }
 
 // validateFunctionInputsAndOutputs checks if a function's signature matches the expected SEP-41 specification.
 // It compares input parameter names/types and output types, supporting both exact matches and sets of valid types
 // (e.g., for CAP-67 where "from" parameter accepts both Address and MuxedAddress).
-func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]any, expectedOutputs set.Set[string]) bool {
+func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
 	}
 
 	for expectedInput, expectedInputType := range expectedInputs {
-		switch inputType := expectedInputType.(type) {
-		// This handles the case where new input types are introduced in the future CAPs.
-		// We need to support both old and new input types.
-		case set.Set[string]:
-			if !inputType.Contains(inputs[expectedInput].(string)) {
-				return false
-			}
-		default:
-			if inputs[expectedInput] != inputType {
-				return false
-			}
+		if inputs[expectedInput] != expectedInputType {
+			return false
 		}
 	}
 
