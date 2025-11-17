@@ -335,7 +335,7 @@ func TestContractStore_Exists(t *testing.T) {
 		models, err := data.NewModels(dbConnectionPool, mockMetricsService)
 		require.NoError(t, err)
 
-		store, err := NewTokenContractStore(models.Contract)
+		store, err := NewContractTokenStore(models.Contract)
 		require.NoError(t, err)
 
 		contractID := "CONTRACT_EXPIRY_TEST"
@@ -355,7 +355,7 @@ func TestContractStore_Exists(t *testing.T) {
 		assert.Equal(t, name, storedName)
 
 		// Simulate cache expiration by manually deleting from cache
-		store.(*tokenContractStore).cache.Delete(contractID)
+		store.(*contractTokenStore).cache.Delete(contractID)
 
 		// Now Exists should return false (cache miss)
 		exists = store.Exists(ctx, contractID)

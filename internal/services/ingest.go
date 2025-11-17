@@ -62,7 +62,7 @@ type ingestService struct {
 	appTracker              apptracker.AppTracker
 	rpcService              RPCService
 	chAccStore              store.ChannelAccountStore
-	contractStore           cache.TokenContractStore
+	contractStore           cache.ContractTokenStore
 	accountTokenService     AccountTokenService
 	metricsService          metrics.MetricsService
 	networkPassphrase       string
@@ -78,7 +78,7 @@ func NewIngestService(
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
-	contractStore cache.TokenContractStore,
+	contractStore cache.ContractTokenStore,
 	accountTokenService AccountTokenService,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,

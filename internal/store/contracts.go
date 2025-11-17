@@ -19,33 +19,21 @@ const (
 	defaultExpiration = 30 * 24 * time.Hour
 )
 
-type tokenContractStore struct {
+type contractTokenStore struct {
 	cache *cache.Cache
 	db    *data.ContractModel
 }
 
-func NewTokenContractStore(dbModel *data.ContractModel) (TokenContractStore, error) {
-	store := &tokenContractStore{
+func NewContractTokenStore(dbModel *data.ContractModel) (ContractTokenStore, error) {
+	store := &contractTokenStore{
 		cache: cache.New(defaultExpiration, defaultExpiration),
 		db:    dbModel,
-	}
-
-	// Populate cache with existing contracts
-	contracts, err := store.db.GetAll(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("getting all contracts: %w", err)
-	}
-
-	if len(contracts) > 0 {
-		for _, contract := range contracts {
-			store.set(contract.ID, contract.Name, contract.Symbol)
-		}
 	}
 
 	return store, nil
 }
 
-func (s *tokenContractStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
+func (s *contractTokenStore) UpsertWithTx(ctx context.Context, contractID string, name string, symbol string) error {
 	var contract *data.Contract
 
 	err := db.RunInTransaction(ctx, s.db.DB, nil, func(tx db.Transaction) error {
@@ -79,7 +67,7 @@ func (s *tokenContractStore) UpsertWithTx(ctx context.Context, contractID string
 	return nil
 }
 
-func (s *tokenContractStore) Name(ctx context.Context, contractID string) (string, error) {
+func (s *contractTokenStore) Name(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
 		return "", err
@@ -88,7 +76,7 @@ func (s *tokenContractStore) Name(ctx context.Context, contractID string) (strin
 	return contractData[contractNameKey], nil
 }
 
-func (s *tokenContractStore) Symbol(ctx context.Context, contractID string) (string, error) {
+func (s *contractTokenStore) Symbol(ctx context.Context, contractID string) (string, error) {
 	contractData, err := s.getContractData(contractID)
 	if err != nil {
 		return "", err
@@ -97,12 +85,12 @@ func (s *tokenContractStore) Symbol(ctx context.Context, contractID string) (str
 	return contractData[contractSymbolKey], nil
 }
 
-func (s *tokenContractStore) Exists(ctx context.Context, contractID string) bool {
+func (s *contractTokenStore) Exists(ctx context.Context, contractID string) bool {
 	_, found := s.cache.Get(contractID)
 	return found
 }
 
-func (s *tokenContractStore) getContractData(contractID string) (map[string]string, error) {
+func (s *contractTokenStore) getContractData(contractID string) (map[string]string, error) {
 	data, found := s.cache.Get(contractID)
 	if !found {
 		return nil, fmt.Errorf("getting contract data: contract not found")
@@ -119,7 +107,7 @@ func (s *tokenContractStore) getContractData(contractID string) (map[string]stri
 	return contractData, nil
 }
 
-func (s *tokenContractStore) set(contractID, name, symbol string) {
+func (s *contractTokenStore) set(contractID, name, symbol string) {
 	contractData := map[string]string{
 		contractNameKey:   name,
 		contractSymbolKey: symbol,
