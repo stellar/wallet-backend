@@ -15,7 +15,6 @@ import (
 
 const (
 	contractSpecV0SectionName = "contractspecv0"
-	getLedgerEntriesBatchSize = 10
 )
 
 // Map of XDR ScSpecType to human-readable type names
@@ -148,6 +147,7 @@ func NewContractValidator() ContractValidator {
 	}
 }
 
+// ValidateFromContractCode validates a contract code against the SEP-41 token standard.
 func (v *contractValidator) ValidateFromContractCode(ctx context.Context, contractCode []byte) (types.ContractType, error) {
 	contractSpec, err := v.extractContractSpecFromWasmCode(ctx, contractCode)
 	if err != nil {
@@ -312,25 +312,6 @@ func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context,
 	}
 
 	return specs, nil
-}
-
-// getContractCodeLedgerKey constructs a base64-encoded ledger key for retrieving contract code from RPC.
-// Takes a WASM hash and returns the encoded ledger key used in getLedgerEntries RPC calls.
-func (v *contractValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (string, error) {
-	// Create a LedgerKey for ContractCode
-	var ledgerKey xdr.LedgerKey
-	err := ledgerKey.SetContractCode(wasmHash)
-	if err != nil {
-		return "", fmt.Errorf("creating contract code ledger key: %w", err)
-	}
-
-	// Encode to base64 for RPC call
-	keyBase64, err := ledgerKey.MarshalBinaryBase64()
-	if err != nil {
-		return "", fmt.Errorf("encoding ledger key to base64: %w", err)
-	}
-
-	return keyBase64, nil
 }
 
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.

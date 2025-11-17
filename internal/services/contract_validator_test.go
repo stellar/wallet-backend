@@ -3,17 +3,13 @@ package services
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/binary"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -161,8 +157,8 @@ func createNonSEP41ContractSpec() []xdr.ScSpecEntry {
 	}
 }
 
-// createValidWasmWithSpec creates a minimal valid WASM module with contractspecv0 custom section
-func createValidWasmWithSpec(spec []xdr.ScSpecEntry) []byte {
+// createValidWasmCodeWithSpec creates a minimal valid WASM module with contractspecv0 custom section
+func createValidWasmCodeWithSpec(spec []xdr.ScSpecEntry) []byte {
 	/*
 		Minimal valid WASM module structure
 		Magic number: 0x00 0x61 0x73 0x6D (wasm).
@@ -235,84 +231,18 @@ func writeLEB128(buf *bytes.Buffer, value uint32) {
 	}
 }
 
-// encodeLedgerEntryToBase64 encodes ledger entry data to base64
-func encodeLedgerEntryToBase64(data xdr.LedgerEntryData) (string, error) {
-	var buf bytes.Buffer
-	_, err := xdr.Marshal(&buf, data)
-	if err != nil {
-		return "", err
-	}
-	// Convert to base64
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
-}
-
-// createContractCodeLedgerEntry creates a contract code ledger entry result
-func createContractCodeLedgerEntry(wasmHash xdr.Hash, wasmCode []byte) entities.LedgerEntryResult {
-	contractCode := xdr.ContractCodeEntry{
-		Hash: wasmHash,
-		Code: wasmCode,
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:         xdr.LedgerEntryTypeContractCode,
-		ContractCode: &contractCode,
-	}
-
-	dataXDR, err := encodeLedgerEntryToBase64(ledgerEntryData)
-	if err != nil {
-		panic(err)
-	}
-
-	return entities.LedgerEntryResult{
-		DataXDR: dataXDR,
-	}
-}
-
-// createNonContractCodeLedgerEntry creates a non-contract-code ledger entry
-func createNonContractCodeLedgerEntry() entities.LedgerEntryResult {
-	accountID := xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-	accountEntry := xdr.AccountEntry{
-		AccountId: accountID,
-		Balance:   1000,
-		SeqNum:    1,
-	}
-
-	ledgerEntryData := xdr.LedgerEntryData{
-		Type:    xdr.LedgerEntryTypeAccount,
-		Account: &accountEntry,
-	}
-
-	dataXDR, err := encodeLedgerEntryToBase64(ledgerEntryData)
-	if err != nil {
-		panic(err)
-	}
-
-	return entities.LedgerEntryResult{
-		DataXDR: dataXDR,
-	}
-}
-
-// createInvalidBase64LedgerEntry creates a ledger entry with invalid base64
-func createInvalidBase64LedgerEntry() entities.LedgerEntryResult {
-	return entities.LedgerEntryResult{
-		DataXDR: "!!!invalid-base64!!!",
-	}
-}
-
 // Test functions start here
 
 func TestNewContractSpecValidator(t *testing.T) {
 	t.Run("creates validator successfully", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 
 		require.NotNil(t, validator)
 		assert.IsType(t, &contractValidator{}, validator)
 	})
 
 	t.Run("initializes runtime with custom sections", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 
 		// Verify we can close the validator (runtime exists)
 		err := validator.Close(context.Background())
@@ -320,275 +250,84 @@ func TestNewContractSpecValidator(t *testing.T) {
 	})
 }
 
-func TestValidateFromWasmHash(t *testing.T) {
+func TestValidateFromContractCode(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("returns empty map for empty input", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+	t.Run("returns error for empty input", func(t *testing.T) {
+		validator := NewContractValidator()
 		defer func() {
 			_ = validator.Close(ctx)
 		}()
 
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{})
+		_, err := validator.ValidateFromContractCode(ctx, []byte{})
 
-		require.NoError(t, err)
-		assert.Empty(t, result)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "extracting contract spec from WASM: compiling WASM module: invalid magic number")
 	})
 
 	t.Run("validates single SEP-41 contract", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 		defer func() {
 			_ = validator.Close(ctx)
 		}()
 
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 		sep41Spec := createSEP41ContractSpec()
-		wasmCode := createValidWasmWithSpec(sep41Spec)
-		ledgerEntry := createContractCodeLedgerEntry(wasmHash, wasmCode)
+		wasmCode := createValidWasmCodeWithSpec(sep41Spec)
 
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{ledgerEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
+		result, err := validator.ValidateFromContractCode(ctx, wasmCode)
 
 		require.NoError(t, err)
-		assert.Len(t, result, 1)
-		assert.Equal(t, types.ContractTypeSEP41, result[wasmHash])
+		assert.Equal(t, types.ContractTypeSEP41, result)
 	})
 
 	t.Run("validates single non-SEP-41 contract", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 		defer func() {
 			_ = validator.Close(ctx)
 		}()
 
-		wasmHash := xdr.Hash{2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 		nonSep41Spec := createNonSEP41ContractSpec()
-		wasmCode := createValidWasmWithSpec(nonSep41Spec)
-		ledgerEntry := createContractCodeLedgerEntry(wasmHash, wasmCode)
+		wasmCode := createValidWasmCodeWithSpec(nonSep41Spec)
 
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{ledgerEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
+		result, err := validator.ValidateFromContractCode(ctx, wasmCode)
 
 		require.NoError(t, err)
-		assert.Len(t, result, 1)
-		assert.Equal(t, types.ContractTypeUnknown, result[wasmHash])
-	})
-
-	t.Run("validates multiple contracts with mixed types", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(ctx)
-		}()
-
-		wasmHash1 := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-		wasmHash2 := xdr.Hash{2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-
-		sep41Spec := createSEP41ContractSpec()
-		nonSep41Spec := createNonSEP41ContractSpec()
-
-		wasmCode1 := createValidWasmWithSpec(sep41Spec)
-		wasmCode2 := createValidWasmWithSpec(nonSep41Spec)
-
-		ledgerEntry1 := createContractCodeLedgerEntry(wasmHash1, wasmCode1)
-		ledgerEntry2 := createContractCodeLedgerEntry(wasmHash2, wasmCode2)
-
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{ledgerEntry1, ledgerEntry2},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash1, wasmHash2})
-
-		require.NoError(t, err)
-		assert.Len(t, result, 2)
-		assert.Equal(t, types.ContractTypeSEP41, result[wasmHash1])
-		assert.Equal(t, types.ContractTypeUnknown, result[wasmHash2])
-	})
-
-	t.Run("batches requests for more than 10 contracts", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(ctx)
-		}()
-
-		// Create 15 wasm hashes
-		var wasmHashes []xdr.Hash
-		var entries1 []entities.LedgerEntryResult
-		var entries2 []entities.LedgerEntryResult
-
-		sep41Spec := createSEP41ContractSpec()
-		wasmCode := createValidWasmWithSpec(sep41Spec)
-
-		for i := 0; i < 15; i++ {
-			hash := xdr.Hash{}
-			binary.BigEndian.PutUint32(hash[:], uint32(i))
-			wasmHashes = append(wasmHashes, hash)
-
-			entry := createContractCodeLedgerEntry(hash, wasmCode)
-			if i < 10 {
-				entries1 = append(entries1, entry)
-			} else {
-				entries2 = append(entries2, entry)
-			}
-		}
-
-		// Expect two batched calls
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: entries1,
-		}, nil).Once()
-
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: entries2,
-		}, nil).Once()
-
-		result, err := validator.ValidateFromWasmHash(ctx, wasmHashes)
-
-		require.NoError(t, err)
-		assert.Len(t, result, 15)
-		for _, hash := range wasmHashes {
-			assert.Equal(t, types.ContractTypeSEP41, result[hash])
-		}
-	})
-
-	t.Run("handles RPC GetLedgerEntries error", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(ctx)
-		}()
-
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{}, assert.AnError)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "getting ledger entries")
-		assert.Nil(t, result)
-	})
-
-	t.Run("handles invalid base64 in DataXDR", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(ctx)
-		}()
-
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-		invalidEntry := createInvalidBase64LedgerEntry()
-
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{invalidEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "unmarshalling ledger entry data")
-		assert.Nil(t, result)
-	})
-
-	t.Run("skips wrong ledger entry type", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(ctx)
-		}()
-
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-		accountEntry := createNonContractCodeLedgerEntry()
-
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{accountEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
-
-		require.NoError(t, err)
-		assert.Empty(t, result)
+		assert.Equal(t, types.ContractTypeUnknown, result)
 	})
 
 	t.Run("handles invalid WASM code", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 		defer func() {
 			_ = validator.Close(ctx)
 		}()
 
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 		invalidWasm := createInvalidWasm()
-		ledgerEntry := createContractCodeLedgerEntry(wasmHash, invalidWasm)
 
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{ledgerEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
+		result, err := validator.ValidateFromContractCode(ctx, invalidWasm)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "extracting contract spec from WASM")
-		assert.Nil(t, result)
+		assert.Equal(t, types.ContractTypeUnknown, result)
 	})
 
 	t.Run("handles WASM without contractspecv0 section", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
+		validator := NewContractValidator()
 		defer func() {
 			_ = validator.Close(ctx)
 		}()
 
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
 		wasmCode := createWasmWithoutSpec()
-		ledgerEntry := createContractCodeLedgerEntry(wasmHash, wasmCode)
 
-		mockRPC.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{
-			Entries: []entities.LedgerEntryResult{ledgerEntry},
-		}, nil)
-
-		result, err := validator.ValidateFromWasmHash(ctx, []xdr.Hash{wasmHash})
+		result, err := validator.ValidateFromContractCode(ctx, wasmCode)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "contractspecv0 section not found")
-		assert.Nil(t, result)
-	})
-
-	t.Run("handles context cancellation", func(t *testing.T) {
-		mockRPC := NewRPCServiceMock(t)
-		validator := NewContractValidator(mockRPC)
-		defer func() {
-			_ = validator.Close(context.Background())
-		}()
-
-		cancelledCtx, cancel := context.WithCancel(ctx)
-		cancel() // Cancel immediately
-
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-
-		// The Validate function doesn't explicitly check context before making calls
-		// So it will proceed normally
-		result, err := validator.ValidateFromWasmHash(cancelledCtx, []xdr.Hash{wasmHash})
-
-		// Test should complete without panic
-		// Results may vary depending on when context is checked
-		assert.Nil(t, result)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "validation cancelled before start: context canceled")
+		assert.Equal(t, types.ContractTypeUnknown, result)
 	})
 }
 
 func TestIsContractCodeSEP41(t *testing.T) {
-	mockRPC := NewRPCServiceMock(t)
-	validator := &contractValidator{rpcService: mockRPC}
+	validator := NewContractValidator().(*contractValidator)
 
 	t.Run("returns true for complete SEP-41 contract", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
@@ -752,8 +491,7 @@ func TestIsContractCodeSEP41(t *testing.T) {
 }
 
 func TestValidateFunctionInputsAndOutputs(t *testing.T) {
-	mockRPC := NewRPCServiceMock(t)
-	validator := &contractValidator{rpcService: mockRPC}
+	validator := NewContractValidator().(*contractValidator)
 
 	t.Run("returns true for exact match", func(t *testing.T) {
 		inputs := map[string]any{
@@ -926,8 +664,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 
 func TestExtractContractSpecFromWasmCode(t *testing.T) {
 	ctx := context.Background()
-	mockRPC := NewRPCServiceMock(t)
-	validator := NewContractValidator(mockRPC)
+	validator := NewContractValidator()
 	defer func() {
 		_ = validator.Close(ctx)
 	}()
@@ -936,7 +673,7 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 
 	t.Run("extracts spec from valid WASM", func(t *testing.T) {
 		spec := createSEP41ContractSpec()
-		wasmCode := createValidWasmWithSpec(spec)
+		wasmCode := createValidWasmCodeWithSpec(spec)
 
 		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
@@ -1042,63 +779,52 @@ func TestExtractContractSpecFromWasmCode(t *testing.T) {
 		assert.Len(t, result, len(spec))
 		assert.Equal(t, xdr.ScSpecEntryKindScSpecEntryFunctionV0, result[0].Kind)
 	})
-}
 
-func TestGetContractCodeLedgerKey(t *testing.T) {
-	ctx := context.Background()
-	mockRPC := NewRPCServiceMock(t)
-	validator := NewContractValidator(mockRPC)
-	defer func() {
-		_ = validator.Close(ctx)
-	}()
+	t.Run("handles empty contractspecv0 section", func(t *testing.T) {
+		// Create WASM with valid structure but zero spec entries
+		var buf bytes.Buffer
+		buf.Write([]byte{0x00, 0x61, 0x73, 0x6D}) // WASM magic
+		buf.Write([]byte{0x01, 0x00, 0x00, 0x00}) // Version 1
 
-	v := validator.(*contractValidator)
+		// Custom section with empty contractspecv0
+		sectionName := "contractspecv0"
+		buf.WriteByte(0)                              // Custom section
+		writeLEB128(&buf, uint32(1+len(sectionName))) // Size (just name length byte + name, no payload)
+		writeLEB128(&buf, uint32(len(sectionName)))
+		buf.WriteString(sectionName)
+		// No spec bytes - empty section
 
-	t.Run("creates ledger key for valid hash", func(t *testing.T) {
-		wasmHash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
+		wasmCode := buf.Bytes()
 
-		result, err := v.getContractCodeLedgerKey(wasmHash)
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
-		require.NoError(t, err)
-		assert.NotEmpty(t, result)
-
-		// Verify it's valid base64
-		var ledgerKey xdr.LedgerKey
-		err = xdr.SafeUnmarshalBase64(result, &ledgerKey)
-		require.NoError(t, err)
-		assert.Equal(t, xdr.LedgerEntryTypeContractCode, ledgerKey.Type)
+		require.Error(t, err)
+		assert.Empty(t, result, "compiling WASM module: failed to read custom section name[contractspecv0]: EOF")
 	})
 
-	t.Run("creates ledger key for zero hash", func(t *testing.T) {
-		wasmHash := xdr.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	t.Run("returns error for truncated XDR in contractspecv0", func(t *testing.T) {
+		// Create WASM with contractspecv0 containing incomplete/truncated XDR
+		var buf bytes.Buffer
+		buf.Write([]byte{0x00, 0x61, 0x73, 0x6D}) // WASM magic
+		buf.Write([]byte{0x01, 0x00, 0x00, 0x00}) // Version 1
 
-		result, err := v.getContractCodeLedgerKey(wasmHash)
+		// Create partial XDR data (incomplete spec entry)
+		// This is just the beginning of a valid ScSpecEntry but truncated
+		truncatedXDR := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} // Partial data
 
-		require.NoError(t, err)
-		assert.NotEmpty(t, result)
+		sectionName := "contractspecv0"
+		buf.WriteByte(0) // Custom section
+		writeLEB128(&buf, uint32(1+len(sectionName)+len(truncatedXDR)))
+		writeLEB128(&buf, uint32(len(sectionName)))
+		buf.WriteString(sectionName)
+		buf.Write(truncatedXDR)
 
-		// Verify it's valid base64
-		var ledgerKey xdr.LedgerKey
-		err = xdr.SafeUnmarshalBase64(result, &ledgerKey)
-		require.NoError(t, err)
-		assert.Equal(t, xdr.LedgerEntryTypeContractCode, ledgerKey.Type)
-	})
+		wasmCode := buf.Bytes()
 
-	t.Run("returns base64 encoded string", func(t *testing.T) {
-		wasmHash := xdr.Hash{255, 254, 253, 252, 251, 250, 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235, 234, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224}
+		result, err := v.extractContractSpecFromWasmCode(context.Background(), wasmCode)
 
-		result, err := v.getContractCodeLedgerKey(wasmHash)
-
-		require.NoError(t, err)
-		assert.NotEmpty(t, result)
-
-		// Verify we can decode it back
-		var ledgerKey xdr.LedgerKey
-		err = xdr.SafeUnmarshalBase64(result, &ledgerKey)
-		require.NoError(t, err)
-
-		// Verify the hash matches
-		contractCodeKey := ledgerKey.MustContractCode()
-		assert.Equal(t, wasmHash, contractCodeKey.Hash)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unmarshaling spec entry")
+		assert.Nil(t, result)
 	})
 }

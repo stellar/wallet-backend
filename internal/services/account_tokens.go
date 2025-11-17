@@ -28,9 +28,6 @@ const (
 	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
-
-	// progressInterval is the number of checkpoint entries to process before logging progress.
-	progressInterval = 100000
 )
 
 // AccountTokenService manages Redis caching of account token holdings,
@@ -150,10 +147,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	}
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	if err := s.enrichContractTypes(ctx, contractTypesByContractID, contractIDsByWasmHash, contractCodesByWasmHash); err != nil {
-		return err
-	}
-
+	s.enrichContractTypes(ctx, contractTypesByContractID, contractIDsByWasmHash, contractCodesByWasmHash)
 	return s.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypesByContractID)
 }
 
@@ -299,7 +293,6 @@ func (s *accountTokenService) processContractBalanceChange(ctx context.Context, 
 // processContractInstanceChange extracts contract type information from a contract instance entry.
 // Updates the contractTypesByContractID map with SAC types, and returns WASM hash for non-SAC contracts.
 func (s *accountTokenService) processContractInstanceChange(
-	ctx context.Context,
 	change ingest.Change,
 	contractAddress string,
 	contractDataEntry xdr.ContractDataEntry,
@@ -400,7 +393,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				wasmHash, skip := s.processContractInstanceChange(ctx, change, contractAddressStr, contractDataEntry, contractTypesByContractID)
+				wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, contractTypesByContractID)
 				if skip {
 					continue
 				}
@@ -421,19 +414,18 @@ func (s *accountTokenService) enrichContractTypes(
 	contractTypesByContractID map[string]types.ContractType,
 	contractIDsByWasmHash map[xdr.Hash][]string,
 	contractCodesByWasmHash map[xdr.Hash][]byte,
-) error {
+) {
 	for wasmHash, contractCode := range contractCodesByWasmHash {
 		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
 		if err != nil {
-			return fmt.Errorf("validating contract spec: %w", err)
+			log.Ctx(ctx).Warnf("Failed to validate contract code for WASM hash %s: %v", wasmHash.HexString(), err)
+			contractType = types.ContractTypeUnknown
 		}
 
 		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
 			contractTypesByContractID[contractAddress] = contractType
 		}
 	}
-
-	return nil
 }
 
 // storeAccountTokensInRedis stores all collected trustlines and contracts into Redis using pipelining.
