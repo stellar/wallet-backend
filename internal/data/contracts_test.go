@@ -22,17 +22,17 @@ func TestContractModel_Insert(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
 	t.Run("returns success for new contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "contract_tokens").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -41,9 +41,10 @@ func TestContractModel_Insert(t *testing.T) {
 		}
 
 		contract := &Contract{
-			ID:     "1",
-			Name:   "Test Contract",
-			Symbol: "TEST",
+			ID:       "1",
+			Name:     "Test Contract",
+			Symbol:   "TEST",
+			Decimals: 7,
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
@@ -58,6 +59,7 @@ func TestContractModel_Insert(t *testing.T) {
 		require.Equal(t, contract.ID, "1")
 		require.Equal(t, contract.Name, "Test Contract")
 		require.Equal(t, contract.Symbol, "TEST")
+		require.Equal(t, int16(7), contract.Decimals)
 
 		cleanUpDB()
 	})
@@ -65,8 +67,8 @@ func TestContractModel_Insert(t *testing.T) {
 	t.Run("returns error for duplicate contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -75,9 +77,10 @@ func TestContractModel_Insert(t *testing.T) {
 		}
 
 		contract := &Contract{
-			ID:     "1",
-			Name:   "Test Contract",
-			Symbol: "TEST",
+			ID:       "1",
+			Name:     "Test Contract",
+			Symbol:   "TEST",
+			Decimals: 7,
 		}
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 			err = m.Insert(context.Background(), tx, contract)
@@ -88,7 +91,7 @@ func TestContractModel_Insert(t *testing.T) {
 
 		dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 			err = m.Insert(context.Background(), tx, contract)
-			require.ErrorContains(t, err, "duplicate key value violates unique constraint \"token_contracts_pkey\"")
+			require.ErrorContains(t, err, "duplicate key value violates unique constraint \"contract_tokens_pkey\"")
 			return nil
 		})
 		require.Error(t, dbErr)
@@ -107,14 +110,14 @@ func TestContractModel_GetByID(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
 	t.Run("returns error when contract not found", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQueryError", "GetByID", "token_contracts", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQueryError", "GetByID", "contract_tokens", mock.Anything).Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -141,7 +144,7 @@ func TestContractModel_Update(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	cleanUpDB := func() {
-		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM token_contracts`)
+		_, err = dbConnectionPool.ExecContext(ctx, `DELETE FROM contract_tokens`)
 		require.NoError(t, err)
 	}
 
@@ -149,14 +152,14 @@ func TestContractModel_Update(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		// Expectations for Insert
-		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Insert", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Insert", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Insert", "contract_tokens").Return()
 		// Expectations for Update
-		mockMetricsService.On("ObserveDBQueryDuration", "Update", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Update", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Update", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Update", "contract_tokens").Return()
 		// Expectations for GetByID
-		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "GetByID", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "GetByID", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "GetByID", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -166,9 +169,10 @@ func TestContractModel_Update(t *testing.T) {
 
 		// First insert a contract
 		contract := &Contract{
-			ID:     "1",
-			Name:   "Test Contract",
-			Symbol: "TEST",
+			ID:       "1",
+			Name:     "Test Contract",
+			Symbol:   "TEST",
+			Decimals: 7,
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
@@ -181,6 +185,7 @@ func TestContractModel_Update(t *testing.T) {
 		// Update the contract
 		contract.Name = "Updated Contract"
 		contract.Symbol = "UPDATED"
+		contract.Decimals = 18
 
 		dbErr = db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
 			err = m.Update(context.Background(), tx, contract)
@@ -195,6 +200,7 @@ func TestContractModel_Update(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "Updated Contract", updatedContract.Name)
 		require.Equal(t, "UPDATED", updatedContract.Symbol)
+		require.Equal(t, int16(18), updatedContract.Decimals)
 
 		cleanUpDB()
 	})
@@ -202,8 +208,8 @@ func TestContractModel_Update(t *testing.T) {
 	t.Run("returns no error for non-existent contract", func(t *testing.T) {
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
-		mockMetricsService.On("ObserveDBQueryDuration", "Update", "token_contracts", mock.Anything).Return()
-		mockMetricsService.On("IncDBQuery", "Update", "token_contracts").Return()
+		mockMetricsService.On("ObserveDBQueryDuration", "Update", "contract_tokens", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "Update", "contract_tokens").Return()
 		defer mockMetricsService.AssertExpectations(t)
 
 		m := &ContractModel{
@@ -212,9 +218,10 @@ func TestContractModel_Update(t *testing.T) {
 		}
 
 		contract := &Contract{
-			ID:     "nonexistent",
-			Name:   "Test Contract",
-			Symbol: "TEST",
+			ID:       "nonexistent",
+			Name:     "Test Contract",
+			Symbol:   "TEST",
+			Decimals: 7,
 		}
 
 		dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, nil, func(tx db.Transaction) error {
