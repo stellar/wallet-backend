@@ -5,6 +5,7 @@ CREATE TABLE contract_tokens (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     symbol TEXT NOT NULL,
+    decimals SMALLINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
