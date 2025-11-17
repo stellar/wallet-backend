@@ -251,7 +251,7 @@ func (s *accountTokenService) GetCheckpointLedger() uint32 {
 
 // processTrustlineChange extracts trustline information from a ledger change entry.
 // Returns the account address and asset string, with skip=true if the entry should be skipped.
-func (s *accountTokenService) processTrustlineChange(ctx context.Context, change ingest.Change) (accountAddress string, assetStr string, skip bool) {
+func (s *accountTokenService) processTrustlineChange(change ingest.Change) (accountAddress string, assetStr string, skip bool) {
 	trustlineEntry := change.Post.Data.MustTrustLine()
 	accountAddress = trustlineEntry.AccountId.Address()
 	asset := trustlineEntry.Asset
@@ -264,7 +264,6 @@ func (s *accountTokenService) processTrustlineChange(ctx context.Context, change
 
 	var assetType, assetCode, assetIssuer string
 	if err := trustlineEntry.Asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
-		log.Ctx(ctx).Warnf("Failed to extract asset from trustline for account %s: %v", accountAddress, err)
 		return "", "", true
 	}
 
@@ -274,14 +273,13 @@ func (s *accountTokenService) processTrustlineChange(ctx context.Context, change
 
 // processContractBalanceChange extracts contract balance information from a contract data entry.
 // Returns the holder address and contract ID, with skip=true if extraction fails.
-func (s *accountTokenService) processContractBalanceChange(ctx context.Context, contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
+func (s *accountTokenService) processContractBalanceChange(contractDataEntry xdr.ContractDataEntry) (holderAddress string, skip bool) {
 	// Extract the account/contract address from the contract data entry key.
 	// We parse using the [Balance, holder_address] format that is followed by SEP-41 tokens.
 	// However, this could also be valid for any non-SEP41 contract that mimics the same format.
 	var err error
 	holderAddress, err = s.extractHolderAddress(contractDataEntry.Key)
 	if err != nil {
-		log.Ctx(ctx).Warnf("Failed to extract holder address from contract data: %v", err)
 		return "", true
 	}
 
@@ -361,7 +359,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 		//exhaustive:ignore
 		switch change.Type {
 		case xdr.LedgerEntryTypeTrustline:
-			accountAddress, assetStr, skip := s.processTrustlineChange(ctx, change)
+			accountAddress, assetStr, skip := s.processTrustlineChange(change)
 			if skip {
 				continue
 			}
@@ -385,7 +383,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 			//exhaustive:ignore
 			switch contractDataEntry.Key.Type {
 			case xdr.ScValTypeScvVec:
-				holderAddress, skip := s.processContractBalanceChange(ctx, contractDataEntry)
+				holderAddress, skip := s.processContractBalanceChange(contractDataEntry)
 				if skip {
 					continue
 				}
