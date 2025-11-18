@@ -82,7 +82,6 @@ func TestExtractHolderAddress(t *testing.T) {
 	service := &accountTokenService{
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -207,7 +206,6 @@ func TestExtractContractID(t *testing.T) {
 	service := &accountTokenService{
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	hash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
@@ -280,7 +278,6 @@ func TestGetAccountTrustlines(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -344,7 +341,6 @@ func TestGetAccountContracts(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -394,79 +390,6 @@ func TestGetAccountContracts(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.ElementsMatch(t, tt.want, got)
-			}
-		})
-	}
-}
-
-func TestGetContractType(t *testing.T) {
-	ctx := context.Background()
-	mr, redisStore := setupTestRedis(t)
-	defer mr.Close()
-
-	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
-	}
-
-	tests := []struct {
-		name       string
-		contractID string
-		setupData  func()
-		want       types.ContractType
-		wantErr    bool
-	}{
-		{
-			name:       "empty contract ID",
-			contractID: "",
-			setupData:  func() {},
-			want:       types.ContractTypeUnknown,
-			wantErr:    true,
-		},
-		{
-			name:       "SAC contract type",
-			contractID: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
-			setupData: func() {
-				key := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-				err := mr.Set(key, string(types.ContractTypeSAC))
-				require.NoError(t, err)
-			},
-			want:    types.ContractTypeSAC,
-			wantErr: false,
-		},
-		{
-			name:       "SEP41 contract type",
-			contractID: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-			setupData: func() {
-				key := contractTypePrefix + "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-				err := mr.Set(key, string(types.ContractTypeSEP41))
-				require.NoError(t, err)
-			},
-			want:    types.ContractTypeSEP41,
-			wantErr: false,
-		},
-		{
-			name:       "unknown contract type - not in cache",
-			contractID: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-			setupData:  func() {},
-			want:       types.ContractTypeUnknown,
-			wantErr:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mr.FlushAll()
-			tt.setupData()
-
-			got, err := service.GetContractType(ctx, tt.contractID)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
@@ -924,7 +847,6 @@ func TestAddTrustlines(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -1010,7 +932,6 @@ func TestAddContracts(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -1096,7 +1017,6 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	t.Run("stores trustlines in Redis", func(t *testing.T) {

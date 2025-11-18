@@ -79,10 +79,6 @@ type AccountTokenService interface {
 
 	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
-
-	// GetContractType determines the token type (SAC, SEP41, or UNKNOWN) for a contract.
-	// Returns ContractTypeUnknown if the contract ID is not found in the cache.
-	GetContractType(ctx context.Context, contractID string) (types.ContractType, error)
 }
 
 var _ AccountTokenService = (*accountTokenService)(nil)
@@ -98,7 +94,6 @@ type accountTokenService struct {
 	networkPassphrase  string
 	trustlinesPrefix   string
 	contractsPrefix    string
-	contractTypePrefix string
 }
 
 func NewAccountTokenService(networkPassphrase string, archiveURL string, redisStore *store.RedisStore, contractValidator ContractValidator, rpcService RPCService, contractModel *data.ContractModel, pool pond.Pool, checkpointFrequency uint32) (AccountTokenService, error) {
@@ -130,7 +125,6 @@ func NewAccountTokenService(networkPassphrase string, archiveURL string, redisSt
 		networkPassphrase:  networkPassphrase,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}, nil
 }
 
@@ -195,11 +189,6 @@ func (s *accountTokenService) buildContractKey(accountAddress string) string {
 	return s.contractsPrefix + accountAddress
 }
 
-// buildContractTypeKey constructs the Redis key for a contract's type.
-func (s *accountTokenService) buildContractTypeKey(contractID string) string {
-	return s.contractTypePrefix + contractID
-}
-
 // AddTrustlines adds trustline assets to an account's Redis set.
 // Assets are formatted as "CODE:ISSUER".
 // Returns nil if assets is empty (no-op).
@@ -260,22 +249,6 @@ func (s *accountTokenService) GetAccountContracts(ctx context.Context, accountAd
 		return nil, fmt.Errorf("getting contracts for account %s: %w", accountAddress, err)
 	}
 	return contracts, nil
-}
-
-// GetContractType retrieves the token type (SAC, SEP41, or UNKNOWN) for a given contract ID from Redis.
-func (s *accountTokenService) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
-	if contractID == "" {
-		return types.ContractTypeUnknown, fmt.Errorf("contract ID cannot be empty")
-	}
-	key := s.buildContractTypeKey(contractID)
-	tokenType, err := s.redisStore.Get(ctx, key)
-	if err != nil {
-		return types.ContractTypeUnknown, fmt.Errorf("getting contract type for %s: %w", contractID, err)
-	}
-	if tokenType == "" {
-		return types.ContractTypeUnknown, nil
-	}
-	return types.ContractType(tokenType), nil
 }
 
 // GetCheckpointLedger returns the ledger sequence number of the checkpoint used for initial cache population.
@@ -425,7 +398,6 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
-				contractTypesByContractID[contractAddressStr] = types.ContractTypeUnknown
 				wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, contractTypesByContractID)
 				if skip {
 					continue
@@ -452,8 +424,10 @@ func (s *accountTokenService) enrichContractTypes(
 		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to validate contract code for WASM hash %s: %v", wasmHash.HexString(), err)
+			continue
 		}
 
+		// We only assign types for validated specs
 		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
 			contractTypesByContractID[contractAddress] = contractType
 		}
