@@ -80,8 +80,8 @@ func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *store.RedisStore) {
 
 func TestExtractHolderAddress(t *testing.T) {
 	service := &accountTokenService{
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -204,8 +204,8 @@ func TestExtractHolderAddress(t *testing.T) {
 
 func TestExtractContractID(t *testing.T) {
 	service := &accountTokenService{
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	hash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
@@ -275,9 +275,9 @@ func TestGetAccountTrustlines(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -338,9 +338,9 @@ func TestGetAccountContracts(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -844,9 +844,9 @@ func TestAddTrustlines(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -929,9 +929,9 @@ func TestAddContracts(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -1014,9 +1014,9 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	t.Run("stores trustlines in Redis", func(t *testing.T) {
