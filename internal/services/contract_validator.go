@@ -15,7 +15,6 @@ import (
 
 const (
 	contractSpecV0SectionName = "contractspecv0"
-	getLedgerEntriesBatchSize = 10
 )
 
 // Map of XDR ScSpecType to human-readable type names
@@ -47,7 +46,7 @@ var scSpecTypeNames = map[xdr.ScSpecType]string{
 // sep41FunctionSpec defines the expected signature for a SEP-41 token function.
 type sep41FunctionSpec struct {
 	name            string
-	expectedInputs  map[string]any
+	expectedInputs  map[string]string
 	expectedOutputs []string
 }
 
@@ -56,32 +55,32 @@ type sep41FunctionSpec struct {
 var sep41RequiredFunctions = []sep41FunctionSpec{
 	{
 		name:            "balance",
-		expectedInputs:  map[string]any{"id": "Address"},
+		expectedInputs:  map[string]string{"id": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "allowance",
-		expectedInputs:  map[string]any{"from": "Address", "spender": "Address"},
+		expectedInputs:  map[string]string{"from": "Address", "spender": "Address"},
 		expectedOutputs: []string{"i128"},
 	},
 	{
 		name:            "decimals",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"u32"},
 	},
 	{
 		name:            "name",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name:            "symbol",
-		expectedInputs:  map[string]any{},
+		expectedInputs:  map[string]string{},
 		expectedOutputs: []string{"String"},
 	},
 	{
 		name: "approve",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"from":              "Address",
 			"spender":           "Address",
 			"amount":            "i128",
@@ -91,16 +90,24 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "transfer",
-		expectedInputs: map[string]any{
-			"from":   set.NewSet("Address", "MuxedAddress"), // Support the new MuxedAddress type change introduced in CAP-67
+		expectedInputs: map[string]string{
+			"from":   "Address",
 			"to":     "Address",
 			"amount": "i128",
 		},
-		expectedOutputs: []string{},
+	},
+	// transfer: (from: Address, to_muxed: MuxedAddress, amount: i128) -> () -> CAP-67
+	{
+		name: "transfer",
+		expectedInputs: map[string]string{
+			"from":     "Address",
+			"to_muxed": "MuxedAddress",
+			"amount":   "i128",
+		},
 	},
 	{
 		name: "transfer_from",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"spender": "Address",
 			"from":    "Address",
 			"to":      "Address",
@@ -110,7 +117,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"from":   "Address",
 			"amount": "i128",
 		},
@@ -118,7 +125,7 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 	},
 	{
 		name: "burn_from",
-		expectedInputs: map[string]any{
+		expectedInputs: map[string]string{
 			"spender": "Address",
 			"from":    "Address",
 			"amount":  "i128",
@@ -128,91 +135,37 @@ var sep41RequiredFunctions = []sep41FunctionSpec{
 }
 
 type ContractValidator interface {
-	ValidateFromWasmHash(_ context.Context, _ []xdr.Hash) (map[xdr.Hash]types.ContractType, error)
+	ValidateFromContractCode(_ context.Context, _ []byte) (types.ContractType, error)
 	Close(_ context.Context) error
 }
 
 type contractValidator struct {
-	rpcService RPCService
-	runtime    wazero.Runtime
+	runtime wazero.Runtime
 }
 
 // NewContractValidator creates a new ContractValidator with a configured wazero runtime.
 // The runtime is initialized with custom sections enabled to extract contract specifications from WASM bytecode.
-func NewContractValidator(rpcService RPCService) ContractValidator {
+func NewContractValidator() ContractValidator {
 	// Create wazero runtime with custom sections enabled
 	config := wazero.NewRuntimeConfig().WithCustomSections(true)
 	runtime := wazero.NewRuntimeWithConfig(context.Background(), config)
 
 	return &contractValidator{
-		rpcService: rpcService,
-		runtime:    runtime,
+		runtime: runtime,
 	}
 }
 
-// ValidateFromWasmHash validates contract types for a list of WASM hashes by fetching their contract code
-// from the RPC service and checking if they implement the SEP-41 token standard.
-// Returns a map of WASM hash to contract type (SAC, SEP41, or Unknown).
-func (v *contractValidator) ValidateFromWasmHash(ctx context.Context, wasmHashes []xdr.Hash) (map[xdr.Hash]types.ContractType, error) {
-	// Check context before starting expensive operations
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("validation cancelled before start: %w", err)
+// ValidateFromContractCode validates a contract code against the SEP-41 token standard.
+func (v *contractValidator) ValidateFromContractCode(ctx context.Context, contractCode []byte) (types.ContractType, error) {
+	contractSpec, err := v.extractContractSpecFromWasmCode(ctx, contractCode)
+	if err != nil {
+		return types.ContractTypeUnknown, fmt.Errorf("extracting contract spec from WASM: %w", err)
 	}
-
-	ledgerKeys := make([]string, 0, len(wasmHashes))
-	for _, wasmHash := range wasmHashes {
-		ledgerKey, err := v.getContractCodeLedgerKey(wasmHash)
-		if err != nil {
-			return nil, fmt.Errorf("getting contract code ledger key: %w", err)
-		}
-		ledgerKeys = append(ledgerKeys, ledgerKey)
+	isSep41 := v.isContractCodeSEP41(contractSpec)
+	if isSep41 {
+		return types.ContractTypeSEP41, nil
 	}
-
-	contractTypesByWasmHash := make(map[xdr.Hash]types.ContractType)
-	totalBatches := (len(ledgerKeys) + getLedgerEntriesBatchSize - 1) / getLedgerEntriesBatchSize
-
-	for i := 0; i < len(ledgerKeys); i += getLedgerEntriesBatchSize {
-		// Check for context cancellation before each RPC batch
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("validation cancelled during batch processing: %w", err)
-		}
-
-		end := min(i+getLedgerEntriesBatchSize, len(ledgerKeys))
-		batch := ledgerKeys[i:end]
-		batchNum := i/getLedgerEntriesBatchSize + 1
-
-		entries, err := v.rpcService.GetLedgerEntries(batch)
-		if err != nil {
-			return nil, fmt.Errorf("getting ledger entries batch %d/%d (size %d): %w", batchNum, totalBatches, len(batch), err)
-		}
-
-		for _, entry := range entries.Entries {
-			var ledgerEntryData xdr.LedgerEntryData
-			err := xdr.SafeUnmarshalBase64(entry.DataXDR, &ledgerEntryData)
-			if err != nil {
-				return nil, fmt.Errorf("unmarshalling ledger entry data: %w", err)
-			}
-
-			if ledgerEntryData.Type != xdr.LedgerEntryTypeContractCode {
-				continue
-			}
-
-			contractCodeEntry := ledgerEntryData.MustContractCode()
-			wasmCode := contractCodeEntry.Code
-			wasmHash := contractCodeEntry.Hash
-			contractSpec, err := v.extractContractSpecFromWasmCode(ctx, wasmCode)
-			if err != nil {
-				return nil, fmt.Errorf("extracting contract spec from WASM: %w", err)
-			}
-			isSep41 := v.isContractCodeSEP41(contractSpec)
-			if isSep41 {
-				contractTypesByWasmHash[wasmHash] = types.ContractTypeSEP41
-			} else {
-				contractTypesByWasmHash[wasmHash] = types.ContractTypeUnknown
-			}
-		}
-	}
-	return contractTypesByWasmHash, nil
+	return types.ContractTypeUnknown, nil
 }
 
 // Close shuts down the wazero runtime and releases associated resources.
@@ -232,19 +185,19 @@ func (v *contractValidator) Close(ctx context.Context) error {
 //   - name: () -> (String)
 //   - symbol: () -> (String)
 //   - approve: (from: Address, spender: Address, amount: i128, expiration_ledger: u32) -> ()
-//   - transfer: (from: Address, to: Address, amount: i128) -> ()
+//   - transfer: (from: Address, to: Address, amount: i128) -> () or (from: Address, to_muxed: MuxedAddress, amount: i128) -> ()
 //   - transfer_from: (spender: Address, from: Address, to: Address, amount: i128) -> ()
 //   - burn: (from: Address, amount: i128) -> ()
 //   - burn_from: (spender: Address, from: Address, amount: i128) -> ()
 func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) bool {
 	// Build a map of required function names to their specs for quick lookup
-	requiredFuncsMap := make(map[string]sep41FunctionSpec, len(sep41RequiredFunctions))
+	requiredSpecs := make(map[string][]sep41FunctionSpec, len(sep41RequiredFunctions))
 	for _, spec := range sep41RequiredFunctions {
-		requiredFuncsMap[spec.name] = spec
+		requiredSpecs[spec.name] = append(requiredSpecs[spec.name], spec)
 	}
 
 	// Track which required functions we've found and validated
-	foundFunctions := make(map[string]bool, len(sep41RequiredFunctions))
+	foundFunctions := set.NewSet[string]()
 
 	// Iterate through the contract spec to find and validate SEP-41 functions
 	for _, spec := range contractSpec {
@@ -256,7 +209,7 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 		funcName := string(function.Name)
 
 		// Check if this is a SEP-41 required function
-		expectedSpec, isRequired := requiredFuncsMap[funcName]
+		expectedSpecs, isRequired := requiredSpecs[funcName]
 		if !isRequired {
 			continue
 		}
@@ -273,42 +226,33 @@ func (v *contractValidator) isContractCodeSEP41(contractSpec []xdr.ScSpecEntry) 
 			actualOutputs.Add(getTypeName(output.Type))
 		}
 
-		// Convert expected outputs to set for comparison
-		expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
+		for _, expectedSpec := range expectedSpecs {
+			// Convert expected outputs to set for comparison
+			expectedOutputs := set.NewSet(expectedSpec.expectedOutputs...)
 
-		// Validate the function signature matches SEP-41 requirements
-		if !v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
-			// If a required function exists but has wrong signature, fail immediately
-			return false
+			// Validate the function signature matches SEP-41 requirements
+			if v.validateFunctionInputsAndOutputs(actualInputs, actualOutputs, expectedSpec.expectedInputs, expectedOutputs) {
+				foundFunctions.Add(funcName)
+				break
+			}
 		}
-
-		foundFunctions[funcName] = true
 	}
 
 	// All required functions must be present
-	return len(foundFunctions) == len(sep41RequiredFunctions)
+	return foundFunctions.Cardinality() == len(requiredSpecs)
 }
 
 // validateFunctionInputsAndOutputs checks if a function's signature matches the expected SEP-41 specification.
 // It compares input parameter names/types and output types, supporting both exact matches and sets of valid types
 // (e.g., for CAP-67 where "from" parameter accepts both Address and MuxedAddress).
-func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]any, expectedOutputs set.Set[string]) bool {
+func (v *contractValidator) validateFunctionInputsAndOutputs(inputs map[string]any, outputs set.Set[string], expectedInputs map[string]string, expectedOutputs set.Set[string]) bool {
 	if len(inputs) != len(expectedInputs) {
 		return false
 	}
 
 	for expectedInput, expectedInputType := range expectedInputs {
-		switch inputType := expectedInputType.(type) {
-		// This handles the case where new input types are introduced in the future CAPs.
-		// We need to support both old and new input types.
-		case set.Set[string]:
-			if !inputType.Contains(inputs[expectedInput].(string)) {
-				return false
-			}
-		default:
-			if inputs[expectedInput] != inputType {
-				return false
-			}
+		if inputs[expectedInput] != expectedInputType {
+			return false
 		}
 	}
 
@@ -367,25 +311,6 @@ func (v *contractValidator) extractContractSpecFromWasmCode(ctx context.Context,
 	}
 
 	return specs, nil
-}
-
-// getContractCodeLedgerKey constructs a base64-encoded ledger key for retrieving contract code from RPC.
-// Takes a WASM hash and returns the encoded ledger key used in getLedgerEntries RPC calls.
-func (v *contractValidator) getContractCodeLedgerKey(wasmHash xdr.Hash) (string, error) {
-	// Create a LedgerKey for ContractCode
-	var ledgerKey xdr.LedgerKey
-	err := ledgerKey.SetContractCode(wasmHash)
-	if err != nil {
-		return "", fmt.Errorf("creating contract code ledger key: %w", err)
-	}
-
-	// Encode to base64 for RPC call
-	keyBase64, err := ledgerKey.MarshalBinaryBase64()
-	if err != nil {
-		return "", fmt.Errorf("encoding ledger key to base64: %w", err)
-	}
-
-	return keyBase64, nil
 }
 
 // getTypeName converts an XDR ScSpecType to its human-readable string representation.

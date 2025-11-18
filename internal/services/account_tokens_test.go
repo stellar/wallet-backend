@@ -503,7 +503,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Len(t, trustlines, 1)
@@ -512,6 +512,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, contracts)
 		assert.Empty(t, contractTypes)
 		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 
 	t.Run("reads contract balance entries", func(t *testing.T) {
@@ -561,7 +562,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Empty(t, trustlines)
@@ -572,6 +573,45 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Equal(t, "C", string(contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"][0][0]))
 		assert.Empty(t, contractTypes)
 		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, contractCodesByWasmHash)
+	})
+
+	t.Run("reads contract code entries", func(t *testing.T) {
+		// Create a CONTRACT_CODE ledger entry
+		wasmHash := xdr.Hash{100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131}
+		wasmCode := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00} // Minimal WASM header
+
+		contractCodeEntry := xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractCode,
+				ContractCode: &xdr.ContractCodeEntry{
+					Hash: wasmHash,
+					Code: wasmCode,
+				},
+			},
+		}
+
+		changes := []ingest.Change{
+			{
+				Type: xdr.LedgerEntryTypeContractCode,
+				Post: &contractCodeEntry,
+			},
+		}
+
+		reader := &mockChangeReader{changes: changes}
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+
+		require.NoError(t, err)
+		assert.Empty(t, trustlines)
+		assert.Empty(t, contracts)
+		assert.Empty(t, contractTypes)
+		assert.Empty(t, contractsByWasm)
+
+		// CONTRACT_CODE entries should be collected
+		assert.Len(t, contractCodesByWasmHash, 1)
+		storedCode, found := contractCodesByWasmHash[wasmHash]
+		require.True(t, found, "WASM hash should be in contractCodesByWasmHash map")
+		assert.Equal(t, wasmCode, storedCode)
 	})
 
 	t.Run("reads valid SAC contract instance entries", func(t *testing.T) {
@@ -600,7 +640,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Empty(t, trustlines)
@@ -619,6 +659,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// SAC contracts should NOT be added to contractsByWasm (they don't need WASM validation)
 		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 
 	t.Run("reads non-SAC WASM contract instance entries", func(t *testing.T) {
@@ -668,14 +709,14 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Empty(t, trustlines)
 		assert.Empty(t, contracts)
 		// Non-SAC contracts should NOT be classified yet (happens in enrichContractTypes)
 		assert.Empty(t, contractTypes)
-		// Non-SAC contracts should be added to contractsByWasm for batch validation
+		// Non-SAC contracts should be added to contractsByWasm for validation
 		assert.Len(t, contractsByWasm, 1)
 		contractAddresses, found := contractsByWasm[wasmHash]
 		require.True(t, found, "WASM hash should be in map")
@@ -685,6 +726,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
 		require.NoError(t, err)
 		assert.Equal(t, contractAddress, contractAddresses[0])
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 
 	t.Run("skips contract instances with nil WASM hash", func(t *testing.T) {
@@ -732,7 +774,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		// Should not error, just skip the entry
 		require.NoError(t, err)
@@ -741,6 +783,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		assert.Empty(t, contractTypes)
 		// Contract with nil WASM hash should NOT be added to contractsByWasm
 		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 
 	t.Run("handles mixed SAC and WASM contract instances", func(t *testing.T) {
@@ -806,7 +849,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Empty(t, trustlines)
@@ -830,6 +873,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// Ensure they're different contracts
 		assert.NotEqual(t, sacAddress, wasmAddress)
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
@@ -840,7 +884,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			changes: []ingest.Change{},
 		}
 
-		_, _, _, _, err := service.collectAccountTokensFromCheckpoint(cancelledCtx, reader)
+		_, _, _, _, _, err := service.collectAccountTokensFromCheckpoint(cancelledCtx, reader)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cancelled")
 	})
@@ -850,7 +894,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			err: assert.AnError,
 		}
 
-		_, _, _, _, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		_, _, _, _, _, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "reading checkpoint changes")
 	})
@@ -860,13 +904,14 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			changes: []ingest.Change{}, // Empty, will return EOF immediately
 		}
 
-		trustlines, contracts, contractTypes, contractsByWasm, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
 		assert.Empty(t, trustlines)
 		assert.Empty(t, contracts)
 		assert.Empty(t, contractTypes)
 		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, contractCodesByWasmHash)
 	})
 }
 
