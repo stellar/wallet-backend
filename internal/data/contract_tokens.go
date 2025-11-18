@@ -43,41 +43,6 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 	return contract, nil
 }
 
-func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract *Contract) error {
-	start := time.Now()
-	query := `
-		INSERT INTO contract_tokens (id, type, code, issuer, name, symbol, decimals)
-		VALUES (:id, :type, :code, :issuer, :name, :symbol, :decimals)
-	`
-	_, err := tx.NamedExecContext(ctx, query, contract)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("Insert", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("Insert", "contract_tokens", utils.GetDBErrorType(err))
-		return fmt.Errorf("inserting contract %s: %w", contract.ID, err)
-	}
-	m.MetricsService.IncDBQuery("Insert", "contract_tokens")
-	return nil
-}
-
-func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract *Contract) error {
-	start := time.Now()
-	query := `
-		UPDATE contract_tokens
-		SET type = :type, code = :code, issuer = :issuer, name = :name, symbol = :symbol, decimals = :decimals
-		WHERE id = :id
-	`
-	_, err := tx.NamedExecContext(ctx, query, contract)
-	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("Update", "contract_tokens", duration)
-	if err != nil {
-		m.MetricsService.IncDBQueryError("Update", "contract_tokens", utils.GetDBErrorType(err))
-		return fmt.Errorf("updating contract %s: %w", contract.ID, err)
-	}
-	m.MetricsService.IncDBQuery("Update", "contract_tokens")
-	return nil
-}
-
 // BatchInsert inserts multiple contracts in a single query using UNNEST.
 // It returns the IDs of successfully inserted contracts.
 // Contracts that already exist (duplicate IDs) are skipped via ON CONFLICT DO NOTHING.
