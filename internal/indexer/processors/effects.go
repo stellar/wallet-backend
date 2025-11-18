@@ -502,7 +502,6 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		}
 
 		// Map XDR trustline flags to our internal flag representation
-		log.Debugf("processor: %s: trustline flags: %+v", p.Name(), trustlineFlags)
 		defaultFlags = p.mapTrustlineFlagsToStrings(trustlineFlags)
 	}
 

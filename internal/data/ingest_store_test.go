@@ -121,7 +121,12 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			err = m.UpdateLatestLedgerSynced(ctx, tc.key, tc.ledgerToUpsert)
+			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
+				if err := m.UpdateLatestLedgerSynced(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
+					return err
+				}
+				return nil
+			})
 			require.NoError(t, err)
 
 			var dbStoredLedger uint32

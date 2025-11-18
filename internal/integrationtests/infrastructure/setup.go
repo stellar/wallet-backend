@@ -38,12 +38,13 @@ import (
 const (
 	walletBackendAPIContainerName    = "wallet-backend-api"
 	walletBackendIngestContainerName = "wallet-backend-ingest"
+	redisContainerName               = "redis"
 	walletBackendContainerAPIPort    = "8002"
 	walletBackendContainerIngestPort = "8003"
 	walletBackendContainerTag        = "integration-test"
 	walletBackendDockerfile          = "Dockerfile"
 	networkPassphrase                = "Standalone Network ; February 2017"
-	protocolVersion                  = 23 // Default protocol version for Stellar Core upgrades
+	protocolVersion                  = 24
 )
 
 // getGitCommitHash returns the current git commit hash (short form)
@@ -175,6 +176,7 @@ func (c *TestContainer) GetPort(ctx context.Context) (string, error) {
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
 	TestNetwork                   *testcontainers.DockerNetwork
+	RedisContainer                *TestContainer
 	PostgresContainer             *TestContainer
 	StellarCoreContainer          *TestContainer
 	RPCContainer                  *TestContainer
@@ -198,6 +200,9 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Create network
 	var err error
 	shared.TestNetwork, err = network.New(ctx)
+	require.NoError(t, err)
+
+	shared.RedisContainer, err = createRedisContainer(ctx, shared.TestNetwork)
 	require.NoError(t, err)
 
 	// Start PostgreSQL for Stellar Core
@@ -487,6 +492,35 @@ func triggerProtocolUpgrade(ctx context.Context, container *TestContainer, versi
 	return nil
 }
 
+// createRedisContainer starts a Redis container for testing
+func createRedisContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+	containerRequest := testcontainers.ContainerRequest{
+		Name:  redisContainerName,
+		Image: "redis:7-alpine",
+		Labels: map[string]string{
+			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+		},
+		Networks:     []string{testNetwork.Name},
+		ExposedPorts: []string{"6379/tcp"},
+		WaitingFor:   wait.ForListeningPort("6379/tcp"),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: containerRequest,
+		Reuse:            true,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating redis container: %w", err)
+	}
+	log.Ctx(ctx).Infof("🔄 Created Redis container")
+
+	return &TestContainer{
+		Container:     container,
+		MappedPortStr: "6379",
+	}, nil
+}
+
 // createCoreDBContainer starts a PostgreSQL container for Stellar Core
 func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
@@ -528,7 +562,7 @@ func createStellarCoreContainer(ctx context.Context, testNetwork *testcontainers
 
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "stellar-core",
-		Image: "stellar/stellar-core:23",
+		Image: "stellar/stellar-core:24",
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -592,7 +626,7 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "stellar-rpc",
-		Image: "stellar/stellar-rpc:23.0.4",
+		Image: "stellar/stellar-rpc:24.0.0",
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
@@ -687,6 +721,8 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 		Env: map[string]string{
 			"RPC_URL":                          "http://stellar-rpc:8000",
 			"DATABASE_URL":                     "postgres://postgres@wallet-db:5432/wallet-backend?sslmode=disable",
+			"ARCHIVE_URL":                      "http://stellar-core:1570",
+			"CHECKPOINT_FREQUENCY":             "8",
 			"PORT":                             walletBackendContainerIngestPort,
 			"LOG_LEVEL":                        "DEBUG",
 			"NETWORK":                          "standalone",
@@ -697,6 +733,8 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"DISTRIBUTION_ACCOUNT_PRIVATE_KEY": distributionAccountKeyPair.Seed(),
 			"DISTRIBUTION_ACCOUNT_SIGNATURE_PROVIDER": "ENV",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"REDIS_HOST":                              redisContainerName,
+			"REDIS_PORT":                              "6379",
 		},
 		Networks: []string{testNetwork.Name},
 	}
@@ -757,6 +795,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"NUMBER_CHANNEL_ACCOUNTS":                 "15",
 			"CHANNEL_ACCOUNT_ENCRYPTION_PASSPHRASE":   "GB3SKOV2DTOAZVYUXFAM4ELPQDLCF3LTGB4IEODUKQ7NDRZOOESSMNU7",
 			"STELLAR_ENVIRONMENT":                     "integration-test",
+			"REDIS_HOST":                              redisContainerName,
+			"REDIS_PORT":                              "6379",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),

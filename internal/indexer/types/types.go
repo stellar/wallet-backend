@@ -41,6 +41,15 @@ import (
 	"github.com/stellar/go/xdr"
 )
 
+type ContractType string
+
+const (
+	ContractTypeNative  ContractType = "NATIVE"
+	ContractTypeSAC     ContractType = "SAC"
+	ContractTypeSEP41   ContractType = "SEP41"
+	ContractTypeUnknown ContractType = "UNKNOWN"
+)
+
 type Account struct {
 	StellarAddress string    `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time `json:"createdAt,omitempty" db:"created_at"`
