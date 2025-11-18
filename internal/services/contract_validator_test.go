@@ -500,7 +500,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -516,7 +516,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -534,7 +534,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -551,7 +551,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -568,7 +568,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -585,7 +585,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet[string]()
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -602,7 +602,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("i128", "u32")
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -619,7 +619,7 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		}
 		outputs := set.NewSet("u32") // Wrong type
 
-		expectedInputs := map[string]any{
+		expectedInputs := map[string]string{
 			"from": "Address",
 			"to":   "Address",
 		}
@@ -633,31 +633,10 @@ func TestValidateFunctionInputsAndOutputs(t *testing.T) {
 		inputs := map[string]any{}
 		outputs := set.NewSet[string]()
 
-		expectedInputs := map[string]any{}
+		expectedInputs := map[string]string{}
 		expectedOutputs := set.NewSet[string]()
 
 		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
-		assert.True(t, result)
-	})
-
-	t.Run("returns true for matching with one of the many input types in a set", func(t *testing.T) {
-		inputs := map[string]any{
-			"from": "MuxedAddress",
-		}
-		outputs := set.NewSet("i128")
-
-		expectedInputs := map[string]any{
-			"from": set.NewSet("Address", "MuxedAddress"),
-		}
-		expectedOutputs := set.NewSet("i128")
-
-		result := validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
-		assert.True(t, result)
-
-		inputs = map[string]any{
-			"from": "Address",
-		}
-		result = validator.validateFunctionInputsAndOutputs(inputs, outputs, expectedInputs, expectedOutputs)
 		assert.True(t, result)
 	})
 }
