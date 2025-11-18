@@ -236,70 +236,91 @@ func (s *channelAccountService) submitChannelAccountsTxOnChain(
 	ops []txnbuild.Operation,
 	chAccSigner ChannelAccSigner,
 ) error {
+	// Wait for RPC service to become healthy by polling GetHealth directly.
+	// This lets the API server startup so that users can start interacting with the API
+	// which does not depend on RPC, instead of waiting till it becomes healthy.
 	log.Ctx(ctx).Infof("⏳ Waiting for RPC service to become healthy")
-	rpcHeartbeatChannel := s.RPCService.GetHeartbeatChannel()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled while waiting for rpc service to become healthy: %w", ctx.Err())
 
-	// The channel account creation goroutine will wait in the background for the rpc service to become healthy on startup.
-	// This lets the API server startup so that users can start interacting with the API which does not depend on RPC, instead of waiting till it becomes healthy.
-	case <-rpcHeartbeatChannel:
-		log.Ctx(ctx).Infof("👍 RPC service is healthy")
-		accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
-		if err != nil {
-			return fmt.Errorf("getting ledger sequence for distribution account public key=%s: %w", distributionAccountPublicKey, err)
-		}
+	healthCheckCtx, cancel := context.WithTimeout(ctx, rpcHealthCheckTimeout)
+	defer cancel()
 
-		tx, err := txnbuild.NewTransaction(
-			txnbuild.TransactionParams{
-				SourceAccount: &txnbuild.SimpleAccount{
-					AccountID: distributionAccountPublicKey,
-					Sequence:  accountSeq,
-				},
-				IncrementSequenceNum: true,
-				Operations:           ops,
-				BaseFee:              s.BaseFee,
-				Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("building transaction: %w", err)
-		}
+	ticker := time.NewTicker(sleepDelayForChannelAccountCreation)
+	defer ticker.Stop()
 
-		// Sign the transaction for the distribution account
-		tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
-		if err != nil {
-			return fmt.Errorf("signing transaction for distribution account: %w", err)
+	// Try immediately first
+	_, err := s.RPCService.GetHealth()
+	if err != nil {
+		log.Ctx(ctx).Debugf("Initial RPC health check failed: %v, will retry...", err)
+		for {
+			select {
+			case <-healthCheckCtx.Done():
+				return fmt.Errorf("timeout waiting for RPC service to become healthy: %w", healthCheckCtx.Err())
+			case <-ticker.C:
+				_, err = s.RPCService.GetHealth()
+				if err == nil {
+					break
+				}
+				log.Ctx(ctx).Debugf("RPC health check failed: %v, will retry...", err)
+				continue
+			}
+			break
 		}
-		// Sign the transaction for the channel accounts
-		tx, err = chAccSigner(ctx, tx)
-		if err != nil {
-			return fmt.Errorf("signing transaction with channel account(s) keypairs: %w", err)
-		}
-
-		txHash, err := tx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
-		if err != nil {
-			return fmt.Errorf("getting transaction hash: %w", err)
-		}
-		txXDR, err := tx.Base64()
-		if err != nil {
-			return fmt.Errorf("getting transaction envelope: %w", err)
-		}
-
-		log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to RPC service")
-		err = s.submitTransaction(ctx, txHash, txXDR)
-		if err != nil {
-			return fmt.Errorf("submitting channel account transaction to RPC service: %w", err)
-		}
-		log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to RPC service, waiting for confirmation...")
-		err = s.waitForTransactionConfirmation(ctx, txHash)
-		if err != nil {
-			return fmt.Errorf("getting transaction status: %w", err)
-		}
-
-		return nil
 	}
+
+	log.Ctx(ctx).Infof("👍 RPC service is healthy")
+	accountSeq, err := s.RPCService.GetAccountLedgerSequence(distributionAccountPublicKey)
+	if err != nil {
+		return fmt.Errorf("getting ledger sequence for distribution account public key=%s: %w", distributionAccountPublicKey, err)
+	}
+
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount: &txnbuild.SimpleAccount{
+				AccountID: distributionAccountPublicKey,
+				Sequence:  accountSeq,
+			},
+			IncrementSequenceNum: true,
+			Operations:           ops,
+			BaseFee:              s.BaseFee,
+			Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("building transaction: %w", err)
+	}
+
+	// Sign the transaction for the distribution account
+	tx, err = s.DistributionAccountSignatureClient.SignStellarTransaction(ctx, tx, distributionAccountPublicKey)
+	if err != nil {
+		return fmt.Errorf("signing transaction for distribution account: %w", err)
+	}
+	// Sign the transaction for the channel accounts
+	tx, err = chAccSigner(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("signing transaction with channel account(s) keypairs: %w", err)
+	}
+
+	txHash, err := tx.HashHex(s.DistributionAccountSignatureClient.NetworkPassphrase())
+	if err != nil {
+		return fmt.Errorf("getting transaction hash: %w", err)
+	}
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return fmt.Errorf("getting transaction envelope: %w", err)
+	}
+
+	log.Ctx(ctx).Infof("🚧 Submitting channel account transaction to RPC service")
+	err = s.submitTransaction(ctx, txHash, txXDR)
+	if err != nil {
+		return fmt.Errorf("submitting channel account transaction to RPC service: %w", err)
+	}
+	log.Ctx(ctx).Infof("🚧 Successfully submitted channel account transaction to RPC service, waiting for confirmation...")
+	err = s.waitForTransactionConfirmation(ctx, txHash)
+	if err != nil {
+		return fmt.Errorf("getting transaction status: %w", err)
+	}
+
+	return nil
 }
 
 func (s *channelAccountService) submitTransaction(_ context.Context, hash string, signedTxXDR string) error {
@@ -399,17 +420,11 @@ func (o *ChannelAccountServiceOptions) Validate() error {
 	return nil
 }
 
-func NewChannelAccountService(ctx context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
+func NewChannelAccountService(_ context.Context, opts ChannelAccountServiceOptions) (*channelAccountService, error) {
 	err := opts.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("validating channel account service options: %w", err)
 	}
-
-	go func() {
-		if err := opts.RPCService.TrackRPCServiceHealth(ctx, nil); err != nil {
-			log.Ctx(ctx).Warnf("RPC health tracking stopped: %v", err)
-		}
-	}()
 
 	return &channelAccountService{
 		DB:                                 opts.DB,
