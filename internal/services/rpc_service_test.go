@@ -926,7 +926,8 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil).Run(func(args mock.Arguments) {
 		cancel()
 	})
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
 
 	// Get result from heartbeat channel
 	select {
@@ -998,7 +999,8 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 		Return(mockResponse, nil)
 
 	// The ctx will timeout after {contextTimeout}, which is enough for the warning to trigger
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
 
 	entries := getLogs()
 	testSucceeded := false
@@ -1029,7 +1031,8 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
 
 	// Verify channel is closed after context cancellation
 	time.Sleep(100 * time.Millisecond)
@@ -1086,7 +1089,10 @@ func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
 	defer cancel()
 
 	manualTriggerChan := make(chan any, 1)
-	go rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	go func() {
+		//nolint:errcheck // Error is expected on context cancellation
+		rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	}()
 	time.Sleep(20 * time.Millisecond)
 	manualTriggerChan <- nil
 

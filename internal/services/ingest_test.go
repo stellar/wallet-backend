@@ -235,7 +235,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRPCService.
-		On("TrackRPCServiceHealth", ctx, mock.Anything).Once().
+		On("TrackRPCServiceHealth", ctx, mock.Anything).Return(nil).Once().
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockContractStore := &cache.MockTokenContractStore{}
@@ -328,7 +328,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockAppTracker := apptracker.MockAppTracker{}
 	mockRPCService := RPCServiceMock{}
 	mockRPCService.
-		On("TrackRPCServiceHealth", ctx, mock.Anything).Once().
+		On("TrackRPCServiceHealth", ctx, mock.Anything).Return(nil).Once().
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()

@@ -361,7 +361,7 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			// Create fresh mocks for each test
 			ctx := tc.getCtx()
 			mockRPCService := NewRPCServiceMock(t)
-			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
+			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return(nil)
 			distAccSigClient := signing.NewSignatureClientMock(t)
 			chAccSigClient := signing.NewSignatureClientMock(t)
 			channelAccountStore := store.NewChannelAccountStoreMock(t)
