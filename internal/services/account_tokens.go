@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"io"
 	"sync"
 	"time"
@@ -42,6 +43,9 @@ const (
 
 // ContractMetadata holds the metadata for a contract token (name, symbol, decimals).
 type ContractMetadata struct {
+	Type     types.ContractType
+	Code	string
+	Issuer	string
 	Name     string
 	Symbol   string
 	Decimals uint32
@@ -178,7 +182,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		// Don't fail the entire process if metadata fetch fails
 	}
 
-	return s.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypesByContractID)
+	return s.storeAccountTokensInRedis(ctx, trustlines, contracts)
 }
 
 // buildTrustlineKey constructs the Redis key for an account's trustlines set.
@@ -461,12 +465,11 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 	ctx context.Context,
 	trustlines map[string][]string,
 	contracts map[string][]string,
-	contractTypesByContractID map[string]types.ContractType,
 ) error {
 	startTime := time.Now()
 
-	// Calculate total operations: trustlines + contracts + contract types
-	totalOps := len(trustlines) + len(contracts) + len(contractTypesByContractID)
+	// Calculate total operations: trustlines + contracts
+	totalOps := len(trustlines) + len(contracts)
 	redisPipelineOps := make([]store.RedisPipelineOperation, 0, totalOps)
 
 	// Add trustline operations
@@ -484,15 +487,6 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 			Op:      store.SetOpAdd,
 			Key:     s.buildContractKey(accountAddress),
 			Members: contractAddresses,
-		})
-	}
-
-	// Add contract type operations
-	for contractID, contractType := range contractTypesByContractID {
-		redisPipelineOps = append(redisPipelineOps, store.RedisPipelineOperation{
-			Op:    store.OpSet,
-			Key:   s.buildContractTypeKey(contractID),
-			Value: string(contractType),
 		})
 	}
 
@@ -776,10 +770,7 @@ func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, co
 // This extracts non-SAC contract IDs, fetches their metadata via RPC, and stores in the contract_tokens table.
 func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context, contractTypesByContractID map[string]types.ContractType) error {
 	contractIDs := make([]string, 0, len(contractTypesByContractID))
-	for contractID, contractType := range contractTypesByContractID {
-		if contractType == types.ContractTypeSAC {
-			continue
-		}
+	for contractID := range contractTypesByContractID {
 		contractIDs = append(contractIDs, contractID)
 	}
 
@@ -792,6 +783,27 @@ func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context,
 	start := time.Now()
 	metadataMap := s.fetchContractMetadataBatch(ctx, contractIDs)
 	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(contractIDs), time.Since(start).Minutes())
+
+	// Parse the SAC code:issuer name and store them individually
+	for contractID, contractType := range contractTypesByContractID {
+		if contractType == types.ContractTypeSAC {
+			metadata := metadataMap[contractID]
+			name := metadata.Name
+			if name == "" {
+				continue
+			}
+
+			parts := strings.Split(name, ":")
+			if len(parts) != 2 {
+				continue
+			}
+
+			metadata.Code = parts[0]
+			metadata.Issuer = parts[1]
+
+			metadataMap[contractID] = metadata
+		}
+	}
 
 	// Store in database
 	start = time.Now()
