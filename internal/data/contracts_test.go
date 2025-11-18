@@ -40,8 +40,13 @@ func TestContractModel_Insert(t *testing.T) {
 			MetricsService: mockMetricsService,
 		}
 
+		code := "TEST"
+		issuer := "GTEST123"
 		contract := &Contract{
 			ID:       "1",
+			Type:     "sep41",
+			Code:     &code,
+			Issuer:   &issuer,
 			Name:     "Test Contract",
 			Symbol:   "TEST",
 			Decimals: 7,
@@ -57,6 +62,9 @@ func TestContractModel_Insert(t *testing.T) {
 		contract, err = m.GetByID(context.Background(), "1")
 		require.NoError(t, err)
 		require.Equal(t, contract.ID, "1")
+		require.Equal(t, contract.Type, "sep41")
+		require.Equal(t, "TEST", *contract.Code)
+		require.Equal(t, "GTEST123", *contract.Issuer)
 		require.Equal(t, contract.Name, "Test Contract")
 		require.Equal(t, contract.Symbol, "TEST")
 		require.Equal(t, int16(7), contract.Decimals)
@@ -78,6 +86,7 @@ func TestContractModel_Insert(t *testing.T) {
 
 		contract := &Contract{
 			ID:       "1",
+			Type:     "unknown",
 			Name:     "Test Contract",
 			Symbol:   "TEST",
 			Decimals: 7,
@@ -168,8 +177,13 @@ func TestContractModel_Update(t *testing.T) {
 		}
 
 		// First insert a contract
+		code := "TEST"
+		issuer := "GTEST123"
 		contract := &Contract{
 			ID:       "1",
+			Type:     "sac",
+			Code:     &code,
+			Issuer:   &issuer,
 			Name:     "Test Contract",
 			Symbol:   "TEST",
 			Decimals: 7,
@@ -183,6 +197,11 @@ func TestContractModel_Update(t *testing.T) {
 		require.NoError(t, dbErr)
 
 		// Update the contract
+		newCode := "UPDATED"
+		newIssuer := "GUPDATED123"
+		contract.Type = "sep41"
+		contract.Code = &newCode
+		contract.Issuer = &newIssuer
 		contract.Name = "Updated Contract"
 		contract.Symbol = "UPDATED"
 		contract.Decimals = 18
@@ -198,6 +217,9 @@ func TestContractModel_Update(t *testing.T) {
 		var updatedContract *Contract
 		updatedContract, err = m.GetByID(context.Background(), "1")
 		require.NoError(t, err)
+		require.Equal(t, "sep41", updatedContract.Type)
+		require.Equal(t, "UPDATED", *updatedContract.Code)
+		require.Equal(t, "GUPDATED123", *updatedContract.Issuer)
 		require.Equal(t, "Updated Contract", updatedContract.Name)
 		require.Equal(t, "UPDATED", updatedContract.Symbol)
 		require.Equal(t, int16(18), updatedContract.Decimals)
@@ -219,6 +241,7 @@ func TestContractModel_Update(t *testing.T) {
 
 		contract := &Contract{
 			ID:       "nonexistent",
+			Type:     "unknown",
 			Name:     "Test Contract",
 			Symbol:   "TEST",
 			Decimals: 7,

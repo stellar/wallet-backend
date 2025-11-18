@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,8 +44,8 @@ const (
 // ContractMetadata holds the metadata for a contract token (name, symbol, decimals).
 type ContractMetadata struct {
 	Type     types.ContractType
-	Code	string
-	Issuer	string
+	Code     string
+	Issuer   string
 	Name     string
 	Symbol   string
 	Decimals uint32
@@ -425,6 +425,7 @@ func (s *accountTokenService) collectAccountTokensFromCheckpoint(
 				entries++
 
 			case xdr.ScValTypeScvLedgerKeyContractInstance:
+				contractTypesByContractID[contractAddressStr] = types.ContractTypeUnknown
 				wasmHash, skip := s.processContractInstanceChange(change, contractAddressStr, contractDataEntry, contractTypesByContractID)
 				if skip {
 					continue
@@ -451,7 +452,6 @@ func (s *accountTokenService) enrichContractTypes(
 		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to validate contract code for WASM hash %s: %v", wasmHash.HexString(), err)
-			contractType = types.ContractTypeUnknown
 		}
 
 		for _, contractAddress := range contractIDsByWasmHash[wasmHash] {
@@ -667,12 +667,10 @@ func (s *accountTokenService) fetchAllContractMetadata(ctx context.Context, cont
 		}
 		nameVal, err := s.fetchContractMetadata(ctx, contractAddress, "name")
 		if err != nil {
-			log.Ctx(ctx).Warnf("Failed to fetch name for contract %s: %v", contractAddress, err)
 			return
 		}
 		nameStr, ok := nameVal.GetStr()
 		if !ok {
-			log.Ctx(ctx).Warnf("Contract %s name() did not return string type", contractAddress)
 			return
 		}
 		mu.Lock()
@@ -730,10 +728,8 @@ func (s *accountTokenService) fetchAllContractMetadata(ctx context.Context, cont
 
 // fetchContractMetadataBatch fetches metadata for multiple contracts in parallel using pond groups.
 // Returns a map of contractID → ContractMetadata for successfully fetched contracts.
-func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, contractIDs []string) map[string]ContractMetadata {
+func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, metadata map[string]ContractMetadata, contractIDs []string) map[string]ContractMetadata {
 	group := s.pool.NewGroupContext(ctx)
-
-	metadataMap := make(map[string]ContractMetadata)
 	var mu sync.Mutex
 
 	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
@@ -743,15 +739,19 @@ func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, co
 		for _, contractID := range contractIDsBatch {
 			cID := contractID // Capture for goroutine
 			group.Submit(func() {
-				metadata, err := s.fetchAllContractMetadata(ctx, cID)
+				data, err := s.fetchAllContractMetadata(ctx, cID)
 				if err != nil {
 					return
 				}
 
 				// Only store if we successfully fetched at least name and symbol
-				if metadata.Name != "" && metadata.Symbol != "" {
+				if data.Name != "" && data.Symbol != "" {
 					mu.Lock()
-					metadataMap[cID] = metadata
+					existing := metadata[cID]
+					existing.Name = data.Name
+					existing.Symbol = data.Symbol
+					existing.Decimals = data.Decimals
+					metadata[cID] = existing
 					mu.Unlock()
 				}
 			})
@@ -761,28 +761,30 @@ func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, co
 			log.Ctx(ctx).Warnf("Error waiting for batch metadata fetch: %v", err)
 		}
 	}
-
-	log.Ctx(ctx).Infof("Successfully fetched metadata for %d/%d contracts", len(metadataMap), len(contractIDs))
-	return metadataMap
+	return metadata
 }
 
 // fetchAndStoreContractMetadata fetches metadata for all contracts and stores them in the database.
 // This extracts non-SAC contract IDs, fetches their metadata via RPC, and stores in the contract_tokens table.
 func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context, contractTypesByContractID map[string]types.ContractType) error {
-	contractIDs := make([]string, 0, len(contractTypesByContractID))
-	for contractID := range contractTypesByContractID {
-		contractIDs = append(contractIDs, contractID)
-	}
-
-	if len(contractIDs) == 0 {
+	if len(contractTypesByContractID) == 0 {
 		log.Ctx(ctx).Info("No contracts to fetch metadata for")
 		return nil
 	}
 
+	metadataMap := make(map[string]ContractMetadata)
+	contractIDs := make([]string, 0)
+	for contractID := range contractTypesByContractID {
+		metadataMap[contractID] = ContractMetadata{
+			Type: contractTypesByContractID[contractID],
+		}
+		contractIDs = append(contractIDs, contractID)
+	}
+
 	// Fetch metadata in parallel
 	start := time.Now()
-	metadataMap := s.fetchContractMetadataBatch(ctx, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(contractIDs), time.Since(start).Minutes())
+	metadataMap = s.fetchContractMetadataBatch(ctx, metadataMap, contractIDs)
+	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(metadataMap), time.Since(start).Minutes())
 
 	// Parse the SAC code:issuer name and store them individually
 	for contractID, contractType := range contractTypesByContractID {
@@ -829,8 +831,20 @@ func (s *accountTokenService) storeContractMetadataInDB(ctx context.Context, met
 	err := db.RunInTransaction(ctx, s.contractModel.DB, nil, func(tx db.Transaction) error {
 		// Insert or update each contract
 		for contractID, metadata := range metadataMap {
+			// Convert Code and Issuer to pointers (nil if empty)
+			var code, issuer *string
+			if metadata.Code != "" {
+				code = &metadata.Code
+			}
+			if metadata.Issuer != "" {
+				issuer = &metadata.Issuer
+			}
+
 			contract := &data.Contract{
 				ID:       contractID,
+				Type:     string(metadata.Type),
+				Code:     code,
+				Issuer:   issuer,
 				Name:     metadata.Name,
 				Symbol:   metadata.Symbol,
 				Decimals: int16(metadata.Decimals),
@@ -849,6 +863,6 @@ func (s *accountTokenService) storeContractMetadataInDB(ctx context.Context, met
 		return fmt.Errorf("storing contract metadata in database: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Successfully stored metadata for %d/%d contracts in database", successCount, len(metadataMap))
+	log.Ctx(ctx).Infof("Successfully stored metadata for %d contracts in database", len(metadataMap))
 	return nil
 }

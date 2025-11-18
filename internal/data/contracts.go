@@ -17,6 +17,9 @@ type ContractModel struct {
 
 type Contract struct {
 	ID        string    `db:"id" json:"id"`
+	Type      string    `db:"type" json:"type"`
+	Code      *string   `db:"code" json:"code"`
+	Issuer    *string   `db:"issuer" json:"issuer"`
 	Name      string    `db:"name" json:"name"`
 	Symbol    string    `db:"symbol" json:"symbol"`
 	Decimals  int16     `db:"decimals" json:"decimals"`
@@ -41,8 +44,8 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 func (m *ContractModel) Insert(ctx context.Context, tx db.Transaction, contract *Contract) error {
 	start := time.Now()
 	query := `
-		INSERT INTO contract_tokens (id, name, symbol, decimals)
-		VALUES (:id, :name, :symbol, :decimals)
+		INSERT INTO contract_tokens (id, type, code, issuer, name, symbol, decimals)
+		VALUES (:id, :type, :code, :issuer, :name, :symbol, :decimals)
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
 	duration := time.Since(start).Seconds()
@@ -59,7 +62,7 @@ func (m *ContractModel) Update(ctx context.Context, tx db.Transaction, contract 
 	start := time.Now()
 	query := `
 		UPDATE contract_tokens
-		SET name = :name, symbol = :symbol, decimals = :decimals
+		SET type = :type, code = :code, issuer = :issuer, name = :name, symbol = :symbol, decimals = :decimals
 		WHERE id = :id
 	`
 	_, err := tx.NamedExecContext(ctx, query, contract)
