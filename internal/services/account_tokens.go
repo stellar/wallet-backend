@@ -35,7 +35,7 @@ const (
 	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
 
-	simulateTransactionBatchSize = 50
+	simulateTransactionBatchSize = 20
 )
 
 // contractMetadata holds the metadata for a contract token (name, symbol, decimals).
@@ -193,7 +193,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	s.enrichContractTypes(ctx, checkpointData.ContractTypesByContractID, checkpointData.ContractIDsByWasmHash, checkpointData.ContractCodesByWasmHash)
 
 	// Fetch metadata for non-SAC contracts and store in database
-	if err := s.fetchAndStorecontractMetadata(ctx, checkpointData.ContractTypesByContractID); err != nil {
+	if err := s.fetchAndStoreContractMetadata(ctx, checkpointData.ContractTypesByContractID); err != nil {
 		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
 		// Don't fail the entire process if metadata fetch fails
 	}
@@ -444,6 +444,9 @@ func (s *accountTokenService) enrichContractTypes(
 		contractType, err := s.contractValidator.ValidateFromContractCode(ctx, contractCode)
 		if err != nil {
 			log.Ctx(ctx).Warnf("Failed to validate contract code for WASM hash %s: %v", wasmHash.HexString(), err)
+			continue
+		}
+		if contractType == types.ContractTypeUnknown {
 			continue
 		}
 
@@ -742,13 +745,14 @@ func (s *accountTokenService) fetchcontractMetadataBatch(ctx context.Context, me
 		if err := group.Wait(); err != nil {
 			log.Ctx(ctx).Warnf("Error waiting for batch metadata fetch: %v", err)
 		}
+		time.Sleep(2 * time.Second)
 	}
 	return metadata
 }
 
-// fetchAndStorecontractMetadata fetches metadata for all contracts and stores them in the database.
+// fetchAndStoreContractMetadata fetches metadata for all contracts and stores them in the database.
 // This extracts non-SAC contract IDs, fetches their metadata via RPC, and stores in the contract_tokens table.
-func (s *accountTokenService) fetchAndStorecontractMetadata(ctx context.Context, contractTypesByContractID map[string]types.ContractType) error {
+func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context, contractTypesByContractID map[string]types.ContractType) error {
 	if len(contractTypesByContractID) == 0 {
 		log.Ctx(ctx).Info("No contracts to fetch metadata for")
 		return nil
