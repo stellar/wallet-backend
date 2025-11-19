@@ -94,6 +94,14 @@ func (c *serveCmd) Command() *cobra.Command {
 			FlagDefault: 15,
 			Required:    true,
 		},
+		{
+			Name:        "min-distribution-account-balance",
+			Usage:       "Minimum XLM balance required for the distribution account in stroops (1 XLM = 10,000,000 stroops). Server will fail to start if balance is below this threshold. Set to 0 to only check account existence.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.MinDistributionAccountBalance,
+			FlagDefault: 100_000_000, // 10 XLM in stroops
+			Required:    false,
+		},
 	}
 
 	// Distribution Account Signature Client options

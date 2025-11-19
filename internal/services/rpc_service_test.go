@@ -1115,3 +1115,134 @@ func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
 		t.Log("🎉 Deadlock prevented!")
 	}
 }
+
+func TestGetAccountInfo(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	mockMetricsService := metrics.NewMockMetricsService()
+	mockHTTPClient := utils.MockHTTPClient{}
+	rpcURL := "http://api.vibrantapp.com/soroban/rpc"
+	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mockHTTPClient, mockMetricsService)
+	require.NoError(t, err)
+
+	testAccountAddress := "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+
+	t.Run("successful", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetAccountInfo").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetAccountInfo", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodCalls", "GetLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetLedgerEntries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCRequests", "getLedgerEntries").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "getLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getLedgerEntries", mock.AnythingOfType("float64")).Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		// Create account entry XDR with balance=10000000000 (1000 XLM) and seqNum=12345
+		accountEntry := xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId: xdr.MustAddress(testAccountAddress),
+				Balance:   10000000000, // 1000 XLM
+				SeqNum:    12345,
+			},
+		}
+		accountEntryXDR, err := xdr.MarshalBase64(accountEntry)
+		require.NoError(t, err)
+
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"result": {
+					"entries": [{
+						"xdr": "%s"
+					}]
+				}
+			}`, accountEntryXDR))),
+		}
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&httpResponse, nil).
+			Once()
+
+		result, err := rpcService.GetAccountInfo(testAccountAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(10000000000), result.Balance)
+		assert.Equal(t, int64(12345), result.SeqNum)
+	})
+
+	t.Run("account_not_found", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetAccountInfo").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetAccountInfo", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodCalls", "GetLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetLedgerEntries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCRequests", "getLedgerEntries").Once()
+		mockMetricsService.On("IncRPCEndpointSuccess", "getLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getLedgerEntries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetAccountInfo", "not_found_error").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		httpResponse := http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"result": {
+					"entries": []
+				}
+			}`)),
+		}
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&httpResponse, nil).
+			Once()
+
+		result, err := rpcService.GetAccountInfo(testAccountAddress)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotFound))
+		assert.Contains(t, err.Error(), "entry not found for account public key")
+		assert.Equal(t, AccountInfo{}, result)
+	})
+
+	t.Run("invalid_address", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetAccountInfo").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetAccountInfo", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetAccountInfo", "validation_error").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		result, err := rpcService.GetAccountInfo("invalid-address")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "getting ledger key for account public key")
+		assert.Equal(t, AccountInfo{}, result)
+	})
+
+	t.Run("rpc_request_fails", func(t *testing.T) {
+		mockMetricsService.On("IncRPCMethodCalls", "GetAccountInfo").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetAccountInfo", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodCalls", "GetLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCMethodDuration", "GetLedgerEntries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCRequests", "getLedgerEntries").Once()
+		mockMetricsService.On("IncRPCEndpointFailure", "getLedgerEntries").Once()
+		mockMetricsService.On("ObserveRPCRequestDuration", "getLedgerEntries", mock.AnythingOfType("float64")).Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetLedgerEntries", "rpc_error").Once()
+		mockMetricsService.On("IncRPCMethodErrors", "GetAccountInfo", "rpc_error").Once()
+		defer mockMetricsService.AssertExpectations(t)
+
+		mockHTTPClient.
+			On("Post", rpcURL, "application/json", mock.Anything).
+			Return(&http.Response{}, errors.New("connection failed")).
+			Once()
+
+		result, err := rpcService.GetAccountInfo(testAccountAddress)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "getting ledger entry for account public key")
+		assert.Equal(t, AccountInfo{}, result)
+	})
+}

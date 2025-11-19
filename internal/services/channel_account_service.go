@@ -140,6 +140,24 @@ func (s *channelAccountService) createChannelAccounts(ctx context.Context, amoun
 	}
 	log.Ctx(ctx).Infof("🎉 Successfully created %d channel account(s) on chain", amount)
 
+	// Validate that all accounts exist on-chain before inserting into database
+	log.Ctx(ctx).Infof("⏳ Validating %d channel account(s) exist on-chain...", amount)
+	var missingAccounts []string
+	for _, chAcc := range channelAccountsToInsert {
+		_, err = s.RPCService.GetAccountInfo(chAcc.PublicKey)
+		if err != nil {
+			if errors.Is(err, ErrAccountNotFound) {
+				missingAccounts = append(missingAccounts, chAcc.PublicKey)
+				continue
+			}
+			return fmt.Errorf("validating channel account %s on-chain: %w", chAcc.PublicKey, err)
+		}
+	}
+	if len(missingAccounts) > 0 {
+		return fmt.Errorf("channel account validation failed: %d of %d accounts missing from network after creation: %v", len(missingAccounts), amount, missingAccounts)
+	}
+	log.Ctx(ctx).Infof("✅ Validated %d channel account(s) exist on-chain", amount)
+
 	if err = s.ChannelAccountStore.BatchInsert(ctx, s.DB, channelAccountsToInsert); err != nil {
 		return fmt.Errorf("inserting channel account(s): %w", err)
 	}

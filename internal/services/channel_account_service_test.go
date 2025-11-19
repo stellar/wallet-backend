@@ -119,7 +119,11 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Once().
 					On("GetTransaction", mock.AnythingOfType("string")).
 					Return(entities.RPCGetTransactionResult{Status: entities.SuccessStatus}, nil).
-					Once()
+					Once().
+					// Mock GetAccountInfo for on-chain validation after creation
+					On("GetAccountInfo", mock.AnythingOfType("string")).
+					Return(AccountInfo{Balance: 0, SeqNum: 0}, nil).
+					Times(3) // 3 channel accounts being created
 
 				channelAccountStore.
 					On("BatchInsert", mock.Anything, dbConnectionPool, mock.AnythingOfType("[]*store.ChannelAccount")).
