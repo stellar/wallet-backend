@@ -558,9 +558,9 @@ func (s *accountTokenService) extractHolderAddress(key xdr.ScVal) (string, error
 	return holderAddress, nil
 }
 
-// fetchcontractMetadata fetches a single contract method (name, symbol, or decimals) via RPC simulation.
+// fetchContractMetadata fetches a single contract method (name, symbol, or decimals) via RPC simulation.
 // Returns the XDR ScVal response from the contract function.
-func (s *accountTokenService) fetchcontractMetadata(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
+func (s *accountTokenService) fetchContractMetadata(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
 	if err := ctx.Err(); err != nil {
 		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
 	}
@@ -622,10 +622,10 @@ func (s *accountTokenService) fetchcontractMetadata(ctx context.Context, contrac
 	return result.Results[0].XDR, nil
 }
 
-// fetchAllcontractMetadata fetches name, symbol, and decimals for a single contract in parallel using pond groups.
+// fetchAllContractMetadata fetches name, symbol, and decimals for a single contract in parallel using pond groups.
 // Returns contractMetadata with the fetched values, or zero values for fields that failed to fetch.
 // Errors are collected and logged but do not fail the entire operation.
-func (s *accountTokenService) fetchAllcontractMetadata(ctx context.Context, contractAddress string) (contractMetadata, error) {
+func (s *accountTokenService) fetchAllContractMetadata(ctx context.Context, contractAddress string) (contractMetadata, error) {
 	group := s.pool.NewGroupContext(ctx)
 
 	var (
@@ -645,7 +645,7 @@ func (s *accountTokenService) fetchAllcontractMetadata(ctx context.Context, cont
 
 	// Fetch name
 	group.Submit(func() {
-		nameVal, err := s.fetchcontractMetadata(ctx, contractAddress, "name")
+		nameVal, err := s.fetchContractMetadata(ctx, contractAddress, "name")
 		if err != nil {
 			appendError(fmt.Errorf("fetching name: %w", err))
 			return
@@ -662,7 +662,7 @@ func (s *accountTokenService) fetchAllcontractMetadata(ctx context.Context, cont
 
 	// Fetch symbol
 	group.Submit(func() {
-		symbolVal, err := s.fetchcontractMetadata(ctx, contractAddress, "symbol")
+		symbolVal, err := s.fetchContractMetadata(ctx, contractAddress, "symbol")
 		if err != nil {
 			appendError(fmt.Errorf("fetching symbol: %w", err))
 			return
@@ -679,7 +679,7 @@ func (s *accountTokenService) fetchAllcontractMetadata(ctx context.Context, cont
 
 	// Fetch decimals
 	group.Submit(func() {
-		decimalsVal, err := s.fetchcontractMetadata(ctx, contractAddress, "decimals")
+		decimalsVal, err := s.fetchContractMetadata(ctx, contractAddress, "decimals")
 		if err != nil {
 			appendError(fmt.Errorf("fetching decimals: %w", err))
 			return
@@ -710,10 +710,10 @@ func (s *accountTokenService) fetchAllcontractMetadata(ctx context.Context, cont
 	}, nil
 }
 
-// fetchcontractMetadataBatch fetches metadata for multiple contracts in parallel using pond groups.
+// fetchContractMetadataBatch fetches metadata for multiple contracts in parallel using pond groups.
 // Returns a map of contractID → contractMetadata for successfully fetched contracts.
 // Processes contracts in batches to limit RPC load.
-func (s *accountTokenService) fetchcontractMetadataBatch(ctx context.Context, metadata map[string]contractMetadata, contractIDs []string) map[string]contractMetadata {
+func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, metadata map[string]contractMetadata, contractIDs []string) map[string]contractMetadata {
 	var mu sync.Mutex
 
 	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
@@ -723,7 +723,7 @@ func (s *accountTokenService) fetchcontractMetadataBatch(ctx context.Context, me
 		group := s.pool.NewGroupContext(ctx)
 		for _, contractID := range contractIDsBatch {
 			group.Submit(func() {
-				data, err := s.fetchAllcontractMetadata(ctx, contractID)
+				data, err := s.fetchAllContractMetadata(ctx, contractID)
 				if err != nil {
 					log.Ctx(ctx).Warnf("Failed to fetch metadata for contract %s: %v", contractID, err)
 					return
@@ -769,7 +769,7 @@ func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context,
 
 	// Fetch metadata in parallel
 	start := time.Now()
-	metadataMap = s.fetchcontractMetadataBatch(ctx, metadataMap, contractIDs)
+	metadataMap = s.fetchContractMetadataBatch(ctx, metadataMap, contractIDs)
 	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(metadataMap), time.Since(start).Minutes())
 
 	// Parse the SAC code:issuer name and store them individually
@@ -795,14 +795,14 @@ func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context,
 
 	// Store in database
 	start = time.Now()
-	err := s.storecontractMetadataInDB(ctx, metadataMap)
+	err := s.storeContractMetadataInDB(ctx, metadataMap)
 	log.Ctx(ctx).Infof("Stored metadata for %d contracts in %.2f seconds", len(metadataMap), time.Since(start).Seconds())
 	return err
 }
 
-// storecontractMetadataInDB stores contract metadata in the contract_tokens database table.
+// storeContractMetadataInDB stores contract metadata in the contract_tokens database table.
 // Uses batch insert with ON CONFLICT DO NOTHING to handle existing contracts.
-func (s *accountTokenService) storecontractMetadataInDB(ctx context.Context, metadataMap map[string]contractMetadata) error {
+func (s *accountTokenService) storeContractMetadataInDB(ctx context.Context, metadataMap map[string]contractMetadata) error {
 	if len(metadataMap) == 0 {
 		log.Ctx(ctx).Info("No contract metadata to store in database")
 		return nil
