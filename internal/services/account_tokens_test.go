@@ -1008,7 +1008,6 @@ func TestProcessTokenChanges(t *testing.T) {
 		redisStore:         redisStore,
 		trustlinesPrefix:   trustlinesKeyPrefix,
 		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
 	}
 
 	tests := []struct {
@@ -1088,11 +1087,6 @@ func TestProcessTokenChanges(t *testing.T) {
 				members, err := mr.SMembers(contractKey)
 				require.NoError(t, err)
 				assert.Contains(t, members, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-
-				typeKey := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-				contractType, err := mr.Get(typeKey)
-				assert.NoError(t, err)
-				assert.Equal(t, string(types.ContractTypeSAC), contractType)
 			},
 			wantErr: false,
 		},
@@ -1159,11 +1153,6 @@ func TestProcessTokenChanges(t *testing.T) {
 				contracts, err := mr.SMembers(contractKey)
 				require.NoError(t, err)
 				assert.Contains(t, contracts, "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4")
-
-				typeKey := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-				contractType, err := mr.Get(typeKey)
-				assert.NoError(t, err)
-				assert.Equal(t, string(types.ContractTypeSEP41), contractType)
 			},
 			wantErr: false,
 		},
