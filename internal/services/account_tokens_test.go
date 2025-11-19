@@ -1005,9 +1005,9 @@ func TestProcessTokenChanges(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
