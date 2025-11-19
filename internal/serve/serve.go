@@ -192,7 +192,13 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
-	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
+
+	// Ensure channel accounts exist synchronously - fail startup if validation fails
+	log.Ctx(ctx).Info("Ensuring the number of channel accounts...")
+	if err := channelAccountService.EnsureChannelAccounts(ctx, int64(cfg.NumberOfChannelAccounts)); err != nil {
+		return handlerDeps{}, fmt.Errorf("ensuring channel accounts: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ Ensured that %d channel accounts exist", cfg.NumberOfChannelAccounts)
 
 	return handlerDeps{
 		Models:                 models,
@@ -207,16 +213,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		TransactionService:     txService,
 		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
-}
-
-func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
-	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
-	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
-	if err != nil {
-		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
-		return
-	}
-	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
 func handler(deps handlerDeps) http.Handler {
