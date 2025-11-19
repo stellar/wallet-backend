@@ -729,16 +729,19 @@ func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, me
 					return
 				}
 
-				// Only store if we successfully fetched at least name and symbol
-				if data.Name != "" && data.Symbol != "" {
-					mu.Lock()
-					existing := metadata[contractID]
+				mu.Lock()
+				existing := metadata[contractID]
+				if data.Name != "" {
 					existing.Name = data.Name
-					existing.Symbol = data.Symbol
-					existing.Decimals = data.Decimals
-					metadata[contractID] = existing
-					mu.Unlock()
 				}
+				if data.Symbol != "" {
+					existing.Symbol = data.Symbol
+				}
+				if data.Decimals != 0 {
+					existing.Decimals = data.Decimals
+				}
+				metadata[contractID] = existing
+				mu.Unlock()
 			})
 		}
 
@@ -815,23 +818,14 @@ func (s *accountTokenService) storeContractMetadataInDB(ctx context.Context, met
 	// Build contracts slice from metadata map
 	contracts := make([]*data.Contract, 0, len(metadataMap))
 	for contractID, metadata := range metadataMap {
-		// Convert Code and Issuer to pointers (nil if empty)
-		var code, issuer *string
-		if metadata.Code != "" {
-			code = &metadata.Code
-		}
-		if metadata.Issuer != "" {
-			issuer = &metadata.Issuer
-		}
-
 		contracts = append(contracts, &data.Contract{
 			ID:       contractID,
 			Type:     string(metadata.Type),
-			Code:     code,
-			Issuer:   issuer,
-			Name:     metadata.Name,
-			Symbol:   metadata.Symbol,
-			Decimals: int16(metadata.Decimals),
+			Code:     &metadata.Code,
+			Issuer:   &metadata.Issuer,
+			Name:     &metadata.Name,
+			Symbol:   &metadata.Symbol,
+			Decimals: metadata.Decimals,
 		})
 	}
 

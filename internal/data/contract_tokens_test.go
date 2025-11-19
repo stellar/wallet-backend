@@ -75,6 +75,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 	})
 
 	t.Run("returns success for multiple new contracts", func(t *testing.T) {
+		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
@@ -91,16 +92,22 @@ func TestContractModel_BatchInsert(t *testing.T) {
 
 		code1 := "TEST1"
 		issuer1 := "GTEST123"
+		name1 := "Test Contract 1"
+		symbol1 := "TST1"
 		code2 := "TEST2"
 		issuer2 := "GTEST456"
+		name2 := "Test Contract 2"
+		symbol2 := "TST2"
+		name3 := "Test Contract 3"
+		symbol3 := "TST3"
 		contracts := []*Contract{
 			{
 				ID:       "contract1",
 				Type:     "sac",
 				Code:     &code1,
 				Issuer:   &issuer1,
-				Name:     "Test Contract 1",
-				Symbol:   "TST1",
+				Name:     &name1,
+				Symbol:   &symbol1,
 				Decimals: 7,
 			},
 			{
@@ -108,15 +115,15 @@ func TestContractModel_BatchInsert(t *testing.T) {
 				Type:     "sep41",
 				Code:     &code2,
 				Issuer:   &issuer2,
-				Name:     "Test Contract 2",
-				Symbol:   "TST2",
+				Name:     &name2,
+				Symbol:   &symbol2,
 				Decimals: 18,
 			},
 			{
 				ID:       "contract3",
 				Type:     "unknown",
-				Name:     "Test Contract 3",
-				Symbol:   "TST3",
+				Name:     &name3,
+				Symbol:   &symbol3,
 				Decimals: 6,
 			},
 		}
@@ -131,9 +138,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Equal(t, "sac", contract1.Type)
 		require.Equal(t, "TEST1", *contract1.Code)
 		require.Equal(t, "GTEST123", *contract1.Issuer)
-		require.Equal(t, "Test Contract 1", contract1.Name)
-		require.Equal(t, "TST1", contract1.Symbol)
-		require.Equal(t, int16(7), contract1.Decimals)
+		require.Equal(t, "Test Contract 1", *contract1.Name)
+		require.Equal(t, "TST1", *contract1.Symbol)
+		require.Equal(t, uint32(7), contract1.Decimals)
 
 		contract2, err := m.GetByID(ctx, "contract2")
 		require.NoError(t, err)
@@ -148,6 +155,7 @@ func TestContractModel_BatchInsert(t *testing.T) {
 	})
 
 	t.Run("skips duplicate contracts with ON CONFLICT DO NOTHING", func(t *testing.T) {
+		cleanUpDB()
 		mockMetricsService := metrics.NewMockMetricsService()
 		mockMetricsService.On("IncDBQueryError", mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "contract_tokens", mock.Anything).Return()
@@ -163,12 +171,14 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		}
 
 		// First insert
+		origName := "Original Name"
+		origSymbol := "ORIG"
 		contracts := []*Contract{
 			{
 				ID:       "contract1",
 				Type:     "sac",
-				Name:     "Original Name",
-				Symbol:   "ORIG",
+				Name:     &origName,
+				Symbol:   &origSymbol,
 				Decimals: 7,
 			},
 		}
@@ -178,19 +188,23 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		require.Len(t, insertedIDs, 1)
 
 		// Second insert with same ID and different data - should be skipped
+		newName := "New Name"
+		newSymbol := "NEW"
+		contract2Name := "Contract 2"
+		contract2Symbol := "C2"
 		contracts = []*Contract{
 			{
 				ID:       "contract1",
 				Type:     "sep41",
-				Name:     "New Name",
-				Symbol:   "NEW",
+				Name:     &newName,
+				Symbol:   &newSymbol,
 				Decimals: 18,
 			},
 			{
 				ID:       "contract2",
 				Type:     "unknown",
-				Name:     "Contract 2",
-				Symbol:   "C2",
+				Name:     &contract2Name,
+				Symbol:   &contract2Symbol,
 				Decimals: 6,
 			},
 		}
@@ -204,9 +218,9 @@ func TestContractModel_BatchInsert(t *testing.T) {
 		contract1, err := m.GetByID(ctx, "contract1")
 		require.NoError(t, err)
 		require.Equal(t, "sac", contract1.Type)
-		require.Equal(t, "Original Name", contract1.Name)
-		require.Equal(t, "ORIG", contract1.Symbol)
-		require.Equal(t, int16(7), contract1.Decimals)
+		require.Equal(t, "Original Name", *contract1.Name)
+		require.Equal(t, "ORIG", *contract1.Symbol)
+		require.Equal(t, uint32(7), contract1.Decimals)
 
 		cleanUpDB()
 	})

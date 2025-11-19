@@ -22,9 +22,9 @@ type Contract struct {
 	Type      string    `db:"type" json:"type"`
 	Code      *string   `db:"code" json:"code"`
 	Issuer    *string   `db:"issuer" json:"issuer"`
-	Name      string    `db:"name" json:"name"`
-	Symbol    string    `db:"symbol" json:"symbol"`
-	Decimals  int16     `db:"decimals" json:"decimals"`
+	Name      *string   `db:"name" json:"name"`
+	Symbol    *string   `db:"symbol" json:"symbol"`
+	Decimals  uint32    `db:"decimals" json:"decimals"`
 	CreatedAt time.Time `db:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
 }
@@ -60,9 +60,9 @@ func (m *ContractModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecu
 	types := make([]string, len(contracts))
 	codes := make([]*string, len(contracts))
 	issuers := make([]*string, len(contracts))
-	names := make([]string, len(contracts))
-	symbols := make([]string, len(contracts))
-	decimals := make([]int16, len(contracts))
+	names := make([]*string, len(contracts))
+	symbols := make([]*string, len(contracts))
+	decimals := make([]uint32, len(contracts))
 
 	for i, c := range contracts {
 		ids[i] = c.ID
