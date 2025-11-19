@@ -80,9 +80,8 @@ func setupTestRedis(t *testing.T) (*miniredis.Miniredis, *store.RedisStore) {
 
 func TestExtractHolderAddress(t *testing.T) {
 	service := &accountTokenService{
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -203,84 +202,15 @@ func TestExtractHolderAddress(t *testing.T) {
 	}
 }
 
-func TestExtractContractID(t *testing.T) {
-	service := &accountTokenService{
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
-	}
-
-	hash := xdr.Hash{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
-	contractID := xdr.ContractId(hash)
-	contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
-	require.NoError(t, err)
-
-	tests := []struct {
-		name    string
-		entry   xdr.ContractDataEntry
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "valid contract ID",
-			entry: xdr.ContractDataEntry{
-				Contract: xdr.ScAddress{
-					Type:       xdr.ScAddressTypeScAddressTypeContract,
-					ContractId: &contractID,
-				},
-			},
-			want:    contractAddress,
-			wantErr: false,
-		},
-		{
-			name: "wrong address type - account instead of contract",
-			entry: xdr.ContractDataEntry{
-				Contract: xdr.ScAddress{
-					Type:      xdr.ScAddressTypeScAddressTypeAccount,
-					AccountId: ptrToAccountID("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
-				},
-			},
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name: "nil contract ID",
-			entry: xdr.ContractDataEntry{
-				Contract: xdr.ScAddress{
-					Type:       xdr.ScAddressTypeScAddressTypeContract,
-					ContractId: nil,
-				},
-			},
-			want:    "",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := service.extractContractID(tt.entry)
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Empty(t, got)
-			} else {
-				assert.NoError(t, err)
-				assert.NotEmpty(t, got)
-				assert.Equal(t, tt.want, got)
-			}
-		})
-	}
-}
-
 func TestGetAccountTrustlines(t *testing.T) {
 	ctx := context.Background()
 	mr, redisStore := setupTestRedis(t)
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -341,10 +271,9 @@ func TestGetAccountContracts(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -399,79 +328,6 @@ func TestGetAccountContracts(t *testing.T) {
 	}
 }
 
-func TestGetContractType(t *testing.T) {
-	ctx := context.Background()
-	mr, redisStore := setupTestRedis(t)
-	defer mr.Close()
-
-	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
-	}
-
-	tests := []struct {
-		name       string
-		contractID string
-		setupData  func()
-		want       types.ContractType
-		wantErr    bool
-	}{
-		{
-			name:       "empty contract ID",
-			contractID: "",
-			setupData:  func() {},
-			want:       types.ContractTypeUnknown,
-			wantErr:    true,
-		},
-		{
-			name:       "SAC contract type",
-			contractID: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4",
-			setupData: func() {
-				key := contractTypePrefix + "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
-				err := mr.Set(key, string(types.ContractTypeSAC))
-				require.NoError(t, err)
-			},
-			want:    types.ContractTypeSAC,
-			wantErr: false,
-		},
-		{
-			name:       "SEP41 contract type",
-			contractID: "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-			setupData: func() {
-				key := contractTypePrefix + "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
-				err := mr.Set(key, string(types.ContractTypeSEP41))
-				require.NoError(t, err)
-			},
-			want:    types.ContractTypeSEP41,
-			wantErr: false,
-		},
-		{
-			name:       "unknown contract type - not in cache",
-			contractID: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-			setupData:  func() {},
-			want:       types.ContractTypeUnknown,
-			wantErr:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mr.FlushAll()
-			tt.setupData()
-
-			got, err := service.GetContractType(ctx, tt.contractID)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
-		})
-	}
-}
-
 func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	service := &accountTokenService{
@@ -503,16 +359,16 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Len(t, trustlines, 1)
-		assert.Contains(t, trustlines, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.Contains(t, trustlines["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
-		assert.Empty(t, contracts)
-		assert.Empty(t, contractTypes)
-		assert.Empty(t, contractsByWasm)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Len(t, cpData.Trustlines, 1)
+		assert.Contains(t, cpData.Trustlines, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		assert.Contains(t, cpData.Trustlines["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN")
+		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.ContractTypesByContractID)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("reads contract balance entries", func(t *testing.T) {
@@ -562,18 +418,18 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Len(t, contracts, 1)
-		assert.Contains(t, contracts, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
-		assert.Len(t, contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], 1)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Len(t, cpData.Contracts, 1)
+		assert.Contains(t, cpData.Contracts, "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		assert.Len(t, cpData.Contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"], 1)
 		// Contract address should start with C
-		assert.Equal(t, "C", string(contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"][0][0]))
-		assert.Empty(t, contractTypes)
-		assert.Empty(t, contractsByWasm)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Equal(t, "C", string(cpData.Contracts["GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"][0][0]))
+		assert.Empty(t, cpData.ContractTypesByContractID)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("reads contract code entries", func(t *testing.T) {
@@ -599,17 +455,17 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
-		assert.Empty(t, contractTypes)
-		assert.Empty(t, contractsByWasm)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.ContractTypesByContractID)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
 
 		// CONTRACT_CODE entries should be collected
-		assert.Len(t, contractCodesByWasmHash, 1)
-		storedCode, found := contractCodesByWasmHash[wasmHash]
+		assert.Len(t, cpData.ContractCodesByWasmHash, 1)
+		storedCode, found := cpData.ContractCodesByWasmHash[wasmHash]
 		require.True(t, found, "WASM hash should be in contractCodesByWasmHash map")
 		assert.Equal(t, wasmCode, storedCode)
 	})
@@ -640,26 +496,26 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
 
 		// Valid SAC should be immediately classified as ContractTypeSAC
-		assert.Len(t, contractTypes, 1)
+		assert.Len(t, cpData.ContractTypesByContractID, 1)
 
 		// Get the contract address from the contract ID
 		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
 		require.NoError(t, err)
 
 		// Verify the SAC was properly detected and classified
-		assert.Contains(t, contractTypes, contractAddress)
-		assert.Equal(t, types.ContractTypeSAC, contractTypes[contractAddress])
+		assert.Contains(t, cpData.ContractTypesByContractID, contractAddress)
+		assert.Equal(t, types.ContractTypeSAC, cpData.ContractTypesByContractID[contractAddress])
 
 		// SAC contracts should NOT be added to contractsByWasm (they don't need WASM validation)
-		assert.Empty(t, contractsByWasm)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("reads non-SAC WASM contract instance entries", func(t *testing.T) {
@@ -709,16 +565,16 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
 		// Non-SAC contracts should NOT be classified yet (happens in enrichContractTypes)
-		assert.Empty(t, contractTypes)
+		assert.Empty(t, cpData.ContractTypesByContractID)
 		// Non-SAC contracts should be added to contractsByWasm for validation
-		assert.Len(t, contractsByWasm, 1)
-		contractAddresses, found := contractsByWasm[wasmHash]
+		assert.Len(t, cpData.ContractIDsByWasmHash, 1)
+		contractAddresses, found := cpData.ContractIDsByWasmHash[wasmHash]
 		require.True(t, found, "WASM hash should be in map")
 		assert.Len(t, contractAddresses, 1)
 
@@ -726,7 +582,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		contractAddress, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
 		require.NoError(t, err)
 		assert.Equal(t, contractAddress, contractAddresses[0])
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("skips contract instances with nil WASM hash", func(t *testing.T) {
@@ -774,16 +630,16 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		// Should not error, just skip the entry
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
-		assert.Empty(t, contractTypes)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.ContractTypesByContractID)
 		// Contract with nil WASM hash should NOT be added to contractsByWasm
-		assert.Empty(t, contractsByWasm)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("handles mixed SAC and WASM contract instances", func(t *testing.T) {
@@ -849,22 +705,22 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 		}
 
 		reader := &mockChangeReader{changes: changes}
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
 
 		// SAC should be in contractTypes
-		assert.Len(t, contractTypes, 1)
+		assert.Len(t, cpData.ContractTypesByContractID, 1)
 		sacAddress, err := strkey.Encode(strkey.VersionByteContract, sacContractID[:])
 		require.NoError(t, err)
-		assert.Contains(t, contractTypes, sacAddress)
-		assert.Equal(t, types.ContractTypeSAC, contractTypes[sacAddress])
+		assert.Contains(t, cpData.ContractTypesByContractID, sacAddress)
+		assert.Equal(t, types.ContractTypeSAC, cpData.ContractTypesByContractID[sacAddress])
 
 		// WASM contract should be in contractsByWasm
-		assert.Len(t, contractsByWasm, 1)
-		wasmAddresses, found := contractsByWasm[wasmBytecodeHash]
+		assert.Len(t, cpData.ContractIDsByWasmHash, 1)
+		wasmAddresses, found := cpData.ContractIDsByWasmHash[wasmBytecodeHash]
 		require.True(t, found, "WASM hash should be in map")
 		assert.Len(t, wasmAddresses, 1)
 		wasmAddress, err := strkey.Encode(strkey.VersionByteContract, wasmID[:])
@@ -873,7 +729,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 
 		// Ensure they're different contracts
 		assert.NotEqual(t, sacAddress, wasmAddress)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
@@ -884,7 +740,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			changes: []ingest.Change{},
 		}
 
-		_, _, _, _, _, err := service.collectAccountTokensFromCheckpoint(cancelledCtx, reader)
+		_, err := service.collectAccountTokensFromCheckpoint(cancelledCtx, reader)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "cancelled")
 	})
@@ -894,7 +750,7 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			err: assert.AnError,
 		}
 
-		_, _, _, _, _, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		_, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "reading checkpoint changes")
 	})
@@ -904,14 +760,14 @@ func TestCollectAccountTokensFromCheckpoint(t *testing.T) {
 			changes: []ingest.Change{}, // Empty, will return EOF immediately
 		}
 
-		trustlines, contracts, contractTypes, contractsByWasm, contractCodesByWasmHash, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
+		cpData, err := service.collectAccountTokensFromCheckpoint(ctx, reader)
 
 		require.NoError(t, err)
-		assert.Empty(t, trustlines)
-		assert.Empty(t, contracts)
-		assert.Empty(t, contractTypes)
-		assert.Empty(t, contractsByWasm)
-		assert.Empty(t, contractCodesByWasmHash)
+		assert.Empty(t, cpData.Trustlines)
+		assert.Empty(t, cpData.Contracts)
+		assert.Empty(t, cpData.ContractTypesByContractID)
+		assert.Empty(t, cpData.ContractIDsByWasmHash)
+		assert.Empty(t, cpData.ContractCodesByWasmHash)
 	})
 }
 
@@ -921,10 +777,9 @@ func TestAddTrustlines(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -1007,10 +862,9 @@ func TestAddContracts(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	tests := []struct {
@@ -1093,10 +947,9 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 	defer mr.Close()
 
 	service := &accountTokenService{
-		redisStore:         redisStore,
-		trustlinesPrefix:   trustlinesKeyPrefix,
-		contractsPrefix:    contractsKeyPrefix,
-		contractTypePrefix: contractTypePrefix,
+		redisStore:       redisStore,
+		trustlinesPrefix: trustlinesKeyPrefix,
+		contractsPrefix:  contractsKeyPrefix,
 	}
 
 	t.Run("stores trustlines in Redis", func(t *testing.T) {
@@ -1107,9 +960,8 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 			"account2": {"XLM:native"},
 		}
 		contracts := make(map[string][]string)
-		contractTypes := make(map[string]types.ContractType)
 
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts)
 		require.NoError(t, err)
 
 		// Verify trustlines were stored
@@ -1131,9 +983,8 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 			"account1": {"contract1", "contract2"},
 			"account2": {"contract3"},
 		}
-		contractTypes := make(map[string]types.ContractType)
 
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
+		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts)
 		require.NoError(t, err)
 
 		// Verify contracts were stored
@@ -1145,59 +996,6 @@ func TestStoreAccountTokensInRedis(t *testing.T) {
 		members2, err := mr.SMembers(contractsKeyPrefix + "account2")
 		require.NoError(t, err)
 		assert.Contains(t, members2, "contract3")
-	})
-
-	t.Run("stores contract types in Redis", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := make(map[string][]string)
-		contracts := make(map[string][]string)
-		contractTypes := map[string]types.ContractType{
-			"contract1": types.ContractTypeSAC,
-			"contract2": types.ContractTypeSEP41,
-		}
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify contract types were stored
-		type1, err := mr.Get(contractTypePrefix + "contract1")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSAC), type1)
-
-		type2, err := mr.Get(contractTypePrefix + "contract2")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSEP41), type2)
-	})
-
-	t.Run("stores all types together", func(t *testing.T) {
-		mr.FlushAll()
-
-		trustlines := map[string][]string{
-			"account1": {"USDC:issuer1"},
-		}
-		contracts := map[string][]string{
-			"account2": {"contract1"},
-		}
-		contractTypes := map[string]types.ContractType{
-			"contract1": types.ContractTypeSAC,
-		}
-
-		err := service.storeAccountTokensInRedis(ctx, trustlines, contracts, contractTypes)
-		require.NoError(t, err)
-
-		// Verify all were stored
-		trustlineMembers, err := mr.SMembers(trustlinesKeyPrefix + "account1")
-		require.NoError(t, err)
-		assert.Contains(t, trustlineMembers, "USDC:issuer1")
-
-		contractMembers, err := mr.SMembers(contractsKeyPrefix + "account2")
-		require.NoError(t, err)
-		assert.Contains(t, contractMembers, "contract1")
-
-		contractType, err := mr.Get(contractTypePrefix + "contract1")
-		assert.NoError(t, err)
-		assert.Equal(t, string(types.ContractTypeSAC), contractType)
 	})
 }
 
