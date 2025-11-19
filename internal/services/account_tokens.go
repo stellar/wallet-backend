@@ -189,21 +189,21 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	}()
 
 	// Collect account tokens from checkpoint
-	checkpointData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
+	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
 	}
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	s.enrichContractTypes(ctx, checkpointData.ContractTypesByContractID, checkpointData.ContractIDsByWasmHash, checkpointData.ContractCodesByWasmHash)
+	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractCodesByWasmHash)
 
 	// Fetch metadata for non-SAC contracts and store in database
-	if err := s.fetchAndStoreContractMetadata(ctx, checkpointData.ContractTypesByContractID); err != nil {
+	if err := s.fetchAndStoreContractMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
 		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
 		// Don't fail the entire process if metadata fetch fails
 	}
 
-	return s.storeAccountTokensInRedis(ctx, checkpointData.Trustlines, checkpointData.Contracts)
+	return s.storeAccountTokensInRedis(ctx, cpData.Trustlines, cpData.Contracts)
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).

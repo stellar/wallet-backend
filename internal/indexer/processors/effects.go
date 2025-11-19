@@ -412,7 +412,8 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
 	}
 	if assetType == "liquidity_pool_shares" {
-		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		var poolID string
+		poolID, err = safeStringFromDetails(effect.Details, "liquidity_pool_id")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
