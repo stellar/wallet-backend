@@ -132,6 +132,11 @@ func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *s
 	}, nil
 }
 
+// BalancesByAccountAddress is the resolver for the balancesByAccountAddress field.
+func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address string) ([]graphql1.Balance, error) {
+	panic(fmt.Errorf("not implemented: BalancesByAccountAddress - balancesByAccountAddress"))
+}
+
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 
