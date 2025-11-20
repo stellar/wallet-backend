@@ -273,8 +273,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				TokenID:                           tokenID,
 				Balance:                           balanceStr,
 				TokenType:                         graphql1.TokenTypeClassic,
-				Code:                              utils.PointOf(assetCode),
-				Issuer:                            utils.PointOf(assetIssuer),
+				Code:                              assetCode,
+				Issuer:                            assetIssuer,
 				Type:                              assetType,
 				Limit:                             limitStr,
 				BuyingLiabilities:                 buyingLiabilities,
@@ -368,8 +368,8 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				TokenID:           contractID,
 				Balance:           balanceStr,
 				TokenType:         graphql1.TokenTypeSac,
-				Code: *contract.Code,
-				Issuer: *contract.Issuer,
+				Code:              *contract.Code,
+				Issuer:            *contract.Issuer,
 				IsAuthorized:      isAuthorized,
 				IsClawbackEnabled: isClawbackEnabled,
 			})
@@ -386,9 +386,9 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				TokenID:   contractID,
 				Balance:   balanceStr,
 				TokenType: graphql1.TokenTypeSep41,
-				Name: *contract.Name,
-				Symbol: *contract.Symbol,
-				Decimals: int32(contract.Decimals),
+				Name:      *contract.Name,
+				Symbol:    *contract.Symbol,
+				Decimals:  int32(contract.Decimals),
 			})
 		default:
 			continue
