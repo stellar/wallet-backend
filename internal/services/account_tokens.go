@@ -90,6 +90,11 @@ type AccountTokenService interface {
 
 	// GetAccountContracts retrieves all contract token IDs for an account from Redis.
 	GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error)
+
+	// ProcessTokenChanges applies trustline and contract balance changes to Redis cache
+	// using pipelining for performance. This is called by the indexer for each ledger's
+	// state changes during live ingestion.
+	ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error
 }
 
 var _ AccountTokenService = (*accountTokenService)(nil)
@@ -184,21 +189,21 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	}()
 
 	// Collect account tokens from checkpoint
-	checkpointData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
+	cpData, err := s.collectAccountTokensFromCheckpoint(ctx, reader)
 	if err != nil {
 		return err
 	}
 
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
-	s.enrichContractTypes(ctx, checkpointData.ContractTypesByContractID, checkpointData.ContractIDsByWasmHash, checkpointData.ContractCodesByWasmHash)
+	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractCodesByWasmHash)
 
 	// Fetch metadata for non-SAC contracts and store in database
-	if err := s.fetchAndStoreContractMetadata(ctx, checkpointData.ContractTypesByContractID); err != nil {
+	if err := s.fetchAndStoreContractMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
 		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
 		// Don't fail the entire process if metadata fetch fails
 	}
 
-	return s.storeAccountTokensInRedis(ctx, checkpointData.Trustlines, checkpointData.Contracts)
+	return s.storeAccountTokensInRedis(ctx, cpData.Trustlines, cpData.Contracts)
 }
 
 // validateAccountAddress checks if the account address is valid (non-empty).
@@ -206,6 +211,74 @@ func validateAccountAddress(accountAddress string) error {
 	if accountAddress == "" {
 		return fmt.Errorf("account address cannot be empty")
 	}
+	return nil
+}
+
+// ProcessTokenChanges processes token changes efficiently using Redis pipelining.
+// This reduces network round trips from N operations to 1, significantly improving performance
+// during live ingestion. Called by the indexer for each ledger's state changes.
+//
+// For trustlines: handles both ADD (new trustline created) and REMOVE (trustline deleted).
+// For contract token balances (SAC, SEP41): only ADD operations are processed (contract tokens are never explicitly removed).
+func (s *accountTokenService) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {
+	if len(trustlineChanges) == 0 && len(contractChanges) == 0 {
+		return nil
+	}
+
+	// Calculate capacity: each trustline = 1 op, each contract = 2 ops (set membership + contract type)
+	trustlineOpsCount := len(trustlineChanges)
+	contractOpsCount := len(contractChanges) * 2
+	operations := make([]store.RedisPipelineOperation, 0, trustlineOpsCount+contractOpsCount)
+
+	// Convert trustline changes to Redis pipeline operations
+	for _, change := range trustlineChanges {
+		if change.Asset == "" {
+			log.Ctx(ctx).Warnf("Skipping trustline change with empty asset for account %s", change.AccountID)
+			continue
+		}
+
+		key := s.buildTrustlineKey(change.AccountID)
+		var op store.RedisOperation
+
+		switch change.Operation {
+		case types.TrustlineOpAdd:
+			op = store.SetOpAdd
+		case types.TrustlineOpRemove:
+			op = store.SetOpRemove
+		default:
+			return fmt.Errorf("unsupported trustline operation: %s", change.Operation)
+		}
+
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      op,
+			Key:     key,
+			Members: []string{change.Asset},
+		})
+	}
+
+	// Convert contract changes to Redis pipeline operations
+	for _, change := range contractChanges {
+		if change.ContractID == "" {
+			log.Ctx(ctx).Warnf("Skipping contract change with empty contract ID for account %s", change.AccountID)
+			continue
+		}
+
+		// For contract changes, we always add contract IDs and never remove them.
+		// This is because contract balance entries persist in the ledger even when balance is zero,
+		// unlike trustlines which can be completely deleted. We track all contracts an account has
+		// ever interacted with.
+		operations = append(operations, store.RedisPipelineOperation{
+			Op:      store.SetOpAdd,
+			Key:     s.buildContractKey(change.AccountID),
+			Members: []string{change.ContractID},
+		})
+	}
+
+	// Execute all operations in a single pipeline
+	if err := s.redisStore.ExecutePipeline(ctx, operations); err != nil {
+		return fmt.Errorf("executing token changes pipeline: %w", err)
+	}
+
 	return nil
 }
 
