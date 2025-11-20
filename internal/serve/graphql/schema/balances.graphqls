@@ -33,6 +33,7 @@ type SACBalance implements Balance {
 
     code: String!
     issuer: String!
+    decimals: String!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
