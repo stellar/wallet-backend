@@ -36,8 +36,7 @@ import (
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
 
 const (
-	ingestHealthCheckMaxWaitTime  = 90 * time.Second
-	totalIngestionPrometheusLabel = "total"
+	ingestHealthCheckMaxWaitTime = 90 * time.Second
 )
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -193,7 +192,7 @@ func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, e
 				return fmt.Errorf("updating latest synced ledger: %w", err)
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(ingestLedger))
-			m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(start).Seconds())
+			m.metricsService.ObserveIngestionDuration(time.Since(start).Seconds())
 
 			// immediately trigger the next ingestion the wallet-backend is behind the RPC's latest ledger
 			if resp.LatestLedger-ingestLedger > 1 {
@@ -322,7 +321,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
-		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
+		m.metricsService.ObserveIngestionDuration(time.Since(totalIngestionStart).Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
 
 		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
