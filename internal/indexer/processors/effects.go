@@ -417,9 +417,10 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
+
 		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
 			"liquidity_pool_id": poolID,
-		})
+		}).WithTrustlineAsset(poolID) // poolID is already in the format poolAsset1:poolAsset2
 	} else {
 		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
@@ -433,7 +434,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 		}
-		baseBuilder = baseBuilder.WithToken(assetContractID)
+		baseBuilder = baseBuilder.WithToken(assetContractID).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer))
 	}
 
 	var stateChange types.StateChange
@@ -442,7 +443,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	switch effectType {
 	case effects.EffectTrustlineCreated:
 		// Create the trustline state change
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer)).WithTrustlineLimit(
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).WithTrustlineLimit(
 			map[string]any{
 				"limit": map[string]any{
 					"new": effect.Details["limit"],
@@ -451,7 +452,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		).Build()
 
 	case effects.EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer)).Build()
+		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case effects.EffectTrustlineUpdated:
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
