@@ -495,6 +495,8 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Equal(t, "2500.0000000", sacBalance.Balance)
 		assert.Equal(t, graphql1.TokenTypeSac, sacBalance.TokenType)
 		assert.Equal(t, testSACContractAddress, sacBalance.TokenID)
+		assert.Equal(t, "USDC", sacBalance.Code)
+		assert.Equal(t, testUSDCIssuer, sacBalance.Issuer)
 		assert.True(t, sacBalance.IsAuthorized)
 		assert.False(t, sacBalance.IsClawbackEnabled)
 	})
@@ -543,6 +545,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.Equal(t, "5000.0000000", sep41Balance.Balance)
 		assert.Equal(t, graphql1.TokenTypeSep41, sep41Balance.TokenType)
 		assert.Equal(t, testSEP41ContractAddress, sep41Balance.TokenID)
+		assert.Equal(t, "MyToken", sep41Balance.Name)
+		assert.Equal(t, "MTK", sep41Balance.Symbol)
+		assert.Equal(t, int32(7), sep41Balance.Decimals)
 	})
 
 	t.Run("success - mixed balances (native + trustlines + SAC + SEP-41)", func(t *testing.T) {
@@ -594,6 +599,17 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		assert.IsType(t, &graphql1.TrustlineBalance{}, balances[1])
 		assert.IsType(t, &graphql1.SACBalance{}, balances[2])
 		assert.IsType(t, &graphql1.SEP41Balance{}, balances[3])
+
+		// Verify SAC balance details
+		sacBalance := balances[2].(*graphql1.SACBalance)
+		assert.Equal(t, "EURC", sacBalance.Code)
+		assert.Equal(t, testEURIssuer, sacBalance.Issuer)
+
+		// Verify SEP-41 balance details
+		sep41Balance := balances[3].(*graphql1.SEP41Balance)
+		assert.Equal(t, "CustomToken", sep41Balance.Name)
+		assert.Equal(t, "CTK", sep41Balance.Symbol)
+		assert.Equal(t, int32(6), sep41Balance.Decimals)
 	})
 
 	t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
@@ -634,6 +650,9 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		sep41Balance, ok := balances[0].(*graphql1.SEP41Balance)
 		require.True(t, ok)
 		assert.Equal(t, "1000.0000000", sep41Balance.Balance)
+		assert.Equal(t, "Token", sep41Balance.Name)
+		assert.Equal(t, "TKN", sep41Balance.Symbol)
+		assert.Equal(t, int32(7), sep41Balance.Decimals)
 	})
 
 	t.Run("success - trustline with V0 extension (no liabilities)", func(t *testing.T) {
