@@ -192,7 +192,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 		// Create ledger key for this contract
 		ledgerKey, keyErr := utils.GetContractDataEntryLedgerKey(address, contract.ID)
 		if keyErr != nil {
-			return nil, fmt.Errorf("creating ledger key for contract %s: %w", contract, keyErr)
+			return nil, fmt.Errorf("creating ledger key for contract %s: %w", contract.ID, keyErr)
 		}
 		ledgerKeys = append(ledgerKeys, ledgerKey)
 		contractsByContractID[contract.ID] = contract
