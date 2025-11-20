@@ -208,6 +208,7 @@ type ComplexityRoot struct {
 	SACBalance struct {
 		Balance           func(childComplexity int) int
 		Code              func(childComplexity int) int
+		Decimals          func(childComplexity int) int
 		IsAuthorized      func(childComplexity int) int
 		IsClawbackEnabled func(childComplexity int) int
 		Issuer            func(childComplexity int) int
@@ -1205,6 +1206,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.SACBalance.Code(childComplexity), true
 
+	case "SACBalance.decimals":
+		if e.complexity.SACBalance.Decimals == nil {
+			break
+		}
+
+		return e.complexity.SACBalance.Decimals(childComplexity), true
+
 	case "SACBalance.isAuthorized":
 		if e.complexity.SACBalance.IsAuthorized == nil {
 			break
@@ -1951,6 +1959,7 @@ type SACBalance implements Balance {
 
     code: String!
     issuer: String!
+    decimals: String!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
@@ -8407,6 +8416,50 @@ func (ec *executionContext) _SACBalance_issuer(ctx context.Context, field graphq
 }
 
 func (ec *executionContext) fieldContext_SACBalance_issuer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SACBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SACBalance_decimals(ctx context.Context, field graphql.CollectedField, obj *SACBalance) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_SACBalance_decimals(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Decimals, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_SACBalance_decimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SACBalance",
 		Field:      field,
@@ -16822,6 +16875,11 @@ func (ec *executionContext) _SACBalance(ctx context.Context, sel ast.SelectionSe
 			}
 		case "issuer":
 			out.Values[i] = ec._SACBalance_issuer(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "decimals":
+			out.Values[i] = ec._SACBalance_decimals(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
