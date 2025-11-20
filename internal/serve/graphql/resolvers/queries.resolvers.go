@@ -370,6 +370,7 @@ func (r *queryResolver) BalancesByAccountAddress(ctx context.Context, address st
 				TokenType:         graphql1.TokenTypeSac,
 				Code:              *contract.Code,
 				Issuer:            *contract.Issuer,
+				Decimals: int32(contract.Decimals),
 				IsAuthorized:      isAuthorized,
 				IsClawbackEnabled: isClawbackEnabled,
 			})
