@@ -121,7 +121,7 @@ type SACBalance struct {
 	TokenType         TokenType `json:"tokenType"`
 	Code              string    `json:"code"`
 	Issuer            string    `json:"issuer"`
-	Decimals          string    `json:"decimals"`
+	Decimals          int32     `json:"decimals"`
 	IsAuthorized      bool      `json:"isAuthorized"`
 	IsClawbackEnabled bool      `json:"isClawbackEnabled"`
 }
