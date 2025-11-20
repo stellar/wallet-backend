@@ -12,10 +12,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// ContractModelInterface defines the interface for contract token operations
+type ContractModelInterface interface {
+	GetByID(ctx context.Context, contractID string) (*Contract, error)
+	BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
+	BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error)
+}
+
 type ContractModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
+
+var _ ContractModelInterface = (*ContractModel)(nil)
 
 type Contract struct {
 	ID        string    `db:"id" json:"id"`

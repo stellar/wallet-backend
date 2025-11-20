@@ -105,7 +105,7 @@ type accountTokenService struct {
 	contractValidator ContractValidator
 	redisStore        *store.RedisStore
 	rpcService        RPCService
-	contractModel     *data.ContractModel
+	contractModel     data.ContractModelInterface
 	pool              pond.Pool
 	networkPassphrase string
 	trustlinesPrefix  string
@@ -119,7 +119,7 @@ func NewAccountTokenService(
 	redisStore *store.RedisStore,
 	contractValidator ContractValidator,
 	rpcService RPCService,
-	contractModel *data.ContractModel,
+	contractModel data.ContractModelInterface,
 	pool pond.Pool,
 	checkpointFrequency uint32,
 ) (AccountTokenService, error) {
