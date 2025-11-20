@@ -31,6 +31,8 @@ type SACBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
+    code: String!
+    issuer: String!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
@@ -39,4 +41,8 @@ type SEP41Balance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
+
+    name: String!
+    symbol: String!
+    decimals: Int!
 }
