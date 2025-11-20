@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/support/log"
@@ -83,20 +84,21 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
-	contractStore, err := cache.NewTokenContractStore(models.Contract)
-	if err != nil {
-		return nil, fmt.Errorf("instantiating contract store: %w", err)
-	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
-	contractValidator := services.NewContractValidator(rpcService)
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, uint32(cfg.CheckpointFrequency))
+	contractValidator := services.NewContractValidator()
+
+	// Create pond pool for account token metadata fetching
+	accountTokenPool := pond.NewPool(0)
+	metricsService.RegisterPoolMetrics("account_token_metadata", accountTokenPool)
+
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, rpcService, models.Contract, accountTokenPool, uint32(cfg.CheckpointFrequency))
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, contractStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

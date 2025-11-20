@@ -149,7 +149,7 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	b.trustlineChanges = append(b.trustlineChanges, trustlineChange)
 }
 
-// GetTrustlineChanges returns a copy of all trustline changes stored in the buffer.
+// GetTrustlineChanges returns all trustline changes stored in the buffer.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetTrustlineChanges() []types.TrustlineChange {
 	b.mu.RLock()
@@ -167,7 +167,7 @@ func (b *IndexerBuffer) PushContractChange(contractChange types.ContractChange) 
 	b.contractChanges = append(b.contractChanges, contractChange)
 }
 
-// GetContractChanges returns a copy of all contract changes stored in the buffer.
+// GetContractChanges returns all contract changes stored in the buffer.
 // Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetContractChanges() []types.ContractChange {
 	b.mu.RLock()
