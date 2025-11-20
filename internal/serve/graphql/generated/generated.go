@@ -1933,8 +1933,8 @@ type TrustlineBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
-    code: String
-    issuer: String
+    code: String!
+    issuer: String!
     type: String!
     limit: String!
     buyingLiabilities: String!
@@ -11213,11 +11213,14 @@ func (ec *executionContext) _TrustlineBalance_code(ctx context.Context, field gr
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
-	res := resTmp.(*string)
+	res := resTmp.(string)
 	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineBalance_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -11254,11 +11257,14 @@ func (ec *executionContext) _TrustlineBalance_issuer(ctx context.Context, field 
 		return graphql.Null
 	}
 	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
 		return graphql.Null
 	}
-	res := resTmp.(*string)
+	res := resTmp.(string)
 	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_TrustlineBalance_issuer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -18131,8 +18137,14 @@ func (ec *executionContext) _TrustlineBalance(ctx context.Context, sel ast.Selec
 			}
 		case "code":
 			out.Values[i] = ec._TrustlineBalance_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "issuer":
 			out.Values[i] = ec._TrustlineBalance_issuer(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "type":
 			out.Values[i] = ec._TrustlineBalance_type(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

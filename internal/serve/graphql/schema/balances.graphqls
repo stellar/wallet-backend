@@ -15,8 +15,8 @@ type TrustlineBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
-    code: String
-    issuer: String
+    code: String!
+    issuer: String!
     type: String!
     limit: String!
     buyingLiabilities: String!
