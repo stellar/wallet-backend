@@ -43,6 +43,20 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 	return contract, nil
 }
 
+func (m *ContractModel) BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
+	start := time.Now()
+	var contracts []*Contract
+	err := m.DB.GetContext(ctx, &contracts, "SELECT * FROM contract_tokens WHERE id = ANY($1)", contractIDs)
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "contract_tokens", duration)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting contracts by IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("BatchGetByIDs", "contract_tokens")
+	return contracts, nil
+} 
+
 // BatchInsert inserts multiple contracts in a single query using UNNEST.
 // It returns the IDs of successfully inserted contracts.
 // Contracts that already exist (duplicate IDs) are skipped via ON CONFLICT DO NOTHING.
