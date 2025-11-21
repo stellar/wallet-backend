@@ -299,6 +299,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 
 		// update cursors
+		cursorStart := time.Now()
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
@@ -316,8 +317,14 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if err != nil {
 			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
+		cursorDuration := time.Since(cursorStart)
+		log.Ctx(ctx).Infof("⏱️ Phase [cursor_update]: %v", cursorDuration)
+		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
+
+		totalDuration := time.Since(totalIngestionStart)
+		log.Ctx(ctx).Infof("⏱️ Total ingestion duration: %v", totalDuration)
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
-		m.metricsService.ObserveIngestionDuration(time.Since(totalIngestionStart).Seconds())
+		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
 
 		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
@@ -343,7 +350,9 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 	if err != nil {
 		return GetLedgersResponse{}, fmt.Errorf("getting ledgers: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", time.Since(fetchStart).Seconds())
+	fetchDuration := time.Since(fetchStart)
+	log.Ctx(ctx).Infof("⏱️ Phase [fetch_ledgers]: %v", fetchDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration.Seconds())
 
 	return getLedgersResponse, nil
 }
@@ -502,7 +511,9 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	if err != nil {
 		return fmt.Errorf("collecting ledger transaction data: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", time.Since(start).Seconds())
+	collectDuration := time.Since(start)
+	log.Ctx(ctx).Infof("⏱️ Phase [collect_transaction_data]: %v", collectDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", collectDuration.Seconds())
 
 	// Phase 2: Single DB call to get all existing accounts across all ledgers
 	start = time.Now()
@@ -510,7 +521,9 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	if err != nil {
 		return fmt.Errorf("fetching existing accounts: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", time.Since(start).Seconds())
+	fetchAccountsDuration := time.Since(start)
+	log.Ctx(ctx).Infof("⏱️ Phase [fetch_existing_accounts]: %v", fetchAccountsDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", fetchAccountsDuration.Seconds())
 
 	// Phase 3: Process transactions and populate per-ledger buffers in parallel
 	start = time.Now()
@@ -518,19 +531,25 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	if err != nil {
 		return fmt.Errorf("processing and buffering transactions: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
+	processBufferDuration := time.Since(start)
+	log.Ctx(ctx).Infof("⏱️ Phase [process_and_buffer]: %v", processBufferDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", processBufferDuration.Seconds())
 
 	// Phase 4: Merge all per-ledger buffers into a single buffer
 	start = time.Now()
 	mergedBuffer := m.mergeLedgerBuffers(ledgerBuffers)
-	m.metricsService.ObserveIngestionPhaseDuration("merge_buffers", time.Since(start).Seconds())
+	mergeDuration := time.Since(start)
+	log.Ctx(ctx).Infof("⏱️ Phase [merge_buffers]: %v", mergeDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("merge_buffers", mergeDuration.Seconds())
 
 	// Phase 5: Insert all data into DB
 	start = time.Now()
 	if err := m.ingestProcessedData(ctx, mergedBuffer); err != nil {
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
+	dbInsertDuration := time.Since(start)
+	log.Ctx(ctx).Infof("⏱️ Phase [db_insertion]: %v", dbInsertDuration)
+	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", dbInsertDuration.Seconds())
 
 	// Log summary of processing
 	memStats := new(runtime.MemStats)
