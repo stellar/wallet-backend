@@ -288,7 +288,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
 				continue
 			}
-			log.Ctx(ctx).Warnf("fetching next ledgers batch: %v", err)
+			log.Ctx(ctx).Warnf("fetching next ledgers batch. will retry in a few moments...: %v", err)
 			continue
 		}
 		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
