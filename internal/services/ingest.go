@@ -318,11 +318,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
 		cursorDuration := time.Since(cursorStart)
-		log.Ctx(ctx).Infof("⏱️ Phase [cursor_update]: %v", cursorDuration)
 		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
 
 		totalDuration := time.Since(totalIngestionStart)
-		log.Ctx(ctx).Infof("⏱️ Total ingestion duration: %v", totalDuration)
 		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
@@ -351,7 +349,6 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 		return GetLedgersResponse{}, fmt.Errorf("getting ledgers: %w", err)
 	}
 	fetchDuration := time.Since(fetchStart)
-	log.Ctx(ctx).Infof("⏱️ Phase [fetch_ledgers]: %v", fetchDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration.Seconds())
 
 	return getLedgersResponse, nil
@@ -512,7 +509,6 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("collecting ledger transaction data: %w", err)
 	}
 	collectDuration := time.Since(start)
-	log.Ctx(ctx).Infof("⏱️ Phase [collect_transaction_data]: %v", collectDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", collectDuration.Seconds())
 
 	// Phase 2: Single DB call to get all existing accounts across all ledgers
@@ -522,7 +518,6 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("fetching existing accounts: %w", err)
 	}
 	fetchAccountsDuration := time.Since(start)
-	log.Ctx(ctx).Infof("⏱️ Phase [fetch_existing_accounts]: %v", fetchAccountsDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", fetchAccountsDuration.Seconds())
 
 	// Phase 3: Process transactions and populate per-ledger buffers in parallel
@@ -532,14 +527,12 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("processing and buffering transactions: %w", err)
 	}
 	processBufferDuration := time.Since(start)
-	log.Ctx(ctx).Infof("⏱️ Phase [process_and_buffer]: %v", processBufferDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", processBufferDuration.Seconds())
 
 	// Phase 4: Merge all per-ledger buffers into a single buffer
 	start = time.Now()
 	mergedBuffer := m.mergeLedgerBuffers(ledgerBuffers)
 	mergeDuration := time.Since(start)
-	log.Ctx(ctx).Infof("⏱️ Phase [merge_buffers]: %v", mergeDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("merge_buffers", mergeDuration.Seconds())
 
 	// Phase 5: Insert all data into DB
@@ -548,7 +541,6 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 		return fmt.Errorf("ingesting processed data: %w", err)
 	}
 	dbInsertDuration := time.Since(start)
-	log.Ctx(ctx).Infof("⏱️ Phase [db_insertion]: %v", dbInsertDuration)
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", dbInsertDuration.Seconds())
 
 	// Log summary of processing
