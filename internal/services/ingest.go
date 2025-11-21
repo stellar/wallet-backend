@@ -62,6 +62,7 @@ type ingestService struct {
 	rpcService              RPCService
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
+	contractMetadataService ContractMetadataService
 	metricsService          metrics.MetricsService
 	networkPassphrase       string
 	getLedgersLimit         int
@@ -77,6 +78,7 @@ func NewIngestService(
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
 	accountTokenService AccountTokenService,
+	contractMetadataService ContractMetadataService,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
 	network string,
@@ -123,6 +125,7 @@ func NewIngestService(
 		rpcService:              rpcService,
 		chAccStore:              chAccStore,
 		accountTokenService:     accountTokenService,
+		contractMetadataService: contractMetadataService,
 		metricsService:          metricsService,
 		networkPassphrase:       rpcService.NetworkPassphrase(),
 		getLedgersLimit:         getLedgersLimit,
@@ -681,6 +684,14 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		return fmt.Errorf("processing trustline changes batch: %w", err)
 	}
 	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredTrustlineChanges), len(filteredContractChanges))
+
+	// Fetch and store metadata for new SAC/SEP-41 contracts discovered during live ingestion
+	if m.contractMetadataService != nil {
+		if err := m.contractMetadataService.FetchAndStoreForChanges(ctx, filteredContractChanges); err != nil {
+			log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
+			// Don't return error - we don't want to block ingestion for metadata fetch failures
+		}
+	}
 
 	return nil
 }

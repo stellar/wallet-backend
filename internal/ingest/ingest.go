@@ -88,17 +88,27 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
 	contractValidator := services.NewContractValidator()
 
-	// Create pond pool for account token metadata fetching
+	// Create pond pool for account token operations
 	accountTokenPool := pond.NewPool(0)
-	metricsService.RegisterPoolMetrics("account_token_metadata", accountTokenPool)
+	metricsService.RegisterPoolMetrics("account_token", accountTokenPool)
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, rpcService, models.Contract, accountTokenPool, uint32(cfg.CheckpointFrequency))
+	// Create pond pool for contract metadata fetching
+	contractMetadataPool := pond.NewPool(0)
+	metricsService.RegisterPoolMetrics("contract_metadata", contractMetadataPool)
+
+	// Create ContractMetadataService for fetching and storing token metadata
+	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
+	}
+
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, contractMetadataService, accountTokenPool, uint32(cfg.CheckpointFrequency))
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

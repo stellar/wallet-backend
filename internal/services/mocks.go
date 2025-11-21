@@ -139,3 +139,34 @@ func NewAccountTokenServiceMock(t interface {
 
 	return mock
 }
+
+// ContractMetadataServiceMock is a mock implementation of ContractMetadataService.
+type ContractMetadataServiceMock struct {
+	mock.Mock
+}
+
+var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
+
+func (c *ContractMetadataServiceMock) FetchAndStoreForContracts(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
+	args := c.Called(ctx, contractTypesByID)
+	return args.Error(0)
+}
+
+func (c *ContractMetadataServiceMock) FetchAndStoreForChanges(ctx context.Context, contractChanges []types.ContractChange) error {
+	args := c.Called(ctx, contractChanges)
+	return args.Error(0)
+}
+
+// NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.
+func NewContractMetadataServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *ContractMetadataServiceMock {
+	mock := &ContractMetadataServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
