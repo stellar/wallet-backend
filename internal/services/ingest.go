@@ -290,10 +290,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			}
 			return fmt.Errorf("fetching next ledgers batch: %w", err)
 		}
-		fetchDuration := time.Since(totalIngestionStart).Seconds()
-		m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
 		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
-		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(getLedgersResponse.Ledgers), fetchDuration)
 
 		// process ledgers
 		err = m.processLedgerResponse(ctx, getLedgersResponse)
@@ -341,10 +338,12 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 		return GetLedgersResponse{}, ErrAlreadyInSync
 	}
 
+	fetchStart := time.Now()
 	getLedgersResponse, err := m.rpcService.GetLedgers(ledgerSeqRange.StartLedger, ledgerSeqRange.Limit)
 	if err != nil {
 		return GetLedgersResponse{}, fmt.Errorf("getting ledgers: %w", err)
 	}
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", time.Since(fetchStart).Seconds())
 
 	return getLedgersResponse, nil
 }
