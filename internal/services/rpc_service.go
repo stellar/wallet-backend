@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/stellar/go/support/log"
@@ -42,7 +39,9 @@ type RPCService interface {
 	//
 	// The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
 	// which is particularly useful when the ingestor needs to catch up with the RPC service.
-	TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger chan any)
+	//
+	// Returns an error if the context is cancelled. The caller is responsible for handling shutdown signals.
+	TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger <-chan any) error
 	SimulateTransaction(transactionXDR string, resourceConfig entities.RPCResourceConfig) (entities.RPCSimulateTransactionResult, error)
 	NetworkPassphrase() string
 }
@@ -333,14 +332,17 @@ func (r *rpcService) HealthCheckTickInterval() time.Duration {
 //
 // The immediateHealthCheckTrigger channel allows external components to request an immediate health check,
 // which is particularly useful when the ingestor needs to catch up with the RPC service.
-func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger chan any) {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+//
+// Returns an error if the context is cancelled. The caller is responsible for handling shutdown signals.
+func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthCheckTrigger <-chan any) error {
+	// Handle nil channel by creating a never-firing channel
+	if immediateHealthCheckTrigger == nil {
+		immediateHealthCheckTrigger = make(chan any)
+	}
 
 	healthCheckTicker := time.NewTicker(r.HealthCheckTickInterval())
 	unhealthyWarningTicker := time.NewTicker(r.HealthCheckWarningInterval())
 	defer func() {
-		signal.Stop(signalChan)
 		healthCheckTicker.Stop()
 		unhealthyWarningTicker.Stop()
 		close(r.heartbeatChannel)
@@ -368,15 +370,14 @@ func (r *rpcService) TrackRPCServiceHealth(ctx context.Context, immediateHealthC
 		r.metricsService.SetRPCLatestLedger(int64(health.LatestLedger))
 	}
 
+	// Perform immediate health check at startup to avoid 5-second delay
+	performHealthCheck()
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Ctx(ctx).Infof("RPC health tracking stopped due to context cancellation: %v", ctx.Err())
-			return
-
-		case sig := <-signalChan:
-			log.Ctx(ctx).Warnf("RPC health tracking stopped due to signal %s", sig)
-			return
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
 
 		case <-unhealthyWarningTicker.C:
 			log.Ctx(ctx).Warnf("RPC service unhealthy for over %s", r.HealthCheckWarningInterval())

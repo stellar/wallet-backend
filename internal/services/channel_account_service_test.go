@@ -2,8 +2,8 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
@@ -107,11 +107,9 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Return(network.TestNetworkPassphrase).
 					Once()
 
-				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 				mockRPCService.
-					On("GetHeartbeatChannel").
-					Return(heartbeatChan).
+					On("GetHealth").
+					Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).
 					Once().
 					On("GetAccountLedgerSequence", distributionAccount.Address()).
 					Return(int64(123), nil).
@@ -195,10 +193,8 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Return(&signedTx, nil).
 					Once()
 
-				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 				mockRPCService.
-					On("GetHeartbeatChannel").Return(heartbeatChan).Once().
+					On("GetHealth").Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).Once().
 					On("GetAccountLedgerSequence", distributionAccount.Address()).Return(int64(123), nil).Once().
 					On("GetAccountLedgerSequence", chAcc1.PublicKey).Return(int64(123), nil).Once().
 					On("GetAccountLedgerSequence", chAcc2.PublicKey).Return(int64(123), nil).Once().
@@ -256,11 +252,9 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Return(network.TestNetworkPassphrase).
 					Once()
 
-				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 				mockRPCService.
-					On("GetHeartbeatChannel").
-					Return(heartbeatChan).
+					On("GetHealth").
+					Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).
 					Once().
 					On("GetAccountLedgerSequence", distributionAccount.Address()).
 					Return(int64(123), nil).
@@ -312,11 +306,9 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Return(network.TestNetworkPassphrase).
 					Once()
 
-				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-				heartbeatChan <- entities.RPCGetHealthResult{Status: "healthy"}
 				mockRPCService.
-					On("GetHeartbeatChannel").
-					Return(heartbeatChan).
+					On("GetHealth").
+					Return(entities.RPCGetHealthResult{Status: "healthy"}, nil).
 					Once().
 					On("GetAccountLedgerSequence", distributionAccount.Address()).
 					Return(int64(123), nil).
@@ -349,10 +341,12 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 					Return(distributionAccount.Address(), nil).
 					Once()
 
-				heartbeatChan := make(chan entities.RPCGetHealthResult, 1)
-				mockRPCService.On("GetHeartbeatChannel").Return(heartbeatChan)
+				mockRPCService.
+					On("GetHealth").
+					Return(entities.RPCGetHealthResult{}, fmt.Errorf("RPC unavailable")).
+					Maybe()
 			},
-			expectedError: "context cancelled while waiting for rpc service to become healthy",
+			expectedError: "timeout waiting for RPC service to become healthy",
 		},
 	}
 
@@ -361,7 +355,6 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 			// Create fresh mocks for each test
 			ctx := tc.getCtx()
 			mockRPCService := NewRPCServiceMock(t)
-			mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 			distAccSigClient := signing.NewSignatureClientMock(t)
 			chAccSigClient := signing.NewSignatureClientMock(t)
 			channelAccountStore := store.NewChannelAccountStoreMock(t)
@@ -380,7 +373,6 @@ func Test_ChannelAccountService_EnsureChannelAccounts(t *testing.T) {
 				PrivateKeyEncrypter:                &signingutils.DefaultPrivateKeyEncrypter{},
 				EncryptionPassphrase:               "my-encryption-passphrase",
 			})
-			time.Sleep(50 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 			require.NoError(t, err)
 
 			// Execute test
@@ -407,7 +399,6 @@ func TestSubmitTransaction(t *testing.T) {
 
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
-	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	defer mockRPCService.AssertExpectations(t)
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
@@ -422,9 +413,7 @@ func TestSubmitTransaction(t *testing.T) {
 		PrivateKeyEncrypter:                &privateKeyEncrypter,
 		EncryptionPassphrase:               passphrase,
 	})
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 	signedTxXDR := "test_xdr"
@@ -465,7 +454,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 	ctx := context.Background()
 	mockRPCService := RPCServiceMock{}
 	defer mockRPCService.AssertExpectations(t)
-	mockRPCService.On("TrackRPCServiceHealth", ctx, mock.Anything).Return()
 	signatureClient := signing.SignatureClientMock{}
 	channelAccountStore := store.ChannelAccountStoreMock{}
 	privateKeyEncrypter := signingutils.DefaultPrivateKeyEncrypter{}
@@ -480,7 +468,6 @@ func TestWaitForTransactionConfirmation(t *testing.T) {
 		EncryptionPassphrase:               passphrase,
 	})
 	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond) // waiting for the goroutine to call `TrackRPCServiceHealth`
 
 	hash := "test_hash"
 
