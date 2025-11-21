@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/go-chi/chi"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -157,9 +158,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
-	contractValidator := services.NewContractValidator(rpcService)
+	contractValidator := services.NewContractValidator()
 	// Serve command only reads from Redis cache, doesn't need history archive
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, "", redisStore, contractValidator, 0)
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, "", redisStore, contractValidator, rpcService, models.Contract, pond.NewPool(0), 0)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating account token service: %w", err)
 	}

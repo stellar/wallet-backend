@@ -15,8 +15,8 @@ type TrustlineBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
-    code: String
-    issuer: String
+    code: String!
+    issuer: String!
     type: String!
     limit: String!
     buyingLiabilities: String!
@@ -31,6 +31,9 @@ type SACBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
+    code: String!
+    issuer: String!
+    decimals: Int!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
 }
@@ -39,4 +42,8 @@ type SEP41Balance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
+
+    name: String!
+    symbol: String!
+    decimals: Int!
 }

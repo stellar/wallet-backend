@@ -100,8 +100,13 @@ func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context) err
 	return args.Error(0)
 }
 
-func (a *AccountTokenServiceMock) Add(ctx context.Context, accountAddress string, assets []string) error {
+func (a *AccountTokenServiceMock) AddTrustlines(ctx context.Context, accountAddress string, assets []string) error {
 	args := a.Called(ctx, accountAddress, assets)
+	return args.Error(0)
+}
+
+func (a *AccountTokenServiceMock) AddContracts(ctx context.Context, accountAddress string, contractIDs []string) error {
+	args := a.Called(ctx, accountAddress, contractIDs)
 	return args.Error(0)
 }
 
@@ -113,11 +118,6 @@ func (a *AccountTokenServiceMock) GetAccountTrustlines(ctx context.Context, acco
 func (a *AccountTokenServiceMock) GetAccountContracts(ctx context.Context, accountAddress string) ([]string, error) {
 	args := a.Called(ctx, accountAddress)
 	return args.Get(0).([]string), args.Error(1)
-}
-
-func (a *AccountTokenServiceMock) GetContractType(ctx context.Context, contractID string) (types.ContractType, error) {
-	args := a.Called(ctx, contractID)
-	return args.Get(0).(types.ContractType), args.Error(1)
 }
 
 func (a *AccountTokenServiceMock) ProcessTokenChanges(ctx context.Context, trustlineChanges []types.TrustlineChange, contractChanges []types.ContractChange) error {

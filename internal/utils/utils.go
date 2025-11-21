@@ -184,8 +184,8 @@ func GetContractDataEntryLedgerKey(holderAddress, contractAddress string) (strin
 
 // IsContractAddress determines if the given address is a contract address (C...) or account address (G...)
 func IsContractAddress(address string) bool {
-	// Contract addresses start with 'C' and account addresses start with 'G'
-	return len(address) > 0 && address[0] == 'C'
+	_, err := strkey.Decode(strkey.VersionByteContract, address)
+	return err == nil
 }
 
 // DeferredClose is a function that closes an `io.Closer` resource and logs an error if it fails.

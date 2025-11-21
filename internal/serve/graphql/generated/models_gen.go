@@ -119,6 +119,9 @@ type SACBalance struct {
 	Balance           string    `json:"balance"`
 	TokenID           string    `json:"tokenId"`
 	TokenType         TokenType `json:"tokenType"`
+	Code              string    `json:"code"`
+	Issuer            string    `json:"issuer"`
+	Decimals          int32     `json:"decimals"`
 	IsAuthorized      bool      `json:"isAuthorized"`
 	IsClawbackEnabled bool      `json:"isClawbackEnabled"`
 }
@@ -132,6 +135,9 @@ type SEP41Balance struct {
 	Balance   string    `json:"balance"`
 	TokenID   string    `json:"tokenId"`
 	TokenType TokenType `json:"tokenType"`
+	Name      string    `json:"name"`
+	Symbol    string    `json:"symbol"`
+	Decimals  int32     `json:"decimals"`
 }
 
 func (SEP41Balance) IsBalance()                   {}
@@ -172,8 +178,8 @@ type TrustlineBalance struct {
 	Balance                           string    `json:"balance"`
 	TokenID                           string    `json:"tokenId"`
 	TokenType                         TokenType `json:"tokenType"`
-	Code                              *string   `json:"code,omitempty"`
-	Issuer                            *string   `json:"issuer,omitempty"`
+	Code                              string    `json:"code"`
+	Issuer                            string    `json:"issuer"`
 	Type                              string    `json:"type"`
 	Limit                             string    `json:"limit"`
 	BuyingLiabilities                 string    `json:"buyingLiabilities"`
