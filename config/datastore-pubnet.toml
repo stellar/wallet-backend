@@ -1,0 +1,28 @@
+# Datastore configuration for Stellar Public Data Lake (Pubnet)
+# This config connects to the AWS S3 public data lake at:
+# s3://aws-public-blockchain/v1.1/stellar/ledgers/pubnet
+
+[datastore_config]
+type = "S3"
+
+[datastore_config.params]
+# The AWS S3 bucket path for the Stellar public data lake
+destination_bucket_path = "aws-public-blockchain/v1.1/stellar/ledgers/pubnet"
+# AWS region where the bucket is located
+region = "us-east-2"
+
+[datastore_config.schema]
+# Number of ledgers per file in the data lake
+ledgers_per_file = 1
+# Number of files per partition
+files_per_partition = 64000
+
+[buffered_storage_backend_config]
+# Buffer size for reading ledgers
+buffer_size = 100
+# Number of concurrent workers for reading
+num_workers = 10
+# Number of retries for failed operations
+retry_limit = 3
+# Wait time between retries
+retry_wait = "5s"

@@ -20,6 +20,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
 	var sentryDSN string
 	var stellarEnvironment string
+	var ledgerBackendType string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
@@ -67,6 +68,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: 64,
 			Required:    false,
 		},
+		{
+			Name:        "ledger-backend-type",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
+			OptType:     types.String,
+			ConfigKey:   &ledgerBackendType,
+			FlagDefault: string(ingest.LedgerBackendTypeRPC),
+			Required:    false,
+		},
+		{
+			Name:        "datastore-config",
+			Usage:       "Path to TOML config file for datastore backend. Required when ledger-backend-type is 'datastore'",
+			OptType:     types.String,
+			ConfigKey:   &cfg.DatastoreConfigPath,
+			FlagDefault: "",
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
@@ -79,6 +96,17 @@ func (c *ingestCmd) Command() *cobra.Command {
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
+
+			// Convert ledger backend type string to typed value
+			switch ledgerBackendType {
+			case string(ingest.LedgerBackendTypeRPC):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
+			case string(ingest.LedgerBackendTypeDatastore):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			default:
+				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
+			}
+
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
 			if err != nil {
 				return fmt.Errorf("initializing app tracker: %w", err)
