@@ -225,7 +225,7 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "GetLatestLedgerSynced", "ingest_store").Once()
 	mockMetricsService.On("SetLatestLedgerIngested", float64(50)).Once()
-	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", mock.AnythingOfType("float64")).Once()
 	defer mockMetricsService.AssertExpectations(t)
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)
@@ -337,7 +337,7 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 	mockMetricsService.On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
 	mockMetricsService.On("IncDBQuery", "GetLatestLedgerSynced", "ingest_store").Once()
 	mockMetricsService.On("SetLatestLedgerIngested", float64(100)).Once()
-	mockMetricsService.On("ObserveIngestionDuration", "total", mock.AnythingOfType("float64")).Once()
+	mockMetricsService.On("ObserveIngestionDuration", mock.AnythingOfType("float64")).Once()
 	defer mockMetricsService.AssertExpectations(t)
 
 	heartbeatChan := make(chan entities.RPCGetHealthResult, 1)

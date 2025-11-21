@@ -14,7 +14,7 @@ type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool pond.Pool)
 	GetRegistry() *prometheus.Registry
 	SetLatestLedgerIngested(value float64)
-	ObserveIngestionDuration(ingestionType string, duration float64)
+	ObserveIngestionDuration(duration float64)
 	IncActiveAccount()
 	DecActiveAccount()
 	IncRPCRequests(endpoint string)
@@ -60,7 +60,7 @@ type metricsService struct {
 
 	// Ingest Service Metrics
 	latestLedgerIngested prometheus.Gauge
-	ingestionDuration    *prometheus.SummaryVec
+	ingestionDuration    *prometheus.HistogramVec
 
 	// Account Metrics
 	activeAccounts prometheus.Gauge
@@ -94,11 +94,11 @@ type metricsService struct {
 	signatureVerificationExpired *prometheus.CounterVec
 
 	// State Change Metrics
-	stateChangeProcessingDuration *prometheus.SummaryVec
+	stateChangeProcessingDuration *prometheus.HistogramVec
 	stateChangesTotal             *prometheus.CounterVec
 
 	// Ingestion Phase Metrics
-	ingestionPhaseDuration     *prometheus.SummaryVec
+	ingestionPhaseDuration     *prometheus.HistogramVec
 	ingestionLedgersProcessed  prometheus.Counter
 	ingestionTransactionsTotal prometheus.Counter
 	ingestionOperationsTotal   prometheus.Counter
@@ -122,17 +122,17 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	// Ingest Service Metrics
 	m.latestLedgerIngested = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "latest_ledger_ingested",
+			Name: "ingestion_ledger_latest",
 			Help: "Latest ledger ingested",
 		},
 	)
-	m.ingestionDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "ingestion_duration_seconds",
-			Help:       "Duration of ledger ingestion",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	m.ingestionDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_duration_seconds",
+			Help:    "Duration of ledger ingestion",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 5, 10, 30, 60, 120},
 		},
-		[]string{"type"},
+		[]string{},
 	)
 
 	// Account Metrics
@@ -284,11 +284,11 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 
 	// State Change Metrics
-	m.stateChangeProcessingDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "state_change_processing_duration_seconds",
-			Help:       "Duration of state change processing by processor type",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	m.stateChangeProcessingDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_state_change_processing_duration_seconds",
+			Help:    "Duration of state change processing by processor type",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		},
 		[]string{"processor"},
 	)
@@ -301,11 +301,11 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 
 	// Ingestion Phase Metrics
-	m.ingestionPhaseDuration = prometheus.NewSummaryVec(
-		prometheus.SummaryOpts{
-			Name:       "ingestion_phase_duration_seconds",
-			Help:       "Duration of each ingestion phase",
-			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+	m.ingestionPhaseDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ingestion_phase_duration_seconds",
+			Help:    "Duration of each ingestion phase",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 5, 10, 30, 60, 120},
 		},
 		[]string{"phase"},
 	)
@@ -498,8 +498,8 @@ func (m *metricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)
 }
 
-func (m *metricsService) ObserveIngestionDuration(ingestionType string, duration float64) {
-	m.ingestionDuration.WithLabelValues(ingestionType).Observe(duration)
+func (m *metricsService) ObserveIngestionDuration(duration float64) {
+	m.ingestionDuration.WithLabelValues().Observe(duration)
 }
 
 // Account Service Metrics
