@@ -17,10 +17,10 @@ import (
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/ingest"
+	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
-	"github.com/stellar/stellar-rpc/protocol"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
@@ -61,6 +61,7 @@ type ingestService struct {
 	advisoryLockID          int
 	appTracker              apptracker.AppTracker
 	rpcService              RPCService
+	ledgerBackend           ledgerbackend.LedgerBackend
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
 	metricsService          metrics.MetricsService
@@ -76,11 +77,13 @@ func NewIngestService(
 	accountTokensCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
+	ledgerBackend ledgerbackend.LedgerBackend,
 	chAccStore store.ChannelAccountStore,
 	accountTokenService AccountTokenService,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
 	network string,
+	networkPassphrase string,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -96,6 +99,9 @@ func NewIngestService(
 	}
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
+	}
+	if ledgerBackend == nil {
+		return nil, errors.New("ledgerBackend cannot be nil")
 	}
 	if chAccStore == nil {
 		return nil, errors.New("chAccStore cannot be nil")
@@ -122,12 +128,13 @@ func NewIngestService(
 		advisoryLockID:          generateAdvisoryLockID(network),
 		appTracker:              appTracker,
 		rpcService:              rpcService,
+		ledgerBackend:           ledgerBackend,
 		chAccStore:              chAccStore,
 		accountTokenService:     accountTokenService,
 		metricsService:          metricsService,
-		networkPassphrase:       rpcService.NetworkPassphrase(),
+		networkPassphrase:       networkPassphrase,
 		getLedgersLimit:         getLedgersLimit,
-		ledgerIndexer:           indexer.NewIndexer(rpcService.NetworkPassphrase(), ledgerIndexerPool, metricsService),
+		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
 		pool:                    ingestPool,
 	}, nil
 }
@@ -283,7 +290,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		// fetch ledgers
 		startTime := time.Now()
-		getLedgersResponse, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
+		ledgers, latestLedger, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
 		if err != nil {
 			if errors.Is(err, ErrAlreadyInSync) {
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
@@ -293,19 +300,19 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 		fetchDuration := time.Since(startTime).Seconds()
 		m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
-		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
-		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(getLedgersResponse.Ledgers), fetchDuration)
+		m.metricsService.ObserveIngestionBatchSize(len(ledgers))
+		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(ledgers), fetchDuration)
 
 		// process ledgers
 		totalIngestionStart := time.Now()
-		err = m.processLedgerResponse(ctx, getLedgersResponse)
+		err = m.processLedgerResponse(ctx, ledgers)
 		if err != nil {
 			return fmt.Errorf("processing ledger response: %w", err)
 		}
 
 		// update cursors
 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			lastLedger := getLedgersResponse.Ledgers[len(getLedgersResponse.Ledgers)-1].Sequence
+			lastLedger := ledgers[len(ledgers)-1].LedgerSequence()
 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 			}
@@ -321,11 +328,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if err != nil {
 			return fmt.Errorf("updating latest synced ledgers: %w", err)
 		}
-		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
+		m.metricsService.SetLatestLedgerIngested(float64(latestLedger))
 		m.metricsService.ObserveIngestionDuration(totalIngestionPrometheusLabel, time.Since(totalIngestionStart).Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
+		m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
 
-		if len(getLedgersResponse.Ledgers) == m.getLedgersLimit {
+		if len(ledgers) == m.getLedgersLimit {
 			select {
 			case manualTriggerChan <- true:
 			default:
@@ -335,20 +342,29 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 }
 
-// fetchNextLedgersBatch fetches the next batch of ledgers from the RPC service.
-func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) (GetLedgersResponse, error) {
+// fetchNextLedgersBatch fetches the next batch of ledgers using the LedgerBackend.
+func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) ([]xdr.LedgerCloseMeta, uint32, error) {
 	ledgerSeqRange, inSync := m.getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
 	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
 	if inSync {
-		return GetLedgersResponse{}, ErrAlreadyInSync
+		return nil, rpcHealth.LatestLedger, ErrAlreadyInSync
 	}
 
-	getLedgersResponse, err := m.rpcService.GetLedgers(ledgerSeqRange.StartLedger, ledgerSeqRange.Limit)
-	if err != nil {
-		return GetLedgersResponse{}, fmt.Errorf("getting ledgers: %w", err)
+	ledgers := make([]xdr.LedgerCloseMeta, 0, ledgerSeqRange.Limit)
+	for i := uint32(0); i < ledgerSeqRange.Limit; i++ {
+		ledgerSeq := ledgerSeqRange.StartLedger + i
+		if ledgerSeq > rpcHealth.LatestLedger {
+			break
+		}
+
+		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
+		if err != nil {
+			return nil, rpcHealth.LatestLedger, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+		}
+		ledgers = append(ledgers, ledgerMeta)
 	}
 
-	return getLedgersResponse, nil
+	return ledgers, rpcHealth.LatestLedger, nil
 }
 
 type LedgerSeqRange struct {
@@ -374,37 +390,30 @@ func (m *ingestService) getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, late
 
 // ledgerData holds collected data for a single ledger including transactions and participants
 type ledgerData struct {
-	ledgerInfo      protocol.LedgerInfo
+	ledgerCloseMeta xdr.LedgerCloseMeta
 	precomputedData []indexer.PrecomputedTransactionData
 	allParticipants set.Set[string]
 }
 
 // collectLedgerTransactionData collects all transaction data and participants from all ledgers in parallel.
 // This is Phase 1 of ledger processing.
-func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLedgersResponse GetLedgersResponse) ([]ledgerData, error) {
+func (m *ingestService) collectLedgerTransactionData(ctx context.Context, ledgers []xdr.LedgerCloseMeta) ([]ledgerData, error) {
 	phaseStart := time.Now()
 
-	ledgerDataList := make([]ledgerData, len(getLedgersResponse.Ledgers))
+	ledgerDataList := make([]ledgerData, len(ledgers))
 	group := m.pool.NewGroupContext(ctx)
 	var errs []error
 	errMu := sync.Mutex{}
-	for idx, ledger := range getLedgersResponse.Ledgers {
+	for idx, ledgerMeta := range ledgers {
 		index := idx
-		ledgerInfo := ledger
+		ledgerCloseMeta := ledgerMeta
 		group.Submit(func() {
-			// Unmarshal and get transactions
-			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
-			if err := xdr.SafeUnmarshalBase64(ledger.LedgerMetadata, &xdrLedgerCloseMeta); err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("unmarshalling ledger close meta for ledger %d: %w", ledgerInfo.Sequence, err))
-				errMu.Unlock()
-				return
-			}
+			ledgerSeq := ledgerCloseMeta.LedgerSequence()
 
-			transactions, err := m.getLedgerTransactions(ctx, xdrLedgerCloseMeta)
+			transactions, err := m.getLedgerTransactions(ctx, ledgerCloseMeta)
 			if err != nil {
 				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transactions for ledger %d: %w", ledgerInfo.Sequence, err))
+				errs = append(errs, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err))
 				errMu.Unlock()
 				return
 			}
@@ -413,13 +422,13 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 			precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
 			if err != nil {
 				errMu.Lock()
-				errs = append(errs, fmt.Errorf("collecting data for ledger %d: %w", ledgerInfo.Sequence, err))
+				errs = append(errs, fmt.Errorf("collecting data for ledger %d: %w", ledgerSeq, err))
 				errMu.Unlock()
 				return
 			}
 
 			ledgerDataList[index] = ledgerData{
-				ledgerInfo:      ledgerInfo,
+				ledgerCloseMeta: ledgerCloseMeta,
 				precomputedData: precomputedData,
 				allParticipants: allParticipants,
 			}
@@ -433,7 +442,7 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, getLed
 	}
 	phaseDuration := time.Since(phaseStart).Seconds()
 	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", phaseDuration)
-	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(getLedgersResponse.Ledgers), phaseDuration)
+	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(ledgers), phaseDuration)
 
 	return ledgerDataList, nil
 }
@@ -487,7 +496,7 @@ func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledger
 			buffer := indexer.NewIndexerBuffer()
 			if processErr := m.ledgerIndexer.ProcessTransactions(ctx, ledgerData.precomputedData, existingAccountsSet, buffer); processErr != nil {
 				errMu.Lock()
-				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledgerData.ledgerInfo.Sequence, processErr))
+				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledgerData.ledgerCloseMeta.LedgerSequence(), processErr))
 				errMu.Unlock()
 				return
 			}
@@ -525,9 +534,9 @@ func (m *ingestService) mergeLedgerBuffers(ctx context.Context, ledgerBuffers []
 	return mergedBuffer
 }
 
-func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersResponse GetLedgersResponse) error {
+func (m *ingestService) processLedgerResponse(ctx context.Context, ledgers []xdr.LedgerCloseMeta) error {
 	// Phase 1: Collect all transaction data and participants from all ledgers in parallel
-	ledgerDataList, err := m.collectLedgerTransactionData(ctx, getLedgersResponse)
+	ledgerDataList, err := m.collectLedgerTransactionData(ctx, ledgers)
 	if err != nil {
 		return fmt.Errorf("collecting ledger transaction data: %w", err)
 	}
@@ -563,7 +572,7 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, getLedgersRes
 	numberOfOperations := mergedBuffer.GetNumberOfOperations()
 	m.metricsService.IncIngestionTransactionsProcessed(numberOfTransactions)
 	m.metricsService.IncIngestionOperationsProcessed(numberOfOperations)
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions, %d operations using memory %v MiB", len(getLedgersResponse.Ledgers), numberOfTransactions, numberOfOperations, memStats.Alloc/1024/1024)
+	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions, %d operations using memory %v MiB", len(ledgers), numberOfTransactions, numberOfOperations, memStats.Alloc/1024/1024)
 
 	return nil
 }
