@@ -121,7 +121,8 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockRPCService := RPCServiceMock{}
 	mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	mockLedgerBackend := &LedgerBackendMock{}
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
@@ -236,7 +237,8 @@ func TestIngest_LatestSyncedLedgerBehindRPC(t *testing.T) {
 		On("TrackRPCServiceHealth", ctx, mock.Anything).Return(nil).Once().
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	mockLedgerBackend := &LedgerBackendMock{}
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	srcAccount := keypair.MustRandom().Address()
@@ -329,7 +331,8 @@ func TestIngest_LatestSyncedLedgerAheadOfRPC(t *testing.T) {
 		On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockChAccStore.On("UnassignTxAndUnlockChannelAccounts", mock.Anything, mock.Anything, testInnerTxHash).Return(int64(1), nil).Twice()
-	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+	mockLedgerBackend := &LedgerBackendMock{}
+	ingestService, err := NewIngestService(models, "ingestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	mockMetricsService.On("ObserveDBQueryDuration", "UpdateLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Once()
@@ -507,7 +510,8 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase)
 			mockChAccStore := &store.ChannelAccountStoreMock{}
-			ingestService, err := NewIngestService(models, "testCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase)
+			mockLedgerBackend := &LedgerBackendMock{}
+			ingestService, err := NewIngestService(models, "testCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase)
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta

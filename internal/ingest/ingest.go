@@ -13,6 +13,7 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -83,6 +84,11 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+
+	ledgerBackend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
+		RPCServerURL: cfg.RPCURL,
+	})
+
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
@@ -108,7 +114,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
