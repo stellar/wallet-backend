@@ -288,7 +288,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
 				continue
 			}
-			return fmt.Errorf("fetching next ledgers batch: %w", err)
+			log.Ctx(ctx).Warnf("fetching next ledgers batch. will retry in a few moments...: %v", err)
+			continue
 		}
 		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
 
@@ -305,6 +306,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 			}
+			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 			if lastLedger > checkpointLedger {
 				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
@@ -321,7 +323,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
 
 		totalDuration := time.Since(totalIngestionStart)
-		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
 
