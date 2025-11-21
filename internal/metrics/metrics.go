@@ -130,7 +130,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		prometheus.HistogramOpts{
 			Name:    "ingestion_duration_seconds",
 			Help:    "Duration of ledger ingestion",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120},
+			Buckets: []float64{0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1, 2, 5, 10, 30, 60, 120},
 		},
 		[]string{},
 	)
