@@ -12,10 +12,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// ContractModelInterface defines the interface for contract token operations
+type ContractModelInterface interface {
+	GetByID(ctx context.Context, contractID string) (*Contract, error)
+	BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
+	BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, contracts []*Contract) ([]string, error)
+}
+
 type ContractModel struct {
 	DB             db.ConnectionPool
 	MetricsService metrics.MetricsService
 }
+
+var _ ContractModelInterface = (*ContractModel)(nil)
 
 type Contract struct {
 	ID        string    `db:"id" json:"id"`
@@ -41,6 +50,20 @@ func (m *ContractModel) GetByID(ctx context.Context, contractID string) (*Contra
 	}
 	m.MetricsService.IncDBQuery("GetByID", "contract_tokens")
 	return contract, nil
+}
+
+func (m *ContractModel) BatchGetByIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
+	start := time.Now()
+	var contracts []*Contract
+	err := m.DB.SelectContext(ctx, &contracts, "SELECT * FROM contract_tokens WHERE id = ANY($1)", pq.Array(contractIDs))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchGetByIDs", "contract_tokens", duration)
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchGetByIDs", "contract_tokens", utils.GetDBErrorType(err))
+		return nil, fmt.Errorf("getting contracts by IDs: %w", err)
+	}
+	m.MetricsService.IncDBQuery("BatchGetByIDs", "contract_tokens")
+	return contracts, nil
 }
 
 // BatchInsert inserts multiple contracts in a single query using UNNEST.
