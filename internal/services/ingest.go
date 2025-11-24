@@ -61,7 +61,6 @@ type ingestService struct {
 	appTracker              apptracker.AppTracker
 	rpcService              RPCService
 	ledgerBackend           ledgerbackend.LedgerBackend
-	rpcBackendPrepared      bool // tracks if RPCLedgerBackend has been prepared
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
 	contractMetadataService ContractMetadataService
@@ -287,6 +286,17 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
 	var rpcHealth entities.RPCGetHealthResult
 
+	// Prepare RPC backend if using RPCLedgerBackend
+	// This is done once at startup, before the main ingestion loop
+	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
+	if isRPCBackend {
+		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+			return fmt.Errorf("preparing RPC ledger backend from ledger %d: %w", startLedger, err)
+		}
+		log.Ctx(ctx).Infof("Prepared RPC ledger backend with unbounded range starting from ledger %d", startLedger)
+	}
+
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
 		var ok bool
@@ -377,26 +387,11 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 		endLedger = rpcHealth.LatestLedger
 	}
 
-	// Prepare the range based on backend type:
-	// - RPCLedgerBackend: Use UnboundedRange and prepare only once (continuously buffers)
-	// - BufferedStorageBackend: Use BoundedRange and prepare for each batch
+	// Prepare range for BufferedStorageBackend (RPC backend is already prepared in Run())
 	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
-
-	if isRPCBackend {
-		// For RPC backend, prepare unbounded range only once
-		if !m.rpcBackendPrepared {
-			ledgerRange := ledgerbackend.UnboundedRange(ledgerSeqRange.StartLedger)
-			err := m.ledgerBackend.PrepareRange(ctx, ledgerRange)
-			if err != nil {
-				return nil, fmt.Errorf("preparing unbounded ledger range from %d: %w", ledgerSeqRange.StartLedger, err)
-			}
-			m.rpcBackendPrepared = true
-		}
-	} else {
-		// For other backends (like BufferedStorageBackend), prepare bounded range for each batch
+	if !isRPCBackend {
 		ledgerRange := ledgerbackend.BoundedRange(ledgerSeqRange.StartLedger, endLedger)
-		err := m.ledgerBackend.PrepareRange(ctx, ledgerRange)
-		if err != nil {
+		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
 			return nil, fmt.Errorf("preparing ledger range %d-%d: %w", ledgerSeqRange.StartLedger, endLedger, err)
 		}
 	}
