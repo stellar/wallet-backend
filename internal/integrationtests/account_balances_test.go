@@ -73,32 +73,41 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 
 	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC trustline, EURC trustline, and SEP-41 tokens")
 
-	// Verify native XLM balance
-	nativeBalance, ok := balances[0].(*types.NativeBalance)
-	suite.Require().True(ok, "First balance should be native XLM")
-	suite.Require().Equal("10000.0000000", nativeBalance.GetBalance())
-	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			suite.Require().Equal("10000.0000000", b.GetBalance())
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 
-	// Verify EURC trustline balance
-	eurcBalance, ok := balances[1].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Third balance should be EURC trustline")
-	suite.Require().Equal("100.0000000", eurcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+		case *types.TrustlineBalance:
+			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
+			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
+			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
 
-	// Verify USDC trustline balance
-	usdcBalance, ok := balances[2].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Second balance should be USDC trustline")
-	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+			switch *b.Code {
+			case "USDC":
+				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+			case "EURC":
+				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
+			default:
+				suite.Fail("Unexpected trustline code: %s", *b.Code)
+			}
 
-	// Verify SEP-41 contract token balance
-	sep41Balance, ok := balances[3].(*types.SEP41Balance)
-	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
-	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
-	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+		case *types.SEP41Balance:
+			suite.Require().Equal("500.0000000", b.GetBalance())
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+			suite.Require().Equal("SEP41 Token", b.Name)
+			suite.Require().Equal("SEP41", b.Symbol)
+			suite.Require().Equal(int32(7), b.Decimals)
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
 }
 
 // TestCheckpoint_Account2_HasInitialBalances verifies that balance test account 2
@@ -116,18 +125,25 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 
 	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and USDC trustline")
 
-	// Verify native XLM balance
-	nativeBalance, ok := balances[0].(*types.NativeBalance)
-	suite.Require().True(ok, "First balance should be native XLM")
-	suite.Require().Equal("10000.0000000", nativeBalance.GetBalance())
-	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			suite.Require().Equal("10000.0000000", b.GetBalance())
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 
-	// Verify USDC trustline balance
-	usdcBalance, ok := balances[1].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Second balance should be USDC trustline")
-	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+		case *types.TrustlineBalance:
+			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
+			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
+			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
+			suite.Require().Equal("USDC", *b.Code)
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().Equal("100.0000000", b.GetBalance())
+			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
 }
 
 // TestCheckpoint_HolderContract_HasInitialBalances verifies that the holder contract
@@ -146,15 +162,25 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and SEP-41 tokens")
 
 	for _, balance := range balances {
-		switch balance.GetTokenType() {
-		case types.TokenTypeSEP41:
-			suite.Require().Equal("500.0000000", balance.GetBalance())
-			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, balance.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSEP41, balance.GetTokenType())
-		case types.TokenTypeSAC:
-			suite.Require().Equal("200.0000000", balance.GetBalance())
-			suite.Require().Equal(suite.testEnv.USDCContractAddress, balance.GetTokenID())
-			suite.Require().Equal(types.TokenTypeSAC, balance.GetTokenType())
+		switch b := balance.(type) {
+		case *types.SEP41Balance:
+			suite.Require().Equal("500.0000000", b.GetBalance())
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+			suite.Require().Equal("SEP41 Token", b.Name)
+			suite.Require().Equal("SEP41", b.Symbol)
+			suite.Require().Equal(int32(7), b.Decimals)
+
+		case *types.SACBalance:
+			suite.Require().Equal("200.0000000", b.GetBalance())
+			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSAC, b.GetTokenType())
+			suite.Require().Equal("USDC", b.Code)
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
+			suite.Require().Equal(int32(7), b.Decimals)
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
 		}
 	}
 }
@@ -187,31 +213,41 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
 
-	// Verify native XLM balance (may have changed due to fees)
-	nativeBalance, ok := balances[0].(*types.NativeBalance)
-	suite.Require().True(ok, "First balance should be native XLM")
-	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			// Native XLM balance may have changed due to fees, just verify type
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 
-	// Verify EURC trustline balance (reduced from 100 to 50)
-	eurcBalance, ok := balances[1].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Third balance should be EURC trustline")
-	suite.Require().Equal("50.0000000", eurcBalance.GetBalance(), "EURC balance should be reduced to 50 after transfer")
-	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+		case *types.TrustlineBalance:
+			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
+			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
+			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
 
-	// Verify USDC trustline balance (unchanged)
-	usdcBalance, ok := balances[2].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Second balance should be USDC trustline")
-	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+			switch *b.Code {
+			case "USDC":
+				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+			case "EURC":
+				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC balance should be reduced to 50 after transfer")
+				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
+			default:
+				suite.Fail("Unexpected trustline code: %s", *b.Code)
+			}
 
-	// Verify SEP-41 contract token balance (reduced from 500 to 400)
-	sep41Balance, ok := balances[3].(*types.SEP41Balance)
-	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
-	suite.Require().Equal("0.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be reduced to 0 after transfer")
-	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+		case *types.SEP41Balance:
+			suite.Require().Equal("0.0000000", b.GetBalance(), "SEP-41 balance should be reduced to 0 after transfer")
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+			suite.Require().Equal("SEP41 Token", b.Name)
+			suite.Require().Equal("SEP41", b.Symbol)
+			suite.Require().Equal(int32(7), b.Decimals)
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
 }
 
 // TestLiveIngestion_Account2_HasNewBalances verifies that balance test account 2
@@ -231,31 +267,40 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 	suite.Require().Equal(4, len(balances), "Expected 4 balances: native XLM, USDC, EURC, and SEP-41 tokens")
 
-	// Verify native XLM balance
-	nativeBalance, ok := balances[0].(*types.NativeBalance)
-	suite.Require().True(ok, "First balance should be native XLM")
-	suite.Require().Equal(types.TokenTypeNative, nativeBalance.GetTokenType())
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
 
-	// Verify USDC trustline balance (unchanged)
-	usdcBalance, ok := balances[1].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Second balance should be USDC trustline")
-	suite.Require().Equal("100.0000000", usdcBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, usdcBalance.GetTokenType())
+		case *types.TrustlineBalance:
+			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
+			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
+			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
 
-	// Verify EURC trustline balance (NEW - 75 tokens from payment)
-	eurcBalance, ok := balances[2].(*types.TrustlineBalance)
-	suite.Require().True(ok, "Third balance should be EURC trustline")
-	suite.Require().Equal("75.0000000", eurcBalance.GetBalance(), "EURC balance should be 75 from payment")
-	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeClassic, eurcBalance.GetTokenType())
+			switch *b.Code {
+			case "USDC":
+				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+			case "EURC":
+				suite.Require().Equal("75.0000000", b.GetBalance(), "EURC balance should be 75 from payment")
+				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
+			default:
+				suite.Fail("Unexpected trustline code: %s", *b.Code)
+			}
 
-	// Verify SEP-41 contract token balance (NEW - 100 tokens from transfer)
-	sep41Balance, ok := balances[3].(*types.SEP41Balance)
-	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
-	suite.Require().Equal("500.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be 500 from transfer")
-	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+		case *types.SEP41Balance:
+			suite.Require().Equal("500.0000000", b.GetBalance(), "SEP-41 balance should be 500 from transfer")
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+			suite.Require().Equal("SEP41 Token", b.Name)
+			suite.Require().Equal("SEP41", b.Symbol)
+			suite.Require().Equal(int32(7), b.Decimals)
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
 }
 
 // TestLiveIngestion_HolderContract_HasNewEURC verifies that the holder contract
@@ -274,24 +319,34 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 
 	suite.Require().Equal(3, len(balances), "Expected 3 balances: USDC SAC, SEP-41, and EURC SAC")
 
-	// Verify SEP-41 contract token balance (unchanged)
-	sep41Balance, ok := balances[0].(*types.SEP41Balance)
-	suite.Require().True(ok, "First balance should be SEP-41 tokens")
-	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
-	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.SEP41Balance:
+			suite.Require().Equal("500.0000000", b.GetBalance())
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, b.GetTokenType())
+			suite.Require().Equal("SEP41 Token", b.Name)
+			suite.Require().Equal("SEP41", b.Symbol)
+			suite.Require().Equal(int32(7), b.Decimals)
 
-	// Verify USDC SAC balance (unchanged)
-	usdcSACBalance, ok := balances[1].(*types.SACBalance)
-	suite.Require().True(ok, "Second balance should be USDC SAC")
-	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
+		case *types.SACBalance:
+			suite.Require().Equal(types.TokenTypeSAC, b.GetTokenType())
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
+			suite.Require().Equal(int32(7), b.Decimals)
 
-	// Verify EURC SAC balance (NEW - 50 tokens from transfer)
-	eurcSACBalance, ok := balances[2].(*types.SACBalance)
-	suite.Require().True(ok, "Third balance should be EURC SAC")
-	suite.Require().Equal("50.0000000", eurcSACBalance.GetBalance(), "EURC SAC balance should be 50 from transfer")
-	suite.Require().Equal(suite.testEnv.EURCContractAddress, eurcSACBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSAC, eurcSACBalance.GetTokenType())
+			switch b.Code {
+			case "USDC":
+				suite.Require().Equal("200.0000000", b.GetBalance())
+				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
+			case "EURC":
+				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC SAC balance should be 50 from transfer")
+				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
+			default:
+				suite.Fail("Unexpected SAC code: %s", b.Code)
+			}
+
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
 }

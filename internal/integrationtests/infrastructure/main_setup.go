@@ -407,7 +407,10 @@ type TestEnvironment struct {
 	SEP41ContractAddress string
 	// HolderContractAddress is the address of the test contract that holds token balances.
 	// Used for querying C-address balances in integration tests.
-	HolderContractAddress    string
+	HolderContractAddress string
+	// MasterAccountAddress is the address of the master/root account that issues classic assets.
+	// Used for asserting issuer addresses in trustline and SAC balance tests.
+	MasterAccountAddress     string
 	ClaimBalanceID           string
 	ClawbackBalanceID        string
 	LiquidityPoolID          string
@@ -537,6 +540,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		// Pass through contract addresses for test assertions
 		SEP41ContractAddress:  containers.sep41ContractAddress,
 		HolderContractAddress: containers.holderContractAddress,
+		MasterAccountAddress:  masterAccountKP.Address(),
 		UseCases:              useCases,
 		NetworkPassphrase:     networkPassphrase,
 		LiquidityPoolID:       fixtures.LiquidityPoolID,

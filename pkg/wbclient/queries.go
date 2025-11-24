@@ -390,7 +390,6 @@ func buildOperationStateChangesQuery() string {
 // buildBalancesByAccountAddressQuery builds the GraphQL query for fetching account balances
 func buildBalancesByAccountAddressQuery() string {
 	// Balance fragments for all concrete balance types
-	// NativeBalance and SEP41Balance only have base fields, so no fragment needed
 	balanceFragments := `
 		__typename
 		balance
@@ -408,8 +407,16 @@ func buildBalancesByAccountAddressQuery() string {
 			isAuthorizedToMaintainLiabilities
 		}
 		... on SACBalance {
+			code
+			issuer
+			decimals
 			isAuthorized
 			isClawbackEnabled
+		}
+		... on SEP41Balance {
+			name
+			symbol
+			decimals
 		}
 	`
 	return fmt.Sprintf(`
