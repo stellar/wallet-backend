@@ -468,7 +468,10 @@ func createRPCService(ctx context.Context, containers *SharedContainers) (servic
 	}
 
 	// Start tracking RPC health
-	go rpcService.TrackRPCServiceHealth(ctx, nil)
+	go func() {
+		//nolint:errcheck // Error is expected on context cancellation during shutdown
+		rpcService.TrackRPCServiceHealth(ctx, nil)
+	}()
 
 	return rpcService, nil
 }
