@@ -97,7 +97,7 @@ func TestLoadDatastoreBackendConfig_InvalidTOML(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "invalid.toml")
 
-	err := os.WriteFile(configPath, []byte("invalid toml content [[["), 0644)
+	err := os.WriteFile(configPath, []byte("invalid toml content [[["), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := loadDatastoreBackendConfig(configPath)
@@ -120,7 +120,7 @@ retry_limit = 3
 retry_wait = "5s"
 `
 
-	err := os.WriteFile(configPath, []byte(validTOML), 0644)
+	err := os.WriteFile(configPath, []byte(validTOML), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := loadDatastoreBackendConfig(configPath)
@@ -134,7 +134,7 @@ func TestLoadDatastoreBackendConfig_EmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "empty.toml")
 
-	err := os.WriteFile(configPath, []byte(""), 0644)
+	err := os.WriteFile(configPath, []byte(""), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := loadDatastoreBackendConfig(configPath)
