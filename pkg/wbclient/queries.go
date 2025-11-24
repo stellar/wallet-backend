@@ -387,6 +387,47 @@ func buildOperationStateChangesQuery() string {
 	`, stateChangeFragments)
 }
 
+// buildBalancesByAccountAddressQuery builds the GraphQL query for fetching account balances
+func buildBalancesByAccountAddressQuery() string {
+	// Balance fragments for all concrete balance types
+	balanceFragments := `
+		__typename
+		balance
+		tokenId
+		tokenType
+		... on TrustlineBalance {
+			code
+			issuer
+			type
+			limit
+			buyingLiabilities
+			sellingLiabilities
+			lastModifiedLedger
+			isAuthorized
+			isAuthorizedToMaintainLiabilities
+		}
+		... on SACBalance {
+			code
+			issuer
+			decimals
+			isAuthorized
+			isClawbackEnabled
+		}
+		... on SEP41Balance {
+			name
+			symbol
+			decimals
+		}
+	`
+	return fmt.Sprintf(`
+		query BalancesByAccountAddress($address: String!) {
+			balancesByAccountAddress(address: $address) {
+				%s
+			}
+		}
+	`, balanceFragments)
+}
+
 // buildFieldList constructs a field list string from a slice of field names
 // If fields is nil or empty, returns the defaultFields
 func buildFieldList(fields []string, defaultFields string) string {

@@ -30,7 +30,7 @@ func TestIntegrationTests(t *testing.T) {
 	defer containers.Cleanup(ctx)
 
 	// Initialize shared test environment
-	testEnv, err := infrastructure.NewTestEnvironment(containers, ctx)
+	testEnv, err := infrastructure.NewTestEnvironment(ctx, containers)
 	if err != nil {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
@@ -44,6 +44,18 @@ func TestIntegrationTests(t *testing.T) {
 	// Only proceed if account registration succeeded
 	if t.Failed() {
 		t.Fatal("AccountRegisterTestSuite failed, skipping remaining tests")
+	}
+
+	// Phase 1: Validate balances from checkpoint before fixture transactions
+	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Only proceed if checkpoint balance validation succeeded
+	if t.Failed() {
+		t.Fatal("AccountBalancesAfterCheckpointTestSuite failed, skipping remaining tests")
 	}
 
 	t.Run("BuildAndSubmitTransactionsTestSuite", func(t *testing.T) {
@@ -63,6 +75,13 @@ func TestIntegrationTests(t *testing.T) {
 
 	t.Run("DataValidationTestSuite", func(t *testing.T) {
 		suite.Run(t, &DataValidationTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	// Phase 2: Validate balances after live ingestion processes fixture transactions
+	t.Run("AccountBalancesAfterLiveIngestionTestSuite", func(t *testing.T) {
+		suite.Run(t, &AccountBalancesAfterLiveIngestionTestSuite{
 			testEnv: testEnv,
 		})
 	})
