@@ -1187,5 +1187,3 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 	}
 }
-
-// Tests for contract metadata methods moved to contract_metadata_test.go

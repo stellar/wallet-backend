@@ -175,7 +175,7 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 
 	// Fetch metadata for contracts and store in database
 	if s.contractMetadataService != nil {
-		if err := s.contractMetadataService.FetchAndStoreForContracts(ctx, cpData.ContractTypesByContractID); err != nil {
+		if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
 			log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
 			// Don't fail the entire process if metadata fetch fails
 		}

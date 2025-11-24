@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
 	"github.com/stellar/go/support/log"
@@ -46,18 +45,11 @@ type ContractMetadata struct {
 // ContractMetadataService handles fetching and storing metadata (name, symbol, decimals)
 // for Stellar Asset Contract (SAC) and SEP-41 token contracts via RPC simulation.
 type ContractMetadataService interface {
-	// FetchAndStoreForContracts fetches metadata for the given contracts and stores in the database.
-	// Used during checkpoint population where all contracts are assumed to be new.
+	// FetchAndStoreMetadata fetches metadata for the given contracts and stores in the database.
 	// Parameters:
 	//   - contractTypesByID: map of contractID to contract type (SAC or SEP-41)
 	// Returns error only for critical failures; individual fetch failures are logged.
-	FetchAndStoreForContracts(ctx context.Context, contractTypesByID map[string]types.ContractType) error
-
-	// FetchAndStoreForChanges extracts unique SAC/SEP-41 contract IDs from changes,
-	// filters out existing contracts in the database, fetches metadata, and stores.
-	// Used during live ingestion. Only processes SAC and SEP-41 contracts.
-	// Returns error only for critical failures; individual fetch failures are logged.
-	FetchAndStoreForChanges(ctx context.Context, contractChanges []types.ContractChange) error
+	FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error
 }
 
 var _ ContractMetadataService = (*contractMetadataService)(nil)
@@ -93,9 +85,8 @@ func NewContractMetadataService(
 	}, nil
 }
 
-// FetchAndStoreForContracts fetches metadata for contracts and stores in database.
-// Used during checkpoint population.
-func (s *contractMetadataService) FetchAndStoreForContracts(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
+// FetchAndStoreMetadata fetches metadata for contracts and stores in database.
+func (s *contractMetadataService) FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error {
 	if len(contractTypesByID) == 0 {
 		log.Ctx(ctx).Info("No contracts to fetch metadata for")
 		return nil
@@ -125,56 +116,6 @@ func (s *contractMetadataService) FetchAndStoreForContracts(ctx context.Context,
 	err := s.storeInDB(ctx, metadataMap)
 	log.Ctx(ctx).Infof("Stored metadata for %d contracts in %.2f seconds", len(metadataMap), time.Since(start).Seconds())
 	return err
-}
-
-// FetchAndStoreForChanges extracts unique contract IDs from changes, filters existing,
-// fetches metadata, and stores. Used during live ingestion.
-func (s *contractMetadataService) FetchAndStoreForChanges(ctx context.Context, contractChanges []types.ContractChange) error {
-	if len(contractChanges) == 0 {
-		return nil
-	}
-
-	// Extract unique SAC and SEP-41 contract IDs from contract changes
-	contractIDsToFetch := s.extractUniqueContractIDs(contractChanges)
-	if len(contractIDsToFetch) == 0 {
-		return nil
-	}
-
-	// Check which contracts already exist in the database
-	newContractIDs, contractTypeMap, err := s.filterNewContracts(ctx, contractIDsToFetch, contractChanges)
-	if err != nil {
-		log.Ctx(ctx).Warnf("Failed to filter new contracts: %v", err)
-		return nil
-	}
-
-	if len(newContractIDs) == 0 {
-		return nil
-	}
-
-	log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractIDs))
-
-	// Build initial metadata map with contract types
-	metadataMap := make(map[string]ContractMetadata, len(newContractIDs))
-	for _, contractID := range newContractIDs {
-		metadataMap[contractID] = ContractMetadata{
-			ContractID: contractID,
-			Type:       contractTypeMap[contractID],
-		}
-	}
-
-	// Fetch metadata for new contracts
-	metadataMap = s.fetchBatch(ctx, metadataMap, newContractIDs)
-
-	// Parse SAC code:issuer from name field
-	s.parseSACMetadata(metadataMap)
-
-	// Store in database
-	if err := s.storeInDB(ctx, metadataMap); err != nil {
-		log.Ctx(ctx).Warnf("Failed to store contract metadata in database: %v", err)
-		return nil
-	}
-
-	return nil
 }
 
 // fetchMetadata fetches name, symbol, and decimals for a single contract in parallel.
@@ -398,63 +339,6 @@ func (s *contractMetadataService) storeInDB(ctx context.Context, metadataMap map
 
 	log.Ctx(ctx).Infof("Successfully stored metadata for %d/%d contracts in database", len(insertedIDs), len(metadataMap))
 	return nil
-}
-
-// extractUniqueContractIDs extracts unique SAC and SEP-41 contract IDs from contract changes.
-func (s *contractMetadataService) extractUniqueContractIDs(contractChanges []types.ContractChange) []string {
-	seen := set.NewSet[string]()
-	var contractIDs []string
-
-	for _, change := range contractChanges {
-		// Only process SAC and SEP-41 contracts
-		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
-			continue
-		}
-		if change.ContractID == "" {
-			continue
-		}
-		if seen.Contains(change.ContractID) {
-			continue
-		}
-		seen.Add(change.ContractID)
-		contractIDs = append(contractIDs, change.ContractID)
-	}
-
-	return contractIDs
-}
-
-// filterNewContracts checks which contracts don't exist in the database and returns only new ones.
-// Also returns a map of contract ID to contract type for building metadata.
-func (s *contractMetadataService) filterNewContracts(ctx context.Context, contractIDs []string, contractChanges []types.ContractChange) ([]string, map[string]types.ContractType, error) {
-	// Build contract type map from changes
-	contractTypeMap := make(map[string]types.ContractType, len(contractIDs))
-	for _, change := range contractChanges {
-		if change.ContractID != "" {
-			contractTypeMap[change.ContractID] = change.ContractType
-		}
-	}
-
-	// Check which contracts already exist in the database
-	existingContracts, err := s.contractModel.BatchGetByIDs(ctx, contractIDs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("checking existing contracts: %w", err)
-	}
-
-	// Build set of existing contract IDs
-	existingSet := set.NewSet[string]()
-	for _, contract := range existingContracts {
-		existingSet.Add(contract.ID)
-	}
-
-	// Filter out existing contracts
-	var newContractIDs []string
-	for _, contractID := range contractIDs {
-		if !existingSet.Contains(contractID) {
-			newContractIDs = append(newContractIDs, contractID)
-		}
-	}
-
-	return newContractIDs, contractTypeMap, nil
 }
 
 // parseSACMetadata parses the code:issuer format from SAC token names and populates the Code and Issuer fields.
