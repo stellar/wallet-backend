@@ -133,7 +133,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 // TestCheckpoint_HolderContract_HasInitialBalances verifies that the holder contract
 // has the expected initial balances from checkpoint setup:
 // - USDC SAC tokens (200)
-// - SEP-41 contract tokens (300)
+// - SEP-41 contract tokens (500)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
@@ -262,7 +262,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // TestLiveIngestion_HolderContract_HasNewEURC verifies that the holder contract
 // has the expected balances after fixture transactions add EURC:
 // - USDC SAC tokens (200) - unchanged
-// - SEP-41 contract tokens (300) - unchanged
+// - SEP-41 contract tokens (500) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
