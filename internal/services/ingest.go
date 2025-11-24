@@ -317,7 +317,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		fetchDuration := time.Since(startTime).Seconds()
 		m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
 		m.metricsService.ObserveIngestionBatchSize(len(ledgers))
-		log.Ctx(ctx).Infof("🚧 Done fetching %d ledgers in %vs", len(ledgers), fetchDuration)
 
 		// process ledgers
 		totalIngestionStart := time.Now()
@@ -494,7 +493,6 @@ func (m *ingestService) collectLedgerTransactionData(ctx context.Context, ledger
 	}
 	phaseDuration := time.Since(phaseStart).Seconds()
 	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", phaseDuration)
-	log.Ctx(ctx).Infof("🚧 Done collecting data from %d ledgers in %vs", len(ledgers), phaseDuration)
 
 	return ledgerDataList, nil
 }
@@ -567,13 +565,15 @@ func (m *ingestService) mergeLedgerBuffers(ledgerBuffers []*indexer.IndexerBuffe
 
 func (m *ingestService) processLedgerResponse(ctx context.Context, ledgers []xdr.LedgerCloseMeta) error {
 	// Phase 1: Collect all transaction data and participants from all ledgers in parallel
+	start := time.Now()
 	ledgerDataList, err := m.collectLedgerTransactionData(ctx, ledgers)
 	if err != nil {
 		return fmt.Errorf("collecting ledger transaction data: %w", err)
 	}
 
+	collectDuration := time.Since(start)
+	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", collectDuration.Seconds())
 	// Phase 2: Single DB call to get all existing accounts across all ledgers
-	start := time.Now()
 	existingAccountsSet, err := m.fetchExistingAccountsForParticipants(ctx, ledgerDataList)
 	if err != nil {
 		return fmt.Errorf("fetching existing accounts: %w", err)
@@ -611,7 +611,6 @@ func (m *ingestService) processLedgerResponse(ctx context.Context, ledgers []xdr
 	numberOfOperations := mergedBuffer.GetNumberOfOperations()
 	m.metricsService.IncIngestionTransactionsProcessed(numberOfTransactions)
 	m.metricsService.IncIngestionOperationsProcessed(numberOfOperations)
-	log.Ctx(ctx).Infof("🚧 Done processing & ingesting %d ledgers, with %d transactions, %d operations using memory %v MiB", len(ledgers), numberOfTransactions, numberOfOperations, memStats.Alloc/1024/1024)
 
 	return nil
 }
