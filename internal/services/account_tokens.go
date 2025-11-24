@@ -5,23 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/sac"
-	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
-	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/xdr"
 
-	"github.com/stellar/go/support/log"
-
-	"github.com/stellar/wallet-backend/internal/data"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/store"
 )
@@ -34,19 +27,7 @@ const (
 	// redisPipelineBatchSize is the number of operations to batch
 	// in a single Redis pipeline for token cache population.
 	redisPipelineBatchSize = 50000
-
-	simulateTransactionBatchSize = 20
 )
-
-// contractMetadata holds the metadata for a contract token (name, symbol, decimals).
-type contractMetadata struct {
-	Type     types.ContractType
-	Code     string
-	Issuer   string
-	Name     string
-	Symbol   string
-	Decimals uint32
-}
 
 // checkpointData holds all data collected from processing a checkpoint ledger.
 type checkpointData struct {
@@ -100,17 +81,15 @@ type AccountTokenService interface {
 var _ AccountTokenService = (*accountTokenService)(nil)
 
 type accountTokenService struct {
-	checkpointLedger  uint32
-	archive           historyarchive.ArchiveInterface
-	contractValidator ContractValidator
-	redisStore        *store.RedisStore
-	rpcService        RPCService
-	contractModel     data.ContractModelInterface
-	pool              pond.Pool
-	networkPassphrase string
-	trustlinesPrefix  string
-	contractsPrefix   string
-	dummyAccount      *keypair.Full
+	checkpointLedger        uint32
+	archive                 historyarchive.ArchiveInterface
+	contractValidator       ContractValidator
+	redisStore              *store.RedisStore
+	contractMetadataService ContractMetadataService
+	pool                    pond.Pool
+	networkPassphrase       string
+	trustlinesPrefix        string
+	contractsPrefix         string
 }
 
 func NewAccountTokenService(
@@ -118,8 +97,7 @@ func NewAccountTokenService(
 	archiveURL string,
 	redisStore *store.RedisStore,
 	contractValidator ContractValidator,
-	rpcService RPCService,
-	contractModel data.ContractModelInterface,
+	contractMetadataService ContractMetadataService,
 	pool pond.Pool,
 	checkpointFrequency uint32,
 ) (AccountTokenService, error) {
@@ -141,17 +119,15 @@ func NewAccountTokenService(
 	}
 
 	return &accountTokenService{
-		checkpointLedger:  0,
-		archive:           archive,
-		contractValidator: contractValidator,
-		redisStore:        redisStore,
-		rpcService:        rpcService,
-		contractModel:     contractModel,
-		pool:              pool,
-		networkPassphrase: networkPassphrase,
-		trustlinesPrefix:  trustlinesKeyPrefix,
-		contractsPrefix:   contractsKeyPrefix,
-		dummyAccount:      keypair.MustRandom(),
+		checkpointLedger:        0,
+		archive:                 archive,
+		contractValidator:       contractValidator,
+		redisStore:              redisStore,
+		contractMetadataService: contractMetadataService,
+		pool:                    pool,
+		networkPassphrase:       networkPassphrase,
+		trustlinesPrefix:        trustlinesKeyPrefix,
+		contractsPrefix:         contractsKeyPrefix,
 	}, nil
 }
 
@@ -197,10 +173,12 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 	// Extract contract spec from WASM hash and validate SEP-41 contracts
 	s.enrichContractTypes(ctx, cpData.ContractTypesByContractID, cpData.ContractIDsByWasmHash, cpData.ContractCodesByWasmHash)
 
-	// Fetch metadata for non-SAC contracts and store in database
-	if err := s.fetchAndStoreContractMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
-		log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
-		// Don't fail the entire process if metadata fetch fails
+	// Fetch metadata for contracts and store in database
+	if s.contractMetadataService != nil {
+		if err := s.contractMetadataService.FetchAndStoreMetadata(ctx, cpData.ContractTypesByContractID); err != nil {
+			log.Ctx(ctx).Warnf("Failed to fetch and store contract metadata: %v", err)
+			// Don't fail the entire process if metadata fetch fails
+		}
 	}
 
 	return s.storeAccountTokensInRedis(ctx, cpData.Trustlines, cpData.Contracts)
@@ -629,285 +607,4 @@ func (s *accountTokenService) extractHolderAddress(key xdr.ScVal) (string, error
 	}
 
 	return holderAddress, nil
-}
-
-// fetchContractMetadata fetches a single contract method (name, symbol, or decimals) via RPC simulation.
-// Returns the XDR ScVal response from the contract function.
-func (s *accountTokenService) fetchContractMetadata(ctx context.Context, contractAddress, functionName string) (xdr.ScVal, error) {
-	if err := ctx.Err(); err != nil {
-		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
-	}
-
-	// Decode contract ID from string
-	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("decoding contract address: %w", err)
-	}
-	contractID := xdr.ContractId(contractIDBytes)
-
-	// Build invoke operation
-	invokeOp := &txnbuild.InvokeHostFunction{
-		HostFunction: xdr.HostFunction{
-			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
-			InvokeContract: &xdr.InvokeContractArgs{
-				ContractAddress: xdr.ScAddress{
-					Type:       xdr.ScAddressTypeScAddressTypeContract,
-					ContractId: &contractID,
-				},
-				FunctionName: xdr.ScSymbol(functionName),
-				Args:         xdr.ScVec{}, // No arguments needed for metadata functions
-			},
-		},
-	}
-
-	// Build transaction with dummy source account (simulation doesn't need real account)
-	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        &txnbuild.SimpleAccount{AccountID: s.dummyAccount.Address(), Sequence: 0},
-		Operations:           []txnbuild.Operation{invokeOp},
-		BaseFee:              txnbuild.MinBaseFee,
-		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-		IncrementSequenceNum: true,
-	})
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("building transaction: %w", err)
-	}
-
-	// Encode transaction to XDR
-	txXDR, err := tx.Base64()
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("encoding transaction: %w", err)
-	}
-
-	// Simulate transaction
-	result, err := s.rpcService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("simulating transaction: %w", err)
-	}
-
-	if result.Error != "" {
-		return xdr.ScVal{}, fmt.Errorf("simulation failed: %s", result.Error)
-	}
-
-	if len(result.Results) == 0 {
-		return xdr.ScVal{}, fmt.Errorf("no simulation results returned")
-	}
-
-	return result.Results[0].XDR, nil
-}
-
-// fetchAllContractMetadata fetches name, symbol, and decimals for a single contract in parallel using pond groups.
-// Returns contractMetadata with the fetched values, or zero values for fields that failed to fetch.
-// Errors are collected and logged but do not fail the entire operation.
-func (s *accountTokenService) fetchAllContractMetadata(ctx context.Context, contractAddress string) (contractMetadata, error) {
-	group := s.pool.NewGroupContext(ctx)
-
-	var (
-		name     string
-		symbol   string
-		decimals uint32
-		errs     []error
-		mu       sync.Mutex
-	)
-
-	// appendError safely appends an error to the errors slice
-	appendError := func(err error) {
-		mu.Lock()
-		errs = append(errs, err)
-		mu.Unlock()
-	}
-
-	// Fetch name
-	group.Submit(func() {
-		nameVal, err := s.fetchContractMetadata(ctx, contractAddress, "name")
-		if err != nil {
-			appendError(fmt.Errorf("fetching name: %w", err))
-			return
-		}
-		nameStr, ok := nameVal.GetStr()
-		if !ok {
-			appendError(fmt.Errorf("name value is not a string"))
-			return
-		}
-		mu.Lock()
-		name = string(nameStr)
-		mu.Unlock()
-	})
-
-	// Fetch symbol
-	group.Submit(func() {
-		symbolVal, err := s.fetchContractMetadata(ctx, contractAddress, "symbol")
-		if err != nil {
-			appendError(fmt.Errorf("fetching symbol: %w", err))
-			return
-		}
-		symbolStr, ok := symbolVal.GetStr()
-		if !ok {
-			appendError(fmt.Errorf("symbol value is not a string"))
-			return
-		}
-		mu.Lock()
-		symbol = string(symbolStr)
-		mu.Unlock()
-	})
-
-	// Fetch decimals
-	group.Submit(func() {
-		decimalsVal, err := s.fetchContractMetadata(ctx, contractAddress, "decimals")
-		if err != nil {
-			appendError(fmt.Errorf("fetching decimals: %w", err))
-			return
-		}
-		decimalsU32, ok := decimalsVal.GetU32()
-		if !ok {
-			appendError(fmt.Errorf("decimals value is not a uint32"))
-			return
-		}
-		mu.Lock()
-		decimals = uint32(decimalsU32)
-		mu.Unlock()
-	})
-
-	// Wait for all three fetches to complete
-	if err := group.Wait(); err != nil {
-		return contractMetadata{}, fmt.Errorf("waiting for metadata fetch group for contract %s: %w", contractAddress, err)
-	}
-
-	if len(errs) > 0 {
-		return contractMetadata{}, fmt.Errorf("fetching contract metadata for contract %s: %w", contractAddress, errors.Join(errs...))
-	}
-
-	return contractMetadata{
-		Name:     name,
-		Symbol:   symbol,
-		Decimals: decimals,
-	}, nil
-}
-
-// fetchContractMetadataBatch fetches metadata for multiple contracts in parallel using pond groups.
-// Returns a map of contractID → contractMetadata for successfully fetched contracts.
-// Processes contracts in batches to limit RPC load.
-func (s *accountTokenService) fetchContractMetadataBatch(ctx context.Context, metadata map[string]contractMetadata, contractIDs []string) map[string]contractMetadata {
-	var mu sync.Mutex
-
-	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
-		end := min(i+simulateTransactionBatchSize, len(contractIDs))
-		contractIDsBatch := contractIDs[i:end]
-
-		group := s.pool.NewGroupContext(ctx)
-		for _, contractID := range contractIDsBatch {
-			group.Submit(func() {
-				data, err := s.fetchAllContractMetadata(ctx, contractID)
-				if err != nil {
-					log.Ctx(ctx).Warnf("Failed to fetch metadata for contract %s: %v", contractID, err)
-					return
-				}
-
-				mu.Lock()
-				existing := metadata[contractID]
-				if data.Name != "" {
-					existing.Name = data.Name
-				}
-				if data.Symbol != "" {
-					existing.Symbol = data.Symbol
-				}
-				if data.Decimals != 0 {
-					existing.Decimals = data.Decimals
-				}
-				metadata[contractID] = existing
-				mu.Unlock()
-			})
-		}
-
-		if err := group.Wait(); err != nil {
-			log.Ctx(ctx).Warnf("Error waiting for batch metadata fetch: %v", err)
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return metadata
-}
-
-// fetchAndStoreContractMetadata fetches metadata for all contracts and stores them in the database.
-// This extracts non-SAC contract IDs, fetches their metadata via RPC, and stores in the contract_tokens table.
-func (s *accountTokenService) fetchAndStoreContractMetadata(ctx context.Context, contractTypesByContractID map[string]types.ContractType) error {
-	if len(contractTypesByContractID) == 0 {
-		log.Ctx(ctx).Info("No contracts to fetch metadata for")
-		return nil
-	}
-
-	metadataMap := make(map[string]contractMetadata)
-	contractIDs := make([]string, 0)
-	for contractID := range contractTypesByContractID {
-		metadataMap[contractID] = contractMetadata{
-			Type: contractTypesByContractID[contractID],
-		}
-		contractIDs = append(contractIDs, contractID)
-	}
-
-	// Fetch metadata in parallel
-	start := time.Now()
-	metadataMap = s.fetchContractMetadataBatch(ctx, metadataMap, contractIDs)
-	log.Ctx(ctx).Infof("Fetched metadata for %d contracts in %.2f minutes", len(metadataMap), time.Since(start).Minutes())
-
-	// Parse the SAC code:issuer name and store them individually
-	for contractID, contractType := range contractTypesByContractID {
-		if contractType == types.ContractTypeSAC {
-			metadata := metadataMap[contractID]
-			name := metadata.Name
-			if name == "" {
-				continue
-			}
-
-			parts := strings.Split(name, ":")
-			if len(parts) != 2 {
-				continue
-			}
-
-			metadata.Code = parts[0]
-			metadata.Issuer = parts[1]
-
-			metadataMap[contractID] = metadata
-		}
-	}
-
-	// Store in database
-	start = time.Now()
-	err := s.storeContractMetadataInDB(ctx, metadataMap)
-	log.Ctx(ctx).Infof("Stored metadata for %d contracts in %.2f seconds", len(metadataMap), time.Since(start).Seconds())
-	return err
-}
-
-// storeContractMetadataInDB stores contract metadata in the contract_tokens database table.
-// Uses batch insert with ON CONFLICT DO NOTHING to handle existing contracts.
-func (s *accountTokenService) storeContractMetadataInDB(ctx context.Context, metadataMap map[string]contractMetadata) error {
-	if len(metadataMap) == 0 {
-		log.Ctx(ctx).Info("No contract metadata to store in database")
-		return nil
-	}
-
-	if s.contractModel == nil {
-		return fmt.Errorf("contract model is nil - cannot store metadata")
-	}
-
-	// Build contracts slice from metadata map
-	contracts := make([]*data.Contract, 0, len(metadataMap))
-	for contractID, metadata := range metadataMap {
-		contracts = append(contracts, &data.Contract{
-			ID:       contractID,
-			Type:     string(metadata.Type),
-			Code:     &metadata.Code,
-			Issuer:   &metadata.Issuer,
-			Name:     &metadata.Name,
-			Symbol:   &metadata.Symbol,
-			Decimals: metadata.Decimals,
-		})
-	}
-
-	// Batch insert all contracts
-	insertedIDs, err := s.contractModel.BatchInsert(ctx, nil, contracts)
-	if err != nil {
-		return fmt.Errorf("storing contract metadata in database: %w", err)
-	}
-
-	log.Ctx(ctx).Infof("Successfully stored metadata for %d/%d contracts in database", len(insertedIDs), len(metadataMap))
-	return nil
 }

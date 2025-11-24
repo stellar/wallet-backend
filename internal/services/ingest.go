@@ -62,6 +62,7 @@ type ingestService struct {
 	rpcService              RPCService
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
+	contractMetadataService ContractMetadataService
 	metricsService          metrics.MetricsService
 	networkPassphrase       string
 	getLedgersLimit         int
@@ -77,6 +78,7 @@ func NewIngestService(
 	rpcService RPCService,
 	chAccStore store.ChannelAccountStore,
 	accountTokenService AccountTokenService,
+	contractMetadataService ContractMetadataService,
 	metricsService metrics.MetricsService,
 	getLedgersLimit int,
 	network string,
@@ -123,6 +125,7 @@ func NewIngestService(
 		rpcService:              rpcService,
 		chAccStore:              chAccStore,
 		accountTokenService:     accountTokenService,
+		contractMetadataService: contractMetadataService,
 		metricsService:          metricsService,
 		networkPassphrase:       rpcService.NetworkPassphrase(),
 		getLedgersLimit:         getLedgersLimit,
@@ -694,6 +697,18 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	}
 	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredTrustlineChanges), len(filteredContractChanges))
 
+	// Fetch and store metadata for new SAC/SEP-41 contracts discovered during live ingestion
+	if m.contractMetadataService != nil {
+		newContractTypesByID := m.filterNewContractTokens(ctx, filteredContractChanges)
+		if len(newContractTypesByID) > 0 {
+			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
+			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
+				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
+				// Don't return error - we don't want to block ingestion for metadata fetch failures
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -821,4 +836,51 @@ func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker a
 			ticker.Reset(ingestHealthCheckMaxWaitTime)
 		}
 	}
+}
+
+// filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,
+// checks which contracts already exist in the database, and returns a map of only new contracts.
+func (m *ingestService) filterNewContractTokens(ctx context.Context, contractChanges []types.ContractChange) map[string]types.ContractType {
+	if len(contractChanges) == 0 {
+		return nil
+	}
+
+	// Extract unique SAC and SEP-41 contract IDs and build type map
+	seen := set.NewSet[string]()
+	contractTypeMap := make(map[string]types.ContractType)
+	var contractIDs []string
+
+	for _, change := range contractChanges {
+		// Only process SAC and SEP-41 contracts
+		if change.ContractType != types.ContractTypeSAC && change.ContractType != types.ContractTypeSEP41 {
+			continue
+		}
+		if change.ContractID == "" {
+			continue
+		}
+		if seen.Contains(change.ContractID) {
+			continue
+		}
+		seen.Add(change.ContractID)
+		contractIDs = append(contractIDs, change.ContractID)
+		contractTypeMap[change.ContractID] = change.ContractType
+	}
+
+	if len(contractIDs) == 0 {
+		return nil
+	}
+
+	// Check which contracts already exist in the database
+	existingContracts, err := m.models.Contract.BatchGetByIDs(ctx, contractIDs)
+	if err != nil {
+		log.Ctx(ctx).Warnf("Failed to check existing contracts: %v", err)
+		return nil
+	}
+
+	// Remove existing contracts from the map
+	for _, contract := range existingContracts {
+		delete(contractTypeMap, contract.ID)
+	}
+
+	return contractTypeMap
 }
