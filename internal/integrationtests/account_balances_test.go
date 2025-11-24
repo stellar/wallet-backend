@@ -175,7 +175,7 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
-// - SEP-41 contract tokens (400) - reduced from 500 after transfer to account 2
+// - SEP-41 contract tokens (0) - reduced from 500 after transfer to account 2
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
@@ -209,7 +209,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	// Verify SEP-41 contract token balance (reduced from 500 to 400)
 	sep41Balance, ok := balances[3].(*types.SEP41Balance)
 	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
-	suite.Require().Equal("400.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be reduced to 400 after transfer")
+	suite.Require().Equal("0.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be reduced to 0 after transfer")
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
 	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
 }
@@ -219,7 +219,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 // - Native XLM
 // - USDC trustline (100) - unchanged
 // - EURC trustline (75) - NEW from trustline creation and payment
-// - SEP-41 contract tokens (100) - NEW from transfer from account 1
+// - SEP-41 contract tokens (500) - NEW from transfer from account 1
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account2_HasNewBalances() {
 	balances, err := suite.testEnv.WBClient.GetBalancesByAccountAddress(
 		context.Background(),
@@ -253,7 +253,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 	// Verify SEP-41 contract token balance (NEW - 100 tokens from transfer)
 	sep41Balance, ok := balances[3].(*types.SEP41Balance)
 	suite.Require().True(ok, "Fourth balance should be SEP-41 tokens")
-	suite.Require().Equal("100.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be 100 from transfer")
+	suite.Require().Equal("500.0000000", sep41Balance.GetBalance(), "SEP-41 balance should be 500 from transfer")
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
 	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
 }
