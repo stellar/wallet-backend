@@ -370,6 +370,18 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 		return nil, rpcHealth.LatestLedger, ErrAlreadyInSync
 	}
 
+	// Calculate the end ledger for this batch
+	endLedger := ledgerSeqRange.StartLedger + ledgerSeqRange.Limit - 1
+	if endLedger > rpcHealth.LatestLedger {
+		endLedger = rpcHealth.LatestLedger
+	}
+
+	// Prepare the range for BufferedStorageBackend (RPCLedgerBackend handles this internally)
+	ledgerRange := ledgerbackend.BoundedRange(ledgerSeqRange.StartLedger, endLedger)
+	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+		return nil, rpcHealth.LatestLedger, fmt.Errorf("preparing ledger range %d-%d: %w", ledgerSeqRange.StartLedger, endLedger, err)
+	}
+
 	ledgers := make([]xdr.LedgerCloseMeta, 0, ledgerSeqRange.Limit)
 	for i := uint32(0); i < ledgerSeqRange.Limit; i++ {
 		ledgerSeq := ledgerSeqRange.StartLedger + i
