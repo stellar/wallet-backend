@@ -251,19 +251,19 @@ func (s *channelAccountService) submitChannelAccountsTxOnChain(
 	_, err := s.RPCService.GetHealth()
 	if err != nil {
 		log.Ctx(ctx).Debugf("Initial RPC health check failed: %v, will retry...", err)
-		healthcheck:
-			for {
-				select {
-				case <-healthCheckCtx.Done():
-					return fmt.Errorf("timeout waiting for RPC service to become healthy: %w", healthCheckCtx.Err())
-				case <-ticker.C:
-					_, err = s.RPCService.GetHealth()
-					if err == nil {
-						break healthcheck
-					}
-					log.Ctx(ctx).Debugf("RPC health check failed: %v, will retry...", err)
+	healthcheck:
+		for {
+			select {
+			case <-healthCheckCtx.Done():
+				return fmt.Errorf("timeout waiting for RPC service to become healthy: %w", healthCheckCtx.Err())
+			case <-ticker.C:
+				_, err = s.RPCService.GetHealth()
+				if err == nil {
+					break healthcheck
 				}
+				log.Ctx(ctx).Debugf("RPC health check failed: %v, will retry...", err)
 			}
+		}
 	}
 
 	log.Ctx(ctx).Infof("👍 RPC service is healthy")
