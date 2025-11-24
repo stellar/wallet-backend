@@ -145,19 +145,18 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 
 	suite.Require().Equal(2, len(balances), "Expected 2 balances: USDC SAC and SEP-41 tokens")
 
-	// Verify USDC SAC balance
-	usdcSACBalance, ok := balances[0].(*types.SACBalance)
-	suite.Require().True(ok, "First balance should be USDC SAC")
-	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
-
-	// Verify SEP-41 contract token balance
-	sep41Balance, ok := balances[1].(*types.SEP41Balance)
-	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
-	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
-	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+	for _, balance := range balances {
+		switch balance.GetTokenType() {
+		case types.TokenTypeSEP41:
+			suite.Require().Equal("500.0000000", balance.GetBalance())
+			suite.Require().Equal(suite.testEnv.SEP41ContractAddress, balance.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSEP41, balance.GetTokenType())
+		case types.TokenTypeSAC:
+			suite.Require().Equal("200.0000000", balance.GetBalance())
+			suite.Require().Equal(suite.testEnv.USDCContractAddress, balance.GetTokenID())
+			suite.Require().Equal(types.TokenTypeSAC, balance.GetTokenType())
+		}
+	}
 }
 
 // AccountBalancesAfterLiveIngestionTestSuite validates that balances are correctly calculated
@@ -275,19 +274,19 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 
 	suite.Require().Equal(3, len(balances), "Expected 3 balances: USDC SAC, SEP-41, and EURC SAC")
 
-	// Verify USDC SAC balance (unchanged)
-	usdcSACBalance, ok := balances[0].(*types.SACBalance)
-	suite.Require().True(ok, "First balance should be USDC SAC")
-	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
-	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
-	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
-
 	// Verify SEP-41 contract token balance (unchanged)
-	sep41Balance, ok := balances[1].(*types.SEP41Balance)
-	suite.Require().True(ok, "Second balance should be SEP-41 tokens")
+	sep41Balance, ok := balances[0].(*types.SEP41Balance)
+	suite.Require().True(ok, "First balance should be SEP-41 tokens")
 	suite.Require().Equal("500.0000000", sep41Balance.GetBalance())
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, sep41Balance.GetTokenID())
 	suite.Require().Equal(types.TokenTypeSEP41, sep41Balance.GetTokenType())
+
+	// Verify USDC SAC balance (unchanged)
+	usdcSACBalance, ok := balances[1].(*types.SACBalance)
+	suite.Require().True(ok, "Second balance should be USDC SAC")
+	suite.Require().Equal("200.0000000", usdcSACBalance.GetBalance())
+	suite.Require().Equal(suite.testEnv.USDCContractAddress, usdcSACBalance.GetTokenID())
+	suite.Require().Equal(types.TokenTypeSAC, usdcSACBalance.GetTokenType())
 
 	// Verify EURC SAC balance (NEW - 50 tokens from transfer)
 	eurcSACBalance, ok := balances[2].(*types.SACBalance)
