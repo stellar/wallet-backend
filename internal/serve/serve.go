@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -61,6 +62,9 @@ type Configs struct {
 	ChannelAccountSignatureClient      signing.SignatureClient
 	// RPC
 	RPCURL string
+
+	// Distribution Account Validation
+	MinDistributionAccountBalance int64 // Minimum balance in stroops. 0 to only check existence.
 
 	// GraphQL
 	GraphQLComplexityLimit int
@@ -140,6 +144,15 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
+	// Validate distribution account exists and has sufficient balance
+	distributionAccountPublicKey, err := cfg.DistributionAccountSignatureClient.GetAccountPublicKey(ctx)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("getting distribution account public key: %w", err)
+	}
+	if err := validateDistributionAccount(rpcService, distributionAccountPublicKey, cfg.MinDistributionAccountBalance); err != nil {
+		return handlerDeps{}, fmt.Errorf("distribution account validation failed: %w", err)
+	}
+
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	accountService, err := services.NewAccountService(models, metricsService)
@@ -190,7 +203,13 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating channel account service: %w", err)
 	}
-	go ensureChannelAccounts(ctx, channelAccountService, int64(cfg.NumberOfChannelAccounts))
+
+	// Ensure channel accounts exist synchronously - fail startup if validation fails
+	log.Ctx(ctx).Info("Ensuring the number of channel accounts...")
+	if err := channelAccountService.EnsureChannelAccounts(ctx, int64(cfg.NumberOfChannelAccounts)); err != nil {
+		return handlerDeps{}, fmt.Errorf("ensuring channel accounts: %w", err)
+	}
+	log.Ctx(ctx).Infof("✅ Ensured that %d channel accounts exist", cfg.NumberOfChannelAccounts)
 
 	return handlerDeps{
 		Models:                 models,
@@ -206,16 +225,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		TransactionService:     txService,
 		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
 	}, nil
-}
-
-func ensureChannelAccounts(ctx context.Context, channelAccountService services.ChannelAccountService, numberOfChannelAccounts int64) {
-	log.Ctx(ctx).Info("Ensuring the number of channel accounts in the database...")
-	err := channelAccountService.EnsureChannelAccounts(ctx, numberOfChannelAccounts)
-	if err != nil {
-		log.Ctx(ctx).Errorf("error ensuring the number of channel accounts: %s", err.Error())
-		return
-	}
-	log.Ctx(ctx).Infof("Ensured that exactly %d channel accounts exist in the database", numberOfChannelAccounts)
 }
 
 func handler(deps handlerDeps) http.Handler {
@@ -279,6 +288,35 @@ func handler(deps handlerDeps) http.Handler {
 	})
 
 	return mux
+}
+
+// validateDistributionAccount checks that the distribution account exists on the network
+// and has sufficient balance for operations.
+func validateDistributionAccount(rpcService services.RPCService, distributionAccountPublicKey string, minBalance int64) error {
+	accountInfo, err := rpcService.GetAccountInfo(distributionAccountPublicKey)
+	if err != nil {
+		if errors.Is(err, services.ErrAccountNotFound) {
+			return fmt.Errorf("distribution account %s does not exist on the network", distributionAccountPublicKey)
+		}
+		return fmt.Errorf("validating distribution account: %w", err)
+	}
+
+	if minBalance > 0 && accountInfo.Balance < minBalance {
+		return fmt.Errorf(
+			"distribution account %s has insufficient balance: %d stroops (minimum: %d stroops / %.2f XLM)",
+			distributionAccountPublicKey,
+			accountInfo.Balance,
+			minBalance,
+			float64(minBalance)/10_000_000,
+		)
+	}
+
+	log.Infof("✅ Distribution account %s validated: balance %d stroops (%.2f XLM)",
+		distributionAccountPublicKey,
+		accountInfo.Balance,
+		float64(accountInfo.Balance)/10_000_000,
+	)
+	return nil
 }
 
 func addComplexityCalculation(config *generated.Config) {

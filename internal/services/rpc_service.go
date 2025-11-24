@@ -25,6 +25,12 @@ const (
 	getHealthMethodName               = "getHealth"
 )
 
+// AccountInfo contains the balance and sequence number for a Stellar account.
+type AccountInfo struct {
+	Balance int64 // Balance in stroops
+	SeqNum  int64
+}
+
 type RPCService interface {
 	GetTransaction(transactionHash string) (entities.RPCGetTransactionResult, error)
 	GetTransactions(startLedger int64, startCursor string, limit int) (entities.RPCGetTransactionsResult, error)
@@ -33,6 +39,7 @@ type RPCService interface {
 	GetLedgers(startLedger uint32, limit uint32) (GetLedgersResponse, error)
 	GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error)
 	GetAccountLedgerSequence(address string) (int64, error)
+	GetAccountInfo(address string) (AccountInfo, error)
 	GetHeartbeatChannel() chan entities.RPCGetHealthResult
 	// TrackRPCServiceHealth continuously monitors the health of the RPC service and updates metrics.
 	// It runs health checks at regular intervals and can be triggered on-demand via immediateHealthCheckTrigger.
@@ -307,6 +314,42 @@ func (r *rpcService) GetAccountLedgerSequence(address string) (int64, error) {
 	}
 	accountEntry := ledgerEntryData.MustAccount()
 	return int64(accountEntry.SeqNum), nil
+}
+
+func (r *rpcService) GetAccountInfo(address string) (AccountInfo, error) {
+	startTime := time.Now()
+	r.metricsService.IncRPCMethodCalls("GetAccountInfo")
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		r.metricsService.ObserveRPCMethodDuration("GetAccountInfo", duration)
+	}()
+
+	keyXdr, err := utils.GetAccountLedgerKey(address)
+	if err != nil {
+		r.metricsService.IncRPCMethodErrors("GetAccountInfo", "validation_error")
+		return AccountInfo{}, fmt.Errorf("getting ledger key for account public key: %w", err)
+	}
+	result, err := r.GetLedgerEntries([]string{keyXdr})
+	if err != nil {
+		r.metricsService.IncRPCMethodErrors("GetAccountInfo", "rpc_error")
+		return AccountInfo{}, fmt.Errorf("getting ledger entry for account public key: %w", err)
+	}
+	if len(result.Entries) == 0 {
+		r.metricsService.IncRPCMethodErrors("GetAccountInfo", "not_found_error")
+		return AccountInfo{}, fmt.Errorf("%w: entry not found for account public key", ErrAccountNotFound)
+	}
+
+	var ledgerEntryData xdr.LedgerEntryData
+	err = xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &ledgerEntryData)
+	if err != nil {
+		r.metricsService.IncRPCMethodErrors("GetAccountInfo", "xdr_decode_error")
+		return AccountInfo{}, fmt.Errorf("decoding account entry for account public key: %w", err)
+	}
+	accountEntry := ledgerEntryData.MustAccount()
+	return AccountInfo{
+		Balance: int64(accountEntry.Balance),
+		SeqNum:  int64(accountEntry.SeqNum),
+	}, nil
 }
 
 func (r *rpcService) NetworkPassphrase() string {
