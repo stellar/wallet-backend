@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	"github.com/pelletier/go-toml"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go/ingest/ledgerbackend"
@@ -107,44 +106,9 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	// Initialize ledger backend based on configuration
-	var ledgerBackend ledgerbackend.LedgerBackend
-	if cfg.LedgerBackendType == LedgerBackendTypeDatastore {
-		// Load datastore configuration from TOML file
-		storageBackendConfig, err := loadStorageBackendConfig(cfg.DatastoreConfigPath)
-		if err != nil {
-			return nil, fmt.Errorf("loading datastore config: %w", err)
-		}
-
-		// Set network passphrase in datastore config
-		storageBackendConfig.DataStoreConfig.NetworkPassphrase = cfg.NetworkPassphrase
-
-		// Create datastore
-		dataStore, err := datastore.NewDataStore(context.Background(), storageBackendConfig.DataStoreConfig)
-		if err != nil {
-			return nil, fmt.Errorf("creating datastore: %w", err)
-		}
-
-		// Load schema from datastore
-		schema, err := datastore.LoadSchema(context.Background(), dataStore, storageBackendConfig.DataStoreConfig)
-		if err != nil {
-			return nil, fmt.Errorf("loading datastore schema: %w", err)
-		}
-
-		// Create buffered storage backend
-		ledgerBackend, err = ledgerbackend.NewBufferedStorageBackend(storageBackendConfig.BufferedStorageBackendConfig, dataStore, schema)
-		if err != nil {
-			return nil, fmt.Errorf("creating buffered storage backend: %w", err)
-		}
-
-		log.Info("Using BufferedStorageBackend for ledger ingestion")
-	} else {
-		// Default to RPC backend
-		ledgerBackend = ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
-			RPCServerURL: cfg.RPCURL,
-			BufferSize:   uint32(cfg.GetLedgersLimit),
-		})
-		log.Infof("Using RPCLedgerBackend for ledger ingestion with buffer size %d", cfg.GetLedgersLimit)
+	ledgerBackend, err := NewLedgerBackend(context.Background(), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
@@ -261,21 +225,3 @@ func registerAdminHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
-// loadStorageBackendConfig loads the storage backend configuration from a TOML file
-func loadStorageBackendConfig(configPath string) (StorageBackendConfig, error) {
-	if configPath == "" {
-		return StorageBackendConfig{}, fmt.Errorf("datastore config file path is required for datastore backend type")
-	}
-
-	cfg, err := toml.LoadFile(configPath)
-	if err != nil {
-		return StorageBackendConfig{}, fmt.Errorf("loading datastore config file %s: %w", configPath, err)
-	}
-
-	var storageBackendConfig StorageBackendConfig
-	if err = cfg.Unmarshal(&storageBackendConfig); err != nil {
-		return StorageBackendConfig{}, fmt.Errorf("unmarshalling datastore config: %w", err)
-	}
-
-	return storageBackendConfig, nil
-}
