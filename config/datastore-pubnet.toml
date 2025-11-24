@@ -11,12 +11,6 @@ destination_bucket_path = "aws-public-blockchain/v1.1/stellar/ledgers/pubnet"
 # AWS region where the bucket is located
 region = "us-east-2"
 
-[datastore_config.schema]
-# Number of ledgers per file in the data lake
-ledgers_per_file = 1
-# Number of files per partition
-files_per_partition = 64000
-
 [buffered_storage_backend_config]
 # Buffer size for reading ledgers
 buffer_size = 100
