@@ -133,7 +133,11 @@ func NewIngestService(
 
 func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
-	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel)
+	go func() {
+		if err := m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChannel); err != nil {
+			log.Ctx(ctx).Warnf("RPC health tracking stopped: %v", err)
+		}
+	}()
 	ingestHeartbeatChannel := make(chan any, 1)
 	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
@@ -262,7 +266,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	// Prepare the health check:
 	manualTriggerChan := make(chan any, 1)
-	go m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	go func() {
+		if err := m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan); err != nil {
+			log.Ctx(ctx).Warnf("RPC health tracking stopped: %v", err)
+		}
+	}()
 	ingestHeartbeatChannel := make(chan any, 1)
 	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
 	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
@@ -270,12 +278,16 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	log.Ctx(ctx).Info("Starting ingestion loop")
 	for {
+		var ok bool
 		select {
 		case sig := <-signalChan:
 			return fmt.Errorf("ingestor stopped due to signal %q", sig)
 		case <-ctx.Done():
 			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-		case rpcHealth = <-rpcHeartbeatChannel:
+		case rpcHealth, ok = <-rpcHeartbeatChannel:
+			if !ok {
+				return fmt.Errorf("RPC heartbeat channel closed unexpectedly")
+			}
 			ingestHeartbeatChannel <- true // ⬅️ indicate that it's still running
 			// this will fallthrough to execute the code below ⬇️
 		}
@@ -288,7 +300,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
 				continue
 			}
-			return fmt.Errorf("fetching next ledgers batch: %w", err)
+			log.Ctx(ctx).Warnf("fetching next ledgers batch. will retry in a few moments...: %v", err)
+			continue
 		}
 		m.metricsService.ObserveIngestionBatchSize(len(getLedgersResponse.Ledgers))
 
@@ -305,6 +318,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 			}
+			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 			if lastLedger > checkpointLedger {
 				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
@@ -321,7 +335,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
 
 		totalDuration := time.Since(totalIngestionStart)
-		m.metricsService.SetLatestLedgerIngested(float64(getLedgersResponse.LatestLedger))
 		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(len(getLedgersResponse.Ledgers))
 

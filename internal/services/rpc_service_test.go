@@ -926,7 +926,8 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).Return(mockResponse, nil).Run(func(args mock.Arguments) {
 		cancel()
 	})
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
 
 	// Get result from heartbeat channel
 	select {
@@ -998,7 +999,8 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 		Return(mockResponse, nil)
 
 	// The ctx will timeout after {contextTimeout}, which is enough for the warning to trigger
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
 
 	entries := getLogs()
 	testSucceeded := false
@@ -1014,8 +1016,9 @@ func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
 }
 
 func TestTrackRPCService_ContextCancelled(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	// Create and immediately cancel context to test cancellation handling
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -1029,14 +1032,26 @@ func TestTrackRPCService_ContextCancelled(t *testing.T) {
 	rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, mockHTTPClient, mockMetricsService)
 	require.NoError(t, err)
 
-	rpcService.TrackRPCServiceHealth(ctx, nil)
+	// Mock metrics for the initial health check that happens before context check
+	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Maybe()
+	mockMetricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64")).Maybe()
+	mockMetricsService.On("IncRPCRequests", "getHealth").Maybe()
+	mockMetricsService.On("IncRPCEndpointFailure", "getHealth").Maybe()
+	mockMetricsService.On("IncRPCMethodErrors", "GetHealth", "rpc_error").Maybe()
+	mockMetricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64")).Maybe()
+	mockMetricsService.On("SetRPCServiceHealth", false).Maybe()
+
+	// Mock HTTP client to return error (simulating cancelled context)
+	mockHTTPClient.On("Post", rpcURL, "application/json", mock.Anything).
+		Return(&http.Response{}, context.Canceled).Maybe()
+
+	err = rpcService.TrackRPCServiceHealth(ctx, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context")
 
 	// Verify channel is closed after context cancellation
-	time.Sleep(100 * time.Millisecond)
 	_, ok := <-rpcService.GetHeartbeatChannel()
 	assert.False(t, ok, "channel should be closed")
-
-	mockHTTPClient.AssertNotCalled(t, "Post")
 }
 
 func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
@@ -1086,7 +1101,10 @@ func TestTrackRPCService_DeadlockPrevention(t *testing.T) {
 	defer cancel()
 
 	manualTriggerChan := make(chan any, 1)
-	go rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	go func() {
+		//nolint:errcheck // Error is expected on context cancellation
+		rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan)
+	}()
 	time.Sleep(20 * time.Millisecond)
 	manualTriggerChan <- nil
 

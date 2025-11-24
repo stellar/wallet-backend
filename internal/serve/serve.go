@@ -139,7 +139,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
-	go rpcService.TrackRPCServiceHealth(ctx, nil)
 
 	channelAccountStore := store.NewChannelAccountModel(dbConnectionPool)
 
