@@ -61,6 +61,7 @@ type ingestService struct {
 	appTracker              apptracker.AppTracker
 	rpcService              RPCService
 	ledgerBackend           ledgerbackend.LedgerBackend
+	rpcBackendPrepared      bool // tracks if RPCLedgerBackend has been prepared
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
 	contractMetadataService ContractMetadataService
@@ -304,7 +305,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		// fetch ledgers
 		startTime := time.Now()
-		ledgers, latestLedger, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
+		ledgers, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
 		if err != nil {
 			if errors.Is(err, ErrAlreadyInSync) {
 				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
@@ -333,6 +334,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 			}
 			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
+
 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
 			if lastLedger > checkpointLedger {
 				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
@@ -363,11 +365,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers using the LedgerBackend.
-func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) ([]xdr.LedgerCloseMeta, uint32, error) {
+func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) ([]xdr.LedgerCloseMeta, error) {
 	ledgerSeqRange, inSync := m.getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
 	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
 	if inSync {
-		return nil, rpcHealth.LatestLedger, ErrAlreadyInSync
+		return nil, ErrAlreadyInSync
 	}
 
 	// Calculate the end ledger for this batch
@@ -376,10 +378,28 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 		endLedger = rpcHealth.LatestLedger
 	}
 
-	// Prepare the range for BufferedStorageBackend (RPCLedgerBackend handles this internally)
-	ledgerRange := ledgerbackend.BoundedRange(ledgerSeqRange.StartLedger, endLedger)
-	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return nil, rpcHealth.LatestLedger, fmt.Errorf("preparing ledger range %d-%d: %w", ledgerSeqRange.StartLedger, endLedger, err)
+	// Prepare the range based on backend type:
+	// - RPCLedgerBackend: Use UnboundedRange and prepare only once (continuously buffers)
+	// - BufferedStorageBackend: Use BoundedRange and prepare for each batch
+	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
+
+	if isRPCBackend {
+		// For RPC backend, prepare unbounded range only once
+		if !m.rpcBackendPrepared {
+			ledgerRange := ledgerbackend.UnboundedRange(ledgerSeqRange.StartLedger)
+			err := m.ledgerBackend.PrepareRange(ctx, ledgerRange)
+			if err != nil {
+				return nil, fmt.Errorf("preparing unbounded ledger range from %d: %w", ledgerSeqRange.StartLedger, err)
+			}
+			m.rpcBackendPrepared = true
+		}
+	} else {
+		// For other backends (like BufferedStorageBackend), prepare bounded range for each batch
+		ledgerRange := ledgerbackend.BoundedRange(ledgerSeqRange.StartLedger, endLedger)
+		err := m.ledgerBackend.PrepareRange(ctx, ledgerRange)
+		if err != nil {
+			return nil, fmt.Errorf("preparing ledger range %d-%d: %w", ledgerSeqRange.StartLedger, endLedger, err)
+		}
 	}
 
 	ledgers := make([]xdr.LedgerCloseMeta, 0, ledgerSeqRange.Limit)
@@ -391,12 +411,12 @@ func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth ent
 
 		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
 		if err != nil {
-			return nil, rpcHealth.LatestLedger, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+			return nil, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}
 		ledgers = append(ledgers, ledgerMeta)
 	}
 
-	return ledgers, rpcHealth.LatestLedger, nil
+	return ledgers, nil
 }
 
 type LedgerSeqRange struct {
