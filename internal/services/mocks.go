@@ -43,20 +43,6 @@ func (l *LedgerBackendMock) Close() error {
 	return args.Error(0)
 }
 
-// NewLedgerBackendMock creates a new instance of LedgerBackendMock
-func NewLedgerBackendMock(t interface {
-	mock.TestingT
-	Cleanup(func())
-},
-) *LedgerBackendMock {
-	mockBackend := &LedgerBackendMock{}
-	mockBackend.Mock.Test(t)
-
-	t.Cleanup(func() { mockBackend.AssertExpectations(t) })
-
-	return mockBackend
-}
-
 type RPCServiceMock struct {
 	mock.Mock
 }
