@@ -114,8 +114,10 @@ func TestLoadDatastoreBackendConfig_Success(t *testing.T) {
 network_passphrase = "Test SDF Network ; September 2015"
 
 [buffered_storage_backend_config]
-ledger_batch_size = 64
-num_ledger_batches_to_retain = 2
+buffer_size = 64
+num_workers = 2
+retry_limit = 3
+retry_wait = "5s"
 `
 
 	err := os.WriteFile(configPath, []byte(validTOML), 0644)
@@ -123,8 +125,9 @@ num_ledger_batches_to_retain = 2
 
 	cfg, err := loadDatastoreBackendConfig(configPath)
 	assert.NoError(t, err)
-	assert.Equal(t, uint32(64), cfg.BufferedStorageBackendConfig.LedgerBatchSize)
-	assert.Equal(t, uint32(2), cfg.BufferedStorageBackendConfig.NumLedgerBatchesToRetain)
+	assert.Equal(t, uint32(64), cfg.BufferedStorageBackendConfig.BufferSize)
+	assert.Equal(t, uint32(2), cfg.BufferedStorageBackendConfig.NumWorkers)
+	assert.Equal(t, uint32(3), cfg.BufferedStorageBackendConfig.RetryLimit)
 }
 
 func TestLoadDatastoreBackendConfig_EmptyFile(t *testing.T) {
