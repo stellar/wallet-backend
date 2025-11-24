@@ -224,4 +224,3 @@ func registerAdminHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
-
