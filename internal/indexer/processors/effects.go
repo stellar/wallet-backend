@@ -406,24 +406,27 @@ func (p *EffectsProcessor) extractSponsorshipKeyValue(effectType effects.EffectT
 }
 
 func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *effects.EffectOutput, effectType effects.EffectType, changes []ingest.Change) (types.StateChange, error) {
+	var assetCode, assetIssuer string
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
 		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
 	}
 	if assetType == "liquidity_pool_shares" {
-		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		var poolID string
+		poolID, err = safeStringFromDetails(effect.Details, "liquidity_pool_id")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
+
 		baseBuilder = baseBuilder.WithKeyValue(map[string]any{
 			"liquidity_pool_id": poolID,
-		})
+		}).WithTrustlineAsset(poolID) // poolID is already in the format poolAsset1:poolAsset2
 	} else {
-		assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
 		}
-		assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+		assetIssuer, err = safeStringFromDetails(effect.Details, "asset_issuer")
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
 		}
@@ -431,7 +434,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 		}
-		baseBuilder = baseBuilder.WithToken(assetContractID)
+		baseBuilder = baseBuilder.WithToken(assetContractID).WithTrustlineAsset(fmt.Sprintf("%s:%s", assetCode, assetIssuer))
 	}
 
 	var stateChange types.StateChange

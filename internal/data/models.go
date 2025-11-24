@@ -10,7 +10,7 @@ import (
 type Models struct {
 	DB           db.ConnectionPool
 	Account      *AccountModel
-	Contract     *ContractModel
+	Contract     ContractModelInterface
 	IngestStore  *IngestStoreModel
 	Operations   *OperationModel
 	Transactions *TransactionModel

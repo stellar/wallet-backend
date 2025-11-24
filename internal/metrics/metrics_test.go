@@ -41,7 +41,7 @@ func TestIngestMetrics(t *testing.T) {
 
 		found := false
 		for _, mf := range metricFamilies {
-			if mf.GetName() == "latest_ledger_ingested" {
+			if mf.GetName() == "ingestion_ledger_latest" {
 				found = true
 				assert.Equal(t, 1, len(mf.GetMetric()))
 			}
@@ -50,7 +50,7 @@ func TestIngestMetrics(t *testing.T) {
 	})
 
 	t.Run("ingestion duration metrics", func(t *testing.T) {
-		ms.ObserveIngestionDuration("transaction", 1.0)
+		ms.ObserveIngestionDuration(1.0)
 
 		metricFamilies, err := ms.GetRegistry().Gather()
 		require.NoError(t, err)
@@ -494,7 +494,7 @@ func TestIngestionPhaseMetrics(t *testing.T) {
 						labels[label.GetName()] = label.GetValue()
 					}
 					phaseLabels[labels["phase"]] = true
-					assert.Equal(t, uint64(1), metric.GetSummary().GetSampleCount())
+					assert.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount())
 				}
 
 				assert.True(t, phaseLabels["fetch_ledgers"])
@@ -923,7 +923,7 @@ func TestStateChangeMetrics(t *testing.T) {
 		tokenProcessorSum := 0.0
 
 		for _, mf := range metricFamilies {
-			if mf.GetName() == "state_change_processing_duration_seconds" {
+			if mf.GetName() == "ingestion_state_change_processing_duration_seconds" {
 				found = true
 				for _, metric := range mf.GetMetric() {
 					labels := make(map[string]string)
@@ -932,14 +932,14 @@ func TestStateChangeMetrics(t *testing.T) {
 					}
 
 					if labels["processor"] == processor {
-						tokenProcessorCount = metric.GetSummary().GetSampleCount()
-						tokenProcessorSum = metric.GetSummary().GetSampleSum()
+						tokenProcessorCount = metric.GetHistogram().GetSampleCount()
+						tokenProcessorSum = metric.GetHistogram().GetSampleSum()
 					}
 				}
 			}
 		}
 
-		assert.True(t, found, "state_change_processing_duration_seconds metric not found")
+		assert.True(t, found, "ingestion_state_change_processing_duration_seconds metric not found")
 		assert.Equal(t, uint64(2), tokenProcessorCount, "Expected 2 samples for TokenTransferProcessor")
 		assert.InDelta(t, 0.15, tokenProcessorSum, 0.001, "Expected sum of 0.15 seconds")
 	})
