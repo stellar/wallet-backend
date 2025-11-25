@@ -39,27 +39,6 @@ const (
 	ingestHealthCheckMaxWaitTime = 90 * time.Second
 )
 
-// backendMode represents the operating mode for ledger ingestion.
-type backendMode int
-
-const (
-	// modeLiveStreaming uses unbounded range and runs indefinitely until cancelled.
-	modeLiveStreaming backendMode = iota
-	// modeBackfill uses bounded range and exits after completing the specified range.
-	modeBackfill
-)
-
-func (m backendMode) String() string {
-	switch m {
-	case modeLiveStreaming:
-		return "live_streaming"
-	case modeBackfill:
-		return "backfill"
-	default:
-		return "unknown"
-	}
-}
-
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {
@@ -177,9 +156,10 @@ func (m *ingestService) determineStartLedger(ctx context.Context, configuredStar
 		return 0, fmt.Errorf("getting latest ledger synced: %w", err)
 	}
 
-	// For RPC backend with startLedger=0, check RPC health to ensure we don't start
-	// from a ledger older than RPC's retention window
-	if _, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend); isRPCBackend {
+	switch m.ledgerBackend.(type) {
+	case *ledgerbackend.RPCLedgerBackend:
+		// For RPC backend, check RPC health to ensure we don't start
+		// from a ledger older than RPC's retention window
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
 			return 0, fmt.Errorf("getting RPC health: %w", err)
@@ -198,48 +178,52 @@ func (m *ingestService) determineStartLedger(ctx context.Context, configuredStar
 
 		// DB is empty, start from RPC's oldest
 		return health.OldestLedger, nil
-	}
 
-	// For BufferedStorageBackend, use DB cursor + 1 (or 1 if empty)
-	if dbLedger > 0 {
-		return dbLedger + 1, nil
+	case *ledgerbackend.BufferedStorageBackend:
+		// For BufferedStorageBackend, use DB cursor + 1 (or 1 if empty)
+		if dbLedger > 0 {
+			return dbLedger + 1, nil
+		}
+		return 1, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported ledger backend type: %T", m.ledgerBackend)
 	}
-	return 1, nil
 }
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
 // Returns the operating mode (live streaming vs backfill).
-func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) (backendMode, error) {
-	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
-
-	if isRPCBackend {
+func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
+	switch m.ledgerBackend.(type) {
+	case *ledgerbackend.RPCLedgerBackend:
 		// RPC backend always uses unbounded range for live streaming
 		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return 0, fmt.Errorf("preparing RPC backend range from %d: %w", startLedger, err)
+			return fmt.Errorf("preparing RPC backend range from %d: %w", startLedger, err)
 		}
 		log.Ctx(ctx).Infof("Prepared RPC backend with unbounded range starting from ledger %d", startLedger)
-		return modeLiveStreaming, nil
-	}
 
-	// BufferedStorageBackend
-	if endLedger == 0 {
-		// Live streaming mode with unbounded range
-		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
-		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return 0, fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
+	case *ledgerbackend.BufferedStorageBackend:
+		if endLedger == 0 {
+			// Live streaming mode with unbounded range
+			ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+			if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+				return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
+			}
+			log.Ctx(ctx).Infof("Prepared datastore backend with unbounded range starting from ledger %d", startLedger)
 		}
-		log.Ctx(ctx).Infof("Prepared datastore backend with unbounded range starting from ledger %d", startLedger)
-		return modeLiveStreaming, nil
-	}
 
-	// Backfill mode with bounded range
-	ledgerRange := ledgerbackend.BoundedRange(startLedger, endLedger)
-	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return 0, fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
+		// Backfill mode with bounded range
+		ledgerRange := ledgerbackend.BoundedRange(startLedger, endLedger)
+		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+			return fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
+		}
+		log.Ctx(ctx).Infof("Prepared datastore backend with bounded range [%d, %d]", startLedger, endLedger)
+
+	default:
+		return fmt.Errorf("unsupported ledger backend type: %T", m.ledgerBackend)
 	}
-	log.Ctx(ctx).Infof("Prepared datastore backend with bounded range [%d, %d]", startLedger, endLedger)
-	return modeBackfill, nil
+	return nil
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the backend.
@@ -415,8 +399,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	// Prepare backend range and determine operating mode
-	mode, err := m.prepareBackendRange(ctx, actualStartLedger, endLedger)
+	// Prepare backend range
+	err = m.prepareBackendRange(ctx, actualStartLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
@@ -424,7 +408,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	// Track current ledger for batch fetching
 	currentLedger := actualStartLedger
 
-	log.Ctx(ctx).Infof("Starting ingestion loop from ledger %d (mode: %s)", currentLedger, mode)
+	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
 	for {
 		select {
 		case sig := <-signalChan:
@@ -438,7 +422,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if err != nil {
 				if errors.Is(err, ErrAlreadyInSync) {
 					// In bounded mode, this means we've completed the range
-					if mode == modeBackfill {
+					if endLedger > 0 {
 						log.Ctx(ctx).Infof("Backfill complete: processed all ledgers up to %d", endLedger)
 						return nil
 					}
@@ -493,7 +477,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			currentLedger = lastLedger + 1
 
 			// Check if backfill is complete
-			if mode == modeBackfill && currentLedger > endLedger {
+			if endLedger > 0 && currentLedger > endLedger {
 				log.Ctx(ctx).Infof("Backfill complete: processed all ledgers from %d to %d", actualStartLedger, endLedger)
 				return nil
 			}
