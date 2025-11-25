@@ -549,31 +549,6 @@ func (m *ingestService) GetLedgerTransactions(ledger int64) ([]entities.Transact
 	return ledgerTransactions, nil
 }
 
-// unlockChannelAccountsDeprecated unlocks the channel accounts associated with the given transaction XDRs.
-func (m *ingestService) unlockChannelAccountsDeprecated(ctx context.Context, ledgerTransactions []entities.Transaction) error {
-	if len(ledgerTransactions) == 0 {
-		log.Ctx(ctx).Debug("no transactions to unlock channel accounts from")
-		return nil
-	}
-
-	innerTxHashes := make([]string, 0, len(ledgerTransactions))
-	for _, tx := range ledgerTransactions {
-		if innerTxHash, err := m.extractInnerTxHash(tx.EnvelopeXDR); err != nil {
-			return fmt.Errorf("extracting inner tx hash: %w", err)
-		} else {
-			innerTxHashes = append(innerTxHashes, innerTxHash)
-		}
-	}
-
-	if affectedRows, err := m.chAccStore.UnassignTxAndUnlockChannelAccounts(ctx, nil, innerTxHashes...); err != nil {
-		return fmt.Errorf("unlocking channel accounts with txHashes %v: %w", innerTxHashes, err)
-	} else if affectedRows > 0 {
-		log.Ctx(ctx).Infof("unlocked %d channel accounts", affectedRows)
-	}
-
-	return nil
-}
-
 // extractInnerTxHash takes a transaction XDR string and returns the hash of its inner transaction.
 // For fee bump transactions, it returns the hash of the inner transaction.
 // For regular transactions, it returns the hash of the transaction itself.
