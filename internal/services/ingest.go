@@ -14,6 +14,7 @@ import (
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/log"
@@ -32,10 +33,6 @@ import (
 )
 
 var ErrAlreadyInSync = errors.New("ingestion is already in sync")
-
-const (
-	ingestHealthCheckMaxWaitTime = 90 * time.Second
-)
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
@@ -66,6 +63,7 @@ type ingestService struct {
 	networkPassphrase       string
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
+	archive                 historyarchive.ArchiveInterface
 }
 
 func NewIngestService(
@@ -82,6 +80,7 @@ func NewIngestService(
 	getLedgersLimit int,
 	network string,
 	networkPassphrase string,
+	archive historyarchive.ArchiveInterface,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -110,6 +109,9 @@ func NewIngestService(
 	if getLedgersLimit <= 0 {
 		return nil, errors.New("getLedgersLimit must be greater than 0")
 	}
+	if archive == nil {
+		return nil, errors.New("archive cannot be nil")
+	}
 
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
@@ -130,6 +132,7 @@ func NewIngestService(
 		networkPassphrase:       networkPassphrase,
 		getLedgersLimit:         getLedgersLimit,
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
+		archive:                 archive,
 	}, nil
 }
 
@@ -190,6 +193,31 @@ func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, en
 	return nil
 }
 
+// calculateCheckpointLedger determines the appropriate checkpoint ledger for account token cache population.
+// If startLedger is 0, it returns the latest checkpoint from the archive.
+// If startLedger is specified, it returns startLedger if it's a checkpoint, otherwise the previous checkpoint.
+func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, error) {
+	archiveManager := m.archive.GetCheckpointManager()
+
+	if startLedger == 0 {
+		// Get latest checkpoint from archive
+		latestLedger, err := m.archive.GetLatestLedgerSequence()
+		if err != nil {
+			return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
+		}
+		if archiveManager.IsCheckpoint(latestLedger) {
+			return latestLedger, nil
+		}
+		return archiveManager.PrevCheckpoint(latestLedger), nil
+	}
+
+	// For specified startLedger, use it if it's a checkpoint, otherwise use previous checkpoint
+	if archiveManager.IsCheckpoint(startLedger) {
+		return startLedger, nil
+	}
+	return archiveManager.PrevCheckpoint(startLedger), nil
+}
+
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
@@ -204,18 +232,38 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}()
 
-	// Determine the actual starting ledger based on backend type and configuration
-	actualStartLedger, err := m.determineStartLedger(ctx, startLedger)
+	// Check if account tokens cache is populated
+	latestAccountTokensLedger, err := m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
 	if err != nil {
-		return fmt.Errorf("determining start ledger: %w", err)
+		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
 
-	// Get account tokens cursor if starting fresh (when original startLedger was 0)
-	var latestTrustlinesLedger uint32
-	if startLedger == 0 {
-		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
-		if err != nil {
-			return fmt.Errorf("getting latest account-tokens ledger cursor synced: %w", err)
+	// If account tokens cache is not populated, calculate checkpoint and populate
+	if latestAccountTokensLedger == 0 {
+		checkpointLedger, calcErr := m.calculateCheckpointLedger(startLedger)
+		if calcErr != nil {
+			return fmt.Errorf("calculating checkpoint ledger: %w", calcErr)
+		}
+
+		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", checkpointLedger)
+
+		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, checkpointLedger); populateErr != nil {
+			return fmt.Errorf("populating account tokens cache: %w", populateErr)
+		}
+
+		txErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, checkpointLedger); updateErr != nil {
+				return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
+			}
+			return nil
+		})
+		if txErr != nil {
+			return fmt.Errorf("updating latest synced account-tokens ledger: %w", txErr)
+		}
+
+		// For fresh start with startLedger=0, begin ingestion from checkpoint
+		if startLedger == 0 {
+			startLedger = checkpointLedger
 		}
 	}
 
@@ -223,22 +271,10 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 
-	// Populate account tokens cache if needed
-	if latestTrustlinesLedger == 0 {
-		err := m.accountTokenService.PopulateAccountTokens(ctx)
-		if err != nil {
-			return fmt.Errorf("populating account tokens cache: %w", err)
-		}
-		checkpointLedger := m.accountTokenService.GetCheckpointLedger()
-		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, checkpointLedger); updateErr != nil {
-				return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("updating latest synced account-tokens ledger: %w", err)
-		}
+	// Determine the actual starting ledger based on backend type and configuration
+	actualStartLedger, err := m.determineStartLedger(ctx, startLedger)
+	if err != nil {
+		return fmt.Errorf("determining start ledger: %w", err)
 	}
 
 	// Prepare backend range
@@ -575,32 +611,6 @@ func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
 	}
 
 	return innerTxHash, nil
-}
-
-func trackIngestServiceHealth(ctx context.Context, heartbeat chan any, tracker apptracker.AppTracker) {
-	ticker := time.NewTicker(ingestHealthCheckMaxWaitTime)
-	defer func() {
-		ticker.Stop()
-		close(heartbeat)
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			warn := fmt.Sprintf("🐌 ingestion service stale for over %s 🐢", ingestHealthCheckMaxWaitTime)
-			log.Ctx(ctx).Warn(warn)
-			if tracker != nil {
-				tracker.CaptureMessage(warn)
-			} else {
-				log.Ctx(ctx).Warnf("[NIL TRACKER] %s", warn)
-			}
-			ticker.Reset(ingestHealthCheckMaxWaitTime)
-		case <-heartbeat:
-			ticker.Reset(ingestHealthCheckMaxWaitTime)
-		}
-	}
 }
 
 // filterNewContractTokens extracts unique SAC/SEP-41 contract IDs from contract changes,

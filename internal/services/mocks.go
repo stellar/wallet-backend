@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/xdr"
 	"github.com/stretchr/testify/mock"
@@ -130,8 +131,8 @@ func (a *AccountTokenServiceMock) GetCheckpointLedger() uint32 {
 	return args.Get(0).(uint32)
 }
 
-func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context) error {
-	args := a.Called(ctx)
+func (a *AccountTokenServiceMock) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error {
+	args := a.Called(ctx, checkpointLedger)
 	return args.Error(0)
 }
 
@@ -173,4 +174,111 @@ func NewAccountTokenServiceMock(t interface {
 	t.Cleanup(func() { mock.AssertExpectations(t) })
 
 	return mock
+}
+
+// HistoryArchiveMock is a mock implementation of the historyarchive.ArchiveInterface
+type HistoryArchiveMock struct {
+	mock.Mock
+}
+
+var _ historyarchive.ArchiveInterface = (*HistoryArchiveMock)(nil)
+
+func (m *HistoryArchiveMock) GetPathHAS(path string) (historyarchive.HistoryArchiveState, error) {
+	args := m.Called(path)
+	return args.Get(0).(historyarchive.HistoryArchiveState), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) PutPathHAS(path string, has historyarchive.HistoryArchiveState, opts *historyarchive.CommandOptions) error {
+	args := m.Called(path, has, opts)
+	return args.Error(0)
+}
+
+func (m *HistoryArchiveMock) BucketExists(bucket historyarchive.Hash) (bool, error) {
+	args := m.Called(bucket)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) BucketSize(bucket historyarchive.Hash) (int64, error) {
+	args := m.Called(bucket)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) CategoryCheckpointExists(cat string, chk uint32) (bool, error) {
+	args := m.Called(cat, chk)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetLedgerHeader(chk uint32) (xdr.LedgerHeaderHistoryEntry, error) {
+	args := m.Called(chk)
+	return args.Get(0).(xdr.LedgerHeaderHistoryEntry), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetRootHAS() (historyarchive.HistoryArchiveState, error) {
+	args := m.Called()
+	return args.Get(0).(historyarchive.HistoryArchiveState), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetLedgers(start, end uint32) (map[uint32]*historyarchive.Ledger, error) {
+	args := m.Called(start, end)
+	return args.Get(0).(map[uint32]*historyarchive.Ledger), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetLatestLedgerSequence() (uint32, error) {
+	args := m.Called()
+	return args.Get(0).(uint32), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetCheckpointHAS(chk uint32) (historyarchive.HistoryArchiveState, error) {
+	args := m.Called(chk)
+	return args.Get(0).(historyarchive.HistoryArchiveState), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) PutCheckpointHAS(chk uint32, has historyarchive.HistoryArchiveState, opts *historyarchive.CommandOptions) error {
+	args := m.Called(chk, has, opts)
+	return args.Error(0)
+}
+
+func (m *HistoryArchiveMock) PutRootHAS(has historyarchive.HistoryArchiveState, opts *historyarchive.CommandOptions) error {
+	args := m.Called(has, opts)
+	return args.Error(0)
+}
+
+func (m *HistoryArchiveMock) ListBucket(dp historyarchive.DirPrefix) (chan string, chan error) {
+	args := m.Called(dp)
+	return args.Get(0).(chan string), args.Get(1).(chan error)
+}
+
+func (m *HistoryArchiveMock) ListAllBuckets() (chan string, chan error) {
+	args := m.Called()
+	return args.Get(0).(chan string), args.Get(1).(chan error)
+}
+
+func (m *HistoryArchiveMock) ListAllBucketHashes() (chan historyarchive.Hash, chan error) {
+	args := m.Called()
+	return args.Get(0).(chan historyarchive.Hash), args.Get(1).(chan error)
+}
+
+func (m *HistoryArchiveMock) ListCategoryCheckpoints(cat string, pth string) (chan uint32, chan error) {
+	args := m.Called(cat, pth)
+	return args.Get(0).(chan uint32), args.Get(1).(chan error)
+}
+
+func (m *HistoryArchiveMock) GetXdrStreamForHash(hash historyarchive.Hash) (*xdr.Stream, error) {
+	args := m.Called(hash)
+	return args.Get(0).(*xdr.Stream), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetXdrStream(pth string) (*xdr.Stream, error) {
+	args := m.Called(pth)
+	return args.Get(0).(*xdr.Stream), args.Error(1)
+}
+
+func (m *HistoryArchiveMock) GetCheckpointManager() historyarchive.CheckpointManager {
+	args := m.Called()
+	return args.Get(0).(historyarchive.CheckpointManager)
+}
+
+func (m *HistoryArchiveMock) GetStats() []historyarchive.ArchiveStats {
+	args := m.Called()
+	return args.Get(0).([]historyarchive.ArchiveStats)
 }

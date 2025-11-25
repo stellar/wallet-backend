@@ -13,6 +13,7 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/stellar/go/historyarchive"
 	"github.com/stellar/go/ingest/ledgerbackend"
 	"github.com/stellar/go/support/datastore"
 	"github.com/stellar/go/support/log"
@@ -130,13 +131,25 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, contractMetadataService, accountTokenPool, uint32(cfg.CheckpointFrequency))
+	// Initialize history archive once for use by both AccountTokenService and IngestService
+	archive, err := historyarchive.Connect(
+		cfg.ArchiveURL,
+		historyarchive.ArchiveOptions{
+			NetworkPassphrase:   cfg.NetworkPassphrase,
+			CheckpointFrequency: uint32(cfg.CheckpointFrequency),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to history archive: %w", err)
+	}
+
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, accountTokenPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
