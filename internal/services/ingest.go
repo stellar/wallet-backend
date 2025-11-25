@@ -47,6 +47,14 @@ func generateAdvisoryLockID(network string) int {
 	return int(h.Sum64())
 }
 
+// ingestionMode represents the operating mode for ledger ingestion.
+type ingestionMode string
+
+const (
+	ingestionModeLive ingestionMode = "live"
+	ingestionModeBackfill ingestionMode = "backfill"
+)
+
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
 }
@@ -193,37 +201,39 @@ func (m *ingestService) determineStartLedger(ctx context.Context, configuredStar
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
 // Returns the operating mode (live streaming vs backfill).
-func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
+func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) (ingestionMode, error) {
 	switch m.ledgerBackend.(type) {
 	case *ledgerbackend.RPCLedgerBackend:
 		// RPC backend always uses unbounded range for live streaming
 		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return fmt.Errorf("preparing RPC backend range from %d: %w", startLedger, err)
+			return "", fmt.Errorf("preparing RPC backend range from %d: %w", startLedger, err)
 		}
 		log.Ctx(ctx).Infof("Prepared RPC backend with unbounded range starting from ledger %d", startLedger)
+		return ingestionModeLive, nil
 
 	case *ledgerbackend.BufferedStorageBackend:
 		if endLedger == 0 {
 			// Live streaming mode with unbounded range
 			ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 			if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-				return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
+				return "", fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
 			}
 			log.Ctx(ctx).Infof("Prepared datastore backend with unbounded range starting from ledger %d", startLedger)
+			return ingestionModeLive, nil
 		}
 
 		// Backfill mode with bounded range
 		ledgerRange := ledgerbackend.BoundedRange(startLedger, endLedger)
 		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
+			return "", fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
 		}
 		log.Ctx(ctx).Infof("Prepared datastore backend with bounded range [%d, %d]", startLedger, endLedger)
+		return ingestionModeBackfill, nil
 
 	default:
-		return fmt.Errorf("unsupported ledger backend type: %T", m.ledgerBackend)
+		return "", fmt.Errorf("unsupported ledger backend type: %T", m.ledgerBackend)
 	}
-	return nil
 }
 
 // fetchNextLedgersBatch fetches the next batch of ledgers from the backend.
@@ -400,89 +410,106 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 
 	// Prepare backend range
-	err = m.prepareBackendRange(ctx, actualStartLedger, endLedger)
+	mode, err := m.prepareBackendRange(ctx, actualStartLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
 
-	// Track current ledger for batch fetching
 	currentLedger := actualStartLedger
-
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for {
-		select {
-		case sig := <-signalChan:
-			return fmt.Errorf("ingestor stopped due to signal %q", sig)
-		case <-ctx.Done():
-			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-		default:
-			// Fetch next batch of ledgers
-			startTime := time.Now()
-			ledgers, err := m.fetchNextLedgersBatch(ctx, currentLedger, endLedger)
-			if err != nil {
-				if errors.Is(err, ErrAlreadyInSync) {
-					// In bounded mode, this means we've completed the range
-					if endLedger > 0 {
-						log.Ctx(ctx).Infof("Backfill complete: processed all ledgers up to %d", endLedger)
-						return nil
-					}
-					// In live mode, this shouldn't happen with proper backend behavior
-					log.Ctx(ctx).Debug("Temporarily in sync, waiting for new ledgers...")
-					time.Sleep(time.Second)
-					continue
-				}
-				log.Ctx(ctx).Warnf("Error fetching ledgers batch starting at %d: %v, retrying...", currentLedger, err)
-				time.Sleep(time.Second)
-				continue
-			}
-			fetchDuration := time.Since(startTime).Seconds()
-			m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
-			m.metricsService.ObserveIngestionBatchSize(len(ledgers))
+	// for {
+	// 	select {
+	// 	case sig := <-signalChan:
+	// 		return fmt.Errorf("ingestor stopped due to signal %q", sig)
+	// 	case <-ctx.Done():
+	// 		return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
+	// 	default:
+			// // Fetch next batch of ledgers
+			// startTime := time.Now()
+			// ledgers, err := m.fetchNextLedgersBatch(ctx, currentLedger, endLedger)
+			// if err != nil {
+			// 	if errors.Is(err, ErrAlreadyInSync) {
+			// 		// In bounded mode, this means we've completed the range
+			// 		if endLedger > 0 {
+			// 			log.Ctx(ctx).Infof("Backfill complete: processed all ledgers up to %d", endLedger)
+			// 			return nil
+			// 		}
+			// 		// In live mode, this shouldn't happen with proper backend behavior
+			// 		log.Ctx(ctx).Debug("Temporarily in sync, waiting for new ledgers...")
+			// 		time.Sleep(time.Second)
+			// 		continue
+			// 	}
+			// 	log.Ctx(ctx).Warnf("Error fetching ledgers batch starting at %d: %v, retrying...", currentLedger, err)
+			// 	time.Sleep(time.Second)
+			// 	continue
+			// }
+			// fetchDuration := time.Since(startTime).Seconds()
+			// m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
+			// m.metricsService.ObserveIngestionBatchSize(len(ledgers))
 
 			// Process the ledgers
-			totalIngestionStart := time.Now()
-			err = m.processLedgerResponse(ctx, ledgers)
+	// 		totalIngestionStart := time.Now()
+	// 		err = m.processLedgerResponse(ctx, ledgers)
+	// 		if err != nil {
+	// 			return fmt.Errorf("processing ledger response: %w", err)
+	// 		}
+
+	// 		// Update cursors
+	// 		cursorStart := time.Now()
+	// 		lastLedger := ledgers[len(ledgers)-1].LedgerSequence()
+	// 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+	// 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
+	// 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+	// 			}
+	// 			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
+
+	// 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+	// 			if lastLedger > checkpointLedger {
+	// 				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
+	// 					return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
+	// 				}
+	// 			}
+	// 			return nil
+	// 		})
+	// 		if err != nil {
+	// 			return fmt.Errorf("updating latest synced ledgers: %w", err)
+	// 		}
+	// 		cursorDuration := time.Since(cursorStart)
+	// 		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
+
+	// 		totalDuration := time.Since(totalIngestionStart)
+	// 		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
+	// 		m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
+
+	// 		// Update current ledger for next iteration
+	// 		currentLedger = lastLedger + 1
+
+	// 		// Check if backfill is complete
+	// 		if endLedger > 0 && currentLedger > endLedger {
+	// 			log.Ctx(ctx).Infof("Backfill complete: processed all ledgers from %d to %d", actualStartLedger, endLedger)
+	// 			return nil
+	// 		}
+	// 	}
+	// }
+	switch mode {
+	case ingestionModeLive:
+		for {
+			_, err := m.ledgerBackend.GetLedger(ctx, currentLedger)
 			if err != nil {
-				return fmt.Errorf("processing ledger response: %w", err)
-			}
-
-			// Update cursors
-			cursorStart := time.Now()
-			lastLedger := ledgers[len(ledgers)-1].LedgerSequence()
-			err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
-					return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-				}
-				m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
-
-				checkpointLedger := m.accountTokenService.GetCheckpointLedger()
-				if lastLedger > checkpointLedger {
-					if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
-						return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("updating latest synced ledgers: %w", err)
-			}
-			cursorDuration := time.Since(cursorStart)
-			m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
-
-			totalDuration := time.Since(totalIngestionStart)
-			m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
-			m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
-
-			// Update current ledger for next iteration
-			currentLedger = lastLedger + 1
-
-			// Check if backfill is complete
-			if endLedger > 0 && currentLedger > endLedger {
-				log.Ctx(ctx).Infof("Backfill complete: processed all ledgers from %d to %d", actualStartLedger, endLedger)
-				return nil
+				break
 			}
 		}
+	case ingestionModeBackfill:
+		for ledgerSeq := currentLedger; ledgerSeq <= endLedger; ledgerSeq++ {
+			_, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
+			if err != nil {
+				break
+			}
+		}
+	default:
+		return fmt.Errorf("unknown ingestion mode")
 	}
+	return nil
 }
 
 // ledgerData holds collected data for a single ledger including transactions and participants
