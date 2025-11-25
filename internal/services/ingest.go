@@ -8,9 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"runtime"
 	"sort"
-	"sync"
 	"syscall"
 	"time"
 
@@ -68,7 +66,6 @@ type ingestService struct {
 	networkPassphrase       string
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
-	pool                    pond.Pool
 }
 
 func NewIngestService(
@@ -114,13 +111,9 @@ func NewIngestService(
 		return nil, errors.New("getLedgersLimit must be greater than 0")
 	}
 
-	// Create worker pools
+	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
-	ingestPool := pond.NewPool(0)
-
-	// Register pools with metrics service
 	metricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
-	metricsService.RegisterPoolMetrics("ingest", ingestPool)
 
 	return &ingestService{
 		models:                  models,
@@ -137,7 +130,6 @@ func NewIngestService(
 		networkPassphrase:       networkPassphrase,
 		getLedgersLimit:         getLedgersLimit,
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
-		pool:                    ingestPool,
 	}, nil
 }
 
@@ -163,18 +155,18 @@ func (m *ingestService) determineStartLedger(ctx context.Context, configuredStar
 		return 0, fmt.Errorf("getting RPC health: %w", err)
 	}
 
+	// For empty db, we start with latest ledger
+	if dbLedger == 0 {
+		return health.LatestLedger, nil
+	}
+
 	// If DB ledger is behind RPC's oldest, start from RPC's oldest
 	if dbLedger < health.OldestLedger {
-		return 0, fmt.Errorf("wallet backend has fallen behind RPC's retention window. Run a backfill to catchup to the tip.")
+		return 0, fmt.Errorf("wallet backend has fallen behind RPC's retention window, run a backfill to catchup to the tip")
 	}
 
 	// Start from next ledger after DB cursor (if DB has data)
-	if dbLedger > 0 {
-		return dbLedger + 1, nil
-	}
-
-	// By default, always start from latest ledger on an empty db
-	return health.LatestLedger, nil
+	return dbLedger + 1, nil
 }
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
@@ -292,7 +284,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
-		m.pool.Stop()
 	}()
 
 	// Determine the actual starting ledger based on backend type and configuration
@@ -340,265 +331,113 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	currentLedger := actualStartLedger
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	// for {
-	// 	select {
-	// 	case sig := <-signalChan:
-	// 		return fmt.Errorf("ingestor stopped due to signal %q", sig)
-	// 	case <-ctx.Done():
-	// 		return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-	// 	default:
-			// // Fetch next batch of ledgers
-			// startTime := time.Now()
-			// ledgers, err := m.fetchNextLedgersBatch(ctx, currentLedger, endLedger)
-			// if err != nil {
-			// 	if errors.Is(err, ErrAlreadyInSync) {
-			// 		// In bounded mode, this means we've completed the range
-			// 		if endLedger > 0 {
-			// 			log.Ctx(ctx).Infof("Backfill complete: processed all ledgers up to %d", endLedger)
-			// 			return nil
-			// 		}
-			// 		// In live mode, this shouldn't happen with proper backend behavior
-			// 		log.Ctx(ctx).Debug("Temporarily in sync, waiting for new ledgers...")
-			// 		time.Sleep(time.Second)
-			// 		continue
-			// 	}
-			// 	log.Ctx(ctx).Warnf("Error fetching ledgers batch starting at %d: %v, retrying...", currentLedger, err)
-			// 	time.Sleep(time.Second)
-			// 	continue
-			// }
-			// fetchDuration := time.Since(startTime).Seconds()
-			// m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
-			// m.metricsService.ObserveIngestionBatchSize(len(ledgers))
-
-			// Process the ledgers
-	// 		totalIngestionStart := time.Now()
-	// 		err = m.processLedgerResponse(ctx, ledgers)
-	// 		if err != nil {
-	// 			return fmt.Errorf("processing ledger response: %w", err)
-	// 		}
-
-	// 		// Update cursors
-	// 		cursorStart := time.Now()
-	// 		lastLedger := ledgers[len(ledgers)-1].LedgerSequence()
-	// 		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-	// 			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
-	// 				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-	// 			}
-	// 			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
-
-	// 			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
-	// 			if lastLedger > checkpointLedger {
-	// 				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
-	// 					return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
-	// 				}
-	// 			}
-	// 			return nil
-	// 		})
-	// 		if err != nil {
-	// 			return fmt.Errorf("updating latest synced ledgers: %w", err)
-	// 		}
-	// 		cursorDuration := time.Since(cursorStart)
-	// 		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
-
-	// 		totalDuration := time.Since(totalIngestionStart)
-	// 		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
-	// 		m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
-
-	// 		// Update current ledger for next iteration
-	// 		currentLedger = lastLedger + 1
-
-	// 		// Check if backfill is complete
-	// 		if endLedger > 0 && currentLedger > endLedger {
-	// 			log.Ctx(ctx).Infof("Backfill complete: processed all ledgers from %d to %d", actualStartLedger, endLedger)
-	// 			return nil
-	// 		}
-	// 	}
-	// }
 	for {
-		_, err := m.ledgerBackend.GetLedger(ctx, currentLedger)
-		if err != nil {
-			break
-		}
-		if endLedger > 0 && currentLedger == endLedger {
-			break
-		}
-		currentLedger++
-	}
-	return nil
-}
+		select {
+		case sig := <-signalChan:
+			log.Ctx(ctx).Infof("Received signal %q, shutting down gracefully", sig)
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
+		default:
+			ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
+			if ledgerErr != nil {
+				if endLedger > 0 && currentLedger > endLedger {
+					log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", actualStartLedger, endLedger)
+					return nil
+				}
+				log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
+				time.Sleep(time.Second)
+				continue
+			}
 
-// ledgerData holds collected data for a single ledger including transactions and participants
-type ledgerData struct {
-	ledgerCloseMeta xdr.LedgerCloseMeta
-	precomputedData []indexer.PrecomputedTransactionData
-	allParticipants set.Set[string]
-}
+			totalStart := time.Now()
+			if processErr := m.processSingleLedger(ctx, ledgerMeta); processErr != nil {
+				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
+			}
 
-// collectLedgerTransactionData collects all transaction data and participants from all ledgers in parallel.
-// This is Phase 1 of ledger processing.
-func (m *ingestService) collectLedgerTransactionData(ctx context.Context, ledgers []xdr.LedgerCloseMeta) ([]ledgerData, error) {
-	phaseStart := time.Now()
+			// Update cursors
+			cursorStart := time.Now()
+			err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
+					return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+				}
+				m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
 
-	ledgerDataList := make([]ledgerData, len(ledgers))
-	group := m.pool.NewGroupContext(ctx)
-	var errs []error
-	errMu := sync.Mutex{}
-	for idx, ledgerMeta := range ledgers {
-		index := idx
-		ledgerCloseMeta := ledgerMeta
-		group.Submit(func() {
-			ledgerSeq := ledgerCloseMeta.LedgerSequence()
-
-			transactions, err := m.getLedgerTransactions(ctx, ledgerCloseMeta)
+				if currentLedger > m.accountTokenService.GetCheckpointLedger() {
+					if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, currentLedger); updateErr != nil {
+						return fmt.Errorf("updating account-tokens ledger: %w", updateErr)
+					}
+				}
+				return nil
+			})
 			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err))
-				errMu.Unlock()
-				return
+				return fmt.Errorf("updating cursors: %w", err)
 			}
+			m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
+			m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
+			m.metricsService.IncIngestionLedgersProcessed(1)
 
-			// Create temporary indexer for data collection
-			precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
-			if err != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("collecting data for ledger %d: %w", ledgerSeq, err))
-				errMu.Unlock()
-				return
+			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
+			currentLedger++
+
+			if endLedger > 0 && currentLedger > endLedger {
+				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", actualStartLedger, endLedger)
+				return nil
 			}
-
-			ledgerDataList[index] = ledgerData{
-				ledgerCloseMeta: ledgerCloseMeta,
-				precomputedData: precomputedData,
-				allParticipants: allParticipants,
-			}
-		})
+		}
 	}
-	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for ledger data collection: %w", err)
-	}
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("collecting ledger data: %w", errors.Join(errs...))
-	}
-	phaseDuration := time.Since(phaseStart).Seconds()
-	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", phaseDuration)
-
-	return ledgerDataList, nil
 }
 
-// fetchExistingAccountsForParticipants fetches all existing accounts for participants across all ledgers.
-// This is Phase 2 of ledger processing and makes a single DB call to get all existing accounts.
-func (m *ingestService) fetchExistingAccountsForParticipants(ctx context.Context, ledgerDataList []ledgerData) (set.Set[string], error) {
-	// Collect all unique participants across all ledgers
-	allParticipants := set.NewSet[string]()
-	for _, ld := range ledgerDataList {
-		allParticipants = allParticipants.Union(ld.allParticipants)
+// processSingleLedger processes a single ledger through all ingestion phases.
+// Phase 1: Get transactions and collect data using Indexer (parallel within ledger)
+// Phase 2: Fetch existing accounts for participants (single DB call)
+// Phase 3: Process transactions and populate buffer using Indexer (parallel within ledger)
+// Phase 4: Insert all data into DB
+func (m *ingestService) processSingleLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+
+	// Phase 1: Get transactions from ledger
+	start := time.Now()
+	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
+	if err != nil {
+		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	// Batch fetch all existing accounts in a single DB query
+	// Phase 1b: Collect all transaction data using Indexer (parallel within ledger)
+	precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
+	if err != nil {
+		return fmt.Errorf("collecting transaction data for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", time.Since(start).Seconds())
+
+	// Phase 2: Fetch existing accounts for participants (single DB call)
+	start = time.Now()
 	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
 	if err != nil {
-		return nil, fmt.Errorf("batch checking participants: %w", err)
+		return fmt.Errorf("batch checking participants for ledger %d: %w", ledgerSeq, err)
 	}
-
-	existingAccountsSet := set.NewSet[string]()
-	if len(existingAccounts) >= 0 {
-		existingAccountsSet = set.NewSet(existingAccounts...)
-	}
+	existingAccountsSet := set.NewSet(existingAccounts...)
 	m.metricsService.ObserveIngestionParticipantsCount(allParticipants.Cardinality())
-	return existingAccountsSet, nil
-}
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", time.Since(start).Seconds())
 
-// processAndBufferTransactions processes transactions and populates per-ledger buffers in parallel.
-// This is Phase 3 of ledger processing. Each ledger gets its own buffer to avoid lock contention.
-func (m *ingestService) processAndBufferTransactions(ctx context.Context, ledgerDataList []ledgerData, existingAccountsSet set.Set[string]) ([]*indexer.IndexerBuffer, error) {
-	ledgerBuffers := make([]*indexer.IndexerBuffer, len(ledgerDataList))
-	group := m.pool.NewGroupContext(ctx)
-
-	var errs []error
-	errMu := sync.Mutex{}
-
-	for idx, ld := range ledgerDataList {
-		index := idx
-		ledgerData := ld
-		group.Submit(func() {
-			// Create per-ledger indexer to avoid lock contention
-			buffer := indexer.NewIndexerBuffer()
-			if processErr := m.ledgerIndexer.ProcessTransactions(ctx, ledgerData.precomputedData, existingAccountsSet, buffer); processErr != nil {
-				errMu.Lock()
-				errs = append(errs, fmt.Errorf("processing ledger %d: %w", ledgerData.ledgerCloseMeta.LedgerSequence(), processErr))
-				errMu.Unlock()
-				return
-			}
-			ledgerBuffers[index] = buffer
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, fmt.Errorf("waiting for ledger processing: %w", err)
-	}
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("processing ledgers: %w", errors.Join(errs...))
-	}
-	return ledgerBuffers, nil
-}
-
-// mergeLedgerBuffers merges all per-ledger buffers into a single buffer for batch DB insertion.
-// This is Phase 4 of ledger processing.
-func (m *ingestService) mergeLedgerBuffers(ledgerBuffers []*indexer.IndexerBuffer) *indexer.IndexerBuffer {
-	mergedBuffer := indexer.NewIndexerBuffer()
-	for _, buffer := range ledgerBuffers {
-		mergedBuffer.MergeBuffer(buffer)
-	}
-	return mergedBuffer
-}
-
-func (m *ingestService) processLedgerResponse(ctx context.Context, ledgers []xdr.LedgerCloseMeta) error {
-	// Phase 1: Collect all transaction data and participants from all ledgers in parallel
-	start := time.Now()
-	ledgerDataList, err := m.collectLedgerTransactionData(ctx, ledgers)
-	if err != nil {
-		return fmt.Errorf("collecting ledger transaction data: %w", err)
-	}
-
-	collectDuration := time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", collectDuration.Seconds())
-	// Phase 2: Single DB call to get all existing accounts across all ledgers
-	existingAccountsSet, err := m.fetchExistingAccountsForParticipants(ctx, ledgerDataList)
-	if err != nil {
-		return fmt.Errorf("fetching existing accounts: %w", err)
-	}
-	fetchAccountsDuration := time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", fetchAccountsDuration.Seconds())
-
-	// Phase 3: Process transactions and populate per-ledger buffers in parallel
+	// Phase 3: Process transactions using Indexer (parallel within ledger)
 	start = time.Now()
-	ledgerBuffers, err := m.processAndBufferTransactions(ctx, ledgerDataList, existingAccountsSet)
-	if err != nil {
-		return fmt.Errorf("processing and buffering transactions: %w", err)
+	buffer := indexer.NewIndexerBuffer()
+	if err := m.ledgerIndexer.ProcessTransactions(ctx, precomputedData, existingAccountsSet, buffer); err != nil {
+		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
-	processBufferDuration := time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", processBufferDuration.Seconds())
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
 
-	// Phase 4: Merge all per-ledger buffers into a single buffer
+	// Phase 4: Insert all data into DB
 	start = time.Now()
-	mergedBuffer := m.mergeLedgerBuffers(ledgerBuffers)
-	mergeDuration := time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("merge_buffers", mergeDuration.Seconds())
-
-	// Phase 5: Insert all data into DB
-	start = time.Now()
-	if err := m.ingestProcessedData(ctx, mergedBuffer); err != nil {
-		return fmt.Errorf("ingesting processed data: %w", err)
+	if err := m.ingestProcessedData(ctx, buffer); err != nil {
+		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
 	}
-	dbInsertDuration := time.Since(start)
-	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", dbInsertDuration.Seconds())
+	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
 
-	// Log summary of processing
-	memStats := new(runtime.MemStats)
-	runtime.ReadMemStats(memStats)
-	numberOfTransactions := mergedBuffer.GetNumberOfTransactions()
-	numberOfOperations := mergedBuffer.GetNumberOfOperations()
-	m.metricsService.IncIngestionTransactionsProcessed(numberOfTransactions)
-	m.metricsService.IncIngestionOperationsProcessed(numberOfOperations)
+	// Metrics
+	m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
+	m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
 
 	return nil
 }
