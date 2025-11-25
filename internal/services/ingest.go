@@ -39,6 +39,27 @@ const (
 	ingestHealthCheckMaxWaitTime = 90 * time.Second
 )
 
+// backendMode represents the operating mode for ledger ingestion.
+type backendMode int
+
+const (
+	// modeLiveStreaming uses unbounded range and runs indefinitely until cancelled.
+	modeLiveStreaming backendMode = iota
+	// modeBackfill uses bounded range and exits after completing the specified range.
+	modeBackfill
+)
+
+func (m backendMode) String() string {
+	switch m {
+	case modeLiveStreaming:
+		return "live_streaming"
+	case modeBackfill:
+		return "backfill"
+	default:
+		return "unknown"
+	}
+}
+
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {
@@ -141,6 +162,125 @@ func NewIngestService(
 	}, nil
 }
 
+// determineStartLedger determines the appropriate starting ledger sequence based on the backend
+// type and configuration parameters. For RPC backend with startLedger=0, it queries RPC health
+// to ensure we start from a ledger within the RPC's retention window.
+func (m *ingestService) determineStartLedger(ctx context.Context, configuredStartLedger uint32) (uint32, error) {
+	// If startLedger is explicitly provided and non-zero, use it
+	if configuredStartLedger > 0 {
+		return configuredStartLedger, nil
+	}
+
+	// Get the latest synced ledger from database as baseline
+	dbLedger, err := m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
+	if err != nil {
+		return 0, fmt.Errorf("getting latest ledger synced: %w", err)
+	}
+
+	// For RPC backend with startLedger=0, check RPC health to ensure we don't start
+	// from a ledger older than RPC's retention window
+	if _, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend); isRPCBackend {
+		health, err := m.rpcService.GetHealth()
+		if err != nil {
+			return 0, fmt.Errorf("getting RPC health: %w", err)
+		}
+
+		// If DB ledger is behind RPC's oldest, start from RPC's oldest
+		if dbLedger < health.OldestLedger {
+			log.Ctx(ctx).Infof("DB ledger %d is behind RPC oldest %d, starting from RPC oldest", dbLedger, health.OldestLedger)
+			return health.OldestLedger, nil
+		}
+
+		// Start from next ledger after DB cursor (if DB has data)
+		if dbLedger > 0 {
+			return dbLedger + 1, nil
+		}
+
+		// DB is empty, start from RPC's oldest
+		return health.OldestLedger, nil
+	}
+
+	// For BufferedStorageBackend, use DB cursor + 1 (or 1 if empty)
+	if dbLedger > 0 {
+		return dbLedger + 1, nil
+	}
+	return 1, nil
+}
+
+// prepareBackendRange prepares the ledger backend with the appropriate range type.
+// Returns the operating mode (live streaming vs backfill).
+func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) (backendMode, error) {
+	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
+
+	if isRPCBackend {
+		// RPC backend always uses unbounded range for live streaming
+		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+			return 0, fmt.Errorf("preparing RPC backend range from %d: %w", startLedger, err)
+		}
+		log.Ctx(ctx).Infof("Prepared RPC backend with unbounded range starting from ledger %d", startLedger)
+		return modeLiveStreaming, nil
+	}
+
+	// BufferedStorageBackend
+	if endLedger == 0 {
+		// Live streaming mode with unbounded range
+		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+			return 0, fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
+		}
+		log.Ctx(ctx).Infof("Prepared datastore backend with unbounded range starting from ledger %d", startLedger)
+		return modeLiveStreaming, nil
+	}
+
+	// Backfill mode with bounded range
+	ledgerRange := ledgerbackend.BoundedRange(startLedger, endLedger)
+	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+		return 0, fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
+	}
+	log.Ctx(ctx).Infof("Prepared datastore backend with bounded range [%d, %d]", startLedger, endLedger)
+	return modeBackfill, nil
+}
+
+// fetchNextLedgersBatch fetches the next batch of ledgers from the backend.
+// Both backends handle blocking/waiting internally via GetLedger.
+// For bounded ranges, it stops at endLedger.
+func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, currentLedger, endLedger uint32) ([]xdr.LedgerCloseMeta, error) {
+	ledgers := make([]xdr.LedgerCloseMeta, 0, m.getLedgersLimit)
+
+	for i := 0; i < m.getLedgersLimit; i++ {
+		ledgerSeq := currentLedger + uint32(i)
+
+		// Check if we've reached the end of a bounded range
+		if endLedger > 0 && ledgerSeq > endLedger {
+			break
+		}
+
+		// GetLedger blocks until the ledger is available
+		// - RPCBackend: Retries every 2 seconds if beyond latest
+		// - BufferedStorageBackend: Blocks until data is available from queue
+		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
+		if err != nil {
+			// If we already have some ledgers, return them
+			// The caller will process what we have and request more
+			if len(ledgers) > 0 {
+				log.Ctx(ctx).Warnf("Error fetching ledger %d after getting %d ledgers: %v", ledgerSeq, len(ledgers), err)
+				return ledgers, nil
+			}
+			return nil, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+		}
+
+		ledgers = append(ledgers, ledgerMeta)
+		log.Ctx(ctx).Debugf("Fetched ledger %d (%d/%d in batch)", ledgerSeq, len(ledgers), m.getLedgersLimit)
+	}
+
+	if len(ledgers) == 0 {
+		return nil, ErrAlreadyInSync
+	}
+
+	return ledgers, nil
+}
+
 func (m *ingestService) DeprecatedRun(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	manualTriggerChannel := make(chan any, 1)
 	go func() {
@@ -238,15 +378,15 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		m.pool.Stop()
 	}()
 
-	// get latest ledger synced, to use as a cursor
+	// Determine the actual starting ledger based on backend type and configuration
+	actualStartLedger, err := m.determineStartLedger(ctx, startLedger)
+	if err != nil {
+		return fmt.Errorf("determining start ledger: %w", err)
+	}
+
+	// Get account tokens cursor if starting fresh (when original startLedger was 0)
 	var latestTrustlinesLedger uint32
 	if startLedger == 0 {
-		var err error
-		startLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
-		if err != nil {
-			return fmt.Errorf("getting latest ledger synced: %w", err)
-		}
-
 		latestTrustlinesLedger, err = m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
 		if err != nil {
 			return fmt.Errorf("getting latest account-tokens ledger cursor synced: %w", err)
@@ -257,6 +397,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	defer signal.Stop(signalChan)
 
+	// Populate account tokens cache if needed
 	if latestTrustlinesLedger == 0 {
 		err := m.accountTokenService.PopulateAccountTokens(ctx)
 		if err != nil {
@@ -274,164 +415,90 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	// Prepare the health check:
-	manualTriggerChan := make(chan any, 1)
-	go func() {
-		if err := m.rpcService.TrackRPCServiceHealth(ctx, manualTriggerChan); err != nil {
-			log.Ctx(ctx).Warnf("RPC health tracking stopped: %v", err)
-		}
-	}()
-	ingestHeartbeatChannel := make(chan any, 1)
-	rpcHeartbeatChannel := m.rpcService.GetHeartbeatChannel()
-	go trackIngestServiceHealth(ctx, ingestHeartbeatChannel, m.appTracker)
-	var rpcHealth entities.RPCGetHealthResult
-
-	// Prepare RPC backend if using RPCLedgerBackend
-	// This is done once at startup, before the main ingestion loop
-	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
-	if isRPCBackend {
-		ledgerRange := ledgerbackend.UnboundedRange(startLedger)
-		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return fmt.Errorf("preparing RPC ledger backend from ledger %d: %w", startLedger, err)
-		}
-		log.Ctx(ctx).Infof("Prepared RPC ledger backend with unbounded range starting from ledger %d", startLedger)
+	// Prepare backend range and determine operating mode
+	mode, err := m.prepareBackendRange(ctx, actualStartLedger, endLedger)
+	if err != nil {
+		return fmt.Errorf("preparing backend range: %w", err)
 	}
 
-	log.Ctx(ctx).Info("Starting ingestion loop")
+	// Track current ledger for batch fetching
+	currentLedger := actualStartLedger
+
+	log.Ctx(ctx).Infof("Starting ingestion loop from ledger %d (mode: %s)", currentLedger, mode)
 	for {
-		var ok bool
 		select {
 		case sig := <-signalChan:
 			return fmt.Errorf("ingestor stopped due to signal %q", sig)
 		case <-ctx.Done():
 			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-		case rpcHealth, ok = <-rpcHeartbeatChannel:
-			if !ok {
-				return fmt.Errorf("RPC heartbeat channel closed unexpectedly")
-			}
-			ingestHeartbeatChannel <- true // ⬅️ indicate that it's still running
-			// this will fallthrough to execute the code below ⬇️
-		}
-
-		// fetch ledgers
-		startTime := time.Now()
-		ledgers, err := m.fetchNextLedgersBatch(ctx, rpcHealth, startLedger)
-		if err != nil {
-			if errors.Is(err, ErrAlreadyInSync) {
-				log.Ctx(ctx).Info("Ingestion is already in sync, will retry in a few moments...")
+		default:
+			// Fetch next batch of ledgers
+			startTime := time.Now()
+			ledgers, err := m.fetchNextLedgersBatch(ctx, currentLedger, endLedger)
+			if err != nil {
+				if errors.Is(err, ErrAlreadyInSync) {
+					// In bounded mode, this means we've completed the range
+					if mode == modeBackfill {
+						log.Ctx(ctx).Infof("Backfill complete: processed all ledgers up to %d", endLedger)
+						return nil
+					}
+					// In live mode, this shouldn't happen with proper backend behavior
+					log.Ctx(ctx).Debug("Temporarily in sync, waiting for new ledgers...")
+					time.Sleep(time.Second)
+					continue
+				}
+				log.Ctx(ctx).Warnf("Error fetching ledgers batch starting at %d: %v, retrying...", currentLedger, err)
+				time.Sleep(time.Second)
 				continue
 			}
-			log.Ctx(ctx).Warnf("fetching next ledgers batch. will retry in a few moments...: %v", err)
-			continue
-		}
-		fetchDuration := time.Since(startTime).Seconds()
-		m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
-		m.metricsService.ObserveIngestionBatchSize(len(ledgers))
+			fetchDuration := time.Since(startTime).Seconds()
+			m.metricsService.ObserveIngestionPhaseDuration("fetch_ledgers", fetchDuration)
+			m.metricsService.ObserveIngestionBatchSize(len(ledgers))
 
-		// process ledgers
-		totalIngestionStart := time.Now()
-		err = m.processLedgerResponse(ctx, ledgers)
-		if err != nil {
-			return fmt.Errorf("processing ledger response: %w", err)
-		}
+			// Process the ledgers
+			totalIngestionStart := time.Now()
+			err = m.processLedgerResponse(ctx, ledgers)
+			if err != nil {
+				return fmt.Errorf("processing ledger response: %w", err)
+			}
 
-		// update cursors
-		cursorStart := time.Now()
-		err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			// Update cursors
+			cursorStart := time.Now()
 			lastLedger := ledgers[len(ledgers)-1].LedgerSequence()
-			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
-				return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-			}
-			m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
-
-			checkpointLedger := m.accountTokenService.GetCheckpointLedger()
-			if lastLedger > checkpointLedger {
-				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
-					return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
+			err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, lastLedger); updateErr != nil {
+					return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 				}
+				m.metricsService.SetLatestLedgerIngested(float64(lastLedger))
+
+				checkpointLedger := m.accountTokenService.GetCheckpointLedger()
+				if lastLedger > checkpointLedger {
+					if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, lastLedger); updateErr != nil {
+						return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("updating latest synced ledgers: %w", err)
 			}
-			startLedger = lastLedger
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("updating latest synced ledgers: %w", err)
-		}
-		cursorDuration := time.Since(cursorStart)
-		m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
+			cursorDuration := time.Since(cursorStart)
+			m.metricsService.ObserveIngestionPhaseDuration("cursor_update", cursorDuration.Seconds())
 
-		totalDuration := time.Since(totalIngestionStart)
-		m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
+			totalDuration := time.Since(totalIngestionStart)
+			m.metricsService.ObserveIngestionDuration(totalDuration.Seconds())
+			m.metricsService.IncIngestionLedgersProcessed(len(ledgers))
 
-		if len(ledgers) == m.getLedgersLimit {
-			select {
-			case manualTriggerChan <- true:
-			default:
-				// do nothing if the channel is full
+			// Update current ledger for next iteration
+			currentLedger = lastLedger + 1
+
+			// Check if backfill is complete
+			if mode == modeBackfill && currentLedger > endLedger {
+				log.Ctx(ctx).Infof("Backfill complete: processed all ledgers from %d to %d", actualStartLedger, endLedger)
+				return nil
 			}
 		}
 	}
-}
-
-// fetchNextLedgersBatch fetches the next batch of ledgers using the LedgerBackend.
-func (m *ingestService) fetchNextLedgersBatch(ctx context.Context, rpcHealth entities.RPCGetHealthResult, startLedger uint32) ([]xdr.LedgerCloseMeta, error) {
-	ledgerSeqRange, inSync := m.getLedgerSeqRange(rpcHealth.OldestLedger, rpcHealth.LatestLedger, startLedger)
-	log.Ctx(ctx).Debugf("ledgerSeqRange: %+v", ledgerSeqRange)
-	if inSync {
-		return nil, ErrAlreadyInSync
-	}
-
-	// Calculate the end ledger for this batch
-	endLedger := ledgerSeqRange.StartLedger + ledgerSeqRange.Limit - 1
-	if endLedger > rpcHealth.LatestLedger {
-		endLedger = rpcHealth.LatestLedger
-	}
-
-	// Prepare range for BufferedStorageBackend (RPC backend is already prepared in Run())
-	_, isRPCBackend := m.ledgerBackend.(*ledgerbackend.RPCLedgerBackend)
-	if !isRPCBackend {
-		ledgerRange := ledgerbackend.BoundedRange(ledgerSeqRange.StartLedger, endLedger)
-		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return nil, fmt.Errorf("preparing ledger range %d-%d: %w", ledgerSeqRange.StartLedger, endLedger, err)
-		}
-	}
-
-	ledgers := make([]xdr.LedgerCloseMeta, 0, ledgerSeqRange.Limit)
-	for i := uint32(0); i < ledgerSeqRange.Limit; i++ {
-		ledgerSeq := ledgerSeqRange.StartLedger + i
-		if ledgerSeq > rpcHealth.LatestLedger {
-			break
-		}
-
-		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
-		if err != nil {
-			return nil, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
-		}
-		ledgers = append(ledgers, ledgerMeta)
-	}
-
-	return ledgers, nil
-}
-
-type LedgerSeqRange struct {
-	StartLedger uint32
-	Limit       uint32
-}
-
-// getLedgerSeqRange returns a ledger sequence range to ingest. It takes into account:
-// - the ledgers available in the RPC,
-// - the latest ledger synced by the ingestion service,
-// - the max ledger window to ingest.
-//
-// The returned ledger sequence range is inclusive of the start and end ledgers.
-func (m *ingestService) getLedgerSeqRange(rpcOldestLedger, rpcNewestLedger, latestLedgerSynced uint32) (ledgerRange LedgerSeqRange, inSync bool) {
-	if latestLedgerSynced >= rpcNewestLedger {
-		return LedgerSeqRange{}, true
-	}
-	ledgerRange.StartLedger = max(latestLedgerSynced+1, rpcOldestLedger)
-	ledgerRange.Limit = uint32(m.getLedgersLimit)
-
-	return ledgerRange, false
 }
 
 // ledgerData holds collected data for a single ledger including transactions and participants
