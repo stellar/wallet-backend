@@ -403,6 +403,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"ARCHIVE_URL":                      "http://stellar-core:1570",
 			"CHECKPOINT_FREQUENCY":             "8",
 			"GET_LEDGERS_LIMIT":                "200",
+			"SKIP_TX_META": "false",
 			"NETWORK_PASSPHRASE":               networkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS":          clientAuthKeyPair.Address(),
 			"DISTRIBUTION_ACCOUNT_PUBLIC_KEY":  distributionAccountKeyPair.Address(),
