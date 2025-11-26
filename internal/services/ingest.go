@@ -374,7 +374,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
+			log.Ctx(ctx).Infof("✅ inserted %d transactions", len(insertedHashes))
 		}
 
 		// 2.2. Insert operations
@@ -385,7 +385,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
+			log.Ctx(ctx).Infof("✅ inserted %d operations", len(insertedOpIDs))
 		}
 
 		// 2.3. Insert state changes
@@ -417,7 +417,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 				}
 			}
 
-			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
+			log.Ctx(ctx).Infof("✅ inserted %d state changes", len(insertedStateChangeIDs))
 		}
 
 		// 3. Unlock channel accounts.
