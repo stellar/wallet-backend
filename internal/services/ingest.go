@@ -160,9 +160,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	// Empty db
 	if latestIngestedLedger == 0 {
-		startLedger, calcErr := m.calculateCheckpointLedger(startLedger)
-		if calcErr != nil {
-			return fmt.Errorf("calculating checkpoint ledger: %w", calcErr)
+		startLedger, err = m.calculateCheckpointLedger(startLedger)
+		if err != nil {
+			return fmt.Errorf("calculating checkpoint ledger: %w", err)
 		}
 
 		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
@@ -171,11 +171,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("populating account tokens cache: %w", populateErr)
 		}
 	} else {
-		// If start ledger is specified and latest ledger != 0 (not empty db), then we are backfilling old data
-		if startLedger > 0 {
-			m.backfillMode = true
-		} else {
+		if startLedger == 0 || startLedger == latestIngestedLedger {
 			startLedger = latestIngestedLedger + 1
+		} else {
+			// If start ledger is specified and latest ledger != 0 (not empty db), then we are backfilling old data
+			m.backfillMode = true
 		}
 	}
 
@@ -228,6 +228,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
 			currentLedger++
 
+			// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
+			// false.
+			if m.backfillMode && currentLedger > latestIngestedLedger {
+				m.backfillMode = false
+			}
 			if endLedger > 0 && currentLedger > endLedger {
 				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
 				return nil
