@@ -304,10 +304,9 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 }
 
 // processLedger processes a single ledger through all ingestion phases.
-// Phase 1: Get transactions and collect data using Indexer (parallel within ledger)
-// Phase 2: Fetch existing accounts for participants (single DB call)
-// Phase 3: Process transactions and populate buffer using Indexer (parallel within ledger)
-// Phase 4: Insert all data into DB
+// Phase 1: Get transactions from ledger
+// Phase 2: Process transactions and populate buffer (parallel within ledger)
+// Phase 3: Insert all data into DB
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
@@ -318,32 +317,16 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	// Phase 1b: Collect all transaction data using Indexer (parallel within ledger)
-	precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
-	if err != nil {
-		return fmt.Errorf("collecting transaction data for ledger %d: %w", ledgerSeq, err)
-	}
-	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", time.Since(start).Seconds())
-
-	// Phase 2: Fetch existing accounts for participants (single DB call)
-	start = time.Now()
-	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
-	if err != nil {
-		return fmt.Errorf("batch checking participants for ledger %d: %w", ledgerSeq, err)
-	}
-	existingAccountsSet := set.NewSet(existingAccounts...)
-	m.metricsService.ObserveIngestionParticipantsCount(allParticipants.Cardinality())
-	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", time.Since(start).Seconds())
-
-	// Phase 3: Process transactions using Indexer (parallel within ledger)
-	start = time.Now()
+	// Phase 2: Process transactions and populate buffer (combined collection + processing)
 	buffer := indexer.NewIndexerBuffer()
-	if err := m.ledgerIndexer.ProcessTransactions(ctx, precomputedData, existingAccountsSet, buffer); err != nil {
+	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
 		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
+	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
+	m.metricsService.ObserveIngestionPhaseDuration("process_transactions", time.Since(start).Seconds())
 
-	// Phase 4: Insert all data into DB
+	// Phase 3: Insert all data into DB
 	start = time.Now()
 	if err := m.ingestProcessedData(ctx, buffer); err != nil {
 		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
