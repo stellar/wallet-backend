@@ -73,7 +73,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' (default) or 'datastore'",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeRPC),
+			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
 			Required:    false,
 		},
 		{
@@ -81,7 +81,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Usage:       "Path to TOML config file for datastore backend. Required when ledger-backend-type is 'datastore'",
 			OptType:     types.String,
 			ConfigKey:   &cfg.DatastoreConfigPath,
-			FlagDefault: "",
+			FlagDefault: "config/datastore-pubnet.toml",
 			Required:    false,
 		},
 		{
