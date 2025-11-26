@@ -242,6 +242,11 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 	// Insert state changes
 	for _, stateChange := range stateChanges {
+		// Skip empty state changes (no account to associate with)
+		if stateChange.AccountID == "" {
+			continue
+		}
+
 		// Get the correct operation for this state change
 		var operation types.Operation
 		if stateChange.OperationID != 0 {
