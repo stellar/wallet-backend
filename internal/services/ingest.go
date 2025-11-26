@@ -177,7 +177,11 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if startLedger == 0 || startLedger >= latestIngestedLedger {
 			startLedger = latestIngestedLedger + 1
 		} else {
-			// If start ledger is specified and latest ledger != 0 (not empty db), then we are backfilling old data
+			// If start ledger is some value less than latest ingested ledger, we go into backfilling mode. In this mode
+			// we dont update the account token cache (since it is already populated with recent checkpoint ledger) and we dont
+			// update the latest ledger ingested cursor.
+			// NOTE: Currently we dont have the functionality of detecting gaps and intelligently backfilling so we would process the same
+			// ledgers again during backfilling. However the db insertions have ON CONFLICT DO NOTHING, so we would not do repeated insertions
 			m.backfillMode = true
 		}
 	}
