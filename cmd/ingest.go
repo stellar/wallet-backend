@@ -84,6 +84,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: "",
 			Required:    false,
 		},
+		{
+			Name:        "skip-tx-meta",
+			Usage:       "Skip storing transaction metadata (meta_xdr) to reduce storage space and improve insertion performance.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.SkipTxMeta,
+			FlagDefault: true,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
