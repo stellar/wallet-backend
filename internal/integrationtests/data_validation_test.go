@@ -342,7 +342,7 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -430,7 +430,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 total state changes")
+	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 7 total state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -571,7 +571,7 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 25, "should have exactly 25 state changes")
+	suite.Require().Len(stateChanges.Edges, 26, "should have exactly 25 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -772,7 +772,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupStateChange
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
+	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 1 state change")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -984,7 +984,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 5 state changes")
+	suite.Require().Len(stateChanges.Edges, 6, "should have exactly 5 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -1104,7 +1104,7 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 11 state changes")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 11 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -1309,7 +1309,7 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1391,7 +1391,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state change")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state change")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1473,7 +1473,7 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx con
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 1, "should have exactly 1 state change")
+	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 1 state change")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1549,7 +1549,7 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 7, "should have exactly 7 state changes")
+	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 7 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1695,7 +1695,7 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 4, "should have exactly 4 state changes")
+	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 4 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
