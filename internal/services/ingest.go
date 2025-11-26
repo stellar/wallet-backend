@@ -158,7 +158,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
 
-	// Empty db
+	// If latestIngestedLedger == 0, then its an empty db. In that case, we get the latest checkpoint ledger
+	// and start from there.
 	if latestIngestedLedger == 0 {
 		startLedger, err = m.calculateCheckpointLedger(startLedger)
 		if err != nil {
@@ -171,7 +172,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("populating account tokens cache: %w", populateErr)
 		}
 	} else {
-		if startLedger == 0 || startLedger == latestIngestedLedger {
+		// If we already have data ingested currently, then we check the start ledger value supplied by the user.
+		// If it is 0 or beyond the current ingested ledger, we just start from where we left off.
+		if startLedger == 0 || startLedger >= latestIngestedLedger {
 			startLedger = latestIngestedLedger + 1
 		} else {
 			// If start ledger is specified and latest ledger != 0 (not empty db), then we are backfilling old data
@@ -229,7 +232,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			currentLedger++
 
 			// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
-			// false.
+			// false. This is because when backfilling data, we are not updating the latest ledger cursor
+			// and not processing any account token cache changes. Remember that the account token cache was
+			// already populated using a more recent checkpoint ledger so we dont need to process older data.
 			if m.backfillMode && currentLedger > latestIngestedLedger {
 				m.backfillMode = false
 			}
