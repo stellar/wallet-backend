@@ -40,7 +40,8 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		assert.Equal(t, toid.New(1000, 1, 0).ToInt64(), tx.ToID)
 		assert.Equal(t, "envelope1", tx.EnvelopeXDR)
 		assert.Equal(t, "result1", tx.ResultXDR)
-		assert.Equal(t, "meta1", tx.MetaXDR)
+		require.NotNil(t, tx.MetaXDR)
+		assert.Equal(t, "meta1", *tx.MetaXDR)
 		assert.Equal(t, uint32(1), tx.LedgerNumber)
 	})
 
