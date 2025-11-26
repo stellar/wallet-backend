@@ -64,7 +64,7 @@ type ingestService struct {
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
-	backfillMode bool
+	backfillMode            bool
 }
 
 func NewIngestService(
@@ -134,7 +134,7 @@ func NewIngestService(
 		getLedgersLimit:         getLedgersLimit,
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
 		archive:                 archive,
-		backfillMode: false,
+		backfillMode:            false,
 	}, nil
 }
 
