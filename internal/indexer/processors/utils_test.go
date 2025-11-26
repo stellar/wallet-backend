@@ -32,7 +32,7 @@ func Test_ConvertTransaction(t *testing.T) {
 	ingestTx, err := ledgerTxReader.Read()
 	require.NoError(t, err)
 
-	gotDataTx, err := ConvertTransaction(&ingestTx)
+	gotDataTx, err := ConvertTransaction(&ingestTx, false)
 	require.NoError(t, err)
 
 	wantDataTx := &types.Transaction{

@@ -56,16 +56,16 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
-
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
 	processors             []OperationProcessorInterface
 	pool                   pond.Pool
 	metricsService         processors.MetricsServiceInterface
+	skipTxMeta             bool
 }
 
-func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface) *Indexer {
+func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService processors.MetricsServiceInterface, skipTxMeta bool) *Indexer {
 	return &Indexer{
 		participantsProcessor:  processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor: processors.NewTokenTransferProcessor(networkPassphrase, metricsService),
@@ -76,6 +76,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, metricsService process
 		},
 		pool:           pool,
 		metricsService: metricsService,
+		skipTxMeta:     skipTxMeta,
 	}
 }
 
@@ -146,7 +147,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Convert transaction data
-	dataTx, err := processors.ConvertTransaction(&tx)
+	dataTx, err := processors.ConvertTransaction(&tx, i.skipTxMeta)
 	if err != nil {
 		return 0, fmt.Errorf("creating data transaction: %w", err)
 	}

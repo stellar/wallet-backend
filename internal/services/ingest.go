@@ -65,6 +65,7 @@ type ingestService struct {
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
 	backfillMode            bool
+	skipTxMeta              bool
 }
 
 func NewIngestService(
@@ -82,6 +83,7 @@ func NewIngestService(
 	network string,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
+	skipTxMeta bool,
 ) (*ingestService, error) {
 	if models == nil {
 		return nil, errors.New("models cannot be nil")
@@ -132,9 +134,10 @@ func NewIngestService(
 		metricsService:          metricsService,
 		networkPassphrase:       networkPassphrase,
 		getLedgersLimit:         getLedgersLimit,
-		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
+		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta),
 		archive:                 archive,
 		backfillMode:            false,
+		skipTxMeta:              skipTxMeta,
 	}, nil
 }
 
@@ -168,9 +171,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
 
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
-		}
+		// if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
+		// 	return fmt.Errorf("populating account tokens cache: %w", populateErr)
+		// }
 	} else {
 		// If we already have data ingested currently, then we check the start ledger value supplied by the user.
 		// If it is 0 or beyond the current ingested ledger, we just start from where we left off.

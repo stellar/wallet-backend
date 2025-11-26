@@ -83,7 +83,7 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 	return "", fmt.Errorf("invalid %s value", key)
 }
 
-func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transaction, error) {
+func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) (*types.Transaction, error) {
 	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
@@ -94,9 +94,12 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transacti
 		return nil, fmt.Errorf("marshalling transaction result: %w", err)
 	}
 
-	metaXDR, err := xdr.MarshalBase64(transaction.UnsafeMeta)
-	if err != nil {
-		return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+	var metaXDR string
+	if !skipTxMeta {
+		metaXDR, err = xdr.MarshalBase64(transaction.UnsafeMeta)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
+		}
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
