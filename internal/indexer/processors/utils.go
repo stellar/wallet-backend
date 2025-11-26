@@ -94,12 +94,13 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) 
 		return nil, fmt.Errorf("marshalling transaction result: %w", err)
 	}
 
-	var metaXDR string
+	var metaXDR *string
 	if !skipTxMeta {
-		metaXDR, err = xdr.MarshalBase64(transaction.UnsafeMeta)
+		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
 		if err != nil {
 			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
 		}
+		metaXDR = &metaXDRStr
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()

@@ -37,12 +37,13 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create referenced transactions first
+	meta1, meta2 := "meta1", "meta2"
 	tx1 := types.Transaction{
 		Hash:            "tx1",
 		ToID:            1,
 		EnvelopeXDR:     "envelope1",
 		ResultXDR:       "result1",
-		MetaXDR:         "meta1",
+		MetaXDR:         &meta1,
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
@@ -51,7 +52,7 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 		ToID:            2,
 		EnvelopeXDR:     "envelope2",
 		ResultXDR:       "result2",
-		MetaXDR:         "meta2",
+		MetaXDR:         &meta2,
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
