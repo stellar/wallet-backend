@@ -9,7 +9,7 @@ CREATE TABLE state_changes (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
-    account_id TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(stellar_address),
     operation_id BIGINT NOT NULL,
     tx_hash TEXT NOT NULL REFERENCES transactions(hash),
     token_id TEXT,
