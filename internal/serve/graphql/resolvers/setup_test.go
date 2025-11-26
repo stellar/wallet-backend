@@ -5,8 +5,6 @@ import (
 	"os"
 	"testing"
 
-	godbtest "github.com/stellar/go/support/db/dbtest"
-
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
@@ -14,7 +12,7 @@ import (
 var (
 	testCtx              context.Context
 	testDBConnectionPool db.ConnectionPool
-	testDBT              *godbtest.DB
+	testDBT              *dbtest.DB
 )
 
 func TestMain(m *testing.M) {
