@@ -222,7 +222,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($6::bigint[]) AS ledger_number,
 				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) t
-		ON CONFLICT (hash) DO NOTHING
+		ON CONFLICT (hash, ledger_created_at) DO NOTHING
 		RETURNING hash
 	),
 

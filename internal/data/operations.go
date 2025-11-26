@@ -294,7 +294,7 @@ func (m *OperationModel) BatchInsert(
 				UNNEST($5::bigint[]) AS ledger_number,
 				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) o
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (id, ledger_created_at) DO NOTHING
 		RETURNING id
 	),
 
