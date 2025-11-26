@@ -179,7 +179,7 @@ func (m *TransactionModel) BatchInsert(
 	toIDs := make([]int64, len(txs))
 	envelopeXDRs := make([]string, len(txs))
 	resultXDRs := make([]string, len(txs))
-	metaXDRs := make([]string, len(txs))
+	metaXDRs := make([]*string, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 

@@ -49,6 +49,7 @@ type IndexerBuffer struct {
 	stateChanges         []types.StateChange
 	trustlineChanges     []types.TrustlineChange
 	contractChanges      []types.ContractChange
+	allParticipants      set.Set[string]
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -62,6 +63,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		stateChanges:         make([]types.StateChange, 0),
 		trustlineChanges:     make([]types.TrustlineChange, 0),
 		contractChanges:      make([]types.ContractChange, 0),
+		allParticipants:      set.NewSet[string](),
 	}
 }
 
@@ -98,6 +100,11 @@ func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *t
 
 	// Add participant - O(1) with automatic deduplication
 	b.participantsByTxHash[txHash].Add(participant)
+
+	// Track participant in global set for batch account insertion
+	if participant != "" {
+		b.allParticipants.Add(participant)
+	}
 }
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
@@ -223,6 +230,11 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 		b.participantsByOpID[opID] = set.NewSet[string]()
 	}
 	b.participantsByOpID[opID].Add(participant)
+
+	// Track participant in global set for batch account insertion
+	if participant != "" {
+		b.allParticipants.Add(participant)
+	}
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
@@ -313,4 +325,19 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 
 	// Merge contract changes
 	b.contractChanges = append(b.contractChanges, otherBuffer.contractChanges...)
+
+	// Merge all participants
+	for participant := range otherBuffer.allParticipants.Iter() {
+		b.allParticipants.Add(participant)
+	}
+}
+
+// GetAllParticipants returns all unique participants (Stellar addresses) that have been
+// recorded during transaction, operation, and state change processing.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetAllParticipants() []string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.allParticipants.ToSlice()
 }

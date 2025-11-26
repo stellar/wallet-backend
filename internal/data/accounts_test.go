@@ -321,6 +321,130 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, operationID2, addressSet[address2])
 }
 
+func TestAccountModel_BatchInsert(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	ctx := context.Background()
+
+	t.Run("empty input succeeds", func(t *testing.T) {
+		mockMetricsService := metrics.NewMockMetricsService()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		err := m.BatchInsert(ctx, nil, []string{})
+		require.NoError(t, err)
+	})
+
+	t.Run("successful batch insert", func(t *testing.T) {
+		// Clean up first
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+		require.NoError(t, err)
+
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "accounts", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "accounts", 3).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsert", "accounts").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		addresses := []string{
+			keypair.MustRandom().Address(),
+			keypair.MustRandom().Address(),
+			keypair.MustRandom().Address(),
+		}
+
+		insertErr := m.BatchInsert(ctx, nil, addresses)
+		require.NoError(t, insertErr)
+
+		// Verify all accounts were inserted
+		var count int
+		countErr := dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM accounts")
+		require.NoError(t, countErr)
+		assert.Equal(t, 3, count)
+	})
+
+	t.Run("handles duplicates with ON CONFLICT DO NOTHING", func(t *testing.T) {
+		// Clean up first
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+		require.NoError(t, err)
+
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "accounts", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "accounts", mock.Anything).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsert", "accounts").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		existingAddress := keypair.MustRandom().Address()
+		newAddress := keypair.MustRandom().Address()
+
+		// Insert one account first
+		_, err = dbConnectionPool.ExecContext(ctx, "INSERT INTO accounts (stellar_address) VALUES ($1)", existingAddress)
+		require.NoError(t, err)
+
+		// Batch insert including the existing account - should not error
+		addresses := []string{existingAddress, newAddress}
+		err = m.BatchInsert(ctx, nil, addresses)
+		require.NoError(t, err)
+
+		// Verify only 2 accounts exist (not 3)
+		var count int
+		err = dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM accounts")
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("works with transaction", func(t *testing.T) {
+		// Clean up first
+		_, err := dbConnectionPool.ExecContext(ctx, "DELETE FROM accounts")
+		require.NoError(t, err)
+
+		mockMetricsService := metrics.NewMockMetricsService()
+		mockMetricsService.On("ObserveDBQueryDuration", "BatchInsert", "accounts", mock.Anything).Return()
+		mockMetricsService.On("ObserveDBBatchSize", "BatchInsert", "accounts", 2).Return()
+		mockMetricsService.On("IncDBQuery", "BatchInsert", "accounts").Return()
+		defer mockMetricsService.AssertExpectations(t)
+
+		m := &AccountModel{
+			DB:             dbConnectionPool,
+			MetricsService: mockMetricsService,
+		}
+
+		addresses := []string{
+			keypair.MustRandom().Address(),
+			keypair.MustRandom().Address(),
+		}
+
+		// Use a transaction
+		err = db.RunInTransaction(ctx, dbConnectionPool, nil, func(dbTx db.Transaction) error {
+			return m.BatchInsert(ctx, dbTx, addresses)
+		})
+		require.NoError(t, err)
+
+		// Verify accounts were committed
+		var count int
+		err = dbConnectionPool.GetContext(ctx, &count, "SELECT COUNT(*) FROM accounts")
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+}
+
 func TestAccountModel_IsAccountFeeBumpEligible(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

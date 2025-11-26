@@ -99,7 +99,9 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	if err != nil {
 		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", txHash, err)
 	}
-	stateChanges = append(stateChanges, feeChange)
+	if feeChange.AccountID != "" {
+		stateChanges = append(stateChanges, feeChange)
+	}
 
 	for _, e := range txEvents.OperationEvents {
 		meta := e.GetMeta()

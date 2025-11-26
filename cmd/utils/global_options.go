@@ -189,7 +189,7 @@ func StartLedgerOption(configKey *int) *config.ConfigOption {
 		Usage:       "ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 0,
+		FlagDefault: 59560000,
 		Required:    true,
 	}
 }
@@ -200,7 +200,7 @@ func EndLedgerOption(configKey *int) *config.ConfigOption {
 		Usage:       "ledger number to end on",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 0,
+		FlagDefault: 60032283,
 		Required:    true,
 	}
 }

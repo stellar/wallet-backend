@@ -261,7 +261,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 // setupWalletBackend initializes wallet-backend database and service containers.
 //
 //nolint:unparam // t kept for API consistency with other setup methods
-func (s *SharedContainers) setupWalletBackend(ctx context.Context, t *testing.T) error {
+func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 	var err error
 
 	// Start PostgreSQL for wallet-backend
@@ -322,7 +322,7 @@ func NewSharedContainers(t *testing.T) *SharedContainers {
 	require.NoError(t, err, "failed to setup contracts")
 
 	// Setup wallet backend
-	err = shared.setupWalletBackend(ctx, t)
+	err = shared.setupWalletBackend(ctx)
 	require.NoError(t, err, "failed to setup wallet backend")
 
 	return shared

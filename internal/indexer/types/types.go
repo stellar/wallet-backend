@@ -93,7 +93,7 @@ type Transaction struct {
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
 	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
 	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
-	MetaXDR         string    `json:"metaXdr,omitempty" db:"meta_xdr"`
+	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`

@@ -17,7 +17,7 @@ CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_a
 -- Table: transactions_accounts
 CREATE TABLE transactions_accounts (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
-    account_id TEXT NOT NULL REFERENCES accounts(stellar_address) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, tx_hash)
 );

@@ -7,7 +7,7 @@ interface BaseStateChange {
   ledgerNumber:               UInt32!
 
   # GraphQL Relationships - these fields use resolvers
-  # Related operation - nullable since fee state changes do not have operations associated with them
+  # Related account
   account:                    Account! @goField(forceResolver: true)
 
   # Related operation - nullable since fee state changes do not have operations associated with them

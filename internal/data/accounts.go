@@ -78,6 +78,35 @@ func (m *AccountModel) Insert(ctx context.Context, address string) error {
 	return nil
 }
 
+// BatchInsert inserts multiple accounts into the database. Uses ON CONFLICT DO NOTHING
+// to handle pre-existing accounts idempotently.
+func (m *AccountModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecuter, addresses []string) error {
+	if len(addresses) == 0 {
+		return nil
+	}
+	if sqlExecuter == nil {
+		sqlExecuter = m.DB
+	}
+
+	const query = `
+		INSERT INTO accounts (stellar_address)
+		SELECT UNNEST($1::text[])
+		ON CONFLICT (stellar_address) DO NOTHING
+	`
+
+	start := time.Now()
+	_, err := sqlExecuter.ExecContext(ctx, query, pq.Array(addresses))
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchInsert", "accounts", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchInsert", "accounts", len(addresses))
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsert", "accounts", utils.GetDBErrorType(err))
+		return fmt.Errorf("batch inserting accounts: %w", err)
+	}
+	m.MetricsService.IncDBQuery("BatchInsert", "accounts")
+	return nil
+}
+
 func (m *AccountModel) Delete(ctx context.Context, address string) error {
 	const query = `DELETE FROM accounts WHERE stellar_address = $1`
 	start := time.Now()

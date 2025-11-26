@@ -4,7 +4,7 @@ type Transaction{
   hash:            String!
   envelopeXdr:     String!
   resultXdr:       String!
-  metaXdr:         String!
+  metaXdr:         String
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
