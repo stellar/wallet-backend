@@ -26,7 +26,9 @@ type DB struct {
 func (db *DB) Close() {
 	if db.container != nil {
 		ctx := context.Background()
-		_ = db.container.Terminate(ctx)
+		if err := db.container.Terminate(ctx); err != nil {
+			db.t.Logf("Warning: failed to terminate container: %v", err)
+		}
 	}
 }
 
@@ -48,7 +50,10 @@ func Open(t *testing.T) *DB {
 			"POSTGRES_DB":               "testdb",
 			"POSTGRES_HOST_AUTH_METHOD": "trust",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp"),
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("5432/tcp"),
+			wait.ForLog("database system is ready to accept connections"),
+		),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -59,7 +64,9 @@ func Open(t *testing.T) *DB {
 
 	t.Cleanup(func() {
 		if container != nil {
-			_ = container.Terminate(ctx)
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("Warning: failed to terminate container in cleanup: %v", err)
+			}
 		}
 	})
 
@@ -99,7 +106,10 @@ func OpenWithoutMigrations(t *testing.T) *DB {
 			"POSTGRES_DB":               "testdb",
 			"POSTGRES_HOST_AUTH_METHOD": "trust",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp"),
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("5432/tcp"),
+			wait.ForLog("database system is ready to accept connections"),
+		),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -110,7 +120,9 @@ func OpenWithoutMigrations(t *testing.T) *DB {
 
 	t.Cleanup(func() {
 		if container != nil {
-			_ = container.Terminate(ctx)
+			if err := container.Terminate(ctx); err != nil {
+				t.Logf("Warning: failed to terminate container in cleanup: %v", err)
+			}
 		}
 	})
 
