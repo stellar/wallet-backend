@@ -209,6 +209,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		case <-ctx.Done():
 			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
 		default:
+			totalStart := time.Now()
 			ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
 			if ledgerErr != nil {
 				if endLedger > 0 && currentLedger > endLedger {
@@ -219,8 +220,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 				time.Sleep(time.Second)
 				continue
 			}
+			m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-			totalStart := time.Now()
 			if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
 				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 			}
