@@ -182,6 +182,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 
 	// Process state changes to extract trustline and contract changes
 	for _, stateChange := range stateChanges {
+		//exhaustive:ignore
 		switch stateChange.StateChangeCategory {
 		case types.StateChangeCategoryTrustline:
 			trustlineChange := types.TrustlineChange{
