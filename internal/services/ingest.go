@@ -267,7 +267,6 @@ func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) 
 func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
 	var ledgerRange ledgerbackend.Range
 	if endLedger == 0 {
-		// Live streaming mode with unbounded range
 		ledgerRange = ledgerbackend.UnboundedRange(startLedger)
 		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
 			return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
