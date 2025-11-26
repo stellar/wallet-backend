@@ -64,6 +64,7 @@ type ingestService struct {
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
+	backfillMode bool
 }
 
 func NewIngestService(
@@ -133,43 +134,122 @@ func NewIngestService(
 		getLedgersLimit:         getLedgersLimit,
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
 		archive:                 archive,
+		backfillMode: false,
 	}, nil
 }
 
-// determineStartLedger determines the appropriate starting ledger sequence based on the backend
-// type and configuration parameters. For RPC backend with startLedger=0, it queries RPC health
-// to ensure we start from a ledger within the RPC's retention window.
-func (m *ingestService) determineStartLedger(ctx context.Context, configuredStartLedger uint32) (uint32, error) {
-	// If startLedger is explicitly provided and non-zero, use it
-	if configuredStartLedger > 0 {
-		return configuredStartLedger, nil
+func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
+	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
+		return fmt.Errorf("acquiring advisory lock: %w", err)
+	} else if !lockAcquired {
+		return errors.New("advisory lock not acquired")
 	}
+	defer func() {
+		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
+			err = fmt.Errorf("releasing advisory lock: %w", err)
+			log.Ctx(ctx).Error(err)
+		}
+	}()
 
-	// Get the latest synced ledger from database as baseline
-	dbLedger, err := m.models.IngestStore.GetLatestLedgerSynced(ctx, m.ledgerCursorName)
+	// Check if account tokens cache is populated
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.ledgerCursorName)
 	if err != nil {
-		return 0, fmt.Errorf("getting latest ledger synced: %w", err)
+		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
 
-	// For RPC backend, check RPC health to ensure we don't start
-	// from a ledger older than RPC's retention window
-	health, err := m.rpcService.GetHealth()
+	// Empty db
+	if latestIngestedLedger == 0 {
+		startLedger, calcErr := m.calculateCheckpointLedger(startLedger)
+		if calcErr != nil {
+			return fmt.Errorf("calculating checkpoint ledger: %w", calcErr)
+		}
+
+		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
+
+		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
+			return fmt.Errorf("populating account tokens cache: %w", populateErr)
+		}
+	} else {
+		// If start ledger is specified and latest ledger != 0 (not empty db), then we are backfilling old data
+		if startLedger > 0 {
+			m.backfillMode = true
+		} else {
+			startLedger = latestIngestedLedger + 1
+		}
+	}
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	defer signal.Stop(signalChan)
+
+	// Prepare backend range
+	err = m.prepareBackendRange(ctx, startLedger, endLedger)
 	if err != nil {
-		return 0, fmt.Errorf("getting RPC health: %w", err)
+		return fmt.Errorf("preparing backend range: %w", err)
 	}
 
-	// For empty db, we start with latest ledger
-	if dbLedger == 0 {
-		return health.LatestLedger, nil
-	}
+	currentLedger := startLedger
+	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
+	for {
+		select {
+		case sig := <-signalChan:
+			log.Ctx(ctx).Infof("Received signal %q, shutting down gracefully", sig)
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
+		default:
+			ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
+			if ledgerErr != nil {
+				if endLedger > 0 && currentLedger > endLedger {
+					log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
+					return nil
+				}
+				log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
+				time.Sleep(time.Second)
+				continue
+			}
 
-	// If DB ledger is behind RPC's oldest, start from RPC's oldest
-	if dbLedger < health.OldestLedger {
-		return 0, fmt.Errorf("wallet backend has fallen behind RPC's retention window, run a backfill to catchup to the tip")
-	}
+			totalStart := time.Now()
+			if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
+				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
+			}
 
-	// Start from next ledger after DB cursor (if DB has data)
-	return dbLedger + 1, nil
+			// Update cursor only for live ingestion
+			if !m.backfillMode {
+				err := m.updateCursor(ctx, currentLedger)
+				if err != nil {
+					return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
+				}
+			}
+			m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
+			m.metricsService.IncIngestionLedgersProcessed(1)
+
+			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
+			currentLedger++
+
+			if endLedger > 0 && currentLedger > endLedger {
+				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
+				return nil
+			}
+		}
+	}
+}
+
+func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
+	cursorStart := time.Now()
+	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
+			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+		}
+		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("updating cursors: %w", err)
+	}
+	m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
+	return nil
 }
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
@@ -218,136 +298,12 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 	return archiveManager.PrevCheckpoint(startLedger), nil
 }
 
-func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
-	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-		return fmt.Errorf("acquiring advisory lock: %w", err)
-	} else if !lockAcquired {
-		return errors.New("advisory lock not acquired")
-	}
-	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
-			err = fmt.Errorf("releasing advisory lock: %w", err)
-			log.Ctx(ctx).Error(err)
-		}
-	}()
-
-	// Check if account tokens cache is populated
-	latestAccountTokensLedger, err := m.models.IngestStore.GetLatestLedgerSynced(ctx, m.accountTokensCursorName)
-	if err != nil {
-		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
-	}
-
-	// If account tokens cache is not populated, calculate checkpoint and populate
-	if latestAccountTokensLedger == 0 {
-		checkpointLedger, calcErr := m.calculateCheckpointLedger(startLedger)
-		if calcErr != nil {
-			return fmt.Errorf("calculating checkpoint ledger: %w", calcErr)
-		}
-
-		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", checkpointLedger)
-
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, checkpointLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
-		}
-
-		txErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-			if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, checkpointLedger); updateErr != nil {
-				return fmt.Errorf("updating latest synced account-tokens ledger: %w", updateErr)
-			}
-			return nil
-		})
-		if txErr != nil {
-			return fmt.Errorf("updating latest synced account-tokens ledger: %w", txErr)
-		}
-
-		// For fresh start with startLedger=0, begin ingestion from checkpoint
-		if startLedger == 0 {
-			startLedger = checkpointLedger
-		}
-	}
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	defer signal.Stop(signalChan)
-
-	// Determine the actual starting ledger based on backend type and configuration
-	actualStartLedger, err := m.determineStartLedger(ctx, startLedger)
-	if err != nil {
-		return fmt.Errorf("determining start ledger: %w", err)
-	}
-
-	// Prepare backend range
-	err = m.prepareBackendRange(ctx, actualStartLedger, endLedger)
-	if err != nil {
-		return fmt.Errorf("preparing backend range: %w", err)
-	}
-
-	currentLedger := actualStartLedger
-	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for {
-		select {
-		case sig := <-signalChan:
-			log.Ctx(ctx).Infof("Received signal %q, shutting down gracefully", sig)
-			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-		default:
-			ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
-			if ledgerErr != nil {
-				if endLedger > 0 && currentLedger > endLedger {
-					log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", actualStartLedger, endLedger)
-					return nil
-				}
-				log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			totalStart := time.Now()
-			if processErr := m.processSingleLedger(ctx, ledgerMeta); processErr != nil {
-				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-			}
-
-			// Update cursors
-			cursorStart := time.Now()
-			err = db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-				if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
-					return fmt.Errorf("updating latest synced ledger: %w", updateErr)
-				}
-				m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
-
-				if currentLedger > m.accountTokenService.GetCheckpointLedger() {
-					if updateErr := m.models.IngestStore.UpdateLatestLedgerSynced(ctx, dbTx, m.accountTokensCursorName, currentLedger); updateErr != nil {
-						return fmt.Errorf("updating account-tokens ledger: %w", updateErr)
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("updating cursors: %w", err)
-			}
-			m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
-			m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-			m.metricsService.IncIngestionLedgersProcessed(1)
-
-			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
-			currentLedger++
-
-			if endLedger > 0 && currentLedger > endLedger {
-				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", actualStartLedger, endLedger)
-				return nil
-			}
-		}
-	}
-}
-
-// processSingleLedger processes a single ledger through all ingestion phases.
+// processLedger processes a single ledger through all ingestion phases.
 // Phase 1: Get transactions and collect data using Indexer (parallel within ledger)
 // Phase 2: Fetch existing accounts for participants (single DB call)
 // Phase 3: Process transactions and populate buffer using Indexer (parallel within ledger)
 // Phase 4: Insert all data into DB
-func (m *ingestService) processSingleLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
+func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Phase 1: Get transactions from ledger
@@ -477,9 +433,11 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		}
 
 		// 3. Unlock channel accounts.
-		err := m.unlockChannelAccounts(ctx, txs)
-		if err != nil {
-			return fmt.Errorf("unlocking channel accounts: %w", err)
+		if !m.backfillMode {
+			err := m.unlockChannelAccounts(ctx, txs)
+			if err != nil {
+				return fmt.Errorf("unlocking channel accounts: %w", err)
+			}
 		}
 
 		return nil
@@ -488,49 +446,31 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
 	}
 
-	trustlineChanges := indexerBuffer.GetTrustlineChanges()
-	filteredTrustlineChanges := make([]types.TrustlineChange, 0, len(trustlineChanges))
-	if len(trustlineChanges) > 0 {
+	if !m.backfillMode {
+		trustlineChanges := indexerBuffer.GetTrustlineChanges()
 		// Insert trustline changes in the ascending order of operation IDs using batch processing
 		sort.Slice(trustlineChanges, func(i, j int) bool {
 			return trustlineChanges[i].OperationID < trustlineChanges[j].OperationID
 		})
 
-		// Filter out changes that are older than the checkpoint ledger
-		// This check is required since we initialize trustlines and contracts using the latest checkpoint ledger which could be ahead of wallet backend's latest ledger synced.
-		// We will skip changes that are older than the latest checkpoint ledger as the wallet backend catches up to the tip. We only need to ingest changes that are newer than the latest checkpoint ledger.
-		for _, change := range trustlineChanges {
-			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
-				filteredTrustlineChanges = append(filteredTrustlineChanges, change)
-			}
+		contractChanges := indexerBuffer.GetContractChanges()
+
+		// Process all trustline and contract changes in a single batch using Redis pipelining
+		if err := m.accountTokenService.ProcessTokenChanges(ctx, trustlineChanges, contractChanges); err != nil {
+			log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
+			return fmt.Errorf("processing trustline changes batch: %w", err)
 		}
-	}
+		log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(trustlineChanges), len(contractChanges))
 
-	contractChanges := indexerBuffer.GetContractChanges()
-	filteredContractChanges := make([]types.ContractChange, 0, len(contractChanges))
-	if len(contractChanges) > 0 {
-		for _, change := range contractChanges {
-			if change.LedgerNumber > m.accountTokenService.GetCheckpointLedger() {
-				filteredContractChanges = append(filteredContractChanges, change)
-			}
-		}
-	}
-
-	// Process all trustline and contract changes in a single batch using Redis pipelining
-	if err := m.accountTokenService.ProcessTokenChanges(ctx, filteredTrustlineChanges, filteredContractChanges); err != nil {
-		log.Ctx(ctx).Errorf("processing trustline changes batch: %v", err)
-		return fmt.Errorf("processing trustline changes batch: %w", err)
-	}
-	log.Ctx(ctx).Infof("✅ inserted %d trustline and %d contract changes", len(filteredTrustlineChanges), len(filteredContractChanges))
-
-	// Fetch and store metadata for new SAC/SEP-41 contracts discovered during live ingestion
-	if m.contractMetadataService != nil {
-		newContractTypesByID := m.filterNewContractTokens(ctx, filteredContractChanges)
-		if len(newContractTypesByID) > 0 {
-			log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
-			if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
-				log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
-				// Don't return error - we don't want to block ingestion for metadata fetch failures
+		// Fetch and store metadata for new SAC/SEP-41 contracts discovered during live ingestion
+		if m.contractMetadataService != nil {
+			newContractTypesByID := m.filterNewContractTokens(ctx, contractChanges)
+			if len(newContractTypesByID) > 0 {
+				log.Ctx(ctx).Infof("Fetching metadata for %d new contract tokens", len(newContractTypesByID))
+				if err := m.contractMetadataService.FetchAndStoreMetadata(ctx, newContractTypesByID); err != nil {
+					log.Ctx(ctx).Warnf("fetching new contract metadata: %v", err)
+					// Don't return error - we don't want to block ingestion for metadata fetch failures
+				}
 			}
 		}
 	}
