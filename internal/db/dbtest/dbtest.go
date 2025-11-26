@@ -52,7 +52,7 @@ func Open(t *testing.T) *DB {
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("5432/tcp"),
-			wait.ForLog("database system is ready to accept connections"),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 		),
 	}
 
@@ -108,7 +108,7 @@ func OpenWithoutMigrations(t *testing.T) *DB {
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("5432/tcp"),
-			wait.ForLog("database system is ready to accept connections"),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 		),
 	}
 
