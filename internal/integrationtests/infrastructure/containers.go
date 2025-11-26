@@ -361,7 +361,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 		ExposedPorts: []string{"5432/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForListeningPort("5432/tcp"),
-			wait.ForLog("database system is ready to accept connections"),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 		),
 	}
 

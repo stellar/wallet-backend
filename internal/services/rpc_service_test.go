@@ -941,18 +941,19 @@ func TestTrackRPCServiceHealth_HealthyService(t *testing.T) {
 }
 
 func TestTrackRPCServiceHealth_UnhealthyService(t *testing.T) {
-	healthCheckTickInterval := 300 * time.Millisecond
-	healthCheckWarningInterval := 400 * time.Millisecond
-	contextTimeout := healthCheckWarningInterval + time.Millisecond*190
-	ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
-	defer cancel()
-
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 
 	dbConnectionPool, err := db.OpenDBConnectionPool(dbt.DSN)
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
+
+	// Set timing AFTER database is ready to avoid timeout during container init
+	healthCheckTickInterval := 800 * time.Millisecond
+	healthCheckWarningInterval := 400 * time.Millisecond
+	contextTimeout := healthCheckWarningInterval + time.Second*2
+	ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+	defer cancel()
 
 	mockMetricsService := metrics.NewMockMetricsService()
 	mockMetricsService.On("IncRPCMethodCalls", "GetHealth").Once()
