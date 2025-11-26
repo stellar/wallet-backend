@@ -294,7 +294,7 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 	m.stateChangesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "state_changes_total",
+			Name: "ingestion_state_changes_total",
 			Help: "Total number of state changes persisted to database by type and category",
 		},
 		[]string{"type", "category"},

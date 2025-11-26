@@ -957,7 +957,7 @@ func TestStateChangeMetrics(t *testing.T) {
 		typeCategoryValues := make(map[string]map[string]float64)
 
 		for _, mf := range metricFamilies {
-			if mf.GetName() == "state_changes_total" {
+			if mf.GetName() == "ingestion_state_changes_total" {
 				found = true
 				for _, metric := range mf.GetMetric() {
 					labels := make(map[string]string)
@@ -976,7 +976,7 @@ func TestStateChangeMetrics(t *testing.T) {
 			}
 		}
 
-		assert.True(t, found, "state_changes_total metric not found")
+		assert.True(t, found, "ingestion_state_changes_total metric not found")
 		assert.Equal(t, float64(30), typeCategoryValues["DEBIT"]["BALANCE"], "Expected 30 DEBIT/BALANCE state changes")
 		assert.Equal(t, float64(25), typeCategoryValues["CREDIT"]["BALANCE"], "Expected 25 CREDIT/BALANCE state changes")
 		assert.Equal(t, float64(10), typeCategoryValues["ADD"]["SIGNER"], "Expected 10 ADD/SIGNER state changes")
@@ -1008,7 +1008,7 @@ func TestStateChangeMetrics(t *testing.T) {
 		typeCategoryFound := make(map[string]map[string]bool)
 
 		for _, mf := range metricFamilies {
-			if mf.GetName() == "state_changes_total" {
+			if mf.GetName() == "ingestion_state_changes_total" {
 				for _, metric := range mf.GetMetric() {
 					labels := make(map[string]string)
 					for _, label := range metric.GetLabel() {
