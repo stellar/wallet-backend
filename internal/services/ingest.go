@@ -162,6 +162,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
 	for endLedger == 0 || currentLedger < endLedger {
+		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
 		if ledgerErr != nil {
 			if endLedger > 0 && currentLedger > endLedger {
@@ -172,8 +173,8 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			time.Sleep(time.Second)
 			continue
 		}
+		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		totalStart := time.Now()
 		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 		}
