@@ -13,6 +13,9 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/stellar/go/historyarchive"
+	"github.com/stellar/go/ingest/ledgerbackend"
+	"github.com/stellar/go/support/datastore"
 	"github.com/stellar/go/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -28,6 +31,22 @@ import (
 const (
 	ServerShutdownTimeout = 10 * time.Second
 )
+
+// LedgerBackendType represents the type of ledger backend to use
+type LedgerBackendType string
+
+const (
+	// LedgerBackendTypeRPC uses RPC to fetch ledgers
+	LedgerBackendTypeRPC LedgerBackendType = "rpc"
+	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
+	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+)
+
+// StorageBackendConfig holds configuration for the datastore-based ledger backend
+type StorageBackendConfig struct {
+	DataStoreConfig              datastore.DataStoreConfig                  `toml:"datastore_config"`
+	BufferedStorageBackendConfig ledgerbackend.BufferedStorageBackendConfig `toml:"buffered_storage_backend_config"`
+}
 
 type Configs struct {
 	DatabaseURL             string
@@ -47,6 +66,10 @@ type Configs struct {
 	AccountTokensCursorName string
 	ArchiveURL              string
 	CheckpointFrequency     int
+	// LedgerBackendType specifies which backend to use for fetching ledgers
+	LedgerBackendType LedgerBackendType
+	// DatastoreConfigPath is the path to the TOML config file for datastore backend
+	DatastoreConfigPath string
 }
 
 func Ingest(cfg Configs) error {
@@ -83,6 +106,12 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+
+	ledgerBackend, err := NewLedgerBackend(context.Background(), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger backend: %w", err)
+	}
+
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
@@ -102,13 +131,25 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, cfg.ArchiveURL, redisStore, contractValidator, contractMetadataService, accountTokenPool, uint32(cfg.CheckpointFrequency))
+	// Initialize history archive once for use by both AccountTokenService and IngestService
+	archive, err := historyarchive.Connect(
+		cfg.ArchiveURL,
+		historyarchive.ArchiveOptions{
+			NetworkPassphrase:   cfg.NetworkPassphrase,
+			CheckpointFrequency: uint32(cfg.CheckpointFrequency),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to history archive: %w", err)
+	}
+
+	accountTokenService, err := services.NewAccountTokenService(cfg.NetworkPassphrase, archive, redisStore, contractValidator, contractMetadataService, accountTokenPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating account token service: %w", err)
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network)
+		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}

@@ -63,7 +63,7 @@ func Test_IngestStoreModel_GetLatestLedgerSynced(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			lastSyncedLedger, err := m.GetLatestLedgerSynced(ctx, tc.key)
+			lastSyncedLedger, err := m.Get(ctx, tc.key)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedLedger, lastSyncedLedger)
 		})
@@ -122,7 +122,7 @@ func Test_IngestStoreModel_UpdateLatestLedgerSynced(t *testing.T) {
 			}
 
 			err = db.RunInTransaction(ctx, m.DB, nil, func(dbTx db.Transaction) error {
-				if err := m.UpdateLatestLedgerSynced(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
+				if err := m.Update(ctx, dbTx, tc.key, tc.ledgerToUpsert); err != nil {
 					return err
 				}
 				return nil
