@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"os"
-	"os/signal"
 	"sort"
-	"syscall"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -65,7 +62,6 @@ type ingestService struct {
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
 	backfillMode            bool
-	skipTxMeta              bool
 }
 
 func NewIngestService(
@@ -83,39 +79,7 @@ func NewIngestService(
 	network string,
 	networkPassphrase string,
 	archive historyarchive.ArchiveInterface,
-	skipTxMeta bool,
 ) (*ingestService, error) {
-	if models == nil {
-		return nil, errors.New("models cannot be nil")
-	}
-	if ledgerCursorName == "" {
-		return nil, errors.New("ledgerCursorName cannot be nil")
-	}
-	if accountTokensCursorName == "" {
-		return nil, errors.New("accountTokensCursorName cannot be nil")
-	}
-	if appTracker == nil {
-		return nil, errors.New("appTracker cannot be nil")
-	}
-	if rpcService == nil {
-		return nil, errors.New("rpcService cannot be nil")
-	}
-	if ledgerBackend == nil {
-		return nil, errors.New("ledgerBackend cannot be nil")
-	}
-	if chAccStore == nil {
-		return nil, errors.New("chAccStore cannot be nil")
-	}
-	if metricsService == nil {
-		return nil, errors.New("metricsService cannot be nil")
-	}
-	if getLedgersLimit <= 0 {
-		return nil, errors.New("getLedgersLimit must be greater than 0")
-	}
-	if archive == nil {
-		return nil, errors.New("archive cannot be nil")
-	}
-
 	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
 	ledgerIndexerPool := pond.NewPool(0)
 	metricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
@@ -134,10 +98,9 @@ func NewIngestService(
 		metricsService:          metricsService,
 		networkPassphrase:       networkPassphrase,
 		getLedgersLimit:         getLedgersLimit,
-		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta),
+		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService),
 		archive:                 archive,
 		backfillMode:            false,
-		skipTxMeta:              skipTxMeta,
 	}, nil
 }
 
@@ -189,10 +152,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	defer signal.Stop(signalChan)
-
 	// Prepare backend range
 	err = m.prepareBackendRange(ctx, startLedger, endLedger)
 	if err != nil {
@@ -201,57 +160,49 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for {
-		select {
-		case sig := <-signalChan:
-			log.Ctx(ctx).Infof("Received signal %q, shutting down gracefully", sig)
-			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("ingestor stopped due to context cancellation: %w", ctx.Err())
-		default:
-			totalStart := time.Now()
-			ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
-			if ledgerErr != nil {
-				if endLedger > 0 && currentLedger > endLedger {
-					log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-					return nil
-				}
-				log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
-				time.Sleep(time.Second)
-				continue
-			}
-			m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
-
-			if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
-				return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-			}
-
-			// Update cursor only for live ingestion
-			if !m.backfillMode {
-				err := m.updateCursor(ctx, currentLedger)
-				if err != nil {
-					return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
-				}
-			}
-			m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-			m.metricsService.IncIngestionLedgersProcessed(1)
-
-			log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
-			currentLedger++
-
-			// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
-			// false. This is because when backfilling data, we are not updating the latest ledger cursor
-			// and not processing any account token cache changes. Remember that the account token cache was
-			// already populated using a more recent checkpoint ledger so we dont need to process older data.
-			if m.backfillMode && currentLedger > latestIngestedLedger {
-				m.backfillMode = false
-			}
+	for endLedger == 0 || currentLedger < endLedger {
+		ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
+		if ledgerErr != nil {
 			if endLedger > 0 && currentLedger > endLedger {
 				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
 				return nil
 			}
+			log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		totalStart := time.Now()
+		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
+			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
+		}
+
+		// Update cursor only for live ingestion
+		if !m.backfillMode {
+			err := m.updateCursor(ctx, currentLedger)
+			if err != nil {
+				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
+			}
+		}
+		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
+		m.metricsService.IncIngestionLedgersProcessed(1)
+
+		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
+		currentLedger++
+
+		// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
+		// false. This is because when backfilling data, we are not updating the latest ledger cursor
+		// and not processing any account token cache changes. Remember that the account token cache was
+		// already populated using a more recent checkpoint ledger so we dont need to process older data.
+		if m.backfillMode && currentLedger > latestIngestedLedger {
+			m.backfillMode = false
+		}
+		if endLedger > 0 && currentLedger > endLedger {
+			log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
+			return nil
 		}
 	}
+	return nil
 }
 
 func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
@@ -276,16 +227,14 @@ func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, en
 	var ledgerRange ledgerbackend.Range
 	if endLedger == 0 {
 		ledgerRange = ledgerbackend.UnboundedRange(startLedger)
-		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
-		}
 		log.Ctx(ctx).Infof("Prepared backend with unbounded range starting from ledger %d", startLedger)
 	} else {
-		ledgerRange := ledgerbackend.BoundedRange(startLedger, endLedger)
-		if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-			return fmt.Errorf("preparing datastore backend bounded range [%d, %d]: %w", startLedger, endLedger, err)
-		}
+		ledgerRange = ledgerbackend.BoundedRange(startLedger, endLedger)
 		log.Ctx(ctx).Infof("Prepared backend with bounded range [%d, %d]", startLedger, endLedger)
+	}
+
+	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+		return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
 	}
 	return nil
 }
@@ -302,10 +251,7 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 		if err != nil {
 			return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
-		if archiveManager.IsCheckpoint(latestLedger) {
-			return latestLedger, nil
-		}
-		return archiveManager.PrevCheckpoint(latestLedger), nil
+		return latestLedger, nil
 	}
 
 	// For specified startLedger, use it if it's a checkpoint, otherwise use previous checkpoint
@@ -316,9 +262,10 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 }
 
 // processLedger processes a single ledger through all ingestion phases.
-// Phase 1: Get transactions from ledger
-// Phase 2: Process transactions and populate buffer (parallel within ledger)
-// Phase 3: Insert all data into DB
+// Phase 1: Get transactions and collect data using Indexer (parallel within ledger)
+// Phase 2: Fetch existing accounts for participants (single DB call)
+// Phase 3: Process transactions and populate buffer using Indexer (parallel within ledger)
+// Phase 4: Insert all data into DB
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
@@ -329,16 +276,32 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	// Phase 2: Process transactions and populate buffer (combined collection + processing)
-	buffer := indexer.NewIndexerBuffer()
-	participantCount, err := m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	// Phase 1b: Collect all transaction data using Indexer (parallel within ledger)
+	precomputedData, allParticipants, err := m.ledgerIndexer.CollectAllTransactionData(ctx, transactions)
 	if err != nil {
+		return fmt.Errorf("collecting transaction data for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveIngestionPhaseDuration("collect_transaction_data", time.Since(start).Seconds())
+
+	// Phase 2: Fetch existing accounts for participants (single DB call)
+	start = time.Now()
+	existingAccounts, err := m.models.Account.BatchGetByIDs(ctx, allParticipants.ToSlice())
+	if err != nil {
+		return fmt.Errorf("batch checking participants for ledger %d: %w", ledgerSeq, err)
+	}
+	existingAccountsSet := set.NewSet(existingAccounts...)
+	m.metricsService.ObserveIngestionParticipantsCount(allParticipants.Cardinality())
+	m.metricsService.ObserveIngestionPhaseDuration("fetch_existing_accounts", time.Since(start).Seconds())
+
+	// Phase 3: Process transactions using Indexer (parallel within ledger)
+	start = time.Now()
+	buffer := indexer.NewIndexerBuffer()
+	if err := m.ledgerIndexer.ProcessTransactions(ctx, precomputedData, existingAccountsSet, buffer); err != nil {
 		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
-	m.metricsService.ObserveIngestionParticipantsCount(participantCount)
-	m.metricsService.ObserveIngestionPhaseDuration("process_transactions", time.Since(start).Seconds())
+	m.metricsService.ObserveIngestionPhaseDuration("process_and_buffer", time.Since(start).Seconds())
 
-	// Phase 3: Insert all data into DB
+	// Phase 4: Insert all data into DB
 	start = time.Now()
 	if err := m.ingestProcessedData(ctx, buffer); err != nil {
 		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
@@ -378,16 +341,7 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		// 2. Insert queries
-		// 2.1. Insert all participants as accounts
-		participants := indexerBuffer.GetAllParticipants()
-		if len(participants) > 0 {
-			if err := m.models.Account.BatchInsert(ctx, dbTx, participants); err != nil {
-				return fmt.Errorf("batch inserting accounts: %w", err)
-			}
-			log.Ctx(ctx).Infof("✅ inserted %d participant accounts", len(participants))
-		}
-
-		// 2.2. Insert transactions
+		// 2.1. Insert transactions
 		txs := indexerBuffer.GetTransactions()
 		stellarAddressesByTxHash := indexerBuffer.GetTransactionsParticipants()
 		if len(txs) > 0 {
@@ -395,10 +349,10 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d transactions", len(insertedHashes))
+			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 		}
 
-		// 2.3. Insert operations
+		// 2.2. Insert operations
 		ops := indexerBuffer.GetOperations()
 		stellarAddressesByOpID := indexerBuffer.GetOperationsParticipants()
 		if len(ops) > 0 {
@@ -406,10 +360,10 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			if err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
-			log.Ctx(ctx).Infof("✅ inserted %d operations", len(insertedOpIDs))
+			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 		}
 
-		// 2.4. Insert state changes
+		// 2.3. Insert state changes
 		stateChanges := indexerBuffer.GetStateChanges()
 		if len(stateChanges) > 0 {
 			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
@@ -438,7 +392,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 				}
 			}
 
-			log.Ctx(ctx).Infof("✅ inserted %d state changes", len(insertedStateChangeIDs))
+			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 
 		// 3. Unlock channel accounts.
