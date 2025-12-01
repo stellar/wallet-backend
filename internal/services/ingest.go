@@ -189,7 +189,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			if endLedger == 0 || endLedger > latestIngestedLedger {
 				backfillEnd = latestIngestedLedger
 			}
-			if backfillErr := m.backfillGaps(ctx, startLedger, backfillEnd); backfillErr != nil {
+			if backfillErr := m.backfillRange(ctx, startLedger, backfillEnd); backfillErr != nil {
 				return fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, backfillEnd, backfillErr)
 			}
 		}
@@ -212,7 +212,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	return m.ingestRange(ctx, false, startLedger, endLedger)
 }
 
-func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger uint32) error {
+func (m *ingestService) backfillRange(ctx context.Context, startLedger, endLedger uint32) error {
 	// Get oldest ledger ingested (endLedger <= latestIngestedLedger is guaranteed by caller)
 	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
 	if err != nil {
@@ -330,7 +330,7 @@ func splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillB
 	for _, gap := range gaps {
 		start := gap.GapStart
 		for start <= gap.GapEnd {
-			end := min(start + batchSize - 1, gap.GapEnd)
+			end := min(start+batchSize-1, gap.GapEnd)
 			batches = append(batches, BackfillBatch{
 				StartLedger: start,
 				EndLedger:   end,
@@ -398,7 +398,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		return result
 	}
 
-	// Process each ledger in the batch sequentially
+	// Process each ledger in the batch sequentially with retry for deadlocks
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
 		if err != nil {
@@ -407,7 +407,11 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 			return result
 		}
 
-		if err := m.processLedger(ctx, ledgerMeta, true); err != nil {
+		// Wrap processLedger with retry logic for transient DB errors (deadlocks)
+		err = utils.RetryOnDeadlock(ctx, func() error {
+			return m.processLedger(ctx, ledgerMeta, true)
+		})
+		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
