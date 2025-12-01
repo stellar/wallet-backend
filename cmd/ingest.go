@@ -45,8 +45,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    true,
 		},
 		{
-			Name:        "latest-ledger-cursor-name",
-			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
+			Name:        "oldest-ledger-cursor-name",
+			Usage:       "Name of the oldest ledger cursor, used to track the earliest ledger ingested by the service. Used for backfill operations to know where historical data begins.",
 			OptType:     types.String,
 			ConfigKey:   &cfg.OldestLedgerCursorName,
 			FlagDefault: "oldest_ingest_ledger",

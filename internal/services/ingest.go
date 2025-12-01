@@ -63,6 +63,7 @@ type ingestService struct {
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
 	backfillMode            bool
+	skipTxMeta              bool
 }
 
 func NewIngestService(
@@ -105,6 +106,7 @@ func NewIngestService(
 		ledgerIndexer:           indexer.NewIndexer(networkPassphrase, ledgerIndexerPool, metricsService, skipTxMeta),
 		archive:                 archive,
 		backfillMode:            false,
+		skipTxMeta:              skipTxMeta,
 	}, nil
 }
 
@@ -141,6 +143,20 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
 			return fmt.Errorf("populating account tokens cache: %w", populateErr)
 		}
+
+		// Initialize both cursors to the starting ledger on first run
+		if initErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, startLedger); updateErr != nil {
+				return fmt.Errorf("initializing latest cursor: %w", updateErr)
+			}
+			if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, startLedger); updateErr != nil {
+				return fmt.Errorf("initializing oldest cursor: %w", updateErr)
+			}
+			return nil
+		}); initErr != nil {
+			return fmt.Errorf("initializing cursors to ledger %d: %w", startLedger, initErr)
+		}
+		log.Ctx(ctx).Infof("Initialized both cursors to ledger %d", startLedger)
 	} else {
 		// If we already have data ingested, check if we need to backfill historical data
 		if startLedger > 0 && startLedger < latestIngestedLedger {
@@ -156,7 +172,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		// If bounded endLedger is already within ingested range, we're done
 		if endLedger > 0 && endLedger <= latestIngestedLedger {
-			log.Ctx(ctx).Infof("All requested ledgers up to %d are already ingested", endLedger)
+			log.Ctx(ctx).Infof("Successfully backfilled ledgers from [%d, %d]", startLedger, endLedger)
 			return nil
 		}
 
@@ -188,10 +204,12 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 	switch {
 	case endLedger == oldestIngestedLedger:
 		// Case 1: Entirely before existing data but end ledger == oldest ingested ledger - backfill the whole range from [start, oldestIngestedLedger - 1]
-		newGaps = append(newGaps, data.LedgerRange{
-			GapStart: startLedger,
-			GapEnd:   oldestIngestedLedger - 1,
-		})
+		if oldestIngestedLedger > 0 {
+			newGaps = append(newGaps, data.LedgerRange{
+				GapStart: startLedger,
+				GapEnd:   oldestIngestedLedger - 1,
+			})
+		}
 	case endLedger < oldestIngestedLedger:
 		// Case 2: Entirely before existing data - backfill the whole range from [start, end]
 		newGaps = append(newGaps, data.LedgerRange{
@@ -200,17 +218,16 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 		})
 
 	case startLedger < oldestIngestedLedger:
-		// Case 2: Starts before existing data, overlaps with existing range
-		// First, add the range before oldest
-		newGaps = append(newGaps, data.LedgerRange{
-			GapStart: startLedger,
-			GapEnd:   oldestIngestedLedger - 1,
-		})
+		// Case 3: Starts before existing data, overlaps with existing range
+		// First, add the range before oldest (guard against underflow)
+		if oldestIngestedLedger > 0 {
+			newGaps = append(newGaps, data.LedgerRange{
+				GapStart: startLedger,
+				GapEnd:   oldestIngestedLedger - 1,
+			})
+		}
 		// Then add any gaps within the existing range up to endLedger
 		for _, gap := range currentGaps {
-			if gap.GapEnd < oldestIngestedLedger {
-				continue // Skip gaps before our range
-			}
 			if gap.GapStart > endLedger {
 				break // No more gaps in our range
 			}
@@ -222,7 +239,7 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 		}
 
 	default:
-		// Case 3: Entirely within existing range - only fill internal gaps
+		// Case 4: Entirely within existing range - only fill internal gaps
 		for _, gap := range currentGaps {
 			if gap.GapEnd < startLedger {
 				continue // Skip gaps before our range
@@ -276,7 +293,7 @@ func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startL
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
+		if processErr := m.processLedger(ctx, ledgerMeta, isBackfill); processErr != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 		}
 
@@ -324,7 +341,7 @@ func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, en
 	}
 
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return fmt.Errorf("preparing datastore backend unbounded range from %d: %w", startLedger, err)
+		return fmt.Errorf("preparing ledger backend range [%d, %d]: %w", startLedger, endLedger, err)
 	}
 	return nil
 }
@@ -355,7 +372,8 @@ func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, e
 // Phase 1: Get transactions from ledger
 // Phase 2: Process transactions using Indexer (parallel within ledger)
 // Phase 3: Insert all data into DB
-func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
+// isBackfill indicates whether this is a backfill operation (skips Redis cache updates and channel account unlocks)
+func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, isBackfill bool) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Phase 1: Get transactions from ledger
@@ -378,7 +396,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 
 	// Phase 3: Insert all data into DB
 	start = time.Now()
-	if err := m.ingestProcessedData(ctx, buffer); err != nil {
+	if err := m.ingestProcessedData(ctx, buffer, isBackfill); err != nil {
 		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
@@ -413,7 +431,9 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 	return transactions, nil
 }
 
-func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
+// ingestProcessedData inserts processed ledger data into the database.
+// isBackfill indicates whether this is a backfill operation - when true, skips Redis cache updates and channel account unlocks.
+func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface, isBackfill bool) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		// 2. Insert queries
 		// 2.1. Insert all participants as accounts
@@ -479,8 +499,8 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			log.Ctx(ctx).Infof("✅ inserted %d state changes with IDs %v", len(insertedStateChangeIDs), insertedStateChangeIDs)
 		}
 
-		// 3. Unlock channel accounts.
-		if !m.backfillMode {
+		// 3. Unlock channel accounts (skip during backfill as these are historical transactions)
+		if !isBackfill {
 			err := m.unlockChannelAccounts(ctx, txs)
 			if err != nil {
 				return fmt.Errorf("unlocking channel accounts: %w", err)
@@ -493,7 +513,9 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 		return fmt.Errorf("ingesting processed data: %w", dbTxErr)
 	}
 
-	if !m.backfillMode {
+	// Process trustline and contract changes only during live ingestion (not backfill)
+	// These update the Redis cache which should only reflect current state
+	if !isBackfill {
 		trustlineChanges := indexerBuffer.GetTrustlineChanges()
 		// Insert trustline changes in the ascending order of operation IDs using batch processing
 		sort.Slice(trustlineChanges, func(i, j int) bool {
