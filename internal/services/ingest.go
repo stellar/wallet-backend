@@ -43,6 +43,10 @@ func generateAdvisoryLockID(network string) int {
 // BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
 const BackfillBatchSize uint32 = 100
 
+// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
+// to avoid racing with live finalization during parallel processing.
+const HistoricalBufferLedgers uint32 = 5
+
 // LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
 // Each batch needs its own backend because LedgerBackend is not thread-safe.
 type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
@@ -166,9 +170,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
 
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
-		}
+		// if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
+		// 	return fmt.Errorf("populating account tokens cache: %w", populateErr)
+		// }
 
 		// Initialize both cursors to the starting ledger on first run
 		if initErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
@@ -183,6 +187,30 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("initializing cursors to ledger %d: %w", startLedger, initErr)
 		}
 		log.Ctx(ctx).Infof("Initialized both cursors to ledger %d", startLedger)
+
+		// Check if we can process any portion in parallel
+		parallelEnd, parallelErr := m.calculateParallelEndLedger(startLedger, endLedger)
+		if parallelErr != nil {
+			return fmt.Errorf("calculating parallel end ledger: %v", parallelErr)
+		}
+		
+		if parallelEnd > startLedger {
+			log.Ctx(ctx).Infof("Processing historical range [%d-%d] in parallel", startLedger, parallelEnd)
+
+			if processErr := m.backfillInitialRange(ctx, startLedger, parallelEnd); processErr != nil {
+				return fmt.Errorf("parallel processing [%d-%d]: %w", startLedger, parallelEnd, processErr)
+			}
+
+			// If bounded and fully processed, we're done
+			if endLedger > 0 && endLedger <= parallelEnd {
+				log.Ctx(ctx).Infof("Fully processed bounded range [%d-%d]", startLedger, endLedger)
+				return nil
+			}
+
+			// Continue with sequential for remainder
+			startLedger = parallelEnd + 1
+			log.Ctx(ctx).Infof("Switching to sequential ingestion from ledger %d", startLedger)
+		}
 	} else {
 		// If we already have data ingested, check if we need to backfill historical data
 		if startLedger > 0 && startLedger < latestIngestedLedger {
@@ -212,6 +240,77 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
 	return m.ingestRange(ctx, false, startLedger, endLedger)
+}
+
+// calculateParallelEndLedger determines how far we can safely process in parallel.
+// Returns the end ledger for parallel processing, or 0 if no parallel processing is possible.
+func (m *ingestService) calculateParallelEndLedger(startLedger, endLedger uint32) (uint32, error) {
+	// Get latest ledger from archive (returns checkpoint ledger, backend-agnostic)
+	latestLedger, err := m.archive.GetLatestLedgerSequence()
+	if err != nil {
+		return 0, fmt.Errorf("getting latest ledger from archive: %w", err)
+	}
+
+	// Calculate safe boundary: latestLedger - buffer
+	safeHistoricalEnd := latestLedger - HistoricalBufferLedgers
+	if safeHistoricalEnd <= startLedger {
+		return 0, nil // No room for parallel processing
+	}
+
+	// If bounded range, take the minimum
+	if endLedger > 0 && endLedger < safeHistoricalEnd {
+		return endLedger, nil
+	}
+
+	return safeHistoricalEnd, nil
+}
+
+// backfillInitialRangeParallel backfills a ledger range in parallel for empty DB initialization.
+// Updates cursors after successful completion.
+func (m *ingestService) backfillInitialRange(ctx context.Context, startLedger, endLedger uint32) error {
+	gaps := []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
+	batches := splitGapsIntoBatches(gaps, BackfillBatchSize)
+	if len(batches) == 0 {
+		return nil
+	}
+
+	log.Ctx(ctx).Infof("Processing initial range [%d-%d] in parallel: %d batches",
+		startLedger, endLedger, len(batches))
+
+	results := m.processBackfillBatchesParallel(ctx, batches)
+
+	// Analyze results
+	var failedBatches []BackfillBatch
+	var successCount, totalLedgers int
+	for _, result := range results {
+		if result.Error != nil {
+			failedBatches = append(failedBatches, result.Batch)
+			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			successCount++
+			totalLedgers += result.LedgersCount
+		}
+	}
+
+	if len(failedBatches) > 0 {
+		return fmt.Errorf("parallel processing failed: %d/%d batches failed",
+			len(failedBatches), len(batches))
+	}
+
+	// Update latest cursor after successful completion
+	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, endLedger); updateErr != nil {
+			return fmt.Errorf("updating latest cursor: %w", updateErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("updating cursor: %w", err)
+	}
+
+	log.Ctx(ctx).Infof("Parallel processing completed: %d batches, %d ledgers", successCount, totalLedgers)
+	return nil
 }
 
 func (m *ingestService) backfillRange(ctx context.Context, startLedger, endLedger uint32) error {
