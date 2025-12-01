@@ -41,7 +41,7 @@ func generateAdvisoryLockID(network string) int {
 }
 
 // BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
-const BackfillBatchSize uint32 = 100
+const BackfillBatchSize uint32 = 250
 
 // HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
 // to avoid racing with live finalization during parallel processing.
@@ -189,9 +189,9 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		// Check if we can process any portion in parallel
 		parallelEnd, parallelErr := m.calculateParallelEndLedger(startLedger, endLedger)
 		if parallelErr != nil {
-			return fmt.Errorf("calculating parallel end ledger: %v", parallelErr)
+			return fmt.Errorf("calculating parallel end ledger: %w", parallelErr)
 		}
-		
+
 		if parallelEnd > startLedger {
 			log.Ctx(ctx).Infof("Processing historical range [%d-%d] in parallel", startLedger, parallelEnd)
 
@@ -275,7 +275,9 @@ func (m *ingestService) backfillInitialRange(ctx context.Context, startLedger, e
 	log.Ctx(ctx).Infof("Processing initial range [%d-%d] in parallel: %d batches",
 		startLedger, endLedger, len(batches))
 
+	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, batches)
+	wallClockDuration := time.Since(startTime)
 
 	// Analyze results
 	var failedBatches []BackfillBatch
@@ -307,7 +309,7 @@ func (m *ingestService) backfillInitialRange(ctx context.Context, startLedger, e
 		return fmt.Errorf("updating cursor: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("Parallel processing completed: %d batches, %d ledgers", successCount, totalLedgers)
+	log.Ctx(ctx).Infof("Parallel processing completed in %v: %d batches, %d ledgers", wallClockDuration, successCount, totalLedgers)
 	return nil
 }
 
@@ -497,7 +499,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		return result
 	}
 
-	// Process each ledger in the batch sequentially with retry for deadlocks
+	// Process each ledger in the batch sequentially
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
 		if err != nil {
@@ -507,9 +509,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		}
 
 		// Wrap processLedger with retry logic for transient DB errors (deadlocks)
-		err = utils.RetryOnDeadlock(ctx, func() error {
-			return m.processLedger(ctx, ledgerMeta, true)
-		})
+		err = m.processLedger(ctx, ledgerMeta, true)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)

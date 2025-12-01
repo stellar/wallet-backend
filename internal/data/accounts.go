@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -87,6 +88,10 @@ func (m *AccountModel) BatchInsert(ctx context.Context, sqlExecuter db.SQLExecut
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
 	}
+
+	// Sort addresses to ensure consistent lock acquisition order across parallel workers.
+	// This prevents deadlocks when multiple batches try to insert overlapping account sets.
+	sort.Strings(addresses)
 
 	const query = `
 		INSERT INTO accounts (stellar_address)
