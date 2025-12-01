@@ -47,8 +47,8 @@ var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
 	models                  *data.Models
-	latestLedgerCursorName        string
-	oldestLedgerCursorName        string
+	latestLedgerCursorName  string
+	oldestLedgerCursorName  string
 	accountTokensCursorName string
 	advisoryLockID          int
 	appTracker              apptracker.AppTracker
@@ -90,8 +90,8 @@ func NewIngestService(
 
 	return &ingestService{
 		models:                  models,
-		latestLedgerCursorName:        latestLedgerCursorName,
-		oldestLedgerCursorName:        oldestLedgerCursorName,
+		latestLedgerCursorName:  latestLedgerCursorName,
+		oldestLedgerCursorName:  oldestLedgerCursorName,
 		accountTokensCursorName: accountTokensCursorName,
 		advisoryLockID:          generateAdvisoryLockID(network),
 		appTracker:              appTracker,
@@ -144,34 +144,38 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 			return fmt.Errorf("populating account tokens cache: %w", populateErr)
 		}
 	} else {
-		// If we already have data ingested currently, then we check the start ledger value supplied by the user.
-		// If it is 0 or beyond the current ingested ledger, we just start from where we left off.
-		if startLedger == 0 || startLedger >= latestIngestedLedger {
-			startLedger = latestIngestedLedger + 1
-		} else {
-			// We will build the gap ranges and backfill data accordingly
-			err := m.backfillGaps(ctx, startLedger, endLedger)
-			if err != nil {
-				return fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, endLedger, err)
+		// If we already have data ingested, check if we need to backfill historical data
+		if startLedger > 0 && startLedger < latestIngestedLedger {
+			// Backfill only handles gaps BEFORE latestIngestedLedger
+			backfillEnd := endLedger
+			if endLedger == 0 || endLedger > latestIngestedLedger {
+				backfillEnd = latestIngestedLedger
+			}
+			if backfillErr := m.backfillGaps(ctx, startLedger, backfillEnd); backfillErr != nil {
+				return fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, backfillEnd, backfillErr)
 			}
 		}
+
+		// If bounded endLedger is already within ingested range, we're done
+		if endLedger > 0 && endLedger <= latestIngestedLedger {
+			log.Ctx(ctx).Infof("All requested ledgers up to %d are already ingested", endLedger)
+			return nil
+		}
+
+		// Continue from next ledger after latest ingested
+		startLedger = latestIngestedLedger + 1
 	}
 
-	// Once we have backfilled old data, we can do live ingestion
-	err = m.prepareBackendRange(ctx, latestIngestedLedger, endLedger)
+	// Ingest from startLedger onwards (bounded or unbounded)
+	err = m.prepareBackendRange(ctx, startLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
-
-	return m.ingestRange(ctx, false, latestIngestedLedger, endLedger)
+	return m.ingestRange(ctx, false, startLedger, endLedger)
 }
 
 func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger uint32) error {
-	// Get latest and oldest ledgers ingested
-	latestIngestLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
-	if err != nil {
-		return fmt.Errorf("getting latest ingest ledger: %w", err)
-	}
+	// Get oldest ledger ingested (endLedger <= latestIngestedLedger is guaranteed by caller)
 	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting oldest ingest ledger: %w", err)
@@ -182,57 +186,60 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 	if err != nil {
 		return fmt.Errorf("calculating gaps in ledger range: %w", err)
 	}
+
 	switch {
-	case endLedger < oldestIngestedLedger:
+	case endLedger == oldestIngestedLedger:
+		// Case 1: Entirely before existing data but end ledger == oldest ingested ledger - backfill the whole range from [start, oldestIngestedLedger - 1]
 		newGaps = append(newGaps, data.LedgerRange{
 			GapStart: startLedger,
-			GapEnd: endLedger,
+			GapEnd:   oldestIngestedLedger - 1,
 		})
-	case startLedger < oldestIngestedLedger && endLedger < latestIngestLedger:
+	case endLedger < oldestIngestedLedger:
+		// Case 2: Entirely before existing data - backfill the whole range from [start, end]
 		newGaps = append(newGaps, data.LedgerRange{
 			GapStart: startLedger,
-			GapEnd: oldestIngestedLedger - 1,
+			GapEnd:   endLedger,
 		})
 
-		for _, gap := range currentGaps {
-			if gap.GapStart <= endLedger && endLedger <= gap.GapEnd {
-				newGaps = append(newGaps, data.LedgerRange{
-					GapStart: gap.GapStart,
-					GapEnd: endLedger,
-				})
-				break
-			} else {
-				newGaps = append(newGaps, gap)
-			}
-		}
-	case oldestIngestedLedger < startLedger && endLedger < latestIngestLedger:
-		gapStartIdx := 0
-		gapEndIdx := 0
-		for i, gap := range currentGaps {
-			if gap.GapStart <= startLedger && startLedger <= gap.GapEnd {
-				gapStartIdx = i
-			}
-			if gap.GapStart <= endLedger && endLedger <= gap.GapEnd {
-				gapEndIdx = i
-				break
-			}
-		}
-		newGaps = append(newGaps, currentGaps[gapStartIdx:gapEndIdx+1]...)
-	case latestIngestLedger < endLedger:
-		gapStartIdx := 0
-		for i, gap := range currentGaps {
-			if gap.GapStart <= startLedger && startLedger <= gap.GapEnd {
-				gapStartIdx = i
-				break
-			}
-		}
-		newGaps = append(newGaps, currentGaps[gapStartIdx:]...)
+	case startLedger < oldestIngestedLedger:
+		// Case 2: Starts before existing data, overlaps with existing range
+		// First, add the range before oldest
 		newGaps = append(newGaps, data.LedgerRange{
-			GapStart: latestIngestLedger + 1,
-			GapEnd: endLedger,
+			GapStart: startLedger,
+			GapEnd:   oldestIngestedLedger - 1,
 		})
+		// Then add any gaps within the existing range up to endLedger
+		for _, gap := range currentGaps {
+			if gap.GapEnd < oldestIngestedLedger {
+				continue // Skip gaps before our range
+			}
+			if gap.GapStart > endLedger {
+				break // No more gaps in our range
+			}
+			// Clip gap to our requested range
+			newGaps = append(newGaps, data.LedgerRange{
+				GapStart: gap.GapStart,
+				GapEnd:   min(gap.GapEnd, endLedger),
+			})
+		}
+
+	default:
+		// Case 3: Entirely within existing range - only fill internal gaps
+		for _, gap := range currentGaps {
+			if gap.GapEnd < startLedger {
+				continue // Skip gaps before our range
+			}
+			if gap.GapStart > endLedger {
+				break // No more gaps in our range
+			}
+			newGaps = append(newGaps, data.LedgerRange{
+				GapStart: max(gap.GapStart, startLedger),
+				GapEnd:   min(gap.GapEnd, endLedger),
+			})
+		}
 	}
 
+	// Process all gaps
 	for _, gap := range newGaps {
 		err := m.prepareBackendRange(ctx, gap.GapStart, gap.GapEnd)
 		if err != nil {
@@ -244,20 +251,27 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 		}
 	}
 
+	// Update oldest cursor if we backfilled data before existing oldest
+	if startLedger < oldestIngestedLedger {
+		err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
+			return m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, startLedger)
+		})
+		if err != nil {
+			return fmt.Errorf("updating oldest cursor: %w", err)
+		}
+		log.Ctx(ctx).Infof("Updated oldest ingested ledger cursor to %d", startLedger)
+	}
+
 	return nil
 }
 
 func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startLedger, endLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for endLedger == 0 || currentLedger < endLedger {
+	for endLedger == 0 || currentLedger <= endLedger {
 		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.ledgerBackend.GetLedger(ctx, currentLedger)
 		if ledgerErr != nil {
-			if endLedger > 0 && currentLedger > endLedger {
-				log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-				return nil
-			}
 			log.Ctx(ctx).Warnf("Error fetching ledger %d: %v, retrying...", currentLedger, ledgerErr)
 			time.Sleep(time.Second)
 			continue
