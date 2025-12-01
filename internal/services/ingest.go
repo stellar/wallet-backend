@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"io"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -39,6 +40,27 @@ func generateAdvisoryLockID(network string) int {
 	return int(h.Sum64())
 }
 
+// BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
+const BackfillBatchSize uint32 = 100
+
+// LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
+// Each batch needs its own backend because LedgerBackend is not thread-safe.
+type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
+
+// BackfillBatch represents a contiguous range of ledgers to process as a unit.
+type BackfillBatch struct {
+	StartLedger uint32
+	EndLedger   uint32
+}
+
+// BackfillResult tracks the outcome of processing a single batch.
+type BackfillResult struct {
+	Batch        BackfillBatch
+	LedgersCount int
+	Duration     time.Duration
+	Error        error
+}
+
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
 }
@@ -54,6 +76,7 @@ type ingestService struct {
 	appTracker              apptracker.AppTracker
 	rpcService              RPCService
 	ledgerBackend           ledgerbackend.LedgerBackend
+	ledgerBackendFactory    LedgerBackendFactory
 	chAccStore              store.ChannelAccountStore
 	accountTokenService     AccountTokenService
 	contractMetadataService ContractMetadataService
@@ -64,6 +87,7 @@ type ingestService struct {
 	archive                 historyarchive.ArchiveInterface
 	backfillMode            bool
 	skipTxMeta              bool
+	backfillPool            pond.Pool
 }
 
 func NewIngestService(
@@ -74,6 +98,7 @@ func NewIngestService(
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
 	ledgerBackend ledgerbackend.LedgerBackend,
+	ledgerBackendFactory LedgerBackendFactory,
 	chAccStore store.ChannelAccountStore,
 	accountTokenService AccountTokenService,
 	contractMetadataService ContractMetadataService,
@@ -97,6 +122,7 @@ func NewIngestService(
 		appTracker:              appTracker,
 		rpcService:              rpcService,
 		ledgerBackend:           ledgerBackend,
+		ledgerBackendFactory:    ledgerBackendFactory,
 		chAccStore:              chAccStore,
 		accountTokenService:     accountTokenService,
 		contractMetadataService: contractMetadataService,
@@ -254,20 +280,32 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 		}
 	}
 
-	// Process all gaps
-	for _, gap := range newGaps {
-		err := m.prepareBackendRange(ctx, gap.GapStart, gap.GapEnd)
-		if err != nil {
-			return fmt.Errorf("preparing backend range from %d to %d: %w", gap.GapStart, gap.GapEnd, err)
-		}
-		err = m.ingestRange(ctx, true, gap.GapStart, gap.GapEnd)
-		if err != nil {
-			return fmt.Errorf("ingesting range from %d to %d: %w", gap.GapStart, gap.GapEnd, err)
+	// Split gaps into batches for parallel processing
+	batches := splitGapsIntoBatches(newGaps, BackfillBatchSize)
+	if len(batches) == 0 {
+		return nil
+	}
+	log.Ctx(ctx).Infof("Backfilling %d batches (batch size: %d ledgers)", len(batches), BackfillBatchSize)
+
+	// Process batches in parallel
+	results := m.processBackfillBatchesParallel(ctx, batches)
+
+	// Analyze results
+	var failedBatches []BackfillBatch
+	var successCount, totalLedgers int
+	for _, result := range results {
+		if result.Error != nil {
+			failedBatches = append(failedBatches, result.Batch)
+			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		} else {
+			successCount++
+			totalLedgers += result.LedgersCount
 		}
 	}
 
-	// Update oldest cursor if we backfilled data before existing oldest
-	if startLedger < oldestIngestedLedger {
+	// Update oldest cursor only if ALL batches succeeded
+	if len(failedBatches) == 0 && startLedger < oldestIngestedLedger {
 		err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 			return m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, startLedger)
 		})
@@ -277,7 +315,115 @@ func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger
 		log.Ctx(ctx).Infof("Updated oldest ingested ledger cursor to %d", startLedger)
 	}
 
+	log.Ctx(ctx).Infof("Backfill completed: %d/%d batches succeeded, %d ledgers processed",
+		successCount, len(batches), totalLedgers)
+
+	if len(failedBatches) > 0 {
+		return fmt.Errorf("backfill completed with %d failed batches", len(failedBatches))
+	}
+
 	return nil
+}
+
+// splitGapsIntoBatches divides ledger gaps into fixed-size batches for parallel processing.
+func splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
+	var batches []BackfillBatch
+
+	for _, gap := range gaps {
+		start := gap.GapStart
+		for start <= gap.GapEnd {
+			end := min(start + batchSize - 1, gap.GapEnd)
+			batches = append(batches, BackfillBatch{
+				StartLedger: start,
+				EndLedger:   end,
+			})
+			start = end + 1
+		}
+	}
+
+	return batches
+}
+
+// processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
+func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch) []BackfillResult {
+	// Create backfill pool if not exists
+	if m.backfillPool == nil {
+		m.backfillPool = pond.NewPool(0)
+		m.metricsService.RegisterPoolMetrics("backfill", m.backfillPool)
+	}
+
+	results := make([]BackfillResult, len(batches))
+	group := m.backfillPool.NewGroupContext(ctx)
+	var mu sync.Mutex
+
+	for i, batch := range batches {
+		idx := i
+		b := batch
+		group.Submit(func() {
+			result := m.processSingleBatch(ctx, b)
+			mu.Lock()
+			results[idx] = result
+			mu.Unlock()
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		log.Ctx(ctx).Warnf("Backfill batch group wait returned error: %v", err)
+	}
+	return results
+}
+
+// processSingleBatch processes a single backfill batch with its own ledger backend.
+func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBatch) BackfillResult {
+	start := time.Now()
+	result := BackfillResult{Batch: batch}
+
+	// Create a new ledger backend for this batch
+	backend, err := m.ledgerBackendFactory(ctx)
+	if err != nil {
+		result.Error = fmt.Errorf("creating ledger backend: %w", err)
+		result.Duration = time.Since(start)
+		return result
+	}
+	defer func() {
+		if closeErr := backend.Close(); closeErr != nil {
+			log.Ctx(ctx).Warnf("Error closing ledger backend for batch [%d-%d]: %v",
+				batch.StartLedger, batch.EndLedger, closeErr)
+		}
+	}()
+
+	// Prepare the range for this batch
+	ledgerRange := ledgerbackend.BoundedRange(batch.StartLedger, batch.EndLedger)
+	if err := backend.PrepareRange(ctx, ledgerRange); err != nil {
+		result.Error = fmt.Errorf("preparing backend range: %w", err)
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Process each ledger in the batch sequentially
+	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
+		if err != nil {
+			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+			result.Duration = time.Since(start)
+			return result
+		}
+
+		if err := m.processLedger(ctx, ledgerMeta, true); err != nil {
+			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
+			result.Duration = time.Since(start)
+			return result
+		}
+
+		result.LedgersCount++
+	}
+
+	result.Duration = time.Since(start)
+	m.metricsService.ObserveIngestionPhaseDuration("backfill_batch", result.Duration.Seconds())
+	log.Ctx(ctx).Infof("Batch [%d-%d] completed: %d ledgers in %v",
+		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
+
+	return result
 }
 
 func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startLedger, endLedger uint32) error {

@@ -115,6 +115,11 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
+	// Create a factory function for parallel backfill (each batch needs its own backend)
+	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
+		return NewLedgerBackend(ctx, cfg)
+	}
+
 	chAccStore := store.NewChannelAccountModel(dbConnectionPool)
 
 	redisStore := cache.NewRedisStore(cfg.RedisHost, cfg.RedisPort, "")
@@ -152,7 +157,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LatestLedgerCursorName, cfg.OldestLedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta)
+		models, cfg.LatestLedgerCursorName, cfg.OldestLedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, ledgerBackendFactory, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
