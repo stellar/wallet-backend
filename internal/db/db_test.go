@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
 )
 
 func TestOpenDBConnectionPool(t *testing.T) {
