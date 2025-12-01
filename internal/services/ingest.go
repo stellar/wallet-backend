@@ -234,84 +234,110 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 	}()
 
-	// Check if account tokens cache is populated
+	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
 
-	// If latestIngestedLedger == 0, then its an empty db. In that case, we get the latest checkpoint ledger
-	// and start from there.
+	// Handle initialization or backfill based on DB state
+	var done bool
 	if latestIngestedLedger == 0 {
-		startLedger, err = m.calculateCheckpointLedger(startLedger)
-		if err != nil {
-			return fmt.Errorf("calculating checkpoint ledger: %w", err)
-		}
-
-		log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
-
-		if populateErr := m.accountTokenService.PopulateAccountTokens(ctx, startLedger); populateErr != nil {
-			return fmt.Errorf("populating account tokens cache: %w", populateErr)
-		}
-
-		// Initialize both cursors to the starting ledger on first run
-		if err := m.initializeCursors(ctx, startLedger); err != nil {
-			return fmt.Errorf("initializing cursors to ledger %d: %w", startLedger, err)
-		}
-		log.Ctx(ctx).Infof("Initialized both cursors to ledger %d", startLedger)
-
-		// Check if we can process any portion in parallel
-		parallelEnd, parallelErr := m.calculateParallelEndLedger(startLedger, endLedger)
-		if parallelErr != nil {
-			return fmt.Errorf("calculating parallel end ledger: %w", parallelErr)
-		}
-
-		if parallelEnd > startLedger {
-			log.Ctx(ctx).Infof("Processing historical range [%d-%d] in parallel", startLedger, parallelEnd)
-
-			if processErr := m.backfillInitialRange(ctx, startLedger, parallelEnd); processErr != nil {
-				return fmt.Errorf("parallel processing [%d-%d]: %w", startLedger, parallelEnd, processErr)
-			}
-
-			// If bounded and fully processed, we're done
-			if endLedger > 0 && endLedger <= parallelEnd {
-				log.Ctx(ctx).Infof("Fully processed bounded range [%d-%d]", startLedger, endLedger)
-				return nil
-			}
-
-			// Continue with sequential for remainder
-			startLedger = parallelEnd + 1
-			log.Ctx(ctx).Infof("Switching to sequential ingestion from ledger %d", startLedger)
-		}
+		startLedger, done, err = m.handleEmptyDatabase(ctx, startLedger, endLedger)
 	} else {
-		// If we already have data ingested, check if we need to backfill historical data
-		if startLedger > 0 && startLedger < latestIngestedLedger {
-			// Backfill only handles gaps BEFORE latestIngestedLedger
-			backfillEnd := endLedger
-			if endLedger == 0 || endLedger > latestIngestedLedger {
-				backfillEnd = latestIngestedLedger
-			}
-			if backfillErr := m.backfillRange(ctx, startLedger, backfillEnd); backfillErr != nil {
-				return fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, backfillEnd, backfillErr)
-			}
-		}
-
-		// If bounded endLedger is already within ingested range, we're done
-		if endLedger > 0 && endLedger <= latestIngestedLedger {
-			log.Ctx(ctx).Infof("Successfully backfilled ledgers from [%d, %d]", startLedger, endLedger)
-			return nil
-		}
-
-		// Continue from next ledger after latest ingested
-		startLedger = latestIngestedLedger + 1
+		startLedger, done, err = m.handleExistingData(ctx, startLedger, endLedger, latestIngestedLedger)
+	}
+	if err != nil {
+		return err
+	}
+	if done {
+		return nil
 	}
 
-	// Ingest from startLedger onwards (bounded or unbounded)
-	err = m.prepareBackendRange(ctx, startLedger, endLedger)
-	if err != nil {
+	// Start sequential ingestion from startLedger onwards (bounded or unbounded)
+	if err := m.prepareBackendRange(ctx, startLedger, endLedger); err != nil {
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
 	return m.ingestRange(ctx, false, startLedger, endLedger)
+}
+
+// handleEmptyDatabase handles initialization when the database has no ingested data.
+// It calculates the checkpoint ledger, populates account tokens, initializes cursors,
+// and optionally processes historical data in parallel.
+// Returns the updated startLedger for sequential processing, whether processing is complete, and any error.
+func (m *ingestService) handleEmptyDatabase(ctx context.Context, startLedger, endLedger uint32) (uint32, bool, error) {
+	checkpointLedger, err := m.calculateCheckpointLedger(startLedger)
+	if err != nil {
+		return 0, false, fmt.Errorf("calculating checkpoint ledger: %w", err)
+	}
+	startLedger = checkpointLedger
+
+	log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
+
+	// err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+	// if err != nil {
+	// 	return 0, false, fmt.Errorf("populating account tokens cache: %w", err)
+	// }
+
+	// Initialize both cursors to the starting ledger on first run
+	err = m.initializeCursors(ctx, startLedger)
+	if err != nil {
+		return 0, false, fmt.Errorf("initializing cursors to ledger %d: %w", startLedger, err)
+	}
+	log.Ctx(ctx).Infof("Initialized both cursors to ledger %d", startLedger)
+
+	// Check if we can process any portion in parallel
+	parallelEnd, err := m.calculateParallelEndLedger(startLedger, endLedger)
+	if err != nil {
+		return 0, false, fmt.Errorf("calculating parallel end ledger: %w", err)
+	}
+
+	if parallelEnd > startLedger {
+		log.Ctx(ctx).Infof("Processing historical range [%d-%d] in parallel", startLedger, parallelEnd)
+
+		if err := m.backfillInitialRange(ctx, startLedger, parallelEnd); err != nil {
+			return 0, false, fmt.Errorf("parallel processing [%d-%d]: %w", startLedger, parallelEnd, err)
+		}
+
+		// If bounded and fully processed, we're done
+		if endLedger > 0 && endLedger <= parallelEnd {
+			log.Ctx(ctx).Infof("Fully processed bounded range [%d-%d]", startLedger, endLedger)
+			return 0, true, nil
+		}
+
+		// Continue with sequential for remainder
+		startLedger = parallelEnd + 1
+		log.Ctx(ctx).Infof("Switching to sequential ingestion from ledger %d", startLedger)
+	}
+
+	return startLedger, false, nil
+}
+
+// handleExistingData handles backfill and continuation when the database already has ingested data.
+// It backfills historical gaps if startLedger < latestIngestedLedger and determines whether
+// the bounded range is already complete.
+// Returns the updated startLedger for sequential processing, whether processing is complete, and any error.
+func (m *ingestService) handleExistingData(ctx context.Context, startLedger, endLedger, latestIngestedLedger uint32) (uint32, bool, error) {
+	// Check if we need to backfill historical data
+	if startLedger > 0 && startLedger < latestIngestedLedger {
+		// Backfill only handles gaps BEFORE latestIngestedLedger
+		backfillEnd := endLedger
+		if endLedger == 0 || endLedger > latestIngestedLedger {
+			backfillEnd = latestIngestedLedger
+		}
+		if err := m.backfillRange(ctx, startLedger, backfillEnd); err != nil {
+			return 0, false, fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, backfillEnd, err)
+		}
+	}
+
+	// If bounded endLedger is already within ingested range, we're done
+	if endLedger > 0 && endLedger <= latestIngestedLedger {
+		log.Ctx(ctx).Infof("Successfully backfilled ledgers from [%d, %d]", startLedger, endLedger)
+		return 0, true, nil
+	}
+
+	// Continue from next ledger after latest ingested
+	return latestIngestedLedger + 1, false, nil
 }
 
 // calculateParallelEndLedger determines how far we can safely process in parallel.
