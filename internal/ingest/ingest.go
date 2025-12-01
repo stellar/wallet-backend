@@ -53,8 +53,8 @@ type Configs struct {
 	RedisHost               string
 	RedisPort               int
 	ServerPort              int
-	LatestLedgerCursorName        string
-	OldestLedgerCursorName        string
+	LatestLedgerCursorName  string
+	OldestLedgerCursorName  string
 	StartLedger             int
 	EndLedger               int
 	LogLevel                logrus.Level

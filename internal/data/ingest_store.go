@@ -14,7 +14,7 @@ import (
 
 type LedgerRange struct {
 	GapStart uint32 `db:"gap_start"`
-	GapEnd uint32 `db:"gap_end"`
+	GapEnd   uint32 `db:"gap_end"`
 }
 type IngestStoreModel struct {
 	DB             db.ConnectionPool
@@ -59,24 +59,26 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx db.Transaction, curs
 	return nil
 }
 
-func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error ){
+func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {
 	const query = `
-		SELECT ledger_number + 1 AS gap_start, next_ledger_number - 1 as gap_end FROM 
-		(
-			SELECT DISTINCT ledger_number FROM LEAD(ledger_number) OVER (ORDER BY ledger_number) AS next_ledger_number
-		) 
-		WHERE ledger_number + 1 <> next_ledger_number
+		SELECT gap_start, gap_end FROM (
+			SELECT
+				ledger_number + 1 AS gap_start,
+				LEAD(ledger_number) OVER (ORDER BY ledger_number) - 1 AS gap_end
+			FROM (SELECT DISTINCT ledger_number FROM transactions) t
+		) gaps
+		WHERE gap_start <= gap_end
 		ORDER BY gap_start
 	`
 	start := time.Now()
 	var ledgerGaps []LedgerRange
-	err := m.DB.GetContext(ctx, &ledgerGaps, query)
+	err := m.DB.SelectContext(ctx, &ledgerGaps, query)
 	duration := time.Since(start).Seconds()
-	m.MetricsService.ObserveDBQueryDuration("GetLedgerGaps", "ingest_store", duration)
+	m.MetricsService.ObserveDBQueryDuration("GetLedgerGaps", "transactions", duration)
 	if err != nil {
-		m.MetricsService.IncDBQueryError("GetLedgerGaps", "ingest_store", utils.GetDBErrorType(err))
+		m.MetricsService.IncDBQueryError("GetLedgerGaps", "transactions", utils.GetDBErrorType(err))
 		return nil, fmt.Errorf("getting ledger gaps: %w", err)
 	}
-	m.MetricsService.IncDBQuery("UpdateLatestLedgerSynced", "ingest_store")
+	m.MetricsService.IncDBQuery("GetLedgerGaps", "transactions")
 	return ledgerGaps, nil
 }
