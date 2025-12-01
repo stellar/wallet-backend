@@ -53,7 +53,8 @@ type Configs struct {
 	RedisHost               string
 	RedisPort               int
 	ServerPort              int
-	LedgerCursorName        string
+	LatestLedgerCursorName        string
+	OldestLedgerCursorName        string
 	StartLedger             int
 	EndLedger               int
 	LogLevel                logrus.Level
@@ -151,7 +152,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(
-		models, cfg.LedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta)
+		models, cfg.LatestLedgerCursorName, cfg.OldestLedgerCursorName, cfg.AccountTokensCursorName, cfg.AppTracker, rpcService, ledgerBackend, chAccStore, accountTokenService, contractMetadataService, metricsService, cfg.GetLedgersLimit, cfg.Network, cfg.NetworkPassphrase, archive, cfg.SkipTxMeta)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
