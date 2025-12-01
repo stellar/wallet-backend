@@ -43,7 +43,7 @@ func TestGetLedgerTransactions(t *testing.T) {
 	mockChAccStore := &store.ChannelAccountStoreMock{}
 	mockLedgerBackend := &LedgerBackendMock{}
 	mockArchive := &HistoryArchiveMock{}
-	ingestService, err := NewIngestService(models, "ingestionLedger", "oldestIngestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false)
+	ingestService, err := NewIngestService(models, "ingestionLedger", "oldestIngestionLedger", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, nil, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false)
 	require.NoError(t, err)
 	t.Run("all_ledger_transactions_in_single_gettransactions_call", func(t *testing.T) {
 		defer mockMetricsService.AssertExpectations(t)
@@ -227,7 +227,7 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 			mockChAccStore := &store.ChannelAccountStoreMock{}
 			mockLedgerBackend := &LedgerBackendMock{}
 			mockArchive := &HistoryArchiveMock{}
-			ingestService, err := NewIngestService(models, "testCursor", "oldestTestCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false)
+			ingestService, err := NewIngestService(models, "testCursor", "oldestTestCursor", "accountTokensCursor", &mockAppTracker, &mockRPCService, mockLedgerBackend, nil, mockChAccStore, nil, nil, mockMetricsService, defaultGetLedgersLimit, network.TestNetworkPassphrase, network.TestNetworkPassphrase, mockArchive, false)
 			require.NoError(t, err)
 
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
@@ -250,6 +250,84 @@ func Test_ingestService_getLedgerTransactions(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+func Test_splitGapsIntoBatches(t *testing.T) {
+	testCases := []struct {
+		name       string
+		gaps       []data.LedgerRange
+		batchSize  uint32
+		wantResult []BackfillBatch
+	}{
+		{
+			name:       "empty_gaps",
+			gaps:       []data.LedgerRange{},
+			batchSize:  100,
+			wantResult: nil,
+		},
+		{
+			name: "single_gap_smaller_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 150},
+			},
+			batchSize: 100,
+			wantResult: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 150},
+			},
+		},
+		{
+			name: "single_gap_exactly_batch_size",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 199},
+			},
+			batchSize: 100,
+			wantResult: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+			},
+		},
+		{
+			name: "single_gap_larger_than_batch",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 350},
+			},
+			batchSize: 100,
+			wantResult: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 199},
+				{StartLedger: 200, EndLedger: 299},
+				{StartLedger: 300, EndLedger: 350},
+			},
+		},
+		{
+			name: "multiple_gaps",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 150},
+				{GapStart: 500, GapEnd: 650},
+			},
+			batchSize: 100,
+			wantResult: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 150},
+				{StartLedger: 500, EndLedger: 599},
+				{StartLedger: 600, EndLedger: 650},
+			},
+		},
+		{
+			name: "single_ledger_gap",
+			gaps: []data.LedgerRange{
+				{GapStart: 100, GapEnd: 100},
+			},
+			batchSize: 100,
+			wantResult: []BackfillBatch{
+				{StartLedger: 100, EndLedger: 100},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := splitGapsIntoBatches(tc.gaps, tc.batchSize)
+			assert.Equal(t, tc.wantResult, result)
 		})
 	}
 }
