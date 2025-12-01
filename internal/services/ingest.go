@@ -47,7 +47,8 @@ var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
 	models                  *data.Models
-	ledgerCursorName        string
+	latestLedgerCursorName        string
+	oldestLedgerCursorName        string
 	accountTokensCursorName string
 	advisoryLockID          int
 	appTracker              apptracker.AppTracker
@@ -66,7 +67,8 @@ type ingestService struct {
 
 func NewIngestService(
 	models *data.Models,
-	ledgerCursorName string,
+	latestLedgerCursorName string,
+	oldestLedgerCursorName string,
 	accountTokensCursorName string,
 	appTracker apptracker.AppTracker,
 	rpcService RPCService,
@@ -87,7 +89,8 @@ func NewIngestService(
 
 	return &ingestService{
 		models:                  models,
-		ledgerCursorName:        ledgerCursorName,
+		latestLedgerCursorName:        latestLedgerCursorName,
+		oldestLedgerCursorName:        oldestLedgerCursorName,
 		accountTokensCursorName: accountTokensCursorName,
 		advisoryLockID:          generateAdvisoryLockID(network),
 		appTracker:              appTracker,
@@ -120,7 +123,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}()
 
 	// Check if account tokens cache is populated
-	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.ledgerCursorName)
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
@@ -144,21 +147,105 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		if startLedger == 0 || startLedger >= latestIngestedLedger {
 			startLedger = latestIngestedLedger + 1
 		} else {
-			// If start ledger is some value less than latest ingested ledger, we go into backfilling mode. In this mode
-			// we dont update the account token cache (since it is already populated with recent checkpoint ledger) and we dont
-			// update the latest ledger ingested cursor.
-			// NOTE: Currently we dont have the functionality of detecting gaps and intelligently backfilling so we would process the same
-			// ledgers again during backfilling. However the db insertions have ON CONFLICT DO NOTHING, so we would not do repeated insertions
-			m.backfillMode = true
+			// We will build the gap ranges and backfill data accordingly
+			err := m.backfillGaps(ctx, startLedger, endLedger)
+			if err != nil {
+				return fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, endLedger, err)
+			}
 		}
 	}
 
-	// Prepare backend range
-	err = m.prepareBackendRange(ctx, startLedger, endLedger)
+	// Once we have backfilled old data, we can do live ingestion
+	err = m.prepareBackendRange(ctx, latestIngestedLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("preparing backend range: %w", err)
 	}
 
+	return m.ingestRange(ctx, false, latestIngestedLedger, endLedger)
+}
+
+func (m *ingestService) backfillGaps(ctx context.Context, startLedger, endLedger uint32) error {
+	// Get latest and oldest ledgers ingested
+	latestIngestLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
+	if err != nil {
+		return fmt.Errorf("getting latest ingest ledger: %w", err)
+	}
+	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
+	if err != nil {
+		return fmt.Errorf("getting oldest ingest ledger: %w", err)
+	}
+
+	newGaps := make([]data.LedgerRange, 0)
+	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
+	if err != nil {
+		return fmt.Errorf("calculating gaps in ledger range: %w", err)
+	}
+	switch {
+	case endLedger < oldestIngestedLedger:
+		newGaps = append(newGaps, data.LedgerRange{
+			GapStart: startLedger,
+			GapEnd: endLedger,
+		})
+	case startLedger < oldestIngestedLedger && endLedger < latestIngestLedger:
+		newGaps = append(newGaps, data.LedgerRange{
+			GapStart: startLedger,
+			GapEnd: oldestIngestedLedger - 1,
+		})
+
+		for _, gap := range currentGaps {
+			if gap.GapStart <= endLedger && endLedger <= gap.GapEnd {
+				newGaps = append(newGaps, data.LedgerRange{
+					GapStart: gap.GapStart,
+					GapEnd: endLedger,
+				})
+				break
+			} else {
+				newGaps = append(newGaps, gap)
+			}
+		}
+	case oldestIngestedLedger < startLedger && endLedger < latestIngestLedger:
+		gapStartIdx := 0
+		gapEndIdx := 0
+		for i, gap := range currentGaps {
+			if gap.GapStart <= startLedger && startLedger <= gap.GapEnd {
+				gapStartIdx = i
+			}
+			if gap.GapStart <= endLedger && endLedger <= gap.GapEnd {
+				gapEndIdx = i
+				break
+			}
+		}
+		newGaps = append(newGaps, currentGaps[gapStartIdx:gapEndIdx+1]...)
+	case latestIngestLedger < endLedger:
+		gapStartIdx := 0
+		for i, gap := range currentGaps {
+			if gap.GapStart <= startLedger && startLedger <= gap.GapEnd {
+				gapStartIdx = i
+				break
+			}
+		}
+		newGaps = append(newGaps, currentGaps[gapStartIdx:]...)
+		newGaps = append(newGaps, data.LedgerRange{
+			GapStart: latestIngestLedger + 1,
+			GapEnd: endLedger,
+		})
+	}
+
+	for _, gap := range newGaps {
+		err := m.prepareBackendRange(ctx, gap.GapStart, gap.GapEnd)
+		if err != nil {
+			return fmt.Errorf("preparing backend range from %d to %d: %w", gap.GapStart, gap.GapEnd, err)
+		}
+		err = m.ingestRange(ctx, true, gap.GapStart, gap.GapEnd)
+		if err != nil {
+			return fmt.Errorf("ingesting range from %d to %d: %w", gap.GapStart, gap.GapEnd, err)
+		}
+	}
+
+	return nil
+}
+
+func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startLedger, endLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
 	for endLedger == 0 || currentLedger < endLedger {
@@ -180,7 +267,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		}
 
 		// Update cursor only for live ingestion
-		if !m.backfillMode {
+		if !isBackfill {
 			err := m.updateCursor(ctx, currentLedger)
 			if err != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
@@ -191,18 +278,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
 		currentLedger++
-
-		// Once we have backfilled data and caught up to the tip, we should set the backfill mode to
-		// false. This is because when backfilling data, we are not updating the latest ledger cursor
-		// and not processing any account token cache changes. Remember that the account token cache was
-		// already populated using a more recent checkpoint ledger so we dont need to process older data.
-		if m.backfillMode && currentLedger > latestIngestedLedger {
-			m.backfillMode = false
-		}
-		if endLedger > 0 && currentLedger > endLedger {
-			log.Ctx(ctx).Infof("Backfill complete: processed ledgers %d to %d", startLedger, endLedger)
-			return nil
-		}
 	}
 	return nil
 }
@@ -210,7 +285,7 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
 	cursorStart := time.Now()
 	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.ledgerCursorName, currentLedger); updateErr != nil {
+		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); updateErr != nil {
 			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
 		}
 		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
@@ -224,7 +299,6 @@ func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) 
 }
 
 // prepareBackendRange prepares the ledger backend with the appropriate range type.
-// Returns the operating mode (live streaming vs backfill).
 func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
 	var ledgerRange ledgerbackend.Range
 	if endLedger == 0 {
