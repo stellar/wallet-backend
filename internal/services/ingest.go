@@ -78,6 +78,49 @@ type batchAnalysis struct {
 	totalLedgers  int
 }
 
+// backfillConfig holds configuration for a backfill operation.
+type backfillConfig struct {
+	gaps          []data.LedgerRange
+	cursorName    string
+	cursorValue   uint32
+	updateCursor  bool   // whether to update cursor on success
+	operationName string // for logging (e.g., "initial range [100-200]" or "historical backfill [50-99]")
+}
+
+// processBackfillWithConfig executes backfill processing with the given configuration.
+// It splits gaps into batches, processes them in parallel, and optionally updates the cursor.
+func (m *ingestService) processBackfillWithConfig(ctx context.Context, cfg backfillConfig) error {
+	batches := splitGapsIntoBatches(cfg.gaps, BackfillBatchSize)
+	if len(batches) == 0 {
+		return nil
+	}
+
+	log.Ctx(ctx).Infof("Processing %s: %d batches (batch size: %d ledgers)",
+		cfg.operationName, len(batches), BackfillBatchSize)
+
+	startTime := time.Now()
+	results := m.processBackfillBatchesParallel(ctx, batches)
+	wallClockDuration := time.Since(startTime)
+
+	analysis := analyzeBatchResults(ctx, results)
+
+	if len(analysis.failedBatches) > 0 {
+		return fmt.Errorf("%s failed: %d/%d batches failed",
+			cfg.operationName, len(analysis.failedBatches), len(batches))
+	}
+
+	// Update cursor on success if configured
+	if cfg.updateCursor {
+		if err := m.updateSingleCursor(ctx, cfg.cursorName, cfg.cursorValue); err != nil {
+			return fmt.Errorf("updating cursor: %w", err)
+		}
+	}
+
+	log.Ctx(ctx).Infof("%s completed in %v: %d batches, %d ledgers",
+		cfg.operationName, wallClockDuration, analysis.successCount, analysis.totalLedgers)
+	return nil
+}
+
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
 func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
 	var analysis batchAnalysis
@@ -298,38 +341,20 @@ func (m *ingestService) calculateParallelEndLedger(startLedger, endLedger uint32
 	return safeHistoricalEnd, nil
 }
 
-// backfillInitialRangeParallel backfills a ledger range in parallel for empty DB initialization.
-// Updates cursors after successful completion.
+// backfillInitialRange backfills a ledger range in parallel for empty DB initialization.
+// Updates the latest cursor after successful completion.
 func (m *ingestService) backfillInitialRange(ctx context.Context, startLedger, endLedger uint32) error {
-	gaps := []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}}
-	batches := m.splitGapsIntoBatches(gaps, BackfillBatchSize)
-	if len(batches) == 0 {
-		return nil
-	}
-
-	log.Ctx(ctx).Infof("Processing initial range [%d-%d] in parallel: %d batches",
-		startLedger, endLedger, len(batches))
-
-	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, batches)
-	wallClockDuration := time.Since(startTime)
-
-	analysis := analyzeBatchResults(ctx, results)
-	if len(analysis.failedBatches) > 0 {
-		return fmt.Errorf("parallel processing failed: %d/%d batches failed",
-			len(analysis.failedBatches), len(batches))
-	}
-
-	// Update latest cursor after successful completion
-	if err := m.updateSingleCursor(ctx, m.latestLedgerCursorName, endLedger); err != nil {
-		return fmt.Errorf("updating cursor: %w", err)
-	}
-
-	log.Ctx(ctx).Infof("Parallel processing completed in %v: %d batches, %d ledgers",
-		wallClockDuration, analysis.successCount, analysis.totalLedgers)
-	return nil
+	return m.processBackfillWithConfig(ctx, backfillConfig{
+		gaps:          []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}},
+		cursorName:    m.latestLedgerCursorName,
+		cursorValue:   endLedger,
+		updateCursor:  true,
+		operationName: fmt.Sprintf("initial range [%d-%d]", startLedger, endLedger),
+	})
 }
 
+// backfillRange backfills historical gaps in the ledger data.
+// Updates the oldest cursor if startLedger is before the previously oldest ingested ledger.
 func (m *ingestService) backfillRange(ctx context.Context, startLedger, endLedger uint32) error {
 	// Get oldest ledger ingested (endLedger <= latestIngestedLedger is guaranteed by caller)
 	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
@@ -344,33 +369,13 @@ func (m *ingestService) backfillRange(ctx context.Context, startLedger, endLedge
 
 	newGaps := m.calculateBackfillGaps(startLedger, endLedger, oldestIngestedLedger, currentGaps)
 
-	// Split gaps into batches for parallel processing
-	batches := m.splitGapsIntoBatches(newGaps, BackfillBatchSize)
-	if len(batches) == 0 {
-		return nil
-	}
-	log.Ctx(ctx).Infof("Backfilling %d batches (batch size: %d ledgers)", len(batches), BackfillBatchSize)
-
-	// Process batches in parallel
-	results := m.processBackfillBatchesParallel(ctx, batches)
-	analysis := analyzeBatchResults(ctx, results)
-
-	// Update oldest cursor only if ALL batches succeeded
-	if len(analysis.failedBatches) == 0 && startLedger < oldestIngestedLedger {
-		if err := m.updateSingleCursor(ctx, m.oldestLedgerCursorName, startLedger); err != nil {
-			return fmt.Errorf("updating oldest cursor: %w", err)
-		}
-		log.Ctx(ctx).Infof("Updated oldest ingested ledger cursor to %d", startLedger)
-	}
-
-	log.Ctx(ctx).Infof("Backfill completed: %d/%d batches succeeded, %d ledgers processed",
-		analysis.successCount, len(batches), analysis.totalLedgers)
-
-	if len(analysis.failedBatches) > 0 {
-		return fmt.Errorf("backfill completed with %d failed batches", len(analysis.failedBatches))
-	}
-
-	return nil
+	return m.processBackfillWithConfig(ctx, backfillConfig{
+		gaps:          newGaps,
+		cursorName:    m.oldestLedgerCursorName,
+		cursorValue:   startLedger,
+		updateCursor:  startLedger < oldestIngestedLedger,
+		operationName: fmt.Sprintf("historical backfill [%d-%d]", startLedger, endLedger),
+	})
 }
 
 // calculateBackfillGaps determines which ledger ranges need to be backfilled based on
@@ -433,7 +438,7 @@ func (m *ingestService) calculateBackfillGaps(startLedger, endLedger, oldestInge
 }
 
 // splitGapsIntoBatches divides ledger gaps into fixed-size batches for parallel processing.
-func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
+func splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
 	var batches []BackfillBatch
 
 	for _, gap := range gaps {
