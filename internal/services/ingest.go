@@ -43,10 +43,6 @@ func generateAdvisoryLockID(network string) int {
 // BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
 const BackfillBatchSize uint32 = 250
 
-// HistoricalBufferLedgers is the number of ledgers to keep before latestRPCLedger
-// to avoid racing with live finalization during parallel processing.
-const HistoricalBufferLedgers uint32 = 5
-
 // maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
 const maxLedgerFetchRetries = 10
 
@@ -642,32 +638,34 @@ func (m *ingestService) insertParticipants(ctx context.Context, dbTx db.Transact
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
+// Uses COPY protocol for better performance.
 func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, buffer indexer.IndexerBufferInterface) error {
 	txs := buffer.GetTransactions()
 	if len(txs) == 0 {
 		return nil
 	}
 	stellarAddressesByTxHash := buffer.GetTransactionsParticipants()
-	insertedHashes, err := m.models.Transactions.BatchInsert(ctx, dbTx, txs, stellarAddressesByTxHash)
+	insertedCount, err := m.models.Transactions.BatchInsertCopy(ctx, dbTx, txs, stellarAddressesByTxHash)
 	if err != nil {
-		return fmt.Errorf("batch inserting transactions: %w", err)
+		return fmt.Errorf("COPY inserting transactions: %w", err)
 	}
-	log.Ctx(ctx).Infof("✅ inserted %d transactions", len(insertedHashes))
+	log.Ctx(ctx).Infof("✅ inserted %d transactions", insertedCount)
 	return nil
 }
 
 // insertOperations batch inserts operations with their participants into the database.
+// Uses COPY protocol for better performance.
 func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, buffer indexer.IndexerBufferInterface) error {
 	ops := buffer.GetOperations()
 	if len(ops) == 0 {
 		return nil
 	}
 	stellarAddressesByOpID := buffer.GetOperationsParticipants()
-	insertedOpIDs, err := m.models.Operations.BatchInsert(ctx, dbTx, ops, stellarAddressesByOpID)
+	insertedCount, err := m.models.Operations.BatchInsertCopy(ctx, dbTx, ops, stellarAddressesByOpID)
 	if err != nil {
-		return fmt.Errorf("batch inserting operations: %w", err)
+		return fmt.Errorf("COPY inserting operations: %w", err)
 	}
-	log.Ctx(ctx).Infof("✅ inserted %d operations", len(insertedOpIDs))
+	log.Ctx(ctx).Infof("✅ inserted %d operations", insertedCount)
 	return nil
 }
 

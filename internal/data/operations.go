@@ -7,6 +7,7 @@ import (
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -345,4 +346,97 @@ func (m *OperationModel) BatchInsert(
 	}
 
 	return insertedIDs, nil
+}
+
+// BatchInsertCopy inserts operations using PostgreSQL COPY protocol for better performance.
+// This method is optimized for backfill operations where duplicates are not expected.
+// It uses direct COPY to the target tables without conflict handling.
+func (m *OperationModel) BatchInsertCopy(
+	ctx context.Context,
+	dbTx db.Transaction,
+	operations []types.Operation,
+	stellarAddressesByOpID map[int64]set.Set[string],
+) (int, error) {
+	if len(operations) == 0 {
+		return 0, nil
+	}
+
+	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
+	sqlxTx, ok := dbTx.(*sqlx.Tx)
+	if !ok {
+		return 0, fmt.Errorf("expected *sqlx.Tx, got %T", dbTx)
+	}
+
+	start := time.Now()
+
+	// COPY operations
+	opStmt, err := sqlxTx.Prepare(pq.CopyIn("operations",
+		"id", "tx_hash", "operation_type", "operation_xdr",
+		"ledger_number", "ledger_created_at",
+	))
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("preparing COPY statement for operations: %w", err)
+	}
+	defer func() { _ = opStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
+
+	for _, op := range operations {
+		_, err = opStmt.Exec(
+			op.ID,
+			op.TxHash,
+			string(op.OperationType),
+			op.OperationXDR,
+			int(op.LedgerNumber),
+			op.LedgerCreatedAt,
+		)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("COPY exec for operation: %w", err)
+		}
+	}
+
+	// Flush the COPY buffer for operations
+	_, err = opStmt.Exec()
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations", utils.GetDBErrorType(err))
+		return 0, fmt.Errorf("flushing COPY buffer for operations: %w", err)
+	}
+
+	// COPY operations_accounts
+	if len(stellarAddressesByOpID) > 0 {
+		oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
+			"operation_id", "account_id",
+		))
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("preparing COPY statement for operations_accounts: %w", err)
+		}
+		defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
+
+		for opID, addresses := range stellarAddressesByOpID {
+			for address := range addresses.Iter() {
+				_, err = oaStmt.Exec(opID, address)
+				if err != nil {
+					m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+					return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
+				}
+			}
+		}
+
+		// Flush the COPY buffer for operations_accounts
+		_, err = oaStmt.Exec()
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+			return 0, fmt.Errorf("flushing COPY buffer for operations_accounts: %w", err)
+		}
+
+		m.MetricsService.IncDBQuery("BatchInsertCopy", "operations_accounts")
+	}
+
+	duration := time.Since(start).Seconds()
+	m.MetricsService.ObserveDBQueryDuration("BatchInsertCopy", "operations", duration)
+	m.MetricsService.ObserveDBBatchSize("BatchInsertCopy", "operations", len(operations))
+	m.MetricsService.IncDBQuery("BatchInsertCopy", "operations")
+
+	return len(operations), nil
 }
