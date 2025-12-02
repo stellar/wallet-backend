@@ -410,7 +410,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Process each ledger in the batch sequentially
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := m.getLedgerWithRetry(ctx, ledgerSeq)
+		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
 		if err != nil {
 			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
@@ -437,7 +437,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 // getLedgerWithRetry fetches a ledger with exponential backoff retry logic.
 // It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
-func (m *ingestService) getLedgerWithRetry(ctx context.Context, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
+func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
 		select {
@@ -446,7 +446,7 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, ledgerSeq uint32
 		default:
 		}
 
-		ledgerMeta, err := m.ledgerBackend.GetLedger(ctx, ledgerSeq)
+		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
 		if err == nil {
 			return ledgerMeta, nil
 		}
@@ -473,7 +473,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 	for {
 		totalStart := time.Now()
-		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, currentLedger)
+		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
 		if ledgerErr != nil {
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
@@ -536,7 +536,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
 			return fmt.Errorf("initializing latest cursor: %w", err)
 		}
-		if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
 			return fmt.Errorf("initializing oldest cursor: %w", err)
 		}
 		return nil
