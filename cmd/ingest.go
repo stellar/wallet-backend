@@ -37,6 +37,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.RedisHostOption(&cfg.RedisHost),
 		utils.RedisPortOption(&cfg.RedisPort),
 		{
+			Name:        "ingestion-mode",
+			Usage:       "What mode to run ingestion in - live or backfill",
+			OptType:     types.String,
+			ConfigKey:   &cfg.IngestionMode,
+			FlagDefault: string(ingest.IngestionModeLive),
+			Required:    true,
+		},
+		{
 			Name:        "latest-ledger-cursor-name",
 			Usage:       "Name of last synced ledger cursor, used to keep track of the last ledger ingested by the service. When starting up, ingestion will resume from the ledger number stored in this record. It should be an unique name per container as different containers would overwrite the cursor value of its peers when using the same cursor name.",
 			OptType:     types.String,

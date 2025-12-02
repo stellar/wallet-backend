@@ -35,11 +35,15 @@ const (
 // LedgerBackendType represents the type of ledger backend to use
 type LedgerBackendType string
 
+type IngestionMode string
+
 const (
 	// LedgerBackendTypeRPC uses RPC to fetch ledgers
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	IngestionModeLive IngestionMode = "live"
+	IngestionModeBackfill IngestionMode = "backfill"
 )
 
 // StorageBackendConfig holds configuration for the datastore-based ledger backend
@@ -49,6 +53,7 @@ type StorageBackendConfig struct {
 }
 
 type Configs struct {
+	IngestionMode string
 	DatabaseURL             string
 	RedisHost               string
 	RedisPort               int
@@ -157,6 +162,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
+		IngestionMode: cfg.IngestionMode,
 		Models:                  models,
 		LatestLedgerCursorName:  cfg.LatestLedgerCursorName,
 		OldestLedgerCursorName:  cfg.OldestLedgerCursorName,
