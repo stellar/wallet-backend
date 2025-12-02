@@ -12,8 +12,6 @@ CREATE TABLE transactions (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_transactions_ledger_created_at ON transactions(ledger_created_at);
-
 -- Table: transactions_accounts
 CREATE TABLE transactions_accounts (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,

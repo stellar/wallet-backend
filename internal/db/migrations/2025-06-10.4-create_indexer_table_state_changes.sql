@@ -29,11 +29,6 @@ CREATE TABLE state_changes (
     PRIMARY KEY (to_id, state_change_order)
 );
 
-CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
-CREATE INDEX idx_state_changes_tx_hash ON state_changes(tx_hash);
-CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
-CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
-
 
 -- +migrate Down
 

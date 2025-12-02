@@ -11,10 +11,6 @@ CREATE TABLE operations (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_operations_tx_hash ON operations(tx_hash);
-CREATE INDEX idx_operations_operation_type ON operations(operation_type);
-CREATE INDEX idx_operations_ledger_created_at ON operations(ledger_created_at);
-
 -- Table: operations_accounts
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
