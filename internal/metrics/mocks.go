@@ -166,3 +166,60 @@ func (m *MockMetricsService) ObserveGraphQLComplexity(operationName string, comp
 func (m *MockMetricsService) IncGraphQLError(operationName, errorType string) {
 	m.Called(operationName, errorType)
 }
+
+// Backfill Metrics
+func (m *MockMetricsService) SetBackfillStartLedger(instance string, ledger uint32) {
+	m.Called(instance, ledger)
+}
+
+func (m *MockMetricsService) SetBackfillEndLedger(instance string, ledger uint32) {
+	m.Called(instance, ledger)
+}
+
+func (m *MockMetricsService) SetBackfillCurrentLedger(instance string, ledger uint32) {
+	m.Called(instance, ledger)
+}
+
+func (m *MockMetricsService) SetBackfillBatchesTotal(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillBatchesCompleted(instance string) {
+	m.Called(instance)
+}
+
+func (m *MockMetricsService) IncBackfillBatchesFailed(instance string) {
+	m.Called(instance)
+}
+
+func (m *MockMetricsService) ObserveBackfillPhaseDuration(instance string, phase string, duration float64) {
+	m.Called(instance, phase, duration)
+}
+
+func (m *MockMetricsService) IncBackfillLedgersProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillTransactionsProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillOperationsProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) IncBackfillRetries(instance string) {
+	m.Called(instance)
+}
+
+func (m *MockMetricsService) ObserveBackfillBatchSize(instance string, size int) {
+	m.Called(instance, size)
+}
+
+func (m *MockMetricsService) ObserveBackfillBatchLedgersProcessed(instance string, count int) {
+	m.Called(instance, count)
+}
+
+func (m *MockMetricsService) ObserveBackfillDuration(instance string, duration float64) {
+	m.Called(instance, duration)
+}
