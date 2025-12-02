@@ -3,6 +3,10 @@
 -- =============================================================================
 -- STEP 1: Drop foreign key constraints that reference the tables we're converting
 -- TimescaleDB hypertables have limitations with foreign keys pointing TO them
+--
+-- Note: The transactions_accounts and operations_accounts tables no longer have
+-- foreign keys to the accounts table - those were removed in the base schema
+-- to allow recording all transaction participants.
 -- =============================================================================
 
 -- Drop FK from transactions_accounts to transactions
@@ -19,12 +23,6 @@ ALTER TABLE state_changes DROP CONSTRAINT IF EXISTS state_changes_tx_hash_fkey;
 
 -- Drop FK from state_changes to accounts
 ALTER TABLE state_changes DROP CONSTRAINT IF EXISTS state_changes_account_id_fkey;
-
--- Drop FK from transactions_accounts to accounts (to allow recording all participants)
-ALTER TABLE transactions_accounts DROP CONSTRAINT IF EXISTS transactions_accounts_account_id_fkey;
-
--- Drop FK from operations_accounts to accounts (to allow recording all participants)
-ALTER TABLE operations_accounts DROP CONSTRAINT IF EXISTS operations_accounts_account_id_fkey;
 
 -- =============================================================================
 -- STEP 2: Modify primary keys to include time dimension for hypertables
@@ -240,9 +238,3 @@ ALTER TABLE state_changes ADD CONSTRAINT state_changes_tx_hash_fkey
 
 ALTER TABLE state_changes ADD CONSTRAINT state_changes_account_id_fkey
     FOREIGN KEY (account_id) REFERENCES accounts(stellar_address);
-
-ALTER TABLE transactions_accounts ADD CONSTRAINT transactions_accounts_account_id_fkey
-    FOREIGN KEY (account_id) REFERENCES accounts(stellar_address) ON DELETE CASCADE;
-
-ALTER TABLE operations_accounts ADD CONSTRAINT operations_accounts_account_id_fkey
-    FOREIGN KEY (account_id) REFERENCES accounts(stellar_address) ON DELETE CASCADE;
