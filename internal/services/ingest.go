@@ -78,49 +78,6 @@ type batchAnalysis struct {
 	totalLedgers  int
 }
 
-// backfillConfig holds configuration for a backfill operation.
-type backfillConfig struct {
-	gaps          []data.LedgerRange
-	cursorName    string
-	cursorValue   uint32
-	updateCursor  bool   // whether to update cursor on success
-	operationName string // for logging (e.g., "initial range [100-200]" or "historical backfill [50-99]")
-}
-
-// processBackfillWithConfig executes backfill processing with the given configuration.
-// It splits gaps into batches, processes them in parallel, and optionally updates the cursor.
-func (m *ingestService) processBackfillWithConfig(ctx context.Context, cfg backfillConfig) error {
-	batches := splitGapsIntoBatches(cfg.gaps, BackfillBatchSize)
-	if len(batches) == 0 {
-		return nil
-	}
-
-	log.Ctx(ctx).Infof("Processing %s: %d batches (batch size: %d ledgers)",
-		cfg.operationName, len(batches), BackfillBatchSize)
-
-	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, batches)
-	wallClockDuration := time.Since(startTime)
-
-	analysis := analyzeBatchResults(ctx, results)
-
-	if len(analysis.failedBatches) > 0 {
-		return fmt.Errorf("%s failed: %d/%d batches failed",
-			cfg.operationName, len(analysis.failedBatches), len(batches))
-	}
-
-	// Update cursor on success if configured
-	if cfg.updateCursor {
-		if err := m.updateSingleCursor(ctx, cfg.cursorName, cfg.cursorValue); err != nil {
-			return fmt.Errorf("updating cursor: %w", err)
-		}
-	}
-
-	log.Ctx(ctx).Infof("%s completed in %v: %d batches, %d ledgers",
-		cfg.operationName, wallClockDuration, analysis.successCount, analysis.totalLedgers)
-	return nil
-}
-
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
 func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAnalysis {
 	var analysis batchAnalysis
@@ -146,6 +103,7 @@ var _ IngestService = (*ingestService)(nil)
 
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
+	IngestionMode string
 	Models                  *data.Models
 	LatestLedgerCursorName  string
 	OldestLedgerCursorName  string
@@ -166,6 +124,7 @@ type IngestServiceConfig struct {
 }
 
 type ingestService struct {
+	ingestionMode string
 	models                  *data.Models
 	latestLedgerCursorName  string
 	oldestLedgerCursorName  string
@@ -198,6 +157,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
+		ingestionMode: cfg.IngestionMode,
 		models:                  cfg.Models,
 		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
 		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
@@ -221,6 +181,17 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 }
 
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+	switch m.ingestionMode {
+	case "live":
+		return m.startLiveIngestion(ctx)
+	case "backfill":
+		return m.startBackfilling(ctx, startLedger, endLedger)
+	default:
+		return fmt.Errorf("wrong ingestion mode: %s", m.ingestionMode)
+	}
+}
+
+func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
 		return fmt.Errorf("acquiring advisory lock: %w", err)
@@ -240,195 +211,100 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
 
-	// Handle initialization or backfill based on DB state
-	var done bool
+	startLedger := latestIngestedLedger + 1
 	if latestIngestedLedger == 0 {
-		startLedger, done, err = m.handleEmptyDatabase(ctx, startLedger, endLedger)
-	} else {
-		startLedger, done, err = m.handleExistingData(ctx, startLedger, endLedger, latestIngestedLedger)
+		startLedger, err = m.archive.GetLatestLedgerSequence()
+		if err != nil {
+			return fmt.Errorf("getting latest ledger sequence: %w", err)
+		}
+
+		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("populating account tokens cache: %w", err)
+		}
+
+		err := m.initializeCursors(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("initializing cursors: %w", err)
+		}
 	}
+
+	// Start unbounded ingestion from latest ledger ingested onwards
+	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
+	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
+		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
+	}
+	return m.ingestLiveLedgers(ctx, startLedger)
+}
+
+func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32) error {
+	if startLedger > endLedger {
+		return fmt.Errorf("start ledger cannot be greater than end ledger")
+	}
+
+	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
-		return err
+		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
 	}
-	if done {
+	if endLedger > latestIngestedLedger {
+		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
+	}
+
+	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
+	if err != nil {
+		return fmt.Errorf("calculating backfill gaps: %w", err)
+	}
+	if len(gaps) == 0 {
+		log.Ctx(ctx).Infof("No gaps to backfill in range [%d - %d]", startLedger, endLedger)
 		return nil
 	}
 
-	// Start sequential ingestion from startLedger onwards (bounded or unbounded)
-	if err := m.prepareBackendRange(ctx, startLedger, endLedger); err != nil {
-		return fmt.Errorf("preparing backend range: %w", err)
-	}
-	return m.ingestRange(ctx, false, startLedger, endLedger)
-}
+	backfillBatches := m.splitGapsIntoBatches(gaps, BackfillBatchSize)
+	startTime := time.Now()
+	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
+	duration := time.Since(startTime)
 
-// handleEmptyDatabase handles initialization when the database has no ingested data.
-// It calculates the checkpoint ledger, populates account tokens, initializes cursors,
-// and optionally processes historical data in parallel.
-// Returns the updated startLedger for sequential processing, whether processing is complete, and any error.
-func (m *ingestService) handleEmptyDatabase(ctx context.Context, startLedger, endLedger uint32) (uint32, bool, error) {
-	checkpointLedger, err := m.calculateCheckpointLedger(startLedger)
-	if err != nil {
-		return 0, false, fmt.Errorf("calculating checkpoint ledger: %w", err)
-	}
-	startLedger = checkpointLedger
-
-	log.Ctx(ctx).Infof("Account tokens cache not populated, using checkpoint ledger: %d", startLedger)
-
-	// err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
-	// if err != nil {
-	// 	return 0, false, fmt.Errorf("populating account tokens cache: %w", err)
-	// }
-
-	// Initialize both cursors to the starting ledger on first run
-	err = m.initializeCursors(ctx, startLedger)
-	if err != nil {
-		return 0, false, fmt.Errorf("initializing cursors to ledger %d: %w", startLedger, err)
-	}
-	log.Ctx(ctx).Infof("Initialized both cursors to ledger %d", startLedger)
-
-	// Check if we can process any portion in parallel
-	parallelEnd, err := m.calculateParallelEndLedger(startLedger, endLedger)
-	if err != nil {
-		return 0, false, fmt.Errorf("calculating parallel end ledger: %w", err)
+	analysis := analyzeBatchResults(ctx, results)
+	if len(analysis.failedBatches) > 0 {
+		return fmt.Errorf("Backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
 	}
 
-	if parallelEnd > startLedger {
-		log.Ctx(ctx).Infof("Processing historical range [%d-%d] in parallel", startLedger, parallelEnd)
-
-		if err := m.backfillInitialRange(ctx, startLedger, parallelEnd); err != nil {
-			return 0, false, fmt.Errorf("parallel processing [%d-%d]: %w", startLedger, parallelEnd, err)
-		}
-
-		// If bounded and fully processed, we're done
-		if endLedger > 0 && endLedger <= parallelEnd {
-			log.Ctx(ctx).Infof("Fully processed bounded range [%d-%d]", startLedger, endLedger)
-			return 0, true, nil
-		}
-
-		// Continue with sequential for remainder
-		startLedger = parallelEnd + 1
-		log.Ctx(ctx).Infof("Switching to sequential ingestion from ledger %d", startLedger)
+	// Update oldest ledger cursor on success if configured
+	if err := m.updateOldestLedgerCursor(ctx, startLedger); err != nil {
+		return fmt.Errorf("updating cursor: %w", err)
 	}
 
-	return startLedger, false, nil
-}
-
-// handleExistingData handles backfill and continuation when the database already has ingested data.
-// It backfills historical gaps if startLedger < latestIngestedLedger and determines whether
-// the bounded range is already complete.
-// Returns the updated startLedger for sequential processing, whether processing is complete, and any error.
-func (m *ingestService) handleExistingData(ctx context.Context, startLedger, endLedger, latestIngestedLedger uint32) (uint32, bool, error) {
-	// Check if we need to backfill historical data
-	if startLedger > 0 && startLedger < latestIngestedLedger {
-		// Backfill only handles gaps BEFORE latestIngestedLedger
-		backfillEnd := endLedger
-		if endLedger == 0 || endLedger > latestIngestedLedger {
-			backfillEnd = latestIngestedLedger
-		}
-		if err := m.backfillRange(ctx, startLedger, backfillEnd); err != nil {
-			return 0, false, fmt.Errorf("backfilling gaps from ledger %d to %d: %w", startLedger, backfillEnd, err)
-		}
-	}
-
-	// If bounded endLedger is already within ingested range, we're done
-	if endLedger > 0 && endLedger <= latestIngestedLedger {
-		log.Ctx(ctx).Infof("Successfully backfilled ledgers from [%d, %d]", startLedger, endLedger)
-		return 0, true, nil
-	}
-
-	// Continue from next ledger after latest ingested
-	return latestIngestedLedger + 1, false, nil
-}
-
-// calculateParallelEndLedger determines how far we can safely process in parallel.
-// Returns the end ledger for parallel processing, or 0 if no parallel processing is possible.
-func (m *ingestService) calculateParallelEndLedger(startLedger, endLedger uint32) (uint32, error) {
-	// Get latest ledger from archive (returns checkpoint ledger, backend-agnostic)
-	latestLedger, err := m.archive.GetLatestLedgerSequence()
-	if err != nil {
-		return 0, fmt.Errorf("getting latest ledger from archive: %w", err)
-	}
-
-	// Guard against underflow: ensure latestLedger is greater than buffer
-	if latestLedger <= HistoricalBufferLedgers {
-		return 0, nil // Not enough ledgers for parallel processing
-	}
-
-	// Calculate safe boundary: latestLedger - buffer
-	safeHistoricalEnd := latestLedger - HistoricalBufferLedgers
-	if safeHistoricalEnd <= startLedger {
-		return 0, nil // No room for parallel processing
-	}
-
-	// If bounded range, take the minimum
-	if endLedger > 0 && endLedger < safeHistoricalEnd {
-		return endLedger, nil
-	}
-
-	return safeHistoricalEnd, nil
-}
-
-// backfillInitialRange backfills a ledger range in parallel for empty DB initialization.
-// Updates the latest cursor after successful completion.
-func (m *ingestService) backfillInitialRange(ctx context.Context, startLedger, endLedger uint32) error {
-	return m.processBackfillWithConfig(ctx, backfillConfig{
-		gaps:          []data.LedgerRange{{GapStart: startLedger, GapEnd: endLedger}},
-		cursorName:    m.latestLedgerCursorName,
-		cursorValue:   endLedger,
-		updateCursor:  true,
-		operationName: fmt.Sprintf("initial range [%d-%d]", startLedger, endLedger),
-	})
-}
-
-// backfillRange backfills historical gaps in the ledger data.
-// Updates the oldest cursor if startLedger is before the previously oldest ingested ledger.
-func (m *ingestService) backfillRange(ctx context.Context, startLedger, endLedger uint32) error {
-	// Get oldest ledger ingested (endLedger <= latestIngestedLedger is guaranteed by caller)
-	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
-	if err != nil {
-		return fmt.Errorf("getting oldest ingest ledger: %w", err)
-	}
-
-	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
-	if err != nil {
-		return fmt.Errorf("calculating gaps in ledger range: %w", err)
-	}
-
-	newGaps := m.calculateBackfillGaps(startLedger, endLedger, oldestIngestedLedger, currentGaps)
-
-	return m.processBackfillWithConfig(ctx, backfillConfig{
-		gaps:          newGaps,
-		cursorName:    m.oldestLedgerCursorName,
-		cursorValue:   startLedger,
-		updateCursor:  startLedger < oldestIngestedLedger,
-		operationName: fmt.Sprintf("historical backfill [%d-%d]", startLedger, endLedger),
-	})
+	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches, %d ledgers", duration, analysis.successCount, analysis.totalLedgers)
+	return nil
 }
 
 // calculateBackfillGaps determines which ledger ranges need to be backfilled based on
 // the requested range, oldest ingested ledger, and any existing gaps in the data.
-func (m *ingestService) calculateBackfillGaps(startLedger, endLedger, oldestIngestedLedger uint32, currentGaps []data.LedgerRange) []data.LedgerRange {
-	newGaps := make([]data.LedgerRange, 0)
+func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, endLedger uint32) ([]data.LedgerRange, error) {
+	// Get oldest ledger ingested (endLedger <= latestIngestedLedger is guaranteed by caller)
+	oldestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
+	if err != nil {
+		return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
+	}
 
+	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("calculating gaps in ledger range: %w", err)
+	}
+
+	newGaps := make([]data.LedgerRange, 0)
 	switch {
-	case endLedger == oldestIngestedLedger:
-		// Case 1: End ledger matches oldest - backfill [start, oldest-1]
+	case endLedger <= oldestIngestedLedger:
+		// Case 1: End ledger matches/less than oldest - backfill [start, min(end, oldest-1)]
 		if oldestIngestedLedger > 0 {
 			newGaps = append(newGaps, data.LedgerRange{
 				GapStart: startLedger,
-				GapEnd:   oldestIngestedLedger - 1,
+				GapEnd:   min(endLedger, oldestIngestedLedger - 1),
 			})
 		}
 
-	case endLedger < oldestIngestedLedger:
-		// Case 2: Entirely before existing data - backfill [start, end]
-		newGaps = append(newGaps, data.LedgerRange{
-			GapStart: startLedger,
-			GapEnd:   endLedger,
-		})
-
 	case startLedger < oldestIngestedLedger:
-		// Case 3: Overlaps with existing range - backfill before oldest + internal gaps
+		// Case 2: Overlaps with existing range - backfill before oldest + internal gaps
 		if oldestIngestedLedger > 0 {
 			newGaps = append(newGaps, data.LedgerRange{
 				GapStart: startLedger,
@@ -446,7 +322,7 @@ func (m *ingestService) calculateBackfillGaps(startLedger, endLedger, oldestInge
 		}
 
 	default:
-		// Case 4: Entirely within existing range - only fill internal gaps
+		// Case 3: Entirely within existing range - only fill internal gaps
 		for _, gap := range currentGaps {
 			if gap.GapEnd < startLedger {
 				continue
@@ -461,11 +337,11 @@ func (m *ingestService) calculateBackfillGaps(startLedger, endLedger, oldestInge
 		}
 	}
 
-	return newGaps
+	return newGaps, nil
 }
 
 // splitGapsIntoBatches divides ledger gaps into fixed-size batches for parallel processing.
-func splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
+func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange, batchSize uint32) []BackfillBatch {
 	var batches []BackfillBatch
 
 	for _, gap := range gaps {
@@ -535,14 +411,14 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Process each ledger in the batch sequentially
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
-		ledgerMeta, err := backend.GetLedger(ctx, ledgerSeq)
+		ledgerMeta, err := m.getLedgerWithRetry(ctx, ledgerSeq)
 		if err != nil {
 			result.Error = fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
 		}
 
-		err = m.processLedger(ctx, ledgerMeta, true)
+		err = m.processLedger(ctx, ledgerMeta)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
@@ -593,10 +469,10 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, ledgerSeq uint32
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
-func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startLedger, endLedger uint32) error {
+func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion loop from ledger: %d", currentLedger)
-	for endLedger == 0 || currentLedger <= endLedger {
+	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+	for {
 		totalStart := time.Now()
 		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, currentLedger)
 		if ledgerErr != nil {
@@ -604,16 +480,14 @@ func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startL
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		if processErr := m.processLedger(ctx, ledgerMeta, isBackfill); processErr != nil {
+		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 		}
 
 		// Update cursor only for live ingestion
-		if !isBackfill {
-			err := m.updateCursor(ctx, currentLedger)
-			if err != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
-			}
+		err := m.updateLatestLedgerCursor(ctx, currentLedger)
+		if err != nil {
+			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
 		}
 		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
 		m.metricsService.IncIngestionLedgersProcessed(1)
@@ -621,11 +495,10 @@ func (m *ingestService) ingestRange(ctx context.Context, isBackfill bool, startL
 		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
 		currentLedger++
 	}
-	return nil
 }
 
-// updateCursor updates the latest ledger cursor during live ingestion with metrics tracking.
-func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) error {
+// updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
+func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, currentLedger uint32) error {
 	cursorStart := time.Now()
 	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		if updateErr := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, currentLedger); updateErr != nil {
@@ -637,18 +510,24 @@ func (m *ingestService) updateCursor(ctx context.Context, currentLedger uint32) 
 	if err != nil {
 		return fmt.Errorf("updating cursors: %w", err)
 	}
-	m.metricsService.ObserveIngestionPhaseDuration("cursor_update", time.Since(cursorStart).Seconds())
+	m.metricsService.ObserveIngestionPhaseDuration("latest_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }
 
-// updateSingleCursor updates a single cursor value in a transaction.
-func (m *ingestService) updateSingleCursor(ctx context.Context, cursorName string, ledger uint32) error {
+// updateOldestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
+func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, currentLedger uint32) error {
+	cursorStart := time.Now()
 	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
-		return m.models.IngestStore.Update(ctx, dbTx, cursorName, ledger)
+		if updateErr := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, currentLedger); updateErr != nil {
+			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+		}
+		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("updating cursor %s: %w", cursorName, err)
+		return fmt.Errorf("updating cursors: %w", err)
 	}
+	m.metricsService.ObserveIngestionPhaseDuration("oldest_cursor_update", time.Since(cursorStart).Seconds())
 	return nil
 }
 
@@ -658,7 +537,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 		if err := m.models.IngestStore.Update(ctx, dbTx, m.latestLedgerCursorName, ledger); err != nil {
 			return fmt.Errorf("initializing latest cursor: %w", err)
 		}
-		if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+		if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
 			return fmt.Errorf("initializing oldest cursor: %w", err)
 		}
 		return nil
@@ -669,51 +548,12 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 	return nil
 }
 
-// prepareBackendRange prepares the ledger backend with the appropriate range type.
-func (m *ingestService) prepareBackendRange(ctx context.Context, startLedger, endLedger uint32) error {
-	var ledgerRange ledgerbackend.Range
-	if endLedger == 0 {
-		ledgerRange = ledgerbackend.UnboundedRange(startLedger)
-		log.Ctx(ctx).Infof("Prepared backend with unbounded range starting from ledger %d", startLedger)
-	} else {
-		ledgerRange = ledgerbackend.BoundedRange(startLedger, endLedger)
-		log.Ctx(ctx).Infof("Prepared backend with bounded range [%d, %d]", startLedger, endLedger)
-	}
-
-	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
-		return fmt.Errorf("preparing ledger backend range [%d, %d]: %w", startLedger, endLedger, err)
-	}
-	return nil
-}
-
-// calculateCheckpointLedger determines the appropriate checkpoint ledger for account token cache population.
-// If startLedger is 0, it returns the latest checkpoint from the archive.
-// If startLedger is specified, it returns startLedger if it's a checkpoint, otherwise the previous checkpoint.
-func (m *ingestService) calculateCheckpointLedger(startLedger uint32) (uint32, error) {
-	archiveManager := m.archive.GetCheckpointManager()
-
-	if startLedger == 0 {
-		// Get latest checkpoint from archive
-		latestLedger, err := m.archive.GetLatestLedgerSequence()
-		if err != nil {
-			return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
-		}
-		return latestLedger, nil
-	}
-
-	// For specified startLedger, use it if it's a checkpoint, otherwise use previous checkpoint
-	if archiveManager.IsCheckpoint(startLedger) {
-		return startLedger, nil
-	}
-	return archiveManager.PrevCheckpoint(startLedger), nil
-}
-
 // processLedger processes a single ledger through all ingestion phases.
 // Phase 1: Get transactions from ledger
 // Phase 2: Process transactions using Indexer (parallel within ledger)
 // Phase 3: Insert all data into DB
 // isBackfill indicates whether this is a backfill operation (skips Redis cache updates and channel account unlocks)
-func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, isBackfill bool) error {
+func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Phase 1: Get transactions from ledger
@@ -736,7 +576,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 
 	// Phase 3: Insert all data into DB
 	start = time.Now()
-	if err := m.ingestProcessedData(ctx, buffer, isBackfill); err != nil {
+	if err := m.ingestProcessedData(ctx, buffer); err != nil {
 		return fmt.Errorf("ingesting processed data for ledger %d: %w", ledgerSeq, err)
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
@@ -863,7 +703,7 @@ func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, bu
 
 // ingestProcessedData inserts processed ledger data into the database.
 // isBackfill indicates whether this is a backfill operation - when true, skips Redis cache updates and channel account unlocks.
-func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface, isBackfill bool) error {
+func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		if err := m.insertParticipants(ctx, dbTx, indexerBuffer); err != nil {
 			return err
@@ -878,7 +718,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			return err
 		}
 		// Unlock channel accounts only during live ingestion (skip for historical backfill)
-		if !isBackfill {
+		if m.ingestionMode == "live" {
 			if err := m.unlockChannelAccounts(ctx, indexerBuffer.GetTransactions()); err != nil {
 				return fmt.Errorf("unlocking channel accounts: %w", err)
 			}
@@ -890,7 +730,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	}
 
 	// Process token changes only during live ingestion (not backfill)
-	if !isBackfill {
+	if m.ingestionMode == "live" {
 		return m.processLiveIngestionTokenChanges(ctx, indexerBuffer)
 	}
 	return nil

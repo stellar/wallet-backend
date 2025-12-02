@@ -59,6 +59,16 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx db.Transaction, curs
 	return nil
 }
 
+func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
+	const query = `
+		UPDATE ingest_store
+		SET value = LEAST(value::integer, $2)::text
+		WHERE key = $1
+	`
+	_, err := dbTx.ExecContext(ctx, query, cursorName, ledger)
+	return err
+}
+
 func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {
 	const query = `
 		SELECT gap_start, gap_end FROM (
