@@ -53,6 +53,12 @@ const maxLedgerFetchRetries = 10
 // maxRetryBackoff is the maximum backoff duration between retry attempts.
 const maxRetryBackoff = 30 * time.Second
 
+// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
+const IngestionModeLive = "live"
+
+// IngestionModeBackfill represents historical ledger ingestion for a specified range.
+const IngestionModeBackfill = "backfill"
+
 // LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
 // Each batch needs its own backend because LedgerBackend is not thread-safe.
 type LedgerBackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
@@ -96,6 +102,9 @@ func analyzeBatchResults(ctx context.Context, results []BackfillResult) batchAna
 
 // IngestService defines the interface for ledger ingestion operations.
 type IngestService interface {
+	// Run starts the ingestion service in the configured mode (live or backfill).
+	// For live mode, startLedger and endLedger are ignored and ingestion runs continuously from the last checkpoint.
+	// For backfill mode, processes ledgers in the range [startLedger, endLedger].
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
 }
 
@@ -103,7 +112,7 @@ var _ IngestService = (*ingestService)(nil)
 
 // IngestServiceConfig holds the configuration for creating an IngestService.
 type IngestServiceConfig struct {
-	IngestionMode string
+	IngestionMode           string
 	Models                  *data.Models
 	LatestLedgerCursorName  string
 	OldestLedgerCursorName  string
@@ -124,7 +133,7 @@ type IngestServiceConfig struct {
 }
 
 type ingestService struct {
-	ingestionMode string
+	ingestionMode           string
 	models                  *data.Models
 	latestLedgerCursorName  string
 	oldestLedgerCursorName  string
@@ -148,7 +157,7 @@ type ingestService struct {
 
 // NewIngestService creates a new IngestService with the provided configuration.
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pools
+	// Create worker pools. Using 0 creates unbounded pools that spawn goroutines as needed.
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
@@ -156,7 +165,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
 
 	return &ingestService{
-		ingestionMode: cfg.IngestionMode,
+		ingestionMode:           cfg.IngestionMode,
 		models:                  cfg.Models,
 		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
 		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
@@ -179,17 +188,22 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}, nil
 }
 
+// Run starts the ingestion service in the configured mode (live or backfill).
+// For live mode, startLedger and endLedger are ignored and ingestion runs continuously from the last checkpoint.
+// For backfill mode, processes ledgers in the range [startLedger, endLedger].
 func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
 	switch m.ingestionMode {
-	case "live":
+	case IngestionModeLive:
 		return m.startLiveIngestion(ctx)
-	case "backfill":
+	case IngestionModeBackfill:
 		return m.startBackfilling(ctx, startLedger, endLedger)
 	default:
-		return fmt.Errorf("wrong ingestion mode: %s", m.ingestionMode)
+		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
 }
 
+// startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
+// acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
 	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, m.models.DB, m.advisoryLockID); err != nil {
@@ -207,7 +221,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
-		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
+		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
 
 	startLedger := latestIngestedLedger + 1
@@ -217,10 +231,10 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
 		}
 
-		// err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
-		// if err != nil {
-		// 	return fmt.Errorf("populating account tokens cache: %w", err)
-		// }
+		err = m.accountTokenService.PopulateAccountTokens(ctx, startLedger)
+		if err != nil {
+			return fmt.Errorf("populating account tokens cache: %w", err)
+		}
 
 		err := m.initializeCursors(ctx, startLedger)
 		if err != nil {
@@ -236,6 +250,8 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	return m.ingestLiveLedgers(ctx, startLedger)
 }
 
+// startBackfilling processes historical ledgers in the specified range,
+// identifying gaps and processing them in parallel batches.
 func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32) error {
 	if startLedger > endLedger {
 		return fmt.Errorf("start ledger cannot be greater than end ledger")
@@ -243,7 +259,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
-		return fmt.Errorf("getting latest account-tokens ledger cursor: %w", err)
+		return fmt.Errorf("getting latest ledger cursor: %w", err)
 	}
 	if endLedger > latestIngestedLedger {
 		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
@@ -265,7 +281,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 
 	analysis := analyzeBatchResults(ctx, results)
 	if len(analysis.failedBatches) > 0 {
-		return fmt.Errorf("Backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
+		return fmt.Errorf("backfilling failed: %d/%d batches failed", len(analysis.failedBatches), len(backfillBatches))
 	}
 
 	// Update oldest ledger cursor on success if configured
@@ -298,7 +314,7 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 		if oldestIngestedLedger > 0 {
 			newGaps = append(newGaps, data.LedgerRange{
 				GapStart: startLedger,
-				GapEnd:   min(endLedger, oldestIngestedLedger - 1),
+				GapEnd:   min(endLedger, oldestIngestedLedger-1),
 			})
 		}
 
@@ -468,6 +484,8 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
 }
 
+// ingestLiveLedgers continuously processes ledgers starting from startLedger,
+// updating cursors and metrics after each successful ledger.
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
@@ -513,14 +531,14 @@ func (m *ingestService) updateLatestLedgerCursor(ctx context.Context, currentLed
 	return nil
 }
 
-// updateOldestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
+// updateOldestLedgerCursor updates the oldest ledger cursor during backfill with metrics tracking.
 func (m *ingestService) updateOldestLedgerCursor(ctx context.Context, currentLedger uint32) error {
 	cursorStart := time.Now()
 	err := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		if updateErr := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, currentLedger); updateErr != nil {
-			return fmt.Errorf("updating latest synced ledger: %w", updateErr)
+			return fmt.Errorf("updating oldest synced ledger: %w", updateErr)
 		}
-		m.metricsService.SetLatestLedgerIngested(float64(currentLedger))
+		m.metricsService.SetOldestLedgerIngested(float64(currentLedger))
 		return nil
 	})
 	if err != nil {
@@ -551,7 +569,8 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 // Phase 1: Get transactions from ledger
 // Phase 2: Process transactions and populate buffer (parallel within ledger)
 // Phase 3: Insert all data into DB
-// isBackfill indicates whether this is a backfill operation (skips Redis cache updates and channel account unlocks)
+// Note: Live ingestion includes Redis cache updates and channel account unlocks,
+// while backfill mode skips these operations (determined by m.ingestionMode).
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
@@ -578,13 +597,14 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 	}
 	m.metricsService.ObserveIngestionPhaseDuration("db_insertion", time.Since(start).Seconds())
 
-	// Metrics
+	// Record transaction and operation processing metrics
 	m.metricsService.IncIngestionTransactionsProcessed(buffer.GetNumberOfTransactions())
 	m.metricsService.IncIngestionOperationsProcessed(buffer.GetNumberOfOperations())
 
 	return nil
 }
 
+// getLedgerTransactions extracts all transactions from a ledger close meta.
 func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerCloseMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
 	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(m.networkPassphrase, xdrLedgerCloseMeta)
 	if err != nil {
@@ -699,7 +719,8 @@ func (m *ingestService) processLiveIngestionTokenChanges(ctx context.Context, bu
 }
 
 // ingestProcessedData inserts processed ledger data into the database.
-// isBackfill indicates whether this is a backfill operation - when true, skips Redis cache updates and channel account unlocks.
+// Live ingestion mode includes Redis cache updates and channel account unlocks.
+// Backfill mode skips these operations to avoid affecting live data (determined by m.ingestionMode).
 func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		if err := m.insertParticipants(ctx, dbTx, indexerBuffer); err != nil {
@@ -715,7 +736,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			return err
 		}
 		// Unlock channel accounts only during live ingestion (skip for historical backfill)
-		if m.ingestionMode == "live" {
+		if m.ingestionMode == IngestionModeLive {
 			if err := m.unlockChannelAccounts(ctx, indexerBuffer.GetTransactions()); err != nil {
 				return fmt.Errorf("unlocking channel accounts: %w", err)
 			}
@@ -727,7 +748,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 	}
 
 	// Process token changes only during live ingestion (not backfill)
-	if m.ingestionMode == "live" {
+	if m.ingestionMode == IngestionModeLive {
 		return m.processLiveIngestionTokenChanges(ctx, indexerBuffer)
 	}
 	return nil

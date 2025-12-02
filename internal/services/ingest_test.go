@@ -240,9 +240,10 @@ func Test_splitGapsIntoBatches(t *testing.T) {
 		},
 	}
 
+	svc := &ingestService{}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := splitGapsIntoBatches(tc.gaps, tc.batchSize)
+			result := svc.splitGapsIntoBatches(tc.gaps, tc.batchSize)
 			assert.Equal(t, tc.wantResult, result)
 		})
 	}

@@ -14,6 +14,7 @@ type MetricsService interface {
 	RegisterPoolMetrics(channel string, pool pond.Pool)
 	GetRegistry() *prometheus.Registry
 	SetLatestLedgerIngested(value float64)
+	SetOldestLedgerIngested(value float64)
 	ObserveIngestionDuration(duration float64)
 	IncActiveAccount()
 	DecActiveAccount()
@@ -60,6 +61,7 @@ type metricsService struct {
 
 	// Ingest Service Metrics
 	latestLedgerIngested prometheus.Gauge
+	oldestLedgerIngested prometheus.Gauge
 	ingestionDuration    *prometheus.HistogramVec
 
 	// Account Metrics
@@ -124,6 +126,12 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		prometheus.GaugeOpts{
 			Name: "ingestion_ledger_latest",
 			Help: "Latest ledger ingested",
+		},
+	)
+	m.oldestLedgerIngested = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ingestion_ledger_oldest",
+			Help: "Oldest ledger ingested (backfill boundary)",
 		},
 	)
 	m.ingestionDuration = prometheus.NewHistogramVec(
@@ -383,6 +391,7 @@ func (m *metricsService) registerMetrics() {
 	m.registry.MustRegister(
 		collector,
 		m.latestLedgerIngested,
+		m.oldestLedgerIngested,
 		m.ingestionDuration,
 		m.activeAccounts,
 		m.rpcRequestsTotal,
@@ -496,6 +505,10 @@ func (m *metricsService) GetRegistry() *prometheus.Registry {
 
 func (m *metricsService) SetLatestLedgerIngested(value float64) {
 	m.latestLedgerIngested.Set(value)
+}
+
+func (m *metricsService) SetOldestLedgerIngested(value float64) {
+	m.oldestLedgerIngested.Set(value)
 }
 
 func (m *metricsService) ObserveIngestionDuration(duration float64) {
