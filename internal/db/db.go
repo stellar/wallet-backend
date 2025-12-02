@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -28,7 +29,9 @@ type ConnectionPoolImplementation struct {
 
 const (
 	MaxDBConnIdleTime = 10 * time.Second
-	MaxOpenDBConns    = 30
+	MaxOpenDBConns    = 50              // Increased from 30 to support parallel backfill workers
+	MaxIdleDBConns    = 20              // Keep warm connections ready in the pool
+	MaxDBConnLifetime = 5 * time.Minute // Recycle connections periodically
 )
 
 func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
@@ -38,6 +41,8 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	}
 	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
 	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
+	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
+	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
 
 	err = sqlxDB.Ping()
 	if err != nil {
@@ -45,6 +50,49 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 	}
 
 	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
+}
+
+// OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
+// It configures session-level settings (synchronous_commit=off, work_mem=256MB) via the connection
+// string, which are applied to every new connection in the pool.
+// This should ONLY be used for backfill instances, NOT for live ingestion.
+func OpenDBConnectionPoolForBackfill(dataSourceName string) (ConnectionPool, error) {
+	// Append session parameters to connection string for automatic configuration.
+	// URL-encoded: -c synchronous_commit=off -c work_mem=256MB
+	backfillParams := "options=-c%20synchronous_commit%3Doff%20-c%20work_mem%3D256MB"
+
+	separator := "?"
+	if strings.Contains(dataSourceName, "?") {
+		separator = "&"
+	}
+	backfillDSN := dataSourceName + separator + backfillParams
+
+	sqlxDB, err := sqlx.Open("postgres", backfillDSN)
+	if err != nil {
+		return nil, fmt.Errorf("error creating backfill DB connection pool: %w", err)
+	}
+	sqlxDB.SetConnMaxIdleTime(MaxDBConnIdleTime)
+	sqlxDB.SetMaxOpenConns(MaxOpenDBConns)
+	sqlxDB.SetMaxIdleConns(MaxIdleDBConns)
+	sqlxDB.SetConnMaxLifetime(MaxDBConnLifetime)
+
+	err = sqlxDB.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("error pinging backfill DB connection pool: %w", err)
+	}
+
+	return &ConnectionPoolImplementation{DB: sqlxDB}, nil
+}
+
+// ConfigureBackfillSession sets session_replication_role to 'replica' which disables FK constraint
+// checking. This cannot be set via connection string and requires elevated privileges (superuser
+// or replication role). Call this ONCE at backfill startup after creating the connection pool.
+func ConfigureBackfillSession(ctx context.Context, db ConnectionPool) error {
+	_, err := db.ExecContext(ctx, "SET session_replication_role = 'replica'")
+	if err != nil {
+		return fmt.Errorf("setting session_replication_role: %w", err)
+	}
+	return nil
 }
 
 //nolint:wrapcheck // this is a thin layer on top of the sqlx.DB.BeginTxx method
