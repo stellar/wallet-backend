@@ -672,17 +672,23 @@ func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transactio
 }
 
 // insertStateChanges batch inserts state changes and records metrics.
+// Uses COPY protocol in backfill mode for better performance.
 func (m *ingestService) insertStateChanges(ctx context.Context, dbTx db.Transaction, buffer indexer.IndexerBufferInterface) error {
 	stateChanges := buffer.GetStateChanges()
 	if len(stateChanges) == 0 {
 		return nil
 	}
-	insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
+
+	var insertedCount int
+	var err error
+
+	insertedCount, err = m.models.StateChanges.BatchInsertCopy(ctx, dbTx, stateChanges)
 	if err != nil {
-		return fmt.Errorf("batch inserting state changes: %w", err)
+		return fmt.Errorf("COPY inserting state changes: %w", err)
 	}
+
 	m.recordStateChangeMetrics(stateChanges)
-	log.Ctx(ctx).Infof("✅ inserted %d state changes", len(insertedStateChangeIDs))
+	log.Ctx(ctx).Infof("✅ inserted %d state changes", insertedCount)
 	return nil
 }
 
