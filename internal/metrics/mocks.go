@@ -29,6 +29,10 @@ func (m *MockMetricsService) SetLatestLedgerIngested(value float64) {
 	m.Called(value)
 }
 
+func (m *MockMetricsService) SetOldestLedgerIngested(value float64) {
+	m.Called(value)
+}
+
 func (m *MockMetricsService) ObserveIngestionDuration(duration float64) {
 	m.Called(duration)
 }
