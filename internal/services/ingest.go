@@ -135,24 +135,24 @@ type IngestServiceConfig struct {
 }
 
 type ingestService struct {
-	ingestionMode           string
-	models                  *data.Models
-	latestLedgerCursorName  string
-	oldestLedgerCursorName  string
-	accountTokensCursorName string
-	advisoryLockID          int
-	appTracker              apptracker.AppTracker
-	rpcService              RPCService
-	ledgerBackend           ledgerbackend.LedgerBackend
-	ledgerBackendFactory    LedgerBackendFactory
-	chAccStore              store.ChannelAccountStore
-	accountTokenService     AccountTokenService
-	contractMetadataService ContractMetadataService
-	metricsService          metrics.MetricsService
-	networkPassphrase       string
-	getLedgersLimit         int
-	ledgerIndexer           *indexer.Indexer
-	archive                 historyarchive.ArchiveInterface
+	ingestionMode             string
+	models                    *data.Models
+	latestLedgerCursorName    string
+	oldestLedgerCursorName    string
+	accountTokensCursorName   string
+	advisoryLockID            int
+	appTracker                apptracker.AppTracker
+	rpcService                RPCService
+	ledgerBackend             ledgerbackend.LedgerBackend
+	ledgerBackendFactory      LedgerBackendFactory
+	chAccStore                store.ChannelAccountStore
+	accountTokenService       AccountTokenService
+	contractMetadataService   ContractMetadataService
+	metricsService            metrics.MetricsService
+	networkPassphrase         string
+	getLedgersLimit           int
+	ledgerIndexer             *indexer.Indexer
+	archive                   historyarchive.ArchiveInterface
 	skipTxMeta                bool
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
@@ -313,8 +313,28 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	m.metricsService.SetBackfillBatchesTotal(m.backfillInstanceID, len(backfillBatches))
 
 	startTime := time.Now()
+
+	// Start elapsed time updater goroutine
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.metricsService.SetBackfillElapsed(m.backfillInstanceID, time.Since(startTime).Seconds())
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches)
+	close(done) // Stop the updater goroutine
+
+	// Set final elapsed time
 	duration := time.Since(startTime)
+	m.metricsService.SetBackfillElapsed(m.backfillInstanceID, duration.Seconds())
 
 	analysis := analyzeBatchResults(ctx, results)
 
@@ -331,9 +351,6 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	if err := m.updateOldestLedgerCursor(ctx, startLedger); err != nil {
 		return fmt.Errorf("updating cursor: %w", err)
 	}
-
-	// Record total backfill duration
-	m.metricsService.ObserveBackfillDuration(m.backfillInstanceID, duration.Seconds())
 
 	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches, %d ledgers", duration, analysis.successCount, analysis.totalLedgers)
 	return nil

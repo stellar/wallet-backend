@@ -65,7 +65,7 @@ type MetricsService interface {
 	IncBackfillOperationsProcessed(instance string, count int)
 	IncBackfillRetries(instance string)
 	ObserveBackfillBatchLedgersProcessed(instance string, count int)
-	ObserveBackfillDuration(instance string, duration float64)
+	SetBackfillElapsed(instance string, seconds float64)
 }
 
 // MetricsService handles all metrics for the wallet-backend
@@ -144,10 +144,10 @@ type metricsService struct {
 	backfillOperationsProcessed   *prometheus.CounterVec
 	backfillRetriesTotal          *prometheus.CounterVec
 
-	// Backfill Metrics (Performance) - all HistogramVec with instance label
+	// Backfill Metrics (Performance) - HistogramVec with instance label
 	backfillBatchSize             *prometheus.HistogramVec
 	backfillBatchLedgersProcessed *prometheus.HistogramVec
-	backfillDuration              *prometheus.HistogramVec
+	backfillElapsed               *prometheus.GaugeVec
 }
 
 // NewMetricsService creates a new metrics service with all metrics registered
@@ -519,11 +519,10 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		},
 		[]string{"instance"},
 	)
-	m.backfillDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "backfill_duration_seconds",
-			Help:    "Total duration of backfill job",
-			Buckets: []float64{60, 300, 600, 1800, 3600, 7200, 14400, 28800, 43200, 86400}, // 1min to 24h
+	m.backfillElapsed = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "backfill_elapsed_seconds",
+			Help: "Elapsed time of current/completed backfill job in seconds",
 		},
 		[]string{"instance"},
 	)
@@ -587,7 +586,7 @@ func (m *metricsService) registerMetrics() {
 		// Backfill Performance
 		m.backfillBatchSize,
 		m.backfillBatchLedgersProcessed,
-		m.backfillDuration,
+		m.backfillElapsed,
 	)
 }
 
@@ -877,6 +876,6 @@ func (m *metricsService) ObserveBackfillBatchLedgersProcessed(instance string, c
 	m.backfillBatchLedgersProcessed.WithLabelValues(instance).Observe(float64(count))
 }
 
-func (m *metricsService) ObserveBackfillDuration(instance string, duration float64) {
-	m.backfillDuration.WithLabelValues(instance).Observe(duration)
+func (m *metricsService) SetBackfillElapsed(instance string, seconds float64) {
+	m.backfillElapsed.WithLabelValues(instance).Set(seconds)
 }
