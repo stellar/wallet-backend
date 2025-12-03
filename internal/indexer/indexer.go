@@ -34,7 +34,9 @@ type IndexerBufferInterface interface {
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []types.Transaction
+	GetTransactionPointers() []*types.Transaction
 	GetOperations() []types.Operation
+	GetOperationPointers() []*types.Operation
 	GetStateChanges() []types.StateChange
 	GetTrustlineChanges() []types.TrustlineChange
 	GetContractChanges() []types.ContractChange

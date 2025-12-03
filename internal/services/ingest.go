@@ -428,15 +428,11 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	}
 
 	// Create a new ledger backend for this batch
-	backendStart := time.Now()
 	backend, err := m.ledgerBackendFactory(ctx)
 	if err != nil {
 		result.Error = fmt.Errorf("creating ledger backend: %w", err)
 		result.Duration = time.Since(start)
 		return result
-	}
-	if m.backfillInstanceID != "" {
-		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "backend_creation", time.Since(backendStart).Seconds())
 	}
 	defer func() {
 		if closeErr := backend.Close(); closeErr != nil {
@@ -446,19 +442,15 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	}()
 
 	// Prepare the range for this batch
-	rangeStart := time.Now()
 	ledgerRange := ledgerbackend.BoundedRange(batch.StartLedger, batch.EndLedger)
 	if err := backend.PrepareRange(ctx, ledgerRange); err != nil {
 		result.Error = fmt.Errorf("preparing backend range: %w", err)
 		result.Duration = time.Since(start)
 		return result
 	}
-	if m.backfillInstanceID != "" {
-		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "range_preparation", time.Since(rangeStart).Seconds())
-	}
 
-	// Process each ledger in the batch sequentially
-	buffers := make([]*indexer.IndexerBuffer, 0)
+	// Process each ledger in the batch using a single shared buffer.
+	batchBuffer := indexer.NewIndexerBuffer()
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		fetchStart := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
@@ -469,13 +461,12 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		}
 		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_fetch", time.Since(fetchStart).Seconds())
 
-		buffer, err := m.processBackfillLedger(ctx, ledgerMeta)
+		err = m.processBackfillLedgerInto(ctx, ledgerMeta, batchBuffer)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
 		}
-		buffers = append(buffers, buffer)
 
 		// Update current ledger progress and increment ledger count
 		m.metricsService.SetBackfillCurrentLedger(m.backfillInstanceID, ledgerSeq)
@@ -483,15 +474,9 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		result.LedgersCount++
 	}
 
-	// Merge all buffers
-	finalBuffer := indexer.NewIndexerBuffer()
-	for _, buffer := range buffers {
-		finalBuffer.MergeBuffer(buffer)
-	}
-
 	// Insert all data into DB
 	dbInsertDuration := time.Since(start).Seconds()
-	if err := m.ingestProcessedData(ctx, finalBuffer); err != nil {
+	if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
 		result.Error = fmt.Errorf("ingesting data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
 		result.Duration = time.Since(start)
 		return result
@@ -499,8 +484,8 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insertion", dbInsertDuration)
 
 	// Record transaction and operation counts based on ingestion mode
-	m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, finalBuffer.GetNumberOfTransactions())
-	m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, finalBuffer.GetNumberOfOperations())
+	m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
+	m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
 
 	result.Duration = time.Since(start)
 
@@ -634,25 +619,25 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 	return nil
 }
 
-func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) (*indexer.IndexerBuffer, error) {
+// processBackfillLedgerInto processes a ledger and populates the provided buffer.
+func (m *ingestService) processBackfillLedgerInto(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Get transactions from ledger
 	start := time.Now()
 	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
 	if err != nil {
-		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+		return fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
 	// Process transactions and populate buffer (combined collection + processing)
-	buffer := indexer.NewIndexerBuffer()
 	_, err = m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
 	if err != nil {
-		return nil, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+		return fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
 	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_processing", time.Since(start).Seconds())
 
-	return buffer, nil
+	return nil
 }
 
 // processLedger processes a single ledger through all ingestion phases.
@@ -754,14 +739,14 @@ func (m *ingestService) insertParticipants(ctx context.Context, dbTx db.Transact
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
-// Uses COPY protocol for better performance.
+// Uses COPY protocol with pointer slices to avoid copying large XDR strings.
 func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transaction, buffer indexer.IndexerBufferInterface) error {
-	txs := buffer.GetTransactions()
+	txs := buffer.GetTransactionPointers()
 	if len(txs) == 0 {
 		return nil
 	}
 	stellarAddressesByTxHash := buffer.GetTransactionsParticipants()
-	insertedCount, err := m.models.Transactions.BatchInsertCopy(ctx, dbTx, txs, stellarAddressesByTxHash)
+	insertedCount, err := m.models.Transactions.BatchInsertCopyFromPointers(ctx, dbTx, txs, stellarAddressesByTxHash)
 	if err != nil {
 		return fmt.Errorf("COPY inserting transactions: %w", err)
 	}
@@ -770,14 +755,14 @@ func (m *ingestService) insertTransactions(ctx context.Context, dbTx db.Transact
 }
 
 // insertOperations batch inserts operations with their participants into the database.
-// Uses COPY protocol for better performance.
+// Uses COPY protocol with pointer slices for better performance.
 func (m *ingestService) insertOperations(ctx context.Context, dbTx db.Transaction, buffer indexer.IndexerBufferInterface) error {
-	ops := buffer.GetOperations()
+	ops := buffer.GetOperationPointers()
 	if len(ops) == 0 {
 		return nil
 	}
 	stellarAddressesByOpID := buffer.GetOperationsParticipants()
-	insertedCount, err := m.models.Operations.BatchInsertCopy(ctx, dbTx, ops, stellarAddressesByOpID)
+	insertedCount, err := m.models.Operations.BatchInsertCopyFromPointers(ctx, dbTx, ops, stellarAddressesByOpID)
 	if err != nil {
 		return fmt.Errorf("COPY inserting operations: %w", err)
 	}

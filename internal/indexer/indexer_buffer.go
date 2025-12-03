@@ -139,6 +139,21 @@ func (b *IndexerBuffer) GetTransactions() []types.Transaction {
 	return txs
 }
 
+// GetTransactionPointers returns transaction pointers without copying structs.
+// This avoids copying large XDR strings (10-50KB per transaction) during batch inserts.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetTransactionPointers() []*types.Transaction {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	txs := make([]*types.Transaction, 0, len(b.txByHash))
+	for _, txPtr := range b.txByHash {
+		txs = append(txs, txPtr)
+	}
+
+	return txs
+}
+
 // GetTransactionsParticipants returns a map of transaction hashes to its participants.
 func (b *IndexerBuffer) GetTransactionsParticipants() map[string]set.Set[string] {
 	b.mu.RLock()
@@ -204,6 +219,20 @@ func (b *IndexerBuffer) GetOperations() []types.Operation {
 	ops := make([]types.Operation, 0, len(b.opByID))
 	for _, opPtr := range b.opByID {
 		ops = append(ops, *opPtr)
+	}
+	return ops
+}
+
+// GetOperationPointers returns operation pointers without copying structs.
+// This avoids unnecessary memory copies during batch inserts.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetOperationPointers() []*types.Operation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	ops := make([]*types.Operation, 0, len(b.opByID))
+	for _, opPtr := range b.opByID {
+		ops = append(ops, opPtr)
 	}
 	return ops
 }
@@ -296,24 +325,28 @@ func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
 	// Merge transactions (canonical storage) - this establishes our canonical pointers
 	maps.Copy(b.txByHash, otherBuffer.txByHash)
 	for txHash, otherParticipants := range otherBuffer.participantsByTxHash {
-		if _, exists := b.participantsByTxHash[txHash]; !exists {
-			b.participantsByTxHash[txHash] = set.NewSet[string]()
-		}
-		// Iterate other's set, add participants from OUR txByHash
-		for participant := range otherParticipants.Iter() {
-			b.participantsByTxHash[txHash].Add(participant) // O(1) Add
+		if existing, exists := b.participantsByTxHash[txHash]; exists {
+			// Merge into existing set - iterate and add (Union creates new set)
+			for participant := range otherParticipants.Iter() {
+				existing.Add(participant)
+			}
+		} else {
+			// Clone the set instead of creating empty + iterating
+			b.participantsByTxHash[txHash] = otherParticipants.Clone()
 		}
 	}
 
 	// Merge operations (canonical storage)
 	maps.Copy(b.opByID, otherBuffer.opByID)
 	for opID, otherParticipants := range otherBuffer.participantsByOpID {
-		if _, exists := b.participantsByOpID[opID]; !exists {
-			b.participantsByOpID[opID] = set.NewSet[string]()
-		}
-		// Iterate other's set, add canonical pointers from OUR opByID
-		for participant := range otherParticipants.Iter() {
-			b.participantsByOpID[opID].Add(participant) // O(1) Add
+		if existing, exists := b.participantsByOpID[opID]; exists {
+			// Merge into existing set - iterate and add (Union creates new set)
+			for participant := range otherParticipants.Iter() {
+				existing.Add(participant)
+			}
+		} else {
+			// Clone the set instead of creating empty + iterating
+			b.participantsByOpID[opID] = otherParticipants.Clone()
 		}
 	}
 
