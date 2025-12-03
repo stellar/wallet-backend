@@ -64,7 +64,6 @@ type MetricsService interface {
 	IncBackfillTransactionsProcessed(instance string, count int)
 	IncBackfillOperationsProcessed(instance string, count int)
 	IncBackfillRetries(instance string)
-	ObserveBackfillBatchSize(instance string, size int)
 	ObserveBackfillBatchLedgersProcessed(instance string, count int)
 	ObserveBackfillDuration(instance string, duration float64)
 }
