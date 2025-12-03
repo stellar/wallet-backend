@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -125,6 +126,10 @@ type IngestServiceConfig struct {
 	NetworkPassphrase       string
 	Archive                 historyarchive.ArchiveInterface
 	SkipTxMeta              bool
+	// BackfillWorkers limits concurrent batch processing. Defaults to runtime.NumCPU().
+	BackfillWorkers int
+	// BackfillBatchSize is ledgers per batch. Defaults to 250.
+	BackfillBatchSize int
 }
 
 type ingestService struct {
@@ -149,17 +154,30 @@ type ingestService struct {
 	backfillMode            bool
 	skipTxMeta              bool
 	backfillPool            pond.Pool
+	backfillBatchSize       uint32
 	backfillInstanceID      string // Format: "startLedger-endLedger" for multi-instance metrics
 }
 
 // NewIngestService creates a new IngestService with the provided configuration.
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pools. Using 0 creates unbounded pools that spawn goroutines as needed.
+	// Create ledger indexer pool (unbounded for parallel transaction processing)
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.MetricsService.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	backfillPool := pond.NewPool(0)
+	// Create backfill pool with bounded size to control memory usage.
+	// Default to NumCPU if not specified.
+	backfillWorkers := cfg.BackfillWorkers
+	if backfillWorkers <= 0 {
+		backfillWorkers = runtime.NumCPU()
+	}
+	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.MetricsService.RegisterPoolMetrics("backfill", backfillPool)
+
+	// Set batch size with default fallback
+	backfillBatchSize := uint32(cfg.BackfillBatchSize)
+	if backfillBatchSize == 0 {
+		backfillBatchSize = BackfillBatchSize
+	}
 
 	return &ingestService{
 		ingestionMode:           cfg.IngestionMode,
@@ -182,6 +200,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		archive:                 cfg.Archive,
 		skipTxMeta:              cfg.SkipTxMeta,
 		backfillPool:            backfillPool,
+		backfillBatchSize:       backfillBatchSize,
 	}, nil
 }
 
@@ -279,7 +298,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return nil
 	}
 
-	backfillBatches := m.splitGapsIntoBatches(gaps, BackfillBatchSize)
+	backfillBatches := m.splitGapsIntoBatches(gaps, m.backfillBatchSize)
 
 	// Set batch total metric
 	m.metricsService.SetBackfillBatchesTotal(m.backfillInstanceID, len(backfillBatches))
