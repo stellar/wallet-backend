@@ -418,98 +418,98 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 		[]string{"operation_name", "error_type"},
 	)
 
-	// Backfill Progress Gauges (with instance label)
+	// Backfill Progress Gauges (with backfill_instance label to avoid conflict with Prometheus's instance label)
 	m.backfillStartLedger = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_start_ledger",
 			Help: "Target start ledger for this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillEndLedger = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_end_ledger",
 			Help: "Target end ledger for this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillCurrentLedger = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_current_ledger",
 			Help: "Most recently processed ledger in this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillBatchesTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_batches_total",
 			Help: "Total number of batches to process in this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillBatchesCompleted = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_batches_completed",
 			Help: "Number of batches successfully completed in this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillBatchesFailed = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_batches_failed",
 			Help: "Number of batches that failed in this backfill instance",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 
-	// Backfill Phase Duration (with instance AND phase labels)
+	// Backfill Phase Duration (with backfill_instance AND phase labels)
 	m.backfillPhaseDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "backfill_phase_duration_seconds",
 			Help:    "Duration of each backfill phase",
 			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
 		},
-		[]string{"instance", "phase"},
+		[]string{"backfill_instance", "phase"},
 	)
 
-	// Backfill Counters (with instance label)
+	// Backfill Counters (with backfill_instance label)
 	m.backfillLedgersProcessed = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "backfill_ledgers_processed_total",
 			Help: "Total ledgers processed during backfill",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillTransactionsProcessed = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "backfill_transactions_processed_total",
 			Help: "Total transactions processed during backfill",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillOperationsProcessed = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "backfill_operations_processed_total",
 			Help: "Total operations processed during backfill",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillRetriesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "backfill_retries_total",
 			Help: "Total number of retry attempts for ledger fetch during backfill",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 
-	// Backfill Performance Metrics (with instance label)
+	// Backfill Performance Metrics (with backfill_instance label)
 	m.backfillBatchSize = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "backfill_batch_size",
 			Help:    "Number of ledgers per batch in backfill",
 			Buckets: prometheus.ExponentialBuckets(1, 2, 10), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillBatchLedgersProcessed = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -517,14 +517,14 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 			Help:    "Actual ledgers processed per batch in backfill",
 			Buckets: prometheus.ExponentialBuckets(1, 2, 10), // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 	m.backfillElapsed = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_elapsed_seconds",
 			Help: "Elapsed time of current/completed backfill job in seconds",
 		},
-		[]string{"instance"},
+		[]string{"backfill_instance"},
 	)
 
 	m.registerMetrics()
