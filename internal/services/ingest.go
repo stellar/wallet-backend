@@ -269,21 +269,17 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
 	}
 
-	gapCalcStart := time.Now()
 	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("calculating backfill gaps: %w", err)
 	}
-	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "gap_calculation", time.Since(gapCalcStart).Seconds())
 
 	if len(gaps) == 0 {
 		log.Ctx(ctx).Infof("No gaps to backfill in range [%d - %d]", startLedger, endLedger)
 		return nil
 	}
 
-	batchSplitStart := time.Now()
 	backfillBatches := m.splitGapsIntoBatches(gaps, BackfillBatchSize)
-	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "batch_splitting", time.Since(batchSplitStart).Seconds())
 
 	// Set batch total metric
 	m.metricsService.SetBackfillBatchesTotal(m.backfillInstanceID, len(backfillBatches))
