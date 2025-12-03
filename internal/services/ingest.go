@@ -458,6 +458,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	}
 
 	// Process each ledger in the batch sequentially
+	buffers := make([]*indexer.IndexerBuffer, 0)
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		fetchStart := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
@@ -466,36 +467,49 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 			result.Duration = time.Since(start)
 			return result
 		}
-		if m.backfillInstanceID != "" {
-			m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_fetch", time.Since(fetchStart).Seconds())
-		}
+		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_fetch", time.Since(fetchStart).Seconds())
 
-		err = m.processLedger(ctx, ledgerMeta)
+		buffer, err := m.processBackfillLedger(ctx, ledgerMeta)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
 			return result
 		}
+		buffers = append(buffers, buffer)
 
 		// Update current ledger progress and increment ledger count
-		if m.backfillInstanceID != "" {
-			m.metricsService.SetBackfillCurrentLedger(m.backfillInstanceID, ledgerSeq)
-			m.metricsService.IncBackfillLedgersProcessed(m.backfillInstanceID, 1)
-		}
-
+		m.metricsService.SetBackfillCurrentLedger(m.backfillInstanceID, ledgerSeq)
+		m.metricsService.IncBackfillLedgersProcessed(m.backfillInstanceID, 1)
 		result.LedgersCount++
 	}
+
+	// Merge all buffers
+	finalBuffer := indexer.NewIndexerBuffer()
+	for _, buffer := range buffers {
+		finalBuffer.MergeBuffer(buffer)
+	}
+
+	// Insert all data into DB
+	dbInsertDuration := time.Since(start).Seconds()
+	if err := m.ingestProcessedData(ctx, finalBuffer); err != nil {
+		result.Error = fmt.Errorf("ingesting data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+		result.Duration = time.Since(start)
+		return result
+	}
+	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insertion", dbInsertDuration)
+
+	// Record transaction and operation counts based on ingestion mode
+	m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, finalBuffer.GetNumberOfTransactions())
+	m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, finalBuffer.GetNumberOfOperations())
 
 	result.Duration = time.Since(start)
 
 	// Record batch completion metrics
-	if m.backfillInstanceID != "" {
-		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "batch_processing", result.Duration.Seconds())
-		m.metricsService.ObserveBackfillBatchLedgersProcessed(m.backfillInstanceID, result.LedgersCount)
-		m.metricsService.IncBackfillBatchesCompleted(m.backfillInstanceID)
-	}
+	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "batch_processing", result.Duration.Seconds())
+	m.metricsService.ObserveBackfillBatchLedgersProcessed(m.backfillInstanceID, result.LedgersCount)
+	m.metricsService.IncBackfillBatchesCompleted(m.backfillInstanceID)
 
-	log.Ctx(ctx).Infof("Batch [%d-%d] completed: %d ledgers in %v",
+	log.Ctx(ctx).Infof("Batch [%d - %d] completed: %d ledgers in %v",
 		batch.StartLedger, batch.EndLedger, result.LedgersCount, result.Duration)
 
 	return result
@@ -618,6 +632,27 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 		return fmt.Errorf("initializing cursors: %w", err)
 	}
 	return nil
+}
+
+func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) (*indexer.IndexerBuffer, error) {
+	ledgerSeq := ledgerMeta.LedgerSequence()
+
+	// Get transactions from ledger
+	start := time.Now()
+	transactions, err := m.getLedgerTransactions(ctx, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+	}
+
+	// Process transactions and populate buffer (combined collection + processing)
+	buffer := indexer.NewIndexerBuffer()
+	_, err = m.ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
+	if err != nil {
+		return nil, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+	}
+	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_processing", time.Since(start).Seconds())
+
+	return buffer, nil
 }
 
 // processLedger processes a single ledger through all ingestion phases.
