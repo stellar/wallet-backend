@@ -8,7 +8,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -397,16 +396,12 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange, batchSize 
 func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch) []BackfillResult {
 	results := make([]BackfillResult, len(batches))
 	group := m.backfillPool.NewGroupContext(ctx)
-	var mu sync.Mutex
 
 	for i, batch := range batches {
 		idx := i
 		b := batch
 		group.Submit(func() {
-			result := m.processSingleBatch(ctx, b)
-			mu.Lock()
-			results[idx] = result
-			mu.Unlock()
+			results[idx] = m.processSingleBatch(ctx, b)
 		})
 	}
 
@@ -423,9 +418,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 
 	// Record batch size metric
 	batchSize := int(batch.EndLedger - batch.StartLedger + 1)
-	if m.backfillInstanceID != "" {
-		m.metricsService.ObserveBackfillBatchSize(m.backfillInstanceID, batchSize)
-	}
+	m.metricsService.ObserveBackfillBatchSize(m.backfillInstanceID, batchSize)
 
 	// Create a new ledger backend for this batch
 	backend, err := m.ledgerBackendFactory(ctx)
@@ -461,7 +454,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		}
 		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "ledger_fetch", time.Since(fetchStart).Seconds())
 
-		err = m.processBackfillLedgerInto(ctx, ledgerMeta, batchBuffer)
+		err = m.processBackfillLedger(ctx, ledgerMeta, batchBuffer)
 		if err != nil {
 			result.Error = fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 			result.Duration = time.Since(start)
@@ -551,7 +544,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
 
-		if processErr := m.processLedger(ctx, ledgerMeta); processErr != nil {
+		if processErr := m.processLiveLedger(ctx, ledgerMeta); processErr != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
 		}
 
@@ -619,8 +612,8 @@ func (m *ingestService) initializeCursors(ctx context.Context, ledger uint32) er
 	return nil
 }
 
-// processBackfillLedgerInto processes a ledger and populates the provided buffer.
-func (m *ingestService) processBackfillLedgerInto(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+// processBackfillLedger processes a ledger and populates the provided buffer.
+func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Get transactions from ledger
@@ -647,7 +640,7 @@ func (m *ingestService) processBackfillLedgerInto(ctx context.Context, ledgerMet
 // Note: Live ingestion includes Redis cache updates and channel account unlocks,
 // while backfill mode skips these operations (determined by m.ingestionMode).
 // Metrics are recorded conditionally based on ingestion mode.
-func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
+func (m *ingestService) processLiveLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
 	// Phase 1: Get transactions from ledger
