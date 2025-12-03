@@ -374,3 +374,25 @@ func (b *IndexerBuffer) GetAllParticipants() []string {
 
 	return b.allParticipants.ToSlice()
 }
+
+// Clear resets the buffer to its initial empty state while preserving allocated capacity.
+// Use this to reuse the buffer after flushing data to the database during backfill.
+// Thread-safe: acquires write lock.
+func (b *IndexerBuffer) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Clear maps (keep allocated backing arrays)
+	clear(b.txByHash)
+	clear(b.participantsByTxHash)
+	clear(b.opByID)
+	clear(b.participantsByOpID)
+
+	// Reset slices (reuse underlying arrays by slicing to zero)
+	b.stateChanges = b.stateChanges[:0]
+	b.trustlineChanges = b.trustlineChanges[:0]
+	b.contractChanges = b.contractChanges[:0]
+
+	// Clear all participants set
+	b.allParticipants.Clear()
+}

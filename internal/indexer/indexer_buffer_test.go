@@ -669,3 +669,119 @@ func TestIndexerBuffer_MergeBuffer(t *testing.T) {
 		assert.ElementsMatch(t, []string{"alice", "bob", "charlie", "dave"}, allParticipants)
 	})
 }
+
+func TestIndexerBuffer_Clear(t *testing.T) {
+	t.Run("🟢 clears all data from populated buffer", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		// Populate buffer with all data types
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
+		op2 := types.Operation{ID: 2, TxHash: tx2.Hash}
+		sc1 := types.StateChange{ToID: 1, StateChangeOrder: 1, AccountID: "alice", OperationID: 1}
+		sc2 := types.StateChange{ToID: 2, StateChangeOrder: 1, AccountID: "bob", OperationID: 2}
+		tc1 := types.TrustlineChange{AccountID: "alice", AssetCode: "USD"}
+		cc1 := types.ContractChange{AccountID: "alice", ContractID: "C123"}
+
+		buffer.PushTransaction("alice", tx1)
+		buffer.PushTransaction("bob", tx2)
+		buffer.PushOperation("alice", op1, tx1)
+		buffer.PushOperation("bob", op2, tx2)
+		buffer.PushStateChange(tx1, op1, sc1)
+		buffer.PushStateChange(tx2, op2, sc2)
+		buffer.PushTrustlineChange(tc1)
+		buffer.PushContractChange(cc1)
+
+		// Verify data is populated
+		assert.Equal(t, 2, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 2, buffer.GetNumberOfOperations())
+		assert.Len(t, buffer.GetStateChanges(), 2)
+		assert.Len(t, buffer.GetTrustlineChanges(), 1)
+		assert.Len(t, buffer.GetContractChanges(), 1)
+		assert.Len(t, buffer.GetAllParticipants(), 2)
+
+		// Clear the buffer
+		buffer.Clear()
+
+		// Verify all data is cleared
+		assert.Equal(t, 0, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 0, buffer.GetNumberOfOperations())
+		assert.Len(t, buffer.GetStateChanges(), 0)
+		assert.Len(t, buffer.GetTrustlineChanges(), 0)
+		assert.Len(t, buffer.GetContractChanges(), 0)
+		assert.Len(t, buffer.GetAllParticipants(), 0)
+		assert.Len(t, buffer.GetTransactionsParticipants(), 0)
+		assert.Len(t, buffer.GetOperationsParticipants(), 0)
+	})
+
+	t.Run("🟢 clear empty buffer is a no-op", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.Clear()
+
+		assert.Equal(t, 0, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 0, buffer.GetNumberOfOperations())
+		assert.Len(t, buffer.GetStateChanges(), 0)
+	})
+
+	t.Run("🟢 buffer is reusable after clear", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		// First round of data
+		tx1 := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		op1 := types.Operation{ID: 1, TxHash: tx1.Hash}
+		buffer.PushTransaction("alice", tx1)
+		buffer.PushOperation("alice", op1, tx1)
+
+		assert.Equal(t, 1, buffer.GetNumberOfTransactions())
+
+		// Clear
+		buffer.Clear()
+		assert.Equal(t, 0, buffer.GetNumberOfTransactions())
+
+		// Second round of data with different content
+		tx2 := types.Transaction{Hash: "tx_hash_2", ToID: 2}
+		op2 := types.Operation{ID: 2, TxHash: tx2.Hash}
+		buffer.PushTransaction("bob", tx2)
+		buffer.PushOperation("bob", op2, tx2)
+
+		// Verify new data is correctly stored
+		assert.Equal(t, 1, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 1, buffer.GetNumberOfOperations())
+		txParticipants := buffer.GetTransactionsParticipants()
+		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.Hash])
+		assert.Nil(t, txParticipants[tx1.Hash]) // old tx should not be present
+	})
+
+	t.Run("🟢 concurrent clear and access is safe", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+
+		tx := types.Transaction{Hash: "tx_hash_1", ToID: 1}
+		buffer.PushTransaction("alice", tx)
+
+		wg := sync.WaitGroup{}
+		wg.Add(3)
+
+		// Concurrent clear
+		go func() {
+			defer wg.Done()
+			buffer.Clear()
+		}()
+
+		// Concurrent read
+		go func() {
+			defer wg.Done()
+			_ = buffer.GetNumberOfTransactions()
+		}()
+
+		// Concurrent write
+		go func() {
+			defer wg.Done()
+			tx2 := types.Transaction{Hash: "tx_hash_2"}
+			buffer.PushTransaction("bob", tx2)
+		}()
+
+		wg.Wait()
+		// No race or panic means success
+	})
+}

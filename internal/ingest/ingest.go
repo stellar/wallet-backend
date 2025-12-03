@@ -84,6 +84,9 @@ type Configs struct {
 	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillBatchSize int
+	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
+	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	BackfillDBInsertBatchSize int
 }
 
 func Ingest(cfg Configs) error {
@@ -189,26 +192,27 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:           cfg.IngestionMode,
-		Models:                  models,
-		LatestLedgerCursorName:  cfg.LatestLedgerCursorName,
-		OldestLedgerCursorName:  cfg.OldestLedgerCursorName,
-		AccountTokensCursorName: cfg.AccountTokensCursorName,
-		AppTracker:              cfg.AppTracker,
-		RPCService:              rpcService,
-		LedgerBackend:           ledgerBackend,
-		LedgerBackendFactory:    ledgerBackendFactory,
-		ChannelAccountStore:     chAccStore,
-		AccountTokenService:     accountTokenService,
-		ContractMetadataService: contractMetadataService,
-		MetricsService:          metricsService,
-		GetLedgersLimit:         cfg.GetLedgersLimit,
-		Network:                 cfg.Network,
-		NetworkPassphrase:       cfg.NetworkPassphrase,
-		Archive:                 archive,
-		SkipTxMeta:              cfg.SkipTxMeta,
-		BackfillWorkers:         cfg.BackfillWorkers,
-		BackfillBatchSize:       cfg.BackfillBatchSize,
+		IngestionMode:             cfg.IngestionMode,
+		Models:                    models,
+		LatestLedgerCursorName:    cfg.LatestLedgerCursorName,
+		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		AccountTokensCursorName:   cfg.AccountTokensCursorName,
+		AppTracker:                cfg.AppTracker,
+		RPCService:                rpcService,
+		LedgerBackend:             ledgerBackend,
+		LedgerBackendFactory:      ledgerBackendFactory,
+		ChannelAccountStore:       chAccStore,
+		AccountTokenService:       accountTokenService,
+		ContractMetadataService:   contractMetadataService,
+		MetricsService:            metricsService,
+		GetLedgersLimit:           cfg.GetLedgersLimit,
+		Network:                   cfg.Network,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
+		Archive:                   archive,
+		SkipTxMeta:                cfg.SkipTxMeta,
+		BackfillWorkers:           cfg.BackfillWorkers,
+		BackfillBatchSize:         cfg.BackfillBatchSize,
+		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
