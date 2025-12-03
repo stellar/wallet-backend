@@ -130,6 +130,8 @@ type IngestServiceConfig struct {
 	BackfillWorkers int
 	// BackfillBatchSize is ledgers per batch. Defaults to 250.
 	BackfillBatchSize int
+	// BackfillDBInsertBatchSize is ledgers to process before flushing to DB. Defaults to 50.
+	BackfillDBInsertBatchSize int
 }
 
 type ingestService struct {
@@ -151,10 +153,11 @@ type ingestService struct {
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
-	skipTxMeta              bool
-	backfillPool            pond.Pool
-	backfillBatchSize       uint32
-	backfillInstanceID      string // Format: "startLedger-endLedger" for multi-instance metrics
+	skipTxMeta                bool
+	backfillPool              pond.Pool
+	backfillBatchSize         uint32
+	backfillDBInsertBatchSize uint32
+	backfillInstanceID        string // Format: "startLedger-endLedger" for multi-instance metrics
 }
 
 // NewIngestService creates a new IngestService with the provided configuration.
@@ -178,28 +181,35 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillBatchSize = BackfillBatchSize
 	}
 
+	// Set DB insert batch size with default fallback
+	backfillDBInsertBatchSize := uint32(cfg.BackfillDBInsertBatchSize)
+	if backfillDBInsertBatchSize == 0 {
+		backfillDBInsertBatchSize = 50 // Sensible default to control memory usage
+	}
+
 	return &ingestService{
-		ingestionMode:           cfg.IngestionMode,
-		models:                  cfg.Models,
-		latestLedgerCursorName:  cfg.LatestLedgerCursorName,
-		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
-		accountTokensCursorName: cfg.AccountTokensCursorName,
-		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
-		appTracker:              cfg.AppTracker,
-		rpcService:              cfg.RPCService,
-		ledgerBackend:           cfg.LedgerBackend,
-		ledgerBackendFactory:    cfg.LedgerBackendFactory,
-		chAccStore:              cfg.ChannelAccountStore,
-		accountTokenService:     cfg.AccountTokenService,
-		contractMetadataService: cfg.ContractMetadataService,
-		metricsService:          cfg.MetricsService,
-		networkPassphrase:       cfg.NetworkPassphrase,
-		getLedgersLimit:         cfg.GetLedgersLimit,
-		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta),
-		archive:                 cfg.Archive,
-		skipTxMeta:              cfg.SkipTxMeta,
-		backfillPool:            backfillPool,
-		backfillBatchSize:       backfillBatchSize,
+		ingestionMode:             cfg.IngestionMode,
+		models:                    cfg.Models,
+		latestLedgerCursorName:    cfg.LatestLedgerCursorName,
+		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
+		accountTokensCursorName:   cfg.AccountTokensCursorName,
+		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
+		appTracker:                cfg.AppTracker,
+		rpcService:                cfg.RPCService,
+		ledgerBackend:             cfg.LedgerBackend,
+		ledgerBackendFactory:      cfg.LedgerBackendFactory,
+		chAccStore:                cfg.ChannelAccountStore,
+		accountTokenService:       cfg.AccountTokenService,
+		contractMetadataService:   cfg.ContractMetadataService,
+		metricsService:            cfg.MetricsService,
+		networkPassphrase:         cfg.NetworkPassphrase,
+		getLedgersLimit:           cfg.GetLedgersLimit,
+		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.MetricsService, cfg.SkipTxMeta),
+		archive:                   cfg.Archive,
+		skipTxMeta:                cfg.SkipTxMeta,
+		backfillPool:              backfillPool,
+		backfillBatchSize:         backfillBatchSize,
+		backfillDBInsertBatchSize: backfillDBInsertBatchSize,
 	}, nil
 }
 
@@ -461,7 +471,10 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	}
 
 	// Process each ledger in the batch using a single shared buffer.
+	// Periodically flush to DB to control memory usage.
 	batchBuffer := indexer.NewIndexerBuffer()
+	ledgersInBuffer := uint32(0)
+
 	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
 		fetchStart := time.Now()
 		ledgerMeta, err := m.getLedgerWithRetry(ctx, backend, ledgerSeq)
@@ -483,20 +496,43 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		m.metricsService.SetBackfillCurrentLedger(m.backfillInstanceID, ledgerSeq)
 		m.metricsService.IncBackfillLedgersProcessed(m.backfillInstanceID, 1)
 		result.LedgersCount++
+		ledgersInBuffer++
+
+		// Flush buffer periodically to control memory usage
+		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			dbInsertStart := time.Now()
+
+			// Record metrics before clearing
+			m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
+			m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
+
+			if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+				result.Error = fmt.Errorf("ingesting data for ledgers ending at %d: %w", ledgerSeq, err)
+				result.Duration = time.Since(start)
+				return result
+			}
+			m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insertion", time.Since(dbInsertStart).Seconds())
+
+			batchBuffer.Clear()
+			ledgersInBuffer = 0
+		}
 	}
 
-	// Insert all data into DB
-	dbInsertDuration := time.Since(start).Seconds()
-	if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
-		result.Error = fmt.Errorf("ingesting data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
-		result.Duration = time.Since(start)
-		return result
-	}
-	m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insertion", dbInsertDuration)
+	// Flush remaining data in buffer
+	if ledgersInBuffer > 0 {
+		dbInsertStart := time.Now()
 
-	// Record transaction and operation counts based on ingestion mode
-	m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
-	m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
+		// Record metrics before final insert
+		m.metricsService.IncBackfillTransactionsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfTransactions())
+		m.metricsService.IncBackfillOperationsProcessed(m.backfillInstanceID, batchBuffer.GetNumberOfOperations())
+
+		if err := m.ingestProcessedData(ctx, batchBuffer); err != nil {
+			result.Error = fmt.Errorf("ingesting final data for batch [%d - %d]: %w", batch.StartLedger, batch.EndLedger, err)
+			result.Duration = time.Since(start)
+			return result
+		}
+		m.metricsService.ObserveBackfillPhaseDuration(m.backfillInstanceID, "db_insertion", time.Since(dbInsertStart).Seconds())
+	}
 
 	result.Duration = time.Since(start)
 

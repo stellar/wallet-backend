@@ -124,6 +124,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: 250,
 			Required:    false,
 		},
+		{
+			Name:        "backfill-db-insert-batch-size",
+			Usage:       "Number of ledgers to process before flushing buffer to DB during backfill. Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillDBInsertBatchSize,
+			FlagDefault: 100,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{

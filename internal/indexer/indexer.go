@@ -43,6 +43,7 @@ type IndexerBufferInterface interface {
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	MergeBuffer(other IndexerBufferInterface)
+	Clear()
 }
 
 type TokenTransferProcessorInterface interface {
