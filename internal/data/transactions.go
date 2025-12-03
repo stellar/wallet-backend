@@ -290,6 +290,28 @@ func (m *TransactionModel) BatchInsertCopy(
 		return 0, nil
 	}
 
+	// Convert to pointers for the optimized implementation
+	txPtrs := make([]*types.Transaction, len(txs))
+	for i := range txs {
+		txPtrs[i] = &txs[i]
+	}
+
+	return m.BatchInsertCopyFromPointers(ctx, dbTx, txPtrs, stellarAddressesByTxHash)
+}
+
+// BatchInsertCopyFromPointers inserts transactions using PostgreSQL COPY protocol.
+// This variant accepts pointer slices to avoid copying large XDR strings (10-50KB per transaction).
+// Optimized for backfill operations with pre-allocated participant lists.
+func (m *TransactionModel) BatchInsertCopyFromPointers(
+	ctx context.Context,
+	dbTx db.Transaction,
+	txs []*types.Transaction,
+	stellarAddressesByTxHash map[string]set.Set[string],
+) (int, error) {
+	if len(txs) == 0 {
+		return 0, nil
+	}
+
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
 	sqlxTx, ok := dbTx.(*sqlx.Tx)
 	if !ok {
@@ -349,8 +371,10 @@ func (m *TransactionModel) BatchInsertCopy(
 		}
 		defer func() { _ = taStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
+		// Convert sets to slices upfront to avoid channel creation per set
 		for txHash, addresses := range stellarAddressesByTxHash {
-			for address := range addresses.Iter() {
+			addressSlice := addresses.ToSlice()
+			for _, address := range addressSlice {
 				_, err = taStmt.Exec(txHash, address)
 				if err != nil {
 					m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))

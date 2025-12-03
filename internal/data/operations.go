@@ -361,6 +361,28 @@ func (m *OperationModel) BatchInsertCopy(
 		return 0, nil
 	}
 
+	// Convert to pointers for the optimized implementation
+	opPtrs := make([]*types.Operation, len(operations))
+	for i := range operations {
+		opPtrs[i] = &operations[i]
+	}
+
+	return m.BatchInsertCopyFromPointers(ctx, dbTx, opPtrs, stellarAddressesByOpID)
+}
+
+// BatchInsertCopyFromPointers inserts operations using PostgreSQL COPY protocol.
+// This variant accepts pointer slices to avoid unnecessary memory copies.
+// Optimized for backfill operations with pre-allocated participant lists.
+func (m *OperationModel) BatchInsertCopyFromPointers(
+	ctx context.Context,
+	dbTx db.Transaction,
+	operations []*types.Operation,
+	stellarAddressesByOpID map[int64]set.Set[string],
+) (int, error) {
+	if len(operations) == 0 {
+		return 0, nil
+	}
+
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
 	sqlxTx, ok := dbTx.(*sqlx.Tx)
 	if !ok {
@@ -413,8 +435,10 @@ func (m *OperationModel) BatchInsertCopy(
 		}
 		defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
+		// Convert sets to slices upfront to avoid channel creation per set
 		for opID, addresses := range stellarAddressesByOpID {
-			for address := range addresses.Iter() {
+			addressSlice := addresses.ToSlice()
+			for _, address := range addressSlice {
 				_, err = oaStmt.Exec(opID, address)
 				if err != nil {
 					m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
