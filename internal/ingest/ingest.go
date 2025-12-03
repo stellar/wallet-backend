@@ -78,6 +78,12 @@ type Configs struct {
 	DatastoreConfigPath string
 	// SkipTxMeta skips storing transaction metadata (meta_xdr) to reduce storage space
 	SkipTxMeta bool
+	// BackfillWorkers limits concurrent batch processing during backfill.
+	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
+	BackfillWorkers int
+	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
+	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
+	BackfillBatchSize int
 }
 
 func Ingest(cfg Configs) error {
@@ -201,6 +207,8 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		NetworkPassphrase:       cfg.NetworkPassphrase,
 		Archive:                 archive,
 		SkipTxMeta:              cfg.SkipTxMeta,
+		BackfillWorkers:         cfg.BackfillWorkers,
+		BackfillBatchSize:       cfg.BackfillBatchSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

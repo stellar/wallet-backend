@@ -108,6 +108,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: true,
 			Required:    false,
 		},
+		{
+			Name:        "backfill-workers",
+			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Lower values reduce RAM usage at cost of throughput.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillWorkers,
+			FlagDefault: 0,
+			Required:    false,
+		},
+		{
+			Name:        "backfill-batch-size",
+			Usage:       "Number of ledgers per batch during backfill. Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.BackfillBatchSize,
+			FlagDefault: 250,
+			Required:    false,
+		},
 	}
 
 	cmd := &cobra.Command{
