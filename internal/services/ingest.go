@@ -444,10 +444,6 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	start := time.Now()
 	result := BackfillResult{Batch: batch}
 
-	// Record batch size metric
-	batchSize := int(batch.EndLedger - batch.StartLedger + 1)
-	m.metricsService.ObserveBackfillBatchSize(m.backfillInstanceID, batchSize)
-
 	// Create a new ledger backend for this batch
 	backend, err := m.ledgerBackendFactory(ctx)
 	if err != nil {
