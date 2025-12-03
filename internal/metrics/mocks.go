@@ -220,6 +220,6 @@ func (m *MockMetricsService) ObserveBackfillBatchLedgersProcessed(instance strin
 	m.Called(instance, count)
 }
 
-func (m *MockMetricsService) ObserveBackfillDuration(instance string, duration float64) {
-	m.Called(instance, duration)
+func (m *MockMetricsService) SetBackfillElapsed(instance string, seconds float64) {
+	m.Called(instance, seconds)
 }
