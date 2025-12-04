@@ -70,9 +70,12 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx db.Transaction, c
 	m.MetricsService.ObserveDBQueryDuration("UpdateMin", "ingest_store", duration)
 	if err != nil {
 		m.MetricsService.IncDBQueryError("UpdateMin", "ingest_store", utils.GetDBErrorType(err))
-		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
+		return fmt.Errorf("updating minimum ledger for cursor %s: %w", ledger, err)
 	}
 	m.MetricsService.IncDBQuery("UpdateMin", "ingest_store")
+	if err != nil {
+		return fmt.Errorf("updating minimum ledger for cursor %s: %w", cursorName, err)
+	}
 	return nil
 }
 
