@@ -286,6 +286,11 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
 
+	// Wait for ingest to catch up with RPC before starting API
+	if err := s.waitForIngestSync(ctx); err != nil {
+		return fmt.Errorf("waiting for ingest sync: %w", err)
+	}
+
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
 		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
@@ -363,6 +368,86 @@ func (s *SharedContainers) GetBalanceTestAccount2KeyPair(ctx context.Context) *k
 // GetMasterKeyPair returns the master account keypair
 func (s *SharedContainers) GetMasterKeyPair(ctx context.Context) *keypair.Full {
 	return s.masterKeyPair
+}
+
+// waitForIngestSync waits until the ingest service has caught up with RPC.
+// It polls every 2 seconds until the gap between RPC's latest ledger and the
+// backend's live_ingest_cursor is within the health threshold (50 ledgers).
+func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
+	const (
+		pollInterval          = 2 * time.Second
+		timeout               = 5 * time.Minute
+		ledgerHealthThreshold = uint32(50)
+		ledgerCursorName      = "live_ingest_cursor"
+	)
+
+	// Get RPC connection
+	rpcURL, err := s.RPCContainer.GetConnectionString(ctx)
+	if err != nil {
+		return fmt.Errorf("getting RPC connection string: %w", err)
+	}
+
+	// Get DB connection
+	dbHost, err := s.WalletDBContainer.GetHost(ctx)
+	if err != nil {
+		return fmt.Errorf("getting database host: %w", err)
+	}
+	dbPort, err := s.WalletDBContainer.GetPort(ctx)
+	if err != nil {
+		return fmt.Errorf("getting database port: %w", err)
+	}
+	dbURL := fmt.Sprintf("postgres://postgres@%s:%s/wallet-backend?sslmode=disable", dbHost, dbPort)
+	dbConnectionPool, err := db.OpenDBConnectionPool(dbURL)
+	if err != nil {
+		return fmt.Errorf("opening database connection pool: %w", err)
+	}
+	defer dbConnectionPool.Close() //nolint:errcheck
+
+	// Create RPC service for health checks
+	httpClient := s.httpClient
+	metricsService := metrics.NewMockMetricsService()
+	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
+	if err != nil {
+		return fmt.Errorf("creating RPC service: %w", err)
+	}
+
+	log.Ctx(ctx).Info("⏳ Waiting for ingest to sync with RPC...")
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	timeoutChan := time.After(timeout)
+
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timeout waiting for ingest to sync with RPC after %v", timeout)
+		case <-ticker.C:
+			// Get RPC latest ledger
+			health, err := rpcService.GetHealth()
+			if err != nil {
+				log.Ctx(ctx).Warnf("Failed to get RPC health: %v", err)
+				continue
+			}
+
+			// Get backend's latest ledger from database
+			var backendLatestLedger uint32
+			err = dbConnectionPool.GetContext(ctx, &backendLatestLedger,
+				`SELECT COALESCE(value::integer, 0) FROM ingest_store WHERE key = $1`, ledgerCursorName)
+			if err != nil {
+				log.Ctx(ctx).Warnf("Failed to get backend latest ledger: %v", err)
+				continue
+			}
+
+			gap := health.LatestLedger - backendLatestLedger
+			log.Ctx(ctx).Infof("🔄 Ingest sync status: RPC=%d, Backend=%d, Gap=%d (threshold=%d)",
+				health.LatestLedger, backendLatestLedger, gap, ledgerHealthThreshold)
+
+			if gap <= ledgerHealthThreshold {
+				log.Ctx(ctx).Info("✅ Ingest is synced with RPC")
+				return nil
+			}
+		}
+	}
 }
 
 // Cleanup cleans up shared containers after all tests complete
