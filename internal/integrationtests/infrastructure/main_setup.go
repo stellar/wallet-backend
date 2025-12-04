@@ -449,7 +449,7 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 			log.Ctx(ctx).Infof("🔄 Ingest sync status: RPC=%d, Backend=%d, Gap=%d (threshold=%d)",
 				health.LatestLedger, backendLatestLedger, gap, ledgerHealthThreshold)
 
-			if gap <= 1 {
+			if gap <= 5 {
 				log.Ctx(ctx).Info("✅ Ingest is synced with RPC")
 				return nil
 			}
