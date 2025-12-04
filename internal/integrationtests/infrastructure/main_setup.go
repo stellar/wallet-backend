@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"testing"
 	"time"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/support/log"
@@ -378,7 +379,7 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 		pollInterval          = 2 * time.Second
 		timeout               = 5 * time.Minute
 		ledgerHealthThreshold = uint32(50)
-		ledgerCursorName      = "live_ingest_cursor"
+		ledgerCursorName      = "latest_ingest_ledger"
 	)
 
 	// Get RPC connection
@@ -406,6 +407,11 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 	// Create RPC service for health checks
 	httpClient := s.httpClient
 	metricsService := metrics.NewMockMetricsService()
+	metricsService.On("IncRPCMethodCalls", "GetHealth")
+	metricsService.On("IncRPCEndpointSuccess", "getHealth")
+	metricsService.On("ObserveRPCMethodDuration", "GetHealth", mock.AnythingOfType("float64"))
+	metricsService.On("ObserveRPCRequestDuration", "getHealth", mock.AnythingOfType("float64"))
+	metricsService.On("IncRPCRequests", "getHealth")
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, metricsService)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)
@@ -442,7 +448,7 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 			log.Ctx(ctx).Infof("🔄 Ingest sync status: RPC=%d, Backend=%d, Gap=%d (threshold=%d)",
 				health.LatestLedger, backendLatestLedger, gap, ledgerHealthThreshold)
 
-			if gap <= ledgerHealthThreshold {
+			if gap <= 1 {
 				log.Ctx(ctx).Info("✅ Ingest is synced with RPC")
 				return nil
 			}
