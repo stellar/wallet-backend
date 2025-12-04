@@ -42,7 +42,7 @@ type IndexerBufferInterface interface {
 	GetContractChanges() []types.ContractChange
 	PushContractChange(contractChange types.ContractChange)
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
-	MergeBuffer(other IndexerBufferInterface)
+	Merge(other IndexerBufferInterface)
 	Clear()
 }
 
@@ -122,7 +122,7 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 	// Merge buffers and count participants
 	totalParticipants := 0
 	for idx, buffer := range txnBuffers {
-		ledgerBuffer.MergeBuffer(buffer)
+		ledgerBuffer.Merge(buffer)
 		totalParticipants += participantCounts[idx]
 	}
 
