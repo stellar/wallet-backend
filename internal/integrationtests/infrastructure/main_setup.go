@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/stellar/go/keypair"
