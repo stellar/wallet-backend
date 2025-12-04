@@ -31,8 +31,8 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 	defer dbConnectionPool.Close()
 
 	mockMetricsService := metrics.NewMockMetricsService()
-	mockMetricsService.On("ObserveDBQueryDuration", "GetLatestLedgerSynced", "ingest_store", mock.AnythingOfType("float64")).Return()
-	mockMetricsService.On("IncDBQuery", "GetLatestLedgerSynced", "ingest_store").Return()
+	mockMetricsService.On("ObserveDBQueryDuration", "Get", "ingest_store", mock.AnythingOfType("float64")).Return()
+	mockMetricsService.On("IncDBQuery", "Get", "ingest_store").Return()
 	defer mockMetricsService.AssertExpectations(t)
 
 	models, err := data.NewModels(dbConnectionPool, mockMetricsService)

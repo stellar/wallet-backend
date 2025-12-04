@@ -419,28 +419,29 @@ func (m *StateChangeModel) BatchInsertCopy(
 
 		// Convert JSONB fields to JSON strings (lib/pq COPY needs string, not []byte for JSONB)
 		var signerWeights, thresholds, trustlineLimit, flags, keyValue any
+		var jsonBytes []byte
 		if sc.SignerWeights != nil {
-			if jsonBytes, err := json.Marshal(sc.SignerWeights); err == nil {
+			if jsonBytes, err = json.Marshal(sc.SignerWeights); err == nil {
 				signerWeights = string(jsonBytes)
 			}
 		}
 		if sc.Thresholds != nil {
-			if jsonBytes, err := json.Marshal(sc.Thresholds); err == nil {
+			if jsonBytes, err = json.Marshal(sc.Thresholds); err == nil {
 				thresholds = string(jsonBytes)
 			}
 		}
 		if sc.TrustlineLimit != nil {
-			if jsonBytes, err := json.Marshal(sc.TrustlineLimit); err == nil {
+			if jsonBytes, err = json.Marshal(sc.TrustlineLimit); err == nil {
 				trustlineLimit = string(jsonBytes)
 			}
 		}
 		if sc.Flags != nil {
-			if jsonBytes, err := json.Marshal(sc.Flags); err == nil {
+			if jsonBytes, err = json.Marshal(sc.Flags); err == nil {
 				flags = string(jsonBytes)
 			}
 		}
 		if sc.KeyValue != nil {
-			if jsonBytes, err := json.Marshal(sc.KeyValue); err == nil {
+			if jsonBytes, err = json.Marshal(sc.KeyValue); err == nil {
 				keyValue = string(jsonBytes)
 			}
 		}
