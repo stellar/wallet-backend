@@ -57,7 +57,6 @@ type OperationProcessorInterface interface {
 	Name() string
 }
 
-
 type Indexer struct {
 	participantsProcessor  ParticipantsProcessorInterface
 	tokenTransferProcessor TokenTransferProcessorInterface
