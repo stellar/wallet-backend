@@ -66,7 +66,10 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx db.Transaction, c
 		WHERE key = $1
 	`
 	_, err := dbTx.ExecContext(ctx, query, cursorName, ledger)
-	return err
+	if err != nil {
+		return fmt.Errorf("updating minimum ledger for cursor %s: %w", cursorName, err)
+	}
+	return nil
 }
 
 func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {

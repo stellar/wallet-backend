@@ -151,7 +151,6 @@ type ingestService struct {
 	getLedgersLimit         int
 	ledgerIndexer           *indexer.Indexer
 	archive                 historyarchive.ArchiveInterface
-	backfillMode            bool
 	skipTxMeta              bool
 	backfillPool            pond.Pool
 }
