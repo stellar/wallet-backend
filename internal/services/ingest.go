@@ -285,10 +285,6 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	// Compute and store instance ID for metrics
 	m.backfillInstanceID = fmt.Sprintf("%d-%d", startLedger, endLedger)
 
-	// Set initial progress metrics
-	m.metricsService.SetBackfillStartLedger(m.backfillInstanceID, startLedger)
-	m.metricsService.SetBackfillEndLedger(m.backfillInstanceID, endLedger)
-
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, m.latestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("getting latest ledger cursor: %w", err)
@@ -504,7 +500,6 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 		}
 
 		// Update current ledger progress and increment ledger count
-		m.metricsService.SetBackfillCurrentLedger(m.backfillInstanceID, ledgerSeq)
 		m.metricsService.IncBackfillLedgersProcessed(m.backfillInstanceID, 1)
 		result.LedgersCount++
 		ledgersInBuffer++
