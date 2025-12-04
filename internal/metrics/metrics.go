@@ -463,11 +463,12 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 
 	// Backfill Phase Duration (with backfill_instance AND phase labels)
+	// Exponential buckets: 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8 seconds
 	m.backfillPhaseDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "backfill_phase_duration_seconds",
 			Help:    "Duration of each backfill phase",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60},
+			Buckets: prometheus.ExponentialBuckets(0.1, 2, 12),
 		},
 		[]string{"backfill_instance", "phase"},
 	)
