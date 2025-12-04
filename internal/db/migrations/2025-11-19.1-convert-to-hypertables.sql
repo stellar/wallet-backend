@@ -43,24 +43,24 @@ ALTER TABLE state_changes ADD PRIMARY KEY (to_id, state_change_order, ledger_cre
 
 -- =============================================================================
 -- STEP 3: Convert tables to hypertables
--- Using 1 month chunk interval as specified
+-- Using 2 days chunk interval as specified
 -- =============================================================================
 
 -- Convert transactions to hypertable
 SELECT create_hypertable('transactions', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '1 month',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert operations to hypertable
 SELECT create_hypertable('operations', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '1 month',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert state_changes to hypertable
 SELECT create_hypertable('state_changes', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '1 month',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
@@ -93,12 +93,12 @@ ALTER TABLE state_changes SET (
 
 -- =============================================================================
 -- STEP 5: Add compression policies
--- Automatically compress chunks older than 7 days
+-- Automatically compress chunks older than 2 days
 -- =============================================================================
 
-SELECT add_compression_policy('transactions', INTERVAL '7 days');
-SELECT add_compression_policy('operations', INTERVAL '7 days');
-SELECT add_compression_policy('state_changes', INTERVAL '7 days');
+SELECT add_compression_policy('transactions', INTERVAL '2 days');
+SELECT add_compression_policy('operations', INTERVAL '2 days');
+SELECT add_compression_policy('state_changes', INTERVAL '2 days');
 
 -- =============================================================================
 -- STEP 6: Recreate indexes optimized for time-series queries
