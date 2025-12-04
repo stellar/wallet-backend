@@ -562,7 +562,7 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 // It respects context cancellation and limits retries to maxLedgerFetchRetries attempts.
 func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerbackend.LedgerBackend, ledgerSeq uint32) (xdr.LedgerCloseMeta, error) {
 	var lastErr error
-	for attempt := 0; attempt < maxLedgerFetchRetries; attempt++ {
+	for attempt := range maxLedgerFetchRetries {
 		select {
 		case <-ctx.Done():
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("context cancelled: %w", ctx.Err())
@@ -580,10 +580,7 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 			m.metricsService.IncBackfillRetries(m.backfillInstanceID)
 		}
 
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxRetryBackoff {
-			backoff = maxRetryBackoff
-		}
+		backoff := max(time.Duration(1<<attempt) * time.Second, maxRetryBackoff)
 		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
 			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
 
@@ -698,13 +695,12 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 	return nil
 }
 
-// processLedger processes a single ledger through all ingestion phases.
-// Phase 1: Get transactions from ledger
-// Phase 2: Process transactions using Indexer (parallel within ledger)
-// Phase 3: Insert all data into DB
-// Note: Live ingestion includes Redis cache updates and channel account unlocks,
-// while backfill mode skips these operations (determined by m.ingestionMode).
-// Metrics are recorded conditionally based on ingestion mode.
+/* processLiveLedger processes a single ledger through all ingestion phases.
+	Phase 1: Get transactions from ledger
+	Phase 2: Process transactions and populate buffer (parallel within ledger)
+	Phase 3: Insert all data into DB
+Note: Live ingestion includes Redis cache updates and channel account unlocks, while backfill mode skips these operations.
+*/
 func (m *ingestService) processLiveLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 
