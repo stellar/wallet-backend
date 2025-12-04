@@ -35,17 +35,6 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatalf("Failed to initialize test environment: %v", err)
 	}
 
-	// t.Run("AccountRegisterTestSuite", func(t *testing.T) {
-	// 	suite.Run(t, &AccountRegisterTestSuite{
-	// 		testEnv: testEnv,
-	// 	})
-	// })
-
-	// // Only proceed if account registration succeeded
-	// if t.Failed() {
-	// 	t.Fatal("AccountRegisterTestSuite failed, skipping remaining tests")
-	// }
-
 	// Phase 1: Validate balances from checkpoint before fixture transactions
 	t.Run("AccountBalancesAfterCheckpointTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterCheckpointTestSuite{

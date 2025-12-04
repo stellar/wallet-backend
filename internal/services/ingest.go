@@ -327,7 +327,16 @@ func (m *ingestService) getLedgerTransactions(ctx context.Context, xdrLedgerClos
 func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer indexer.IndexerBufferInterface) error {
 	dbTxErr := db.RunInTransaction(ctx, m.models.DB, nil, func(dbTx db.Transaction) error {
 		// 2. Insert queries
-		// 2.1. Insert transactions
+		// 2.1. Insert all participants as accounts
+		participants := indexerBuffer.GetAllParticipants()
+		if len(participants) > 0 {
+			if err := m.models.Account.BatchInsert(ctx, dbTx, participants); err != nil {
+				return fmt.Errorf("batch inserting accounts: %w", err)
+			}
+			log.Ctx(ctx).Infof("✅ inserted %d participant accounts", len(participants))
+		}
+
+		// 2.2. Insert transactions
 		txs := indexerBuffer.GetTransactions()
 		stellarAddressesByTxHash := indexerBuffer.GetTransactionsParticipants()
 		if len(txs) > 0 {
@@ -338,7 +347,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			log.Ctx(ctx).Infof("✅ inserted %d transactions with hashes %v", len(insertedHashes), insertedHashes)
 		}
 
-		// 2.2. Insert operations
+		// 2.3. Insert operations
 		ops := indexerBuffer.GetOperations()
 		stellarAddressesByOpID := indexerBuffer.GetOperationsParticipants()
 		if len(ops) > 0 {
@@ -349,7 +358,7 @@ func (m *ingestService) ingestProcessedData(ctx context.Context, indexerBuffer i
 			log.Ctx(ctx).Infof("✅ inserted %d operations with IDs %v", len(insertedOpIDs), insertedOpIDs)
 		}
 
-		// 2.3. Insert state changes
+		// 2.4. Insert state changes
 		stateChanges := indexerBuffer.GetStateChanges()
 		if len(stateChanges) > 0 {
 			insertedStateChangeIDs, err := m.models.StateChanges.BatchInsert(ctx, dbTx, stateChanges)
