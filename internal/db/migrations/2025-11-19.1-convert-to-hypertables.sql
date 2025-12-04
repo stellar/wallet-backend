@@ -1,5 +1,8 @@
 -- +migrate Up
 
+-- Set search path to include both network schemas
+SET search_path TO wallet_backend_mainnet, wallet_backend_testnet, public;
+
 -- =============================================================================
 -- STEP 1: Drop foreign key constraints that reference the tables we're converting
 -- TimescaleDB hypertables have limitations with foreign keys pointing TO them
@@ -43,7 +46,7 @@ ALTER TABLE state_changes ADD PRIMARY KEY (to_id, state_change_order, ledger_cre
 
 -- =============================================================================
 -- STEP 3: Convert tables to hypertables
--- Using 2 days chunk interval as specified
+-- Using 7 days chunk interval as specified
 -- =============================================================================
 
 -- Convert transactions to hypertable
@@ -72,14 +75,12 @@ SELECT create_hypertable('state_changes', 'ledger_created_at',
 -- Enable compression on transactions
 ALTER TABLE transactions SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'ledger_number',
     timescaledb.compress_orderby = 'ledger_created_at DESC, hash'
 );
 
 -- Enable compression on operations
 ALTER TABLE operations SET (
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'ledger_number',
     timescaledb.compress_orderby = 'ledger_created_at DESC, id'
 );
 
@@ -93,12 +94,12 @@ ALTER TABLE state_changes SET (
 
 -- =============================================================================
 -- STEP 5: Add compression policies
--- Automatically compress chunks older than 2 days
+-- Automatically compress chunks older than 7 days
 -- =============================================================================
 
-SELECT add_compression_policy('transactions', INTERVAL '2 days');
-SELECT add_compression_policy('operations', INTERVAL '2 days');
-SELECT add_compression_policy('state_changes', INTERVAL '2 days');
+SELECT add_compression_policy('transactions', INTERVAL '7 days');
+SELECT add_compression_policy('operations', INTERVAL '7 days');
+SELECT add_compression_policy('state_changes', INTERVAL '7 days');
 
 -- =============================================================================
 -- STEP 6: Recreate indexes optimized for time-series queries
