@@ -34,15 +34,15 @@ ALTER TABLE state_changes DROP CONSTRAINT IF EXISTS state_changes_account_id_fke
 
 -- Modify transactions primary key to be composite (hash, ledger_created_at)
 ALTER TABLE transactions DROP CONSTRAINT transactions_pkey;
-ALTER TABLE transactions ADD PRIMARY KEY (hash, ledger_created_at);
+-- ALTER TABLE transactions ADD PRIMARY KEY (hash, ledger_created_at);
 
 -- Modify operations primary key to be composite (id, ledger_created_at)
 ALTER TABLE operations DROP CONSTRAINT operations_pkey;
-ALTER TABLE operations ADD PRIMARY KEY (id, ledger_created_at);
+-- ALTER TABLE operations ADD PRIMARY KEY (id, ledger_created_at);
 
 -- Modify state_changes primary key to include ledger_created_at
 ALTER TABLE state_changes DROP CONSTRAINT state_changes_pkey;
-ALTER TABLE state_changes ADD PRIMARY KEY (to_id, state_change_order, ledger_created_at);
+-- ALTER TABLE state_changes ADD PRIMARY KEY (to_id, state_change_order, ledger_created_at);
 
 -- =============================================================================
 -- STEP 3: Convert tables to hypertables
