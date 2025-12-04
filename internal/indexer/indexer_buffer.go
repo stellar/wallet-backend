@@ -289,7 +289,7 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	return b.stateChanges
 }
 
-// MergeBuffer merges another IndexerBuffer into this buffer. This is used to combine
+// Merge merges another IndexerBuffer into this buffer. This is used to combine
 // per-ledger or per-transaction buffers into a single buffer for batch DB insertion.
 //
 // MERGE STRATEGY:
@@ -309,7 +309,7 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // Zero temporary allocations - uses direct map/set manipulation.
 //
 // Thread-safe: acquires write lock on this buffer, read lock on other buffer.
-func (b *IndexerBuffer) MergeBuffer(other IndexerBufferInterface) {
+func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

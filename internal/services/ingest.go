@@ -443,10 +443,8 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batc
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
-		idx := i
-		b := batch
 		group.Submit(func() {
-			results[idx] = m.processSingleBatch(ctx, b)
+			results[i] = m.processSingleBatch(ctx, batch)
 		})
 	}
 
