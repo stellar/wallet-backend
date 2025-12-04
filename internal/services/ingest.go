@@ -40,20 +40,20 @@ func generateAdvisoryLockID(network string) int {
 	return int(h.Sum64())
 }
 
-// BackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
-const BackfillBatchSize uint32 = 250
-
-// maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
-const maxLedgerFetchRetries = 10
-
-// maxRetryBackoff is the maximum backoff duration between retry attempts.
-const maxRetryBackoff = 30 * time.Second
-
-// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
-const IngestionModeLive = "live"
-
-// IngestionModeBackfill represents historical ledger ingestion for a specified range.
-const IngestionModeBackfill = "backfill"
+const (
+	// DefaultBackfillBatchSize is the number of ledgers processed per parallel batch during backfill.
+	DefaultBackfillBatchSize uint32 = 250
+	// DefaultBackfillDBInsertBatchSize is the number of ledgers in a batch to insert into the db.
+	DefaultBackfillDBInsertBatchSize uint32 = 50
+	// maxLedgerFetchRetries is the maximum number of retry attempts when fetching a ledger fails.
+	maxLedgerFetchRetries = 10
+	// maxRetryBackoff is the maximum backoff duration between retry attempts.
+	maxRetryBackoff = 30 * time.Second
+	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
+	IngestionModeLive = "live"
+	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
+	IngestionModeBackfill = "backfill"
+)
 
 // LedgerBackendFactory creates new LedgerBackend instances for parallel batch processing.
 // Each batch needs its own backend because LedgerBackend is not thread-safe.
@@ -178,13 +178,13 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Set batch size with default fallback
 	backfillBatchSize := uint32(cfg.BackfillBatchSize)
 	if backfillBatchSize == 0 {
-		backfillBatchSize = BackfillBatchSize
+		backfillBatchSize = DefaultBackfillBatchSize
 	}
 
 	// Set DB insert batch size with default fallback
 	backfillDBInsertBatchSize := uint32(cfg.BackfillDBInsertBatchSize)
 	if backfillDBInsertBatchSize == 0 {
-		backfillDBInsertBatchSize = 50 // Sensible default to control memory usage
+		backfillDBInsertBatchSize = DefaultBackfillDBInsertBatchSize
 	}
 
 	return &ingestService{
