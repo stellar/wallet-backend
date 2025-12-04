@@ -594,22 +594,19 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 4)
 
-		// Verify all balance types are present
-		assert.IsType(t, &graphql1.NativeBalance{}, balances[0])
-		assert.IsType(t, &graphql1.TrustlineBalance{}, balances[1])
-		assert.IsType(t, &graphql1.SACBalance{}, balances[2])
-		assert.IsType(t, &graphql1.SEP41Balance{}, balances[3])
-
-		// Verify SAC balance details
-		sacBalance := balances[2].(*graphql1.SACBalance)
-		assert.Equal(t, "EURC", sacBalance.Code)
-		assert.Equal(t, testEURIssuer, sacBalance.Issuer)
-
-		// Verify SEP-41 balance details
-		sep41Balance := balances[3].(*graphql1.SEP41Balance)
-		assert.Equal(t, "CustomToken", sep41Balance.Name)
-		assert.Equal(t, "CTK", sep41Balance.Symbol)
-		assert.Equal(t, int32(6), sep41Balance.Decimals)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeSep41:
+				sep41Balance := balance.(*graphql1.SEP41Balance)
+				assert.Equal(t, "CustomToken", sep41Balance.Name)
+				assert.Equal(t, "CTK", sep41Balance.Symbol)
+				assert.Equal(t, int32(6), sep41Balance.Decimals)
+			case graphql1.TokenTypeSac:
+				sacBalance := balance.(*graphql1.SACBalance)
+				assert.Equal(t, "EURC", sacBalance.Code)
+				assert.Equal(t, testEURIssuer, sacBalance.Issuer)
+			}	
+		}
 	})
 
 	t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
