@@ -275,6 +275,36 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	return m.ingestLiveLedgers(ctx, startLedger)
 }
 
+// ingestLiveLedgers continuously processes ledgers starting from startLedger,
+// updating cursors and metrics after each successful ledger.
+func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
+	currentLedger := startLedger
+	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+	for {
+		totalStart := time.Now()
+		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
+		if ledgerErr != nil {
+			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
+		}
+		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
+
+		if processErr := m.processLiveLedger(ctx, ledgerMeta); processErr != nil {
+			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
+		}
+
+		// Update cursor only for live ingestion
+		err := m.updateLatestLedgerCursor(ctx, currentLedger)
+		if err != nil {
+			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
+		}
+		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
+		m.metricsService.IncIngestionLedgersProcessed(1)
+
+		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
+		currentLedger++
+	}
+}
+
 // startBackfilling processes historical ledgers in the specified range,
 // identifying gaps and processing them in parallel batches.
 func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLedger uint32) error {
@@ -575,7 +605,7 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 			m.metricsService.IncBackfillRetries(m.backfillInstanceID)
 		}
 
-		backoff := max(time.Duration(1<<attempt) * time.Second, maxRetryBackoff)
+		backoff := max(time.Duration(1<<attempt)*time.Second, maxRetryBackoff)
 		log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
 			ledgerSeq, attempt+1, maxLedgerFetchRetries, err, backoff)
 
@@ -586,36 +616,6 @@ func (m *ingestService) getLedgerWithRetry(ctx context.Context, backend ledgerba
 		}
 	}
 	return xdr.LedgerCloseMeta{}, fmt.Errorf("failed after %d attempts: %w", maxLedgerFetchRetries, lastErr)
-}
-
-// ingestLiveLedgers continuously processes ledgers starting from startLedger,
-// updating cursors and metrics after each successful ledger.
-func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
-	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
-	for {
-		totalStart := time.Now()
-		ledgerMeta, ledgerErr := m.getLedgerWithRetry(ctx, m.ledgerBackend, currentLedger)
-		if ledgerErr != nil {
-			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
-		}
-		m.metricsService.ObserveIngestionPhaseDuration("get_ledger", time.Since(totalStart).Seconds())
-
-		if processErr := m.processLiveLedger(ctx, ledgerMeta); processErr != nil {
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, processErr)
-		}
-
-		// Update cursor only for live ingestion
-		err := m.updateLatestLedgerCursor(ctx, currentLedger)
-		if err != nil {
-			return fmt.Errorf("updating cursor for ledger %d: %w", currentLedger, err)
-		}
-		m.metricsService.ObserveIngestionDuration(time.Since(totalStart).Seconds())
-		m.metricsService.IncIngestionLedgersProcessed(1)
-
-		log.Ctx(ctx).Infof("Processed ledger %d in %v", currentLedger, time.Since(totalStart))
-		currentLedger++
-	}
 }
 
 // updateLatestLedgerCursor updates the latest ledger cursor during live ingestion with metrics tracking.
@@ -690,10 +690,12 @@ func (m *ingestService) processBackfillLedger(ctx context.Context, ledgerMeta xd
 	return nil
 }
 
-/* processLiveLedger processes a single ledger through all ingestion phases.
-	Phase 1: Get transactions from ledger
-	Phase 2: Process transactions and populate buffer (parallel within ledger)
-	Phase 3: Insert all data into DB
+/*
+	 processLiveLedger processes a single ledger through all ingestion phases.
+		Phase 1: Get transactions from ledger
+		Phase 2: Process transactions and populate buffer (parallel within ledger)
+		Phase 3: Insert all data into DB
+
 Note: Live ingestion includes Redis cache updates and channel account unlocks, while backfill mode skips these operations.
 */
 func (m *ingestService) processLiveLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta) error {
