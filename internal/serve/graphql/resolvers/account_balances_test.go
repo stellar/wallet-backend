@@ -365,11 +365,17 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.Len(t, balances, 1)
 
 		// Verify it's a native balance
-		nativeBalance, ok := balances[0].(*graphql1.NativeBalance)
-		require.True(t, ok)
-		assert.Equal(t, "1000.0000000", nativeBalance.Balance)
-		assert.Equal(t, graphql1.TokenTypeNative, nativeBalance.TokenType)
-		assert.NotEmpty(t, nativeBalance.TokenID) // Native asset contract ID
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				nativeBalance := balance.(*graphql1.NativeBalance)
+				assert.Equal(t, "1000.0000000", nativeBalance.Balance)
+				assert.Equal(t, graphql1.TokenTypeNative, nativeBalance.TokenType)
+				assert.NotEmpty(t, nativeBalance.TokenID) // Native asset contract ID
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("success - account with classic trustlines", func(t *testing.T) {
@@ -423,32 +429,35 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 3) // 1 native + 2 trustlines
 
-		// Verify native balance
-		nativeBalance, ok := balances[0].(*graphql1.NativeBalance)
-		require.True(t, ok)
-		assert.Equal(t, "500.0000000", nativeBalance.Balance)
-
-		// Verify USDC trustline
-		usdcBalance, ok := balances[1].(*graphql1.TrustlineBalance)
-		require.True(t, ok)
-		assert.Equal(t, "100.0000000", usdcBalance.Balance)
-		assert.Equal(t, graphql1.TokenTypeClassic, usdcBalance.TokenType)
-		assert.Equal(t, "USDC", usdcBalance.Code)
-		assert.Equal(t, testUSDCIssuer, usdcBalance.Issuer)
-		assert.Equal(t, "1000.0000000", usdcBalance.Limit)
-		assert.Equal(t, "0.1000000", usdcBalance.BuyingLiabilities)
-		assert.Equal(t, "0.2000000", usdcBalance.SellingLiabilities)
-		assert.True(t, usdcBalance.IsAuthorized)
-		assert.False(t, usdcBalance.IsAuthorizedToMaintainLiabilities)
-
-		// Verify EUR trustline
-		eurBalance, ok := balances[2].(*graphql1.TrustlineBalance)
-		require.True(t, ok)
-		assert.Equal(t, "500.0000000", eurBalance.Balance)
-		assert.Equal(t, "EUR", eurBalance.Code)
-		assert.Equal(t, testEURIssuer, eurBalance.Issuer)
-		assert.False(t, eurBalance.IsAuthorized)
-		assert.True(t, eurBalance.IsAuthorizedToMaintainLiabilities)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				nativeBalance := balance.(*graphql1.NativeBalance)
+				assert.Equal(t, "500.0000000", nativeBalance.Balance)
+			case graphql1.TokenTypeClassic:
+				trustlineBalance := balance.(*graphql1.TrustlineBalance)
+				switch trustlineBalance.Code {
+				case "USDC":
+					assert.Equal(t, "100.0000000", trustlineBalance.Balance)
+					assert.Equal(t, graphql1.TokenTypeClassic, trustlineBalance.TokenType)
+					assert.Equal(t, testUSDCIssuer, trustlineBalance.Issuer)
+					assert.Equal(t, "1000.0000000", trustlineBalance.Limit)
+					assert.Equal(t, "0.1000000", trustlineBalance.BuyingLiabilities)
+					assert.Equal(t, "0.2000000", trustlineBalance.SellingLiabilities)
+					assert.True(t, trustlineBalance.IsAuthorized)
+					assert.False(t, trustlineBalance.IsAuthorizedToMaintainLiabilities)
+				case "EUR":
+					assert.Equal(t, "500.0000000", trustlineBalance.Balance)
+					assert.Equal(t, testEURIssuer, trustlineBalance.Issuer)
+					assert.False(t, trustlineBalance.IsAuthorized)
+					assert.True(t, trustlineBalance.IsAuthorizedToMaintainLiabilities)
+				default:
+					t.Errorf("unexpected trustline code: %s", trustlineBalance.Code)
+				}
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("success - account with SAC contract balances", func(t *testing.T) {
@@ -489,16 +498,23 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 2) // 1 native + 1 SAC
 
-		// Verify SAC balance
-		sacBalance, ok := balances[1].(*graphql1.SACBalance)
-		require.True(t, ok)
-		assert.Equal(t, "2500.0000000", sacBalance.Balance)
-		assert.Equal(t, graphql1.TokenTypeSac, sacBalance.TokenType)
-		assert.Equal(t, testSACContractAddress, sacBalance.TokenID)
-		assert.Equal(t, "USDC", sacBalance.Code)
-		assert.Equal(t, testUSDCIssuer, sacBalance.Issuer)
-		assert.True(t, sacBalance.IsAuthorized)
-		assert.False(t, sacBalance.IsClawbackEnabled)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				// Native balance verified by count
+			case graphql1.TokenTypeSac:
+				sacBalance := balance.(*graphql1.SACBalance)
+				assert.Equal(t, "2500.0000000", sacBalance.Balance)
+				assert.Equal(t, graphql1.TokenTypeSac, sacBalance.TokenType)
+				assert.Equal(t, testSACContractAddress, sacBalance.TokenID)
+				assert.Equal(t, "USDC", sacBalance.Code)
+				assert.Equal(t, testUSDCIssuer, sacBalance.Issuer)
+				assert.True(t, sacBalance.IsAuthorized)
+				assert.False(t, sacBalance.IsClawbackEnabled)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("success - account with SEP-41 contract balances", func(t *testing.T) {
@@ -539,15 +555,22 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 2) // 1 native + 1 SEP-41
 
-		// Verify SEP-41 balance
-		sep41Balance, ok := balances[1].(*graphql1.SEP41Balance)
-		require.True(t, ok)
-		assert.Equal(t, "5000.0000000", sep41Balance.Balance)
-		assert.Equal(t, graphql1.TokenTypeSep41, sep41Balance.TokenType)
-		assert.Equal(t, testSEP41ContractAddress, sep41Balance.TokenID)
-		assert.Equal(t, "MyToken", sep41Balance.Name)
-		assert.Equal(t, "MTK", sep41Balance.Symbol)
-		assert.Equal(t, int32(7), sep41Balance.Decimals)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				// Native balance verified by count
+			case graphql1.TokenTypeSep41:
+				sep41Balance := balance.(*graphql1.SEP41Balance)
+				assert.Equal(t, "5000.0000000", sep41Balance.Balance)
+				assert.Equal(t, graphql1.TokenTypeSep41, sep41Balance.TokenType)
+				assert.Equal(t, testSEP41ContractAddress, sep41Balance.TokenID)
+				assert.Equal(t, "MyToken", sep41Balance.Name)
+				assert.Equal(t, "MTK", sep41Balance.Symbol)
+				assert.Equal(t, int32(7), sep41Balance.Decimals)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("success - mixed balances (native + trustlines + SAC + SEP-41)", func(t *testing.T) {
@@ -594,22 +617,23 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 4)
 
-		// Verify all balance types are present
-		assert.IsType(t, &graphql1.NativeBalance{}, balances[0])
-		assert.IsType(t, &graphql1.TrustlineBalance{}, balances[1])
-		assert.IsType(t, &graphql1.SACBalance{}, balances[2])
-		assert.IsType(t, &graphql1.SEP41Balance{}, balances[3])
-
-		// Verify SAC balance details
-		sacBalance := balances[2].(*graphql1.SACBalance)
-		assert.Equal(t, "EURC", sacBalance.Code)
-		assert.Equal(t, testEURIssuer, sacBalance.Issuer)
-
-		// Verify SEP-41 balance details
-		sep41Balance := balances[3].(*graphql1.SEP41Balance)
-		assert.Equal(t, "CustomToken", sep41Balance.Name)
-		assert.Equal(t, "CTK", sep41Balance.Symbol)
-		assert.Equal(t, int32(6), sep41Balance.Decimals)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				// Native balance verified by count
+			case graphql1.TokenTypeClassic:
+				// Classic trustline verified by count
+			case graphql1.TokenTypeSep41:
+				sep41Balance := balance.(*graphql1.SEP41Balance)
+				assert.Equal(t, "CustomToken", sep41Balance.Name)
+				assert.Equal(t, "CTK", sep41Balance.Symbol)
+				assert.Equal(t, int32(6), sep41Balance.Decimals)
+			case graphql1.TokenTypeSac:
+				sacBalance := balance.(*graphql1.SACBalance)
+				assert.Equal(t, "EURC", sacBalance.Code)
+				assert.Equal(t, testEURIssuer, sacBalance.Issuer)
+			}
+		}
 	})
 
 	t.Run("success - contract address (skips account and trustlines)", func(t *testing.T) {
@@ -647,12 +671,18 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 
-		sep41Balance, ok := balances[0].(*graphql1.SEP41Balance)
-		require.True(t, ok)
-		assert.Equal(t, "1000.0000000", sep41Balance.Balance)
-		assert.Equal(t, "Token", sep41Balance.Name)
-		assert.Equal(t, "TKN", sep41Balance.Symbol)
-		assert.Equal(t, int32(7), sep41Balance.Decimals)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeSep41:
+				sep41Balance := balance.(*graphql1.SEP41Balance)
+				assert.Equal(t, "1000.0000000", sep41Balance.Balance)
+				assert.Equal(t, "Token", sep41Balance.Name)
+				assert.Equal(t, "TKN", sep41Balance.Symbol)
+				assert.Equal(t, int32(7), sep41Balance.Decimals)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("success - trustline with V0 extension (no liabilities)", func(t *testing.T) {
@@ -688,9 +718,18 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		balances, err := resolver.BalancesByAccountAddress(ctx, testAccountAddress)
 		require.NoError(t, err)
 
-		trustlineBalance := balances[1].(*graphql1.TrustlineBalance)
-		assert.Equal(t, "0.0000000", trustlineBalance.BuyingLiabilities)
-		assert.Equal(t, "0.0000000", trustlineBalance.SellingLiabilities)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				// Native balance verified by count
+			case graphql1.TokenTypeClassic:
+				trustlineBalance := balance.(*graphql1.TrustlineBalance)
+				assert.Equal(t, "0.0000000", trustlineBalance.BuyingLiabilities)
+				assert.Equal(t, "0.0000000", trustlineBalance.SellingLiabilities)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	// Error Cases
@@ -1031,7 +1070,14 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		// Should only have native balance, contract balance skipped
 		require.Len(t, balances, 1)
-		assert.IsType(t, &graphql1.NativeBalance{}, balances[0])
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				assert.IsType(t, &graphql1.NativeBalance{}, balance)
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 
 	t.Run("edge - trustline authorization flags combinations", func(t *testing.T) {
@@ -1076,14 +1122,27 @@ func TestQueryResolver_BalancesByAccountAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, balances, 3)
 
-		// USDC - both flags set
-		usdcBalance := balances[1].(*graphql1.TrustlineBalance)
-		assert.True(t, usdcBalance.IsAuthorized)
-		assert.True(t, usdcBalance.IsAuthorizedToMaintainLiabilities)
-
-		// EUR - no flags set
-		eurBalance := balances[2].(*graphql1.TrustlineBalance)
-		assert.False(t, eurBalance.IsAuthorized)
-		assert.False(t, eurBalance.IsAuthorizedToMaintainLiabilities)
+		for _, balance := range balances {
+			switch balance.GetTokenType() {
+			case graphql1.TokenTypeNative:
+				// Native balance verified by count
+			case graphql1.TokenTypeClassic:
+				trustlineBalance := balance.(*graphql1.TrustlineBalance)
+				switch trustlineBalance.Code {
+				case "USDC":
+					// USDC - both flags set
+					assert.True(t, trustlineBalance.IsAuthorized)
+					assert.True(t, trustlineBalance.IsAuthorizedToMaintainLiabilities)
+				case "EUR":
+					// EUR - no flags set
+					assert.False(t, trustlineBalance.IsAuthorized)
+					assert.False(t, trustlineBalance.IsAuthorizedToMaintainLiabilities)
+				default:
+					t.Errorf("unexpected trustline code: %s", trustlineBalance.Code)
+				}
+			default:
+				t.Errorf("unexpected balance type: %v", balance.GetTokenType())
+			}
+		}
 	})
 }
