@@ -49,6 +49,8 @@ const (
 	maxLedgerFetchRetries = 10
 	// maxRetryBackoff is the maximum backoff duration between retry attempts.
 	maxRetryBackoff = 30 * time.Second
+	// DefaultCatchupThreshold is the default number of ledgers behind network tip that triggers fast catchup.
+	DefaultCatchupThreshold uint32 = 100
 	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
 	IngestionModeLive = "live"
 	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
@@ -132,6 +134,9 @@ type IngestServiceConfig struct {
 	BackfillBatchSize int
 	// BackfillDBInsertBatchSize is ledgers to process before flushing to DB. Defaults to 50.
 	BackfillDBInsertBatchSize int
+	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
+	// Defaults to 100.
+	CatchupThreshold int
 }
 
 type ingestService struct {
@@ -158,6 +163,7 @@ type ingestService struct {
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
 	backfillInstanceID        string // Format: "startLedger-endLedger" for multi-instance metrics
+	catchupThreshold          uint32
 }
 
 // NewIngestService creates a new IngestService with the provided configuration.
@@ -187,6 +193,12 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize = DefaultBackfillDBInsertBatchSize
 	}
 
+	// Set catchup threshold with default fallback
+	catchupThreshold := uint32(cfg.CatchupThreshold)
+	if catchupThreshold == 0 {
+		catchupThreshold = DefaultCatchupThreshold
+	}
+
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
@@ -210,6 +222,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillPool:              backfillPool,
 		backfillBatchSize:         backfillBatchSize,
 		backfillDBInsertBatchSize: backfillDBInsertBatchSize,
+		catchupThreshold:          catchupThreshold,
 	}, nil
 }
 
@@ -265,7 +278,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("initializing cursors: %w", err)
 		}
-	}  else {
+	} else {
 		// If we already have data in the DB, we will do an optimized catchup by parallely backfilling the ledgers.
 		health, err := m.rpcService.GetHealth()
 		if err != nil {
@@ -273,7 +286,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 
 		networkLatestLedger := health.LatestLedger
-		if networkLatestLedger > startLedger && (networkLatestLedger - startLedger) >= 100 {
+		if networkLatestLedger > startLedger && (networkLatestLedger-startLedger) >= m.catchupThreshold {
 			err := m.startBackfilling(ctx, startLedger, networkLatestLedger)
 			if err != nil {
 				return fmt.Errorf("catching up to network tip: %w", err)

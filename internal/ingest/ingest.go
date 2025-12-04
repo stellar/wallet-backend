@@ -87,6 +87,9 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// CatchupThreshold is the number of ledgers behind network tip that triggers fast catchup.
+	// Defaults to 100.
+	CatchupThreshold int
 }
 
 func Ingest(cfg Configs) error {
@@ -213,6 +216,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		CatchupThreshold:          cfg.CatchupThreshold,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)
