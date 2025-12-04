@@ -53,9 +53,6 @@ type MetricsService interface {
 	ObserveGraphQLComplexity(operationName string, complexity int)
 	IncGraphQLError(operationName, errorType string)
 	// Backfill Metrics - all methods require instance ID
-	SetBackfillStartLedger(instance string, ledger uint32)
-	SetBackfillEndLedger(instance string, ledger uint32)
-	SetBackfillCurrentLedger(instance string, ledger uint32)
 	SetBackfillBatchesTotal(instance string, count int)
 	IncBackfillBatchesCompleted(instance string)
 	IncBackfillBatchesFailed(instance string)
@@ -128,9 +125,6 @@ type metricsService struct {
 	graphqlErrorsTotal   *prometheus.CounterVec
 
 	// Backfill Metrics (Progress) - all GaugeVec with instance label
-	backfillStartLedger      *prometheus.GaugeVec
-	backfillEndLedger        *prometheus.GaugeVec
-	backfillCurrentLedger    *prometheus.GaugeVec
 	backfillBatchesTotal     *prometheus.GaugeVec
 	backfillBatchesCompleted *prometheus.GaugeVec
 	backfillBatchesFailed    *prometheus.GaugeVec
@@ -419,27 +413,6 @@ func NewMetricsService(db *sqlx.DB) MetricsService {
 	)
 
 	// Backfill Progress Gauges (with backfill_instance label to avoid conflict with Prometheus's instance label)
-	m.backfillStartLedger = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "backfill_start_ledger",
-			Help: "Target start ledger for this backfill instance",
-		},
-		[]string{"backfill_instance"},
-	)
-	m.backfillEndLedger = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "backfill_end_ledger",
-			Help: "Target end ledger for this backfill instance",
-		},
-		[]string{"backfill_instance"},
-	)
-	m.backfillCurrentLedger = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "backfill_current_ledger",
-			Help: "Most recently processed ledger in this backfill instance",
-		},
-		[]string{"backfill_instance"},
-	)
 	m.backfillBatchesTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "backfill_batches_total",
@@ -571,9 +544,6 @@ func (m *metricsService) registerMetrics() {
 		m.graphqlComplexity,
 		m.graphqlErrorsTotal,
 		// Backfill Progress
-		m.backfillStartLedger,
-		m.backfillEndLedger,
-		m.backfillCurrentLedger,
 		m.backfillBatchesTotal,
 		m.backfillBatchesCompleted,
 		m.backfillBatchesFailed,
@@ -825,18 +795,6 @@ func (m *metricsService) IncGraphQLError(operationName, errorType string) {
 }
 
 // Backfill Metrics
-func (m *metricsService) SetBackfillStartLedger(instance string, ledger uint32) {
-	m.backfillStartLedger.WithLabelValues(instance).Set(float64(ledger))
-}
-
-func (m *metricsService) SetBackfillEndLedger(instance string, ledger uint32) {
-	m.backfillEndLedger.WithLabelValues(instance).Set(float64(ledger))
-}
-
-func (m *metricsService) SetBackfillCurrentLedger(instance string, ledger uint32) {
-	m.backfillCurrentLedger.WithLabelValues(instance).Set(float64(ledger))
-}
-
 func (m *metricsService) SetBackfillBatchesTotal(instance string, count int) {
 	m.backfillBatchesTotal.WithLabelValues(instance).Set(float64(count))
 }
