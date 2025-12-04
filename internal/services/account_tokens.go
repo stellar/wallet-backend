@@ -51,9 +51,10 @@ type AccountTokenService interface {
 	GetCheckpointLedger() uint32
 
 	// PopulateAccountTokens performs initial Redis cache population from Stellar
-	// history archive for the latest checkpoint. It extracts all trustlines and contract
+	// history archive for a specific checkpoint. It extracts all trustlines and contract
 	// tokens from checkpoint ledger entries and stores them in Redis.
-	PopulateAccountTokens(ctx context.Context) error
+	// The checkpointLedger parameter specifies which checkpoint to use for population.
+	PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error
 
 	// AddTrustlines adds trustline assets to an account's Redis set.
 	// Assets should be formatted as "CODE:ISSUER".
@@ -94,30 +95,13 @@ type accountTokenService struct {
 
 func NewAccountTokenService(
 	networkPassphrase string,
-	archiveURL string,
+	archive historyarchive.ArchiveInterface,
 	redisStore *store.RedisStore,
 	contractValidator ContractValidator,
 	contractMetadataService ContractMetadataService,
 	pool pond.Pool,
-	checkpointFrequency uint32,
 ) (AccountTokenService, error) {
-	var archive historyarchive.ArchiveInterface
-
-	// Only connect to archive if URL is provided (needed for ingest, not for serve)
-	if archiveURL != "" {
-		var err error
-		archive, err = historyarchive.Connect(
-			archiveURL,
-			historyarchive.ArchiveOptions{
-				NetworkPassphrase:   networkPassphrase,
-				CheckpointFrequency: checkpointFrequency,
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("connecting to history archive: %w", err)
-		}
-	}
-
+	// Note: archive can be nil for serve mode (only reads from Redis)
 	return &accountTokenService{
 		checkpointLedger:        0,
 		archive:                 archive,
@@ -132,9 +116,10 @@ func NewAccountTokenService(
 }
 
 // PopulateAccountTokens performs initial Redis cache population from Stellar history archive.
-// This reads the latest checkpoint ledger and extracts all trustlines and contract tokens that an account has.
+// This reads the specified checkpoint ledger and extracts all trustlines and contract tokens that an account has.
+// The checkpoint ledger is calculated and passed in by the caller (ingestService).
 // Warning: This is a long-running operation that may take several minutes.
-func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
+func (s *accountTokenService) PopulateAccountTokens(ctx context.Context, checkpointLedger uint32) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateAccountTokens requires archive connection")
 	}
@@ -145,16 +130,11 @@ func (s *accountTokenService) PopulateAccountTokens(ctx context.Context) error {
 		}
 	}()
 
-	latestCheckpointLedger, err := getLatestCheckpointLedger(s.archive)
-	if err != nil {
-		return err
-	}
-
-	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", latestCheckpointLedger)
-	s.checkpointLedger = latestCheckpointLedger
+	log.Ctx(ctx).Infof("Populating account token cache from checkpoint ledger = %d", checkpointLedger)
+	s.checkpointLedger = checkpointLedger
 
 	// Create checkpoint change reader
-	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, latestCheckpointLedger)
+	reader, err := ingest.NewCheckpointChangeReader(ctx, s.archive, checkpointLedger)
 	if err != nil {
 		return fmt.Errorf("creating checkpoint change reader: %w", err)
 	}
@@ -548,25 +528,6 @@ func (s *accountTokenService) storeAccountTokensInRedis(
 
 	log.Ctx(ctx).Infof("Stored %d trustlines and %d contracts in Redis in %.2f minutes", len(trustlines), len(contracts), time.Since(startTime).Minutes())
 	return nil
-}
-
-// getLatestCheckpointLedger retrieves the most recent checkpoint ledger sequence from the history archive.
-// Returns the checkpoint ledger number that is on or before the latest available ledger.
-func getLatestCheckpointLedger(archive historyarchive.ArchiveInterface) (uint32, error) {
-	// Get latest ledger from archive
-	latestLedger, err := archive.GetLatestLedgerSequence()
-	if err != nil {
-		return 0, fmt.Errorf("getting latest ledger sequence: %w", err)
-	}
-
-	// Get checkpoint manager
-	manager := archive.GetCheckpointManager()
-
-	// Return the latest checkpoint (on or before latest ledger)
-	if manager.IsCheckpoint(latestLedger) {
-		return latestLedger, nil
-	}
-	return manager.PrevCheckpoint(latestLedger), nil
 }
 
 // extractHolderAddress extracts the account address from a contract balance entry key.

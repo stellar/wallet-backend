@@ -39,7 +39,7 @@ func (h HealthHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backendLatestLedger, err := h.Models.IngestStore.GetLatestLedgerSynced(ctx, ledgerCursorName)
+	backendLatestLedger, err := h.Models.IngestStore.Get(ctx, ledgerCursorName)
 	if err != nil {
 		err = fmt.Errorf("failed to get backend latest ledger: %w", err)
 		httperror.InternalServerError(ctx, err.Error(), err, nil, h.AppTracker).Render(w)

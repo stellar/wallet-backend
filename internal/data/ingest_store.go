@@ -17,7 +17,7 @@ type IngestStoreModel struct {
 	MetricsService metrics.MetricsService
 }
 
-func (m *IngestStoreModel) GetLatestLedgerSynced(ctx context.Context, cursorName string) (uint32, error) {
+func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, error) {
 	var lastSyncedLedger uint32
 	start := time.Now()
 	err := m.DB.GetContext(ctx, &lastSyncedLedger, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
@@ -37,7 +37,7 @@ func (m *IngestStoreModel) GetLatestLedgerSynced(ctx context.Context, cursorName
 	return lastSyncedLedger, nil
 }
 
-func (m *IngestStoreModel) UpdateLatestLedgerSynced(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
+func (m *IngestStoreModel) Update(ctx context.Context, dbTx db.Transaction, cursorName string, ledger uint32) error {
 	const query = `
 		INSERT INTO ingest_store (key, value) VALUES ($1, $2)
 		ON CONFLICT (key) DO UPDATE SET value = excluded.value
