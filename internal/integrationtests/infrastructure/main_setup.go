@@ -28,6 +28,7 @@ import (
 // SharedContainers provides shared container management for integration tests
 type SharedContainers struct {
 	// Docker infrastructure
+	walletBackendImage     string
 	TestNetwork            *testcontainers.DockerNetwork
 	PostgresContainer      *TestContainer
 	StellarCoreContainer   *TestContainer
@@ -67,6 +68,13 @@ type SharedContainers struct {
 // initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
 func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context) error {
 	var err error
+
+	// Build wallet-backend image first so that by the time we start the containers,
+	// Stellar Core has advanced enough ledgers for the health check to pass.
+	s.walletBackendImage, err = ensureWalletBackendImage(ctx, walletBackendContainerTag)
+	if err != nil {
+		return fmt.Errorf("ensuring wallet backend image: %w", err)
+	}
 
 	// Create network
 	s.TestNetwork, err = network.New(ctx)
@@ -270,23 +278,17 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 		return fmt.Errorf("creating wallet DB container: %w", err)
 	}
 
-	// Build or verify wallet-backend Docker image
-	walletBackendImage, err := ensureWalletBackendImage(ctx, walletBackendContainerTag)
-	if err != nil {
-		return fmt.Errorf("ensuring wallet backend image: %w", err)
-	}
-
-	// Start wallet-backend ingest
+	// Start wallet-backend ingest (uses image built during infrastructure initialization)
 	s.WalletBackendContainer = &WalletBackendContainer{}
 	s.WalletBackendContainer.Ingest, err = createWalletBackendIngestContainer(ctx, walletBackendIngestContainerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend ingest container: %w", err)
 	}
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, s.distributionAccountKeyPair)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
