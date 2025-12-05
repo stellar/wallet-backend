@@ -387,7 +387,7 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 	for _, tx := range txs {
 		ledgerCreatedAtByHash[tx.Hash] = tx.LedgerCreatedAt
 		toIDByHash[tx.Hash] = tx.ToID
-		
+
 		// Handle nullable MetaXDR field
 		var metaXDR any
 		if tx.MetaXDR != nil {
@@ -430,8 +430,9 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 	return len(txs), nil
 }
 
-func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddressesByTxHash map[string]set.Set[string], 
-	ledgerCreatedAtByHash map[string]time.Time, toIDByHash map[string]int64) error {
+func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddressesByTxHash map[string]set.Set[string],
+	ledgerCreatedAtByHash map[string]time.Time, toIDByHash map[string]int64,
+) error {
 	// Collect and sort transactions_accounts entries
 	type txAccountEntry struct {
 		txHash          string

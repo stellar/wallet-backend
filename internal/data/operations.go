@@ -447,7 +447,11 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 	}
 	defer func() { _ = opStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
+	// Build lookup map for ledger_created_at by operation ID
+	ledgerCreatedAtByID := make(map[int64]time.Time, len(operations))
 	for _, op := range operations {
+		ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
+
 		_, err = opStmt.Exec(
 			op.ID,
 			op.TxHash,
@@ -470,60 +474,9 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 	}
 
 	// COPY operations_accounts
-	if len(stellarAddressesByOpID) > 0 {
-		// Build lookup map for ledger_created_at by operation ID
-		ledgerCreatedAtByID := make(map[int64]time.Time, len(operations))
-		for _, op := range operations {
-			ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
-		}
-
-		// Collect and sort operations_accounts entries
-		type opAccountEntry struct {
-			opID            int64
-			accountID       string
-			ledgerCreatedAt time.Time
-		}
-		var entries []opAccountEntry
-		for opID, addresses := range stellarAddressesByOpID {
-			ledgerCreatedAt := ledgerCreatedAtByID[opID]
-			for _, address := range addresses.ToSlice() {
-				entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
-			}
-		}
-		// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
-		sort.Slice(entries, func(i, j int) bool {
-			if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
-				return entries[i].opID < entries[j].opID
-			}
-			return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
-		})
-
-		oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
-			"operation_id", "account_id", "ledger_created_at",
-		))
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("preparing COPY statement for operations_accounts: %w", err)
-		}
-		defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
-
-		// Insert sorted entries
-		for _, e := range entries {
-			_, err = oaStmt.Exec(e.opID, e.accountID, e.ledgerCreatedAt)
-			if err != nil {
-				m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
-				return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
-			}
-		}
-
-		// Flush the COPY buffer for operations_accounts
-		_, err = oaStmt.Exec()
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("flushing COPY buffer for operations_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchInsertCopy", "operations_accounts")
+	err = m.batchInsertCopyAccounts(sqlxTx, stellarAddressesByOpID, ledgerCreatedAtByID)
+	if err != nil {
+		return 0, fmt.Errorf("batch inserting operation accounts: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()
@@ -532,4 +485,57 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 	m.MetricsService.IncDBQuery("BatchInsertCopy", "operations")
 
 	return len(operations), nil
+}
+
+func (m *OperationModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx,
+	stellarAddressesByOpID map[int64]set.Set[string],
+	ledgerCreatedAtByID map[int64]time.Time,
+) error {
+	// Collect and sort operations_accounts entries
+	type opAccountEntry struct {
+		opID            int64
+		accountID       string
+		ledgerCreatedAt time.Time
+	}
+	var entries []opAccountEntry
+	for opID, addresses := range stellarAddressesByOpID {
+		ledgerCreatedAt := ledgerCreatedAtByID[opID]
+		for _, address := range addresses.ToSlice() {
+			entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
+		}
+	}
+	// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
+			return entries[i].opID < entries[j].opID
+		}
+		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+	})
+
+	oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
+		"operation_id", "account_id", "ledger_created_at",
+	))
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+		return fmt.Errorf("preparing COPY statement for operations_accounts: %w", err)
+	}
+	defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
+
+	// Insert sorted entries
+	for _, e := range entries {
+		_, err = oaStmt.Exec(e.opID, e.accountID, e.ledgerCreatedAt)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+			return fmt.Errorf("COPY exec for operations_accounts: %w", err)
+		}
+	}
+
+	// Flush the COPY buffer for operations_accounts
+	_, err = oaStmt.Exec()
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+		return fmt.Errorf("flushing COPY buffer for operations_accounts: %w", err)
+	}
+	m.MetricsService.IncDBQuery("BatchInsertCopy", "operations_accounts")
+	return nil
 }
