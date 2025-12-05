@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -961,13 +962,15 @@ func (m *ingestService) unlockChannelAccounts(ctx context.Context, txs []types.T
 	return nil
 }
 
-// extractInnerTxHash takes a transaction XDR string and returns the hash of its inner transaction.
+// extractInnerTxHash takes a transaction XDR binary and returns the hash of its inner transaction.
 // For fee bump transactions, it returns the hash of the inner transaction.
 // For regular transactions, it returns the hash of the transaction itself.
-func (m *ingestService) extractInnerTxHash(txXDR string) (string, error) {
-	genericTx, err := txnbuild.TransactionFromXDR(txXDR)
+func (m *ingestService) extractInnerTxHash(txXDR []byte) (string, error) {
+	// Convert binary XDR to base64 for the SDK
+	txXDRBase64 := base64.StdEncoding.EncodeToString(txXDR)
+	genericTx, err := txnbuild.TransactionFromXDR(txXDRBase64)
 	if err != nil {
-		return "", fmt.Errorf("deserializing envelope xdr %q: %w", txXDR, err)
+		return "", fmt.Errorf("deserializing envelope xdr: %w", err)
 	}
 
 	var innerTx *txnbuild.Transaction

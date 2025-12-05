@@ -250,7 +250,7 @@ func TestAccountModelBatchGetByTxHashes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test transactions_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_hash, account_id) VALUES ($1, $2), ($3, $4)", txHash1, address1, txHash2, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO transactions_accounts (tx_hash, account_id, ledger_created_at) VALUES ($1, $2, NOW()), ($3, $4, NOW())", txHash1, address1, txHash2, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByTxHash function
@@ -304,7 +304,7 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test operations_accounts links
-	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id) VALUES ($1, $2), ($3, $4)", operationID1, address1, operationID2, address2)
+	_, err = m.DB.ExecContext(ctx, "INSERT INTO operations_accounts (operation_id, account_id, ledger_created_at) VALUES ($1, $2, NOW()), ($3, $4, NOW())", operationID1, address1, operationID2, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationID function

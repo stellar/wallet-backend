@@ -42,10 +42,6 @@ func getTestCtx(table string, columns []string) context.Context {
 	return ctx
 }
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPool) {
 	testLedger := int32(1000)
 	parentAccount := &types.Account{StellarAddress: "test-account"}
@@ -56,9 +52,9 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 		txn := &types.Transaction{
 			Hash:            fmt.Sprintf("tx%d", i+1),
 			ToID:            toid.New(testLedger, int32(i+1), 0).ToInt64(),
-			EnvelopeXDR:     fmt.Sprintf("envelope%d", i+1),
-			ResultXDR:       fmt.Sprintf("result%d", i+1),
-			MetaXDR:         ptr(fmt.Sprintf("meta%d", i+1)),
+			EnvelopeXDR:     []byte(fmt.Sprintf("envelope%d", i+1)),
+			ResultXDR:       []byte(fmt.Sprintf("result%d", i+1)),
+			MetaXDR:         []byte(fmt.Sprintf("meta%d", i+1)),
 			LedgerNumber:    1,
 			LedgerCreatedAt: time.Now(),
 		}
@@ -70,7 +66,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool db.ConnectionPo
 				ID:              toid.New(testLedger, int32(i+1), int32(j+1)).ToInt64(),
 				TxHash:          txn.Hash,
 				OperationType:   "payment",
-				OperationXDR:    fmt.Sprintf("opxdr%d", opIdx),
+				OperationXDR:    []byte(fmt.Sprintf("opxdr%d", opIdx)),
 				LedgerNumber:    1,
 				LedgerCreatedAt: time.Now(),
 			})

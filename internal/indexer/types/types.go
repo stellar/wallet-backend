@@ -91,9 +91,9 @@ type AccountWithOperationID struct {
 type Transaction struct {
 	Hash            string    `json:"hash,omitempty" db:"hash"`
 	ToID            int64     `json:"toId,omitempty" db:"to_id"`
-	EnvelopeXDR     string    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
-	ResultXDR       string    `json:"resultXdr,omitempty" db:"result_xdr"`
-	MetaXDR         *string   `json:"metaXdr,omitempty" db:"meta_xdr"`
+	EnvelopeXDR     []byte    `json:"envelopeXdr,omitempty" db:"envelope_xdr"`
+	ResultXDR       []byte    `json:"resultXdr,omitempty" db:"result_xdr"`
+	MetaXDR         []byte    `json:"metaXdr,omitempty" db:"meta_xdr"`
 	LedgerNumber    uint32    `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
@@ -191,7 +191,7 @@ const (
 type Operation struct {
 	ID              int64         `json:"id,omitempty" db:"id"`
 	OperationType   OperationType `json:"operationType,omitempty" db:"operation_type"`
-	OperationXDR    string        `json:"operationXdr,omitempty" db:"operation_xdr"`
+	OperationXDR    []byte        `json:"operationXdr,omitempty" db:"operation_xdr"`
 	LedgerNumber    uint32        `json:"ledgerNumber,omitempty" db:"ledger_number"`
 	LedgerCreatedAt time.Time     `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IngestedAt      time.Time     `json:"ingestedAt,omitempty" db:"ingested_at"`

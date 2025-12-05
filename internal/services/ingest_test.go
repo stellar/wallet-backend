@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -67,14 +68,20 @@ func Test_ingestService_extractInnerTxHash(t *testing.T) {
 
 	ingestSvc := ingestService{rpcService: &rpcService{networkPassphrase: networkPassphrase}}
 
+	// Decode base64 XDR strings to bytes for extractInnerTxHash
+	innerTxXDRBytes, err := base64.StdEncoding.DecodeString(innerTxXDR)
+	require.NoError(t, err)
+	feeBumpTxXDRBytes, err := base64.StdEncoding.DecodeString(feeBumpTxXDR)
+	require.NoError(t, err)
+
 	t.Run("🟢inner_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(innerTxXDR)
+		gotTxHash, err := ingestSvc.extractInnerTxHash(innerTxXDRBytes)
 		require.NoError(t, err)
 		assert.Equal(t, innerTxHash, gotTxHash)
 	})
 
 	t.Run("🟢fee_bump_tx_hash", func(t *testing.T) {
-		gotTxHash, err := ingestSvc.extractInnerTxHash(feeBumpTxXDR)
+		gotTxHash, err := ingestSvc.extractInnerTxHash(feeBumpTxXDRBytes)
 		require.NoError(t, err)
 		assert.Equal(t, innerTxHash, gotTxHash)
 	})

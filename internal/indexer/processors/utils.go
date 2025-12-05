@@ -84,23 +84,22 @@ func safeStringFromDetails(details map[string]any, key string) (string, error) {
 }
 
 func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) (*types.Transaction, error) {
-	envelopeXDR, err := xdr.MarshalBase64(transaction.Envelope)
+	envelopeXDR, err := transaction.Envelope.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction envelope: %w", err)
 	}
 
-	resultXDR, err := xdr.MarshalBase64(transaction.Result)
+	resultXDR, err := transaction.Result.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("marshalling transaction result: %w", err)
 	}
 
-	var metaXDR *string
+	var metaXDR []byte
 	if !skipTxMeta {
-		metaXDRStr, err := xdr.MarshalBase64(transaction.UnsafeMeta)
+		metaXDR, err = transaction.UnsafeMeta.MarshalBinary()
 		if err != nil {
 			return nil, fmt.Errorf("marshalling transaction meta: %w", err)
 		}
-		metaXDR = &metaXDRStr
 	}
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
@@ -118,7 +117,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction, skipTxMeta bool) 
 }
 
 func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, opID int64) (*types.Operation, error) {
-	xdrOpStr, err := xdr.MarshalBase64(op)
+	xdrOpBytes, err := op.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
 	}
@@ -126,7 +125,7 @@ func ConvertOperation(transaction *ingest.LedgerTransaction, op *xdr.Operation, 
 	return &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    xdrOpStr,
+		OperationXDR:    xdrOpBytes,
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 		TxHash:          transaction.Hash.HexString(),
