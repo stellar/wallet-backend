@@ -74,22 +74,25 @@ SELECT create_hypertable('state_changes', 'ledger_created_at',
 
 -- Enable compression on transactions
 ALTER TABLE transactions SET (
+    timescaledb.enable_columnstore,
     timescaledb.compress,
-    timescaledb.compress_orderby = 'ledger_created_at DESC, hash'
+    timescaledb.orderby = 'ledger_created_at, hash'
 );
 
 -- Enable compression on operations
 ALTER TABLE operations SET (
+    timescaledb.enable_columnstore,
     timescaledb.compress,
-    timescaledb.compress_orderby = 'ledger_created_at DESC, id'
+    timescaledb.orderby = 'ledger_created_at, id'
 );
 
 -- Enable compression on state_changes
 -- Segment by account_id for better query performance on account history
 ALTER TABLE state_changes SET (
+    timescaledb.enable_columnstore,
     timescaledb.compress,
-    timescaledb.compress_segmentby = 'account_id',
-    timescaledb.compress_orderby = 'ledger_created_at DESC, to_id, state_change_order'
+    timescaledb.segmentby = 'account_id',
+    timescaledb.orderby = 'ledger_created_at, to_id, state_change_order'
 );
 
 -- =============================================================================
@@ -107,12 +110,12 @@ SELECT add_compression_policy('state_changes', INTERVAL '7 days');
 -- =============================================================================
 
 -- Add additional useful indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_transactions_ledger_number ON transactions(ledger_number, ledger_created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_operations_ledger_number ON operations(ledger_number, ledger_created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_state_changes_ledger_number ON state_changes(ledger_number, ledger_created_at DESC);
+-- CREATE INDEX IF NOT EXISTS idx_transactions_ledger_number ON transactions(ledger_number, ledger_created_at DESC);
+-- CREATE INDEX IF NOT EXISTS idx_operations_ledger_number ON operations(ledger_number, ledger_created_at DESC);
+-- CREATE INDEX IF NOT EXISTS idx_state_changes_ledger_number ON state_changes(ledger_number, ledger_created_at DESC);
 
 -- Composite index for state_changes account queries
-CREATE INDEX IF NOT EXISTS idx_state_changes_account_time ON state_changes(account_id, ledger_created_at DESC);
+-- CREATE INDEX IF NOT EXISTS idx_state_changes_account_time ON state_changes(account_id, ledger_created_at DESC);
 
 -- +migrate Down
 
