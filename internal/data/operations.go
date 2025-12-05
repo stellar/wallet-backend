@@ -297,8 +297,8 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::char(64)[]) AS tx_hash,
-				UNNEST($3::varchar(50)[]) AS operation_type,
+				UNNEST($2::text[]) AS tx_hash,
+				UNNEST($3::vartext[]) AS operation_type,
 				UNNEST($4::bytea[]) AS operation_xdr,
 				UNNEST($5::bigint[]) AS ledger_number,
 				UNNEST($6::timestamptz[]) AS ledger_created_at
@@ -316,7 +316,7 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS op_id,
-				UNNEST($8::char(56)[]) AS account_id,
+				UNNEST($8::text[]) AS account_id,
 				UNNEST($9::timestamptz[]) AS ledger_created_at
 		) oa
 		ON CONFLICT (account_id, operation_id, ledger_created_at) DO NOTHING

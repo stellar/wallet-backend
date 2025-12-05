@@ -223,7 +223,7 @@ func (m *TransactionModel) BatchInsert(
 			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
 		FROM (
 			SELECT
-				UNNEST($1::char(64)[]) AS hash,
+				UNNEST($1::text[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
 				UNNEST($3::bytea[]) AS envelope_xdr,
 				UNNEST($4::bytea[]) AS result_xdr,
@@ -243,8 +243,8 @@ func (m *TransactionModel) BatchInsert(
 			ta.tx_hash, ta.account_id, ta.ledger_created_at
 		FROM (
 			SELECT
-				UNNEST($8::char(64)[]) AS tx_hash,
-				UNNEST($9::char(56)[]) AS account_id,
+				UNNEST($8::text[]) AS tx_hash,
+				UNNEST($9::text[]) AS account_id,
 				UNNEST($10::timestamptz[]) AS ledger_created_at
 		) ta
 		ON CONFLICT (account_id, tx_hash, ledger_created_at) DO NOTHING
