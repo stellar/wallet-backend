@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,22 +36,21 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create referenced transactions first
-	meta1, meta2 := "meta1", "meta2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ToID:            1,
-		EnvelopeXDR:     "envelope1",
-		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		EnvelopeXDR:     []byte("envelope1"),
+		ResultXDR:       []byte("result1"),
+		MetaXDR:         []byte("meta1"),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		ToID:            2,
-		EnvelopeXDR:     "envelope2",
-		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		EnvelopeXDR:     []byte("envelope2"),
+		ResultXDR:       []byte("result2"),
+		MetaXDR:         []byte("meta2"),
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
@@ -69,14 +69,14 @@ func Test_OperationModel_BatchInsert(t *testing.T) {
 		ID:              1,
 		TxHash:          tx1.Hash,
 		OperationType:   types.OperationTypePayment,
-		OperationXDR:    "operation1",
+		OperationXDR:    []byte("operation1"),
 		LedgerCreatedAt: now,
 	}
 	op2 := types.Operation{
 		ID:              2,
 		TxHash:          tx2.Hash,
 		OperationType:   types.OperationTypeCreateAccount,
-		OperationXDR:    "operation2",
+		OperationXDR:    []byte("operation2"),
 		LedgerCreatedAt: now,
 	}
 
@@ -390,9 +390,10 @@ func TestOperationModel_BatchGetByTxHashes(t *testing.T) {
 			assert.Len(t, operations, tc.expectedCount)
 
 			// Verify operations are for correct tx hashes
+			// Note: TxHash is stored as CHAR(64) in DB, so we trim whitespace for comparison
 			txHashesFound := make(map[string]int)
 			for _, op := range operations {
-				txHashesFound[op.TxHash]++
+				txHashesFound[strings.TrimSpace(op.TxHash)]++
 			}
 			assert.Equal(t, tc.expectedTxCounts, txHashesFound)
 
@@ -477,8 +478,8 @@ func TestOperationModel_BatchGetByTxHash(t *testing.T) {
 	operations, err := m.BatchGetByTxHash(ctx, "tx1", "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
-	assert.Equal(t, "xdr1", operations[0].OperationXDR)
-	assert.Equal(t, "xdr3", operations[1].OperationXDR)
+	assert.Equal(t, []byte("xdr1"), operations[0].OperationXDR)
+	assert.Equal(t, []byte("xdr3"), operations[1].OperationXDR)
 }
 
 func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
@@ -529,12 +530,12 @@ func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
 
 	// Create test operations_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO operations_accounts (operation_id, account_id)
-		VALUES 
-			(1, $1),
-			(2, $1),
-			(3, $2)
-	`, address1, address2)
+		INSERT INTO operations_accounts (operation_id, account_id, ledger_created_at)
+		VALUES
+			(1, $1, $2),
+			(2, $1, $2),
+			(3, $3, $2)
+	`, address1, now, address2)
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
@@ -586,8 +587,8 @@ func TestOperationModel_GetByID(t *testing.T) {
 	operation, err := m.GetByID(ctx, 1, "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), operation.ID)
-	assert.Equal(t, "tx1", operation.TxHash)
-	assert.Equal(t, "xdr1", operation.OperationXDR)
+	assert.Equal(t, "tx1", strings.TrimSpace(operation.TxHash))
+	assert.Equal(t, []byte("xdr1"), operation.OperationXDR)
 	assert.Equal(t, uint32(1), operation.LedgerNumber)
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }

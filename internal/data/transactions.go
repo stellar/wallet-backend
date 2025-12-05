@@ -187,9 +187,9 @@ func (m *TransactionModel) BatchInsert(
 	// 1. Flatten the transactions into parallel slices
 	hashes := make([]string, len(txs))
 	toIDs := make([]int64, len(txs))
-	envelopeXDRs := make([]string, len(txs))
-	resultXDRs := make([]string, len(txs))
-	metaXDRs := make([]*string, len(txs))
+	envelopeXDRs := make([][]byte, len(txs))
+	resultXDRs := make([][]byte, len(txs))
+	metaXDRs := make([][]byte, len(txs))
 	ledgerNumbers := make([]int, len(txs))
 	ledgerCreatedAts := make([]time.Time, len(txs))
 
@@ -254,15 +254,15 @@ func (m *TransactionModel) BatchInsert(
 			t.hash, t.to_id, t.envelope_xdr, t.result_xdr, t.meta_xdr, t.ledger_number, t.ledger_created_at
 		FROM (
 			SELECT
-				UNNEST($1::text[]) AS hash,
+				UNNEST($1::char(64)[]) AS hash,
 				UNNEST($2::bigint[]) AS to_id,
-				UNNEST($3::text[]) AS envelope_xdr,
-				UNNEST($4::text[]) AS result_xdr,
-				UNNEST($5::text[]) AS meta_xdr,
+				UNNEST($3::bytea[]) AS envelope_xdr,
+				UNNEST($4::bytea[]) AS result_xdr,
+				UNNEST($5::bytea[]) AS meta_xdr,
 				UNNEST($6::bigint[]) AS ledger_number,
 				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) t
-		ON CONFLICT (hash) DO NOTHING
+		ON CONFLICT (hash, ledger_created_at) DO NOTHING
 		RETURNING hash
 	),
 
@@ -274,11 +274,11 @@ func (m *TransactionModel) BatchInsert(
 			ta.tx_hash, ta.account_id, ta.ledger_created_at
 		FROM (
 			SELECT
-				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id,
+				UNNEST($8::char(64)[]) AS tx_hash,
+				UNNEST($9::char(56)[]) AS account_id,
 				UNNEST($10::timestamptz[]) AS ledger_created_at
 		) ta
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (account_id, tx_hash, ledger_created_at) DO NOTHING
 	)
 
 	-- Return the hashes of successfully inserted transactions
@@ -388,10 +388,10 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 		ledgerCreatedAtByHash[tx.Hash] = tx.LedgerCreatedAt
 		toIDByHash[tx.Hash] = tx.ToID
 
-		// Handle nullable MetaXDR field
+		// Handle nullable MetaXDR field (nil []byte becomes NULL in database)
 		var metaXDR any
-		if tx.MetaXDR != nil {
-			metaXDR = *tx.MetaXDR
+		if len(tx.MetaXDR) > 0 {
+			metaXDR = tx.MetaXDR
 		}
 
 		_, err = txStmt.Exec(

@@ -1,6 +1,7 @@
 package processors
 
 import (
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -35,13 +36,20 @@ func Test_ConvertTransaction(t *testing.T) {
 	gotDataTx, err := ConvertTransaction(&ingestTx, false)
 	require.NoError(t, err)
 
-	metaXDR := unsafeMetaXDRStr
+	// Decode expected base64 strings to binary
+	envelopeXDRBytes, err := base64.StdEncoding.DecodeString(envelopeXDRStr)
+	require.NoError(t, err)
+	resultXDRBytes, err := base64.StdEncoding.DecodeString(txResultPairXDRStr)
+	require.NoError(t, err)
+	metaXDRBytes, err := base64.StdEncoding.DecodeString(unsafeMetaXDRStr)
+	require.NoError(t, err)
+
 	wantDataTx := &types.Transaction{
 		Hash:            "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",
 		ToID:            20929375637504,
-		EnvelopeXDR:     envelopeXDRStr,
-		ResultXDR:       txResultPairXDRStr,
-		MetaXDR:         &metaXDR,
+		EnvelopeXDR:     envelopeXDRBytes,
+		ResultXDR:       resultXDRBytes,
+		MetaXDR:         metaXDRBytes,
 		LedgerNumber:    4873,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 	}
@@ -65,10 +73,14 @@ func Test_ConvertOperation(t *testing.T) {
 	gotDataOp, err := ConvertOperation(&ingestTx, &op, opID)
 	require.NoError(t, err)
 
+	// Decode expected base64 string to binary
+	opXDRBytes, err := base64.StdEncoding.DecodeString(opXDRStr)
+	require.NoError(t, err)
+
 	wantDataOp := &types.Operation{
 		ID:              opID,
 		OperationType:   types.OperationTypeFromXDR(op.Body.Type),
-		OperationXDR:    opXDRStr,
+		OperationXDR:    opXDRBytes,
 		LedgerCreatedAt: time.Date(2025, time.June, 19, 0, 3, 16, 0, time.UTC),
 		LedgerNumber:    4873,
 		TxHash:          "64eb94acc50eefc323cea80387fdceefc31466cc3a69eb8d2b312e0b5c3c62f0",

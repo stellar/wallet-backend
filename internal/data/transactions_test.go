@@ -34,22 +34,21 @@ func Test_TransactionModel_BatchInsert(t *testing.T) {
 	_, err = dbConnectionPool.ExecContext(ctx, q, kp1.Address(), kp2.Address())
 	require.NoError(t, err)
 
-	meta1, meta2 := "meta1", "meta2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ToID:            1,
-		EnvelopeXDR:     "envelope1",
-		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		EnvelopeXDR:     []byte("envelope1"),
+		ResultXDR:       []byte("result1"),
+		MetaXDR:         []byte("meta1"),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		ToID:            2,
-		EnvelopeXDR:     "envelope2",
-		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		EnvelopeXDR:     []byte("envelope2"),
+		ResultXDR:       []byte("result2"),
+		MetaXDR:         []byte("meta2"),
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}

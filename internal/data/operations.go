@@ -262,7 +262,7 @@ func (m *OperationModel) BatchInsert(
 	ids := make([]int64, len(operations))
 	txHashes := make([]string, len(operations))
 	operationTypes := make([]string, len(operations))
-	operationXDRs := make([]string, len(operations))
+	operationXDRs := make([][]byte, len(operations))
 	ledgerNumbers := make([]uint32, len(operations))
 	ledgerCreatedAts := make([]time.Time, len(operations))
 
@@ -323,13 +323,13 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($1::bigint[]) AS id,
-				UNNEST($2::text[]) AS tx_hash,
-				UNNEST($3::text[]) AS operation_type,
-				UNNEST($4::text[]) AS operation_xdr,
+				UNNEST($2::char(64)[]) AS tx_hash,
+				UNNEST($3::varchar(50)[]) AS operation_type,
+				UNNEST($4::bytea[]) AS operation_xdr,
 				UNNEST($5::bigint[]) AS ledger_number,
 				UNNEST($6::timestamptz[]) AS ledger_created_at
 		) o
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (id, ledger_created_at) DO NOTHING
 		RETURNING id
 	),
 
@@ -342,10 +342,10 @@ func (m *OperationModel) BatchInsert(
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS op_id,
-				UNNEST($8::text[]) AS account_id,
+				UNNEST($8::char(56)[]) AS account_id,
 				UNNEST($9::timestamptz[]) AS ledger_created_at
 		) oa
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (account_id, operation_id, ledger_created_at) DO NOTHING
 	)
 
 	-- Return the IDs of successfully inserted operations

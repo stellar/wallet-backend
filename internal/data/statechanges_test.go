@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,22 +38,21 @@ func TestStateChangeModel_BatchInsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create referenced transactions first
-	meta1, meta2 := "meta1", "meta2"
 	tx1 := types.Transaction{
-		Hash:            "tx1",
+		Hash:            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		ToID:            1,
-		EnvelopeXDR:     "envelope1",
-		ResultXDR:       "result1",
-		MetaXDR:         &meta1,
+		EnvelopeXDR:     []byte("envelope1"),
+		ResultXDR:       []byte("result1"),
+		MetaXDR:         []byte("meta1"),
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 	}
 	tx2 := types.Transaction{
-		Hash:            "tx2",
+		Hash:            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		ToID:            2,
-		EnvelopeXDR:     "envelope2",
-		ResultXDR:       "result2",
-		MetaXDR:         &meta2,
+		EnvelopeXDR:     []byte("envelope2"),
+		ResultXDR:       []byte("result2"),
+		MetaXDR:         []byte("meta2"),
 		LedgerNumber:    2,
 		LedgerCreatedAt: now,
 	}
@@ -288,7 +288,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, "tx1", strings.TrimSpace(sc.TxHash))
 			assert.Equal(t, address, sc.AccountID)
 		}
 	})
@@ -332,7 +332,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		// Should get only state changes that match BOTH filters
 		assert.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, "tx1", strings.TrimSpace(sc.TxHash))
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, address, sc.AccountID)
 		}
@@ -422,7 +422,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, "tx1", strings.TrimSpace(sc.TxHash))
 			assert.Equal(t, int64(123), sc.OperationID)
 			assert.Equal(t, types.StateChangeCategoryBalance, sc.StateChangeCategory)
 			assert.Equal(t, types.StateChangeReasonCredit, *sc.StateChangeReason)
@@ -463,7 +463,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 		stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", &limit, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 1)
-		assert.Equal(t, "tx1", stateChanges[0].TxHash)
+		assert.Equal(t, "tx1", strings.TrimSpace(stateChanges[0].TxHash))
 	})
 }
 
@@ -838,7 +838,7 @@ func TestStateChangeModel_BatchGetByTxHash(t *testing.T) {
 
 		// Verify all state changes are for tx1
 		for _, sc := range stateChanges {
-			assert.Equal(t, "tx1", sc.TxHash)
+			assert.Equal(t, "tx1", strings.TrimSpace(sc.TxHash))
 		}
 
 		// Verify ordering (ASC by to_id, state_change_order)
