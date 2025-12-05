@@ -44,6 +44,12 @@ ALTER TABLE operations DROP CONSTRAINT operations_pkey;
 ALTER TABLE state_changes DROP CONSTRAINT state_changes_pkey;
 -- ALTER TABLE state_changes ADD PRIMARY KEY (to_id, state_change_order, ledger_created_at);
 
+-- Drop transactions_accounts primary key for hypertable conversion
+ALTER TABLE transactions_accounts DROP CONSTRAINT transactions_accounts_pkey;
+
+-- Drop operations_accounts primary key for hypertable conversion
+ALTER TABLE operations_accounts DROP CONSTRAINT operations_accounts_pkey;
+
 -- =============================================================================
 -- STEP 3: Convert tables to hypertables
 -- Using 7 days chunk interval as specified
@@ -63,6 +69,18 @@ SELECT create_hypertable('operations', 'ledger_created_at',
 
 -- Convert state_changes to hypertable
 SELECT create_hypertable('state_changes', 'ledger_created_at',
+    chunk_time_interval => INTERVAL '7 days',
+    migrate_data => true
+);
+
+-- Convert transactions_accounts to hypertable
+SELECT create_hypertable('transactions_accounts', 'ledger_created_at',
+    chunk_time_interval => INTERVAL '7 days',
+    migrate_data => true
+);
+
+-- Convert operations_accounts to hypertable
+SELECT create_hypertable('operations_accounts', 'ledger_created_at',
     chunk_time_interval => INTERVAL '7 days',
     migrate_data => true
 );
@@ -95,6 +113,24 @@ ALTER TABLE state_changes SET (
     timescaledb.orderby = 'ledger_created_at, to_id, state_change_order'
 );
 
+-- Enable compression on transactions_accounts
+-- Segment by account_id for better query performance on account-based queries
+ALTER TABLE transactions_accounts SET (
+    timescaledb.enable_columnstore,
+    timescaledb.compress,
+    timescaledb.segmentby = 'account_id',
+    timescaledb.orderby = 'ledger_created_at, tx_hash'
+);
+
+-- Enable compression on operations_accounts
+-- Segment by account_id for better query performance on account-based queries
+ALTER TABLE operations_accounts SET (
+    timescaledb.enable_columnstore,
+    timescaledb.compress,
+    timescaledb.segmentby = 'account_id',
+    timescaledb.orderby = 'ledger_created_at, operation_id'
+);
+
 -- =============================================================================
 -- STEP 5: Add compression policies
 -- Automatically compress chunks older than 7 days
@@ -103,6 +139,8 @@ ALTER TABLE state_changes SET (
 SELECT add_compression_policy('transactions', INTERVAL '7 days');
 SELECT add_compression_policy('operations', INTERVAL '7 days');
 SELECT add_compression_policy('state_changes', INTERVAL '7 days');
+SELECT add_compression_policy('transactions_accounts', INTERVAL '7 days');
+SELECT add_compression_policy('operations_accounts', INTERVAL '7 days');
 
 -- =============================================================================
 -- STEP 6: Recreate indexes optimized for time-series queries
@@ -125,6 +163,8 @@ SELECT add_compression_policy('state_changes', INTERVAL '7 days');
 SELECT remove_compression_policy('transactions', if_exists => true);
 SELECT remove_compression_policy('operations', if_exists => true);
 SELECT remove_compression_policy('state_changes', if_exists => true);
+SELECT remove_compression_policy('transactions_accounts', if_exists => true);
+SELECT remove_compression_policy('operations_accounts', if_exists => true);
 
 -- =============================================================================
 -- REVERSE: Decompress all chunks before converting back to regular tables
@@ -137,6 +177,12 @@ FROM show_chunks('operations') c;
 
 SELECT decompress_chunk(c, true)
 FROM show_chunks('state_changes') c;
+
+SELECT decompress_chunk(c, true)
+FROM show_chunks('transactions_accounts') c;
+
+SELECT decompress_chunk(c, true)
+FROM show_chunks('operations_accounts') c;
 
 -- =============================================================================
 -- REVERSE: Drop indexes
@@ -224,6 +270,32 @@ CREATE INDEX idx_state_changes_account_id ON state_changes(account_id);
 CREATE INDEX idx_state_changes_tx_hash ON state_changes(tx_hash);
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 CREATE INDEX idx_state_changes_ledger_created_at ON state_changes(ledger_created_at);
+
+-- Transactions accounts table
+CREATE TABLE transactions_accounts_new (
+    tx_hash TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account_id, tx_hash)
+);
+
+INSERT INTO transactions_accounts_new SELECT tx_hash, account_id, ledger_created_at, ingested_at FROM transactions_accounts;
+DROP TABLE transactions_accounts CASCADE;
+ALTER TABLE transactions_accounts_new RENAME TO transactions_accounts;
+
+-- Operations accounts table
+CREATE TABLE operations_accounts_new (
+    operation_id BIGINT NOT NULL,
+    account_id TEXT NOT NULL,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (account_id, operation_id)
+);
+
+INSERT INTO operations_accounts_new SELECT operation_id, account_id, ledger_created_at, ingested_at FROM operations_accounts;
+DROP TABLE operations_accounts CASCADE;
+ALTER TABLE operations_accounts_new RENAME TO operations_accounts;
 
 -- =============================================================================
 -- REVERSE: Restore foreign key constraints
