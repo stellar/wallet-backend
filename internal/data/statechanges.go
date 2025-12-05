@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -171,6 +172,17 @@ func (m *StateChangeModel) BatchInsert(
 	if sqlExecuter == nil {
 		sqlExecuter = m.DB
 	}
+
+	// Sort state changes by (LedgerCreatedAt, ToID, StateChangeOrder) for TimescaleDB optimization
+	sort.Slice(stateChanges, func(i, j int) bool {
+		if stateChanges[i].LedgerCreatedAt.Equal(stateChanges[j].LedgerCreatedAt) {
+			if stateChanges[i].ToID == stateChanges[j].ToID {
+				return stateChanges[i].StateChangeOrder < stateChanges[j].StateChangeOrder
+			}
+			return stateChanges[i].ToID < stateChanges[j].ToID
+		}
+		return stateChanges[i].LedgerCreatedAt.Before(stateChanges[j].LedgerCreatedAt)
+	})
 
 	// Flatten the state changes into parallel slices
 	stateChangeOrders := make([]int64, len(stateChanges))
@@ -354,6 +366,17 @@ func (m *StateChangeModel) BatchInsertCopy(
 	if len(stateChanges) == 0 {
 		return 0, nil
 	}
+
+	// Sort state changes by (LedgerCreatedAt, ToID, StateChangeOrder) for TimescaleDB optimization
+	sort.Slice(stateChanges, func(i, j int) bool {
+		if stateChanges[i].LedgerCreatedAt.Equal(stateChanges[j].LedgerCreatedAt) {
+			if stateChanges[i].ToID == stateChanges[j].ToID {
+				return stateChanges[i].StateChangeOrder < stateChanges[j].StateChangeOrder
+			}
+			return stateChanges[i].ToID < stateChanges[j].ToID
+		}
+		return stateChanges[i].LedgerCreatedAt.Before(stateChanges[j].LedgerCreatedAt)
+	})
 
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
 	sqlxTx, ok := dbTx.(*sqlx.Tx)
