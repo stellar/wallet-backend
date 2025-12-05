@@ -3,7 +3,7 @@
 -- Table: transactions
 -- Stores Stellar transactions with XDR data in binary format for storage efficiency.
 CREATE TABLE transactions (
-    hash CHAR(64) PRIMARY KEY,
+    hash TEXT PRIMARY KEY,
     to_id BIGINT NOT NULL,
     envelope_xdr BYTEA,
     result_xdr BYTEA,
@@ -16,8 +16,8 @@ CREATE TABLE transactions (
 -- Table: transactions_accounts
 -- Junction table linking transactions to participating accounts.
 CREATE TABLE transactions_accounts (
-    tx_hash CHAR(64) NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
-    account_id VARCHAR(100) NOT NULL,
+    tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, tx_hash)
