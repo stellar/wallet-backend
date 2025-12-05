@@ -64,11 +64,9 @@ services:
       - -c
       - min_wal_size=1GB
       - -c
-      - checkpoint_completion_target=0.9
+      - checkpoint_completion_target=0.7
       - -c
-      - checkpoint_timeout=15min
-      - -c
-      - timescaledb.enable_direct_compress_copy=on
+      - checkpoint_timeout=20min
       - -c
       - wal_buffers=64MB
     configs:
