@@ -16,7 +16,8 @@ CREATE TABLE transactions (
 CREATE TABLE transactions_accounts (
     tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
     account_id TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, tx_hash)
 );
 

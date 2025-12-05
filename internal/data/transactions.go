@@ -194,12 +194,21 @@ func (m *TransactionModel) BatchInsert(
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
 	}
 
-	// 2. Flatten the stellarAddressesByTxHash into parallel slices
+	// 2. Build lookup map for ledger_created_at by tx hash
+	ledgerCreatedAtByHash := make(map[string]time.Time, len(txs))
+	for _, t := range txs {
+		ledgerCreatedAtByHash[t.Hash] = t.LedgerCreatedAt
+	}
+
+	// 3. Flatten the stellarAddressesByTxHash into parallel slices
 	var txHashes, stellarAddresses []string
+	var taLedgerCreatedAts []time.Time
 	for txHash, addresses := range stellarAddressesByTxHash {
+		ledgerCreatedAt := ledgerCreatedAtByHash[txHash]
 		for address := range addresses.Iter() {
 			txHashes = append(txHashes, txHash)
 			stellarAddresses = append(stellarAddresses, address)
+			taLedgerCreatedAts = append(taLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
 
@@ -229,13 +238,14 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_hash, account_id)
+			(tx_hash, account_id, ledger_created_at)
 		SELECT
-			ta.tx_hash, ta.account_id
+			ta.tx_hash, ta.account_id, ta.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($8::text[]) AS tx_hash,
-				UNNEST($9::text[]) AS account_id
+				UNNEST($9::text[]) AS account_id,
+				UNNEST($10::timestamptz[]) AS ledger_created_at
 		) ta
 		ON CONFLICT DO NOTHING
 	)
@@ -256,6 +266,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(txHashes),
 		pq.Array(stellarAddresses),
+		pq.Array(taLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
@@ -362,8 +373,14 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 
 	// COPY transactions_accounts
 	if len(stellarAddressesByTxHash) > 0 {
+		// Build lookup map for ledger_created_at by tx hash
+		ledgerCreatedAtByHash := make(map[string]time.Time, len(txs))
+		for _, tx := range txs {
+			ledgerCreatedAtByHash[tx.Hash] = tx.LedgerCreatedAt
+		}
+
 		taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",
-			"tx_hash", "account_id",
+			"tx_hash", "account_id", "ledger_created_at",
 		))
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
@@ -373,9 +390,10 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 
 		// Convert sets to slices upfront to avoid channel creation per set
 		for txHash, addresses := range stellarAddressesByTxHash {
+			ledgerCreatedAt := ledgerCreatedAtByHash[txHash]
 			addressSlice := addresses.ToSlice()
 			for _, address := range addressSlice {
-				_, err = taStmt.Exec(txHash, address)
+				_, err = taStmt.Exec(txHash, address, ledgerCreatedAt)
 				if err != nil {
 					m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
 					return 0, fmt.Errorf("COPY exec for transactions_accounts: %w", err)

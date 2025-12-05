@@ -381,7 +381,6 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 	}, nil
 }
 
-
 // createWalletBackendIngestContainer creates a new wallet-backend ingest container using the shared network
 func createWalletBackendIngestContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full, distributionAccountKeyPair *keypair.Full,

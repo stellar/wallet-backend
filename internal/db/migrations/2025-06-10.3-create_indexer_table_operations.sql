@@ -15,7 +15,8 @@ CREATE TABLE operations (
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
     account_id TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (account_id, operation_id)
 );
 
