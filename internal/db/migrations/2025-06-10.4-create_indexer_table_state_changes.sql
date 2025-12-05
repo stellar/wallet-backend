@@ -10,11 +10,11 @@ CREATE TABLE state_changes (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
-    account_id CHAR(56) NOT NULL REFERENCES accounts(stellar_address),  -- Stellar address (56 chars)
+    account_id VARCHAR(100) NOT NULL REFERENCES accounts(stellar_address),  -- Stellar address (56 chars)
     operation_id BIGINT NOT NULL,
     tx_hash CHAR(64) NOT NULL REFERENCES transactions(hash),            -- SHA-256 hex (64 chars)
-    token_id VARCHAR(100),                          -- Contract/asset IDs (~56-69 chars)
-    amount VARCHAR(50),                             -- Numeric amount string
+    token_id VARCHAR(100),
+    amount VARCHAR(50),
     flags JSONB,
     key_value JSONB,
     offer_id VARCHAR(50),                           -- Offer IDs are numeric
