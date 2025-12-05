@@ -266,13 +266,22 @@ func (m *OperationModel) BatchInsert(
 		ledgerCreatedAts[i] = op.LedgerCreatedAt
 	}
 
-	// 2. Flatten the stellarAddressesByOpID into parallel slices
+	// 2. Build lookup map for ledger_created_at by operation ID
+	ledgerCreatedAtByID := make(map[int64]time.Time, len(operations))
+	for _, op := range operations {
+		ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
+	}
+
+	// 3. Flatten the stellarAddressesByOpID into parallel slices
 	var opIDs []int64
 	var stellarAddresses []string
+	var oaLedgerCreatedAts []time.Time
 	for opID, addresses := range stellarAddressesByOpID {
+		ledgerCreatedAt := ledgerCreatedAtByID[opID]
 		for address := range addresses.Iter() {
 			opIDs = append(opIDs, opID)
 			stellarAddresses = append(stellarAddresses, address)
+			oaLedgerCreatedAts = append(oaLedgerCreatedAts, ledgerCreatedAt)
 		}
 	}
 
@@ -301,13 +310,14 @@ func (m *OperationModel) BatchInsert(
 	-- Insert operations_accounts links
 	inserted_operations_accounts AS (
 		INSERT INTO operations_accounts
-			(operation_id, account_id)
+			(operation_id, account_id, ledger_created_at)
 		SELECT
-			oa.op_id, oa.account_id
+			oa.op_id, oa.account_id, oa.ledger_created_at
 		FROM (
 			SELECT
 				UNNEST($7::bigint[]) AS op_id,
-				UNNEST($8::text[]) AS account_id
+				UNNEST($8::text[]) AS account_id,
+				UNNEST($9::timestamptz[]) AS ledger_created_at
 		) oa
 		ON CONFLICT DO NOTHING
 	)
@@ -327,6 +337,7 @@ func (m *OperationModel) BatchInsert(
 		pq.Array(ledgerCreatedAts),
 		pq.Array(opIDs),
 		pq.Array(stellarAddresses),
+		pq.Array(oaLedgerCreatedAts),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"operations", "operations_accounts"} {
@@ -426,8 +437,14 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 
 	// COPY operations_accounts
 	if len(stellarAddressesByOpID) > 0 {
+		// Build lookup map for ledger_created_at by operation ID
+		ledgerCreatedAtByID := make(map[int64]time.Time, len(operations))
+		for _, op := range operations {
+			ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
+		}
+
 		oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
-			"operation_id", "account_id",
+			"operation_id", "account_id", "ledger_created_at",
 		))
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
@@ -437,9 +454,10 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 
 		// Convert sets to slices upfront to avoid channel creation per set
 		for opID, addresses := range stellarAddressesByOpID {
+			ledgerCreatedAt := ledgerCreatedAtByID[opID]
 			addressSlice := addresses.ToSlice()
 			for _, address := range addressSlice {
-				_, err = oaStmt.Exec(opID, address)
+				_, err = oaStmt.Exec(opID, address, ledgerCreatedAt)
 				if err != nil {
 					m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
 					return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
