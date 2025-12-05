@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -249,6 +250,14 @@ func (m *OperationModel) BatchInsert(
 		sqlExecuter = m.DB
 	}
 
+	// Sort operations by (LedgerCreatedAt, ID) for TimescaleDB optimization
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
+			return operations[i].ID < operations[j].ID
+		}
+		return operations[i].LedgerCreatedAt.Before(operations[j].LedgerCreatedAt)
+	})
+
 	// 1. Flatten the operations into parallel slices
 	ids := make([]int64, len(operations))
 	txHashes := make([]string, len(operations))
@@ -272,17 +281,34 @@ func (m *OperationModel) BatchInsert(
 		ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
 	}
 
-	// 3. Flatten the stellarAddressesByOpID into parallel slices
-	var opIDs []int64
-	var stellarAddresses []string
-	var oaLedgerCreatedAts []time.Time
+	// 3. Flatten and sort the stellarAddressesByOpID into parallel slices
+	type opAccountEntry struct {
+		opID            int64
+		accountID       string
+		ledgerCreatedAt time.Time
+	}
+	var entries []opAccountEntry
 	for opID, addresses := range stellarAddressesByOpID {
 		ledgerCreatedAt := ledgerCreatedAtByID[opID]
-		for address := range addresses.Iter() {
-			opIDs = append(opIDs, opID)
-			stellarAddresses = append(stellarAddresses, address)
-			oaLedgerCreatedAts = append(oaLedgerCreatedAts, ledgerCreatedAt)
+		for _, address := range addresses.ToSlice() {
+			entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
 		}
+	}
+	// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
+			return entries[i].opID < entries[j].opID
+		}
+		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+	})
+	// Build slices from sorted entries
+	opIDs := make([]int64, len(entries))
+	stellarAddresses := make([]string, len(entries))
+	oaLedgerCreatedAts := make([]time.Time, len(entries))
+	for i, e := range entries {
+		opIDs[i] = e.opID
+		stellarAddresses[i] = e.accountID
+		oaLedgerCreatedAts[i] = e.ledgerCreatedAt
 	}
 
 	// Insert operations and operations_accounts links.
@@ -394,6 +420,14 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 		return 0, nil
 	}
 
+	// Sort operations by (LedgerCreatedAt, ID) for TimescaleDB optimization
+	sort.Slice(operations, func(i, j int) bool {
+		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
+			return operations[i].ID < operations[j].ID
+		}
+		return operations[i].LedgerCreatedAt.Before(operations[j].LedgerCreatedAt)
+	})
+
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
 	sqlxTx, ok := dbTx.(*sqlx.Tx)
 	if !ok {
@@ -443,6 +477,27 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 			ledgerCreatedAtByID[op.ID] = op.LedgerCreatedAt
 		}
 
+		// Collect and sort operations_accounts entries
+		type opAccountEntry struct {
+			opID            int64
+			accountID       string
+			ledgerCreatedAt time.Time
+		}
+		var entries []opAccountEntry
+		for opID, addresses := range stellarAddressesByOpID {
+			ledgerCreatedAt := ledgerCreatedAtByID[opID]
+			for _, address := range addresses.ToSlice() {
+				entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
+			}
+		}
+		// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
+				return entries[i].opID < entries[j].opID
+			}
+			return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+		})
+
 		oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
 			"operation_id", "account_id", "ledger_created_at",
 		))
@@ -452,16 +507,12 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 		}
 		defer func() { _ = oaStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
-		// Convert sets to slices upfront to avoid channel creation per set
-		for opID, addresses := range stellarAddressesByOpID {
-			ledgerCreatedAt := ledgerCreatedAtByID[opID]
-			addressSlice := addresses.ToSlice()
-			for _, address := range addressSlice {
-				_, err = oaStmt.Exec(opID, address, ledgerCreatedAt)
-				if err != nil {
-					m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
-					return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
-				}
+		// Insert sorted entries
+		for _, e := range entries {
+			_, err = oaStmt.Exec(e.opID, e.accountID, e.ledgerCreatedAt)
+			if err != nil {
+				m.MetricsService.IncDBQueryError("BatchInsertCopy", "operations_accounts", utils.GetDBErrorType(err))
+				return 0, fmt.Errorf("COPY exec for operations_accounts: %w", err)
 			}
 		}
 

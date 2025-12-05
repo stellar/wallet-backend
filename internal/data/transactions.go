@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -175,6 +176,14 @@ func (m *TransactionModel) BatchInsert(
 		sqlExecuter = m.DB
 	}
 
+	// Sort transactions by (LedgerCreatedAt, ToID) for TimescaleDB optimization
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
+			return txs[i].ToID < txs[j].ToID
+		}
+		return txs[i].LedgerCreatedAt.Before(txs[j].LedgerCreatedAt)
+	})
+
 	// 1. Flatten the transactions into parallel slices
 	hashes := make([]string, len(txs))
 	toIDs := make([]int64, len(txs))
@@ -194,22 +203,44 @@ func (m *TransactionModel) BatchInsert(
 		ledgerCreatedAts[i] = t.LedgerCreatedAt
 	}
 
-	// 2. Build lookup map for ledger_created_at by tx hash
+	// 2. Build lookup maps for ledger_created_at and toID by tx hash
 	ledgerCreatedAtByHash := make(map[string]time.Time, len(txs))
+	toIDByHash := make(map[string]int64, len(txs))
 	for _, t := range txs {
 		ledgerCreatedAtByHash[t.Hash] = t.LedgerCreatedAt
+		toIDByHash[t.Hash] = t.ToID
 	}
 
-	// 3. Flatten the stellarAddressesByTxHash into parallel slices
-	var txHashes, stellarAddresses []string
-	var taLedgerCreatedAts []time.Time
+	// 3. Flatten and sort the stellarAddressesByTxHash into parallel slices
+	type txAccountEntry struct {
+		txHash          string
+		accountID       string
+		ledgerCreatedAt time.Time
+		toID            int64
+	}
+	var entries []txAccountEntry
 	for txHash, addresses := range stellarAddressesByTxHash {
 		ledgerCreatedAt := ledgerCreatedAtByHash[txHash]
-		for address := range addresses.Iter() {
-			txHashes = append(txHashes, txHash)
-			stellarAddresses = append(stellarAddresses, address)
-			taLedgerCreatedAts = append(taLedgerCreatedAts, ledgerCreatedAt)
+		toID := toIDByHash[txHash]
+		for _, address := range addresses.ToSlice() {
+			entries = append(entries, txAccountEntry{txHash, address, ledgerCreatedAt, toID})
 		}
+	}
+	// Sort by (ledger_created_at, toID) for TimescaleDB optimization
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
+			return entries[i].toID < entries[j].toID
+		}
+		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+	})
+	// Build slices from sorted entries
+	txHashes := make([]string, len(entries))
+	stellarAddresses := make([]string, len(entries))
+	taLedgerCreatedAts := make([]time.Time, len(entries))
+	for i, e := range entries {
+		txHashes[i] = e.txHash
+		stellarAddresses[i] = e.accountID
+		taLedgerCreatedAts[i] = e.ledgerCreatedAt
 	}
 
 	// Insert transactions and transactions_accounts links with minimal account validation.
@@ -323,6 +354,14 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 		return 0, nil
 	}
 
+	// Sort transactions by (LedgerCreatedAt, ToID) for TimescaleDB optimization
+	sort.Slice(txs, func(i, j int) bool {
+		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
+			return txs[i].ToID < txs[j].ToID
+		}
+		return txs[i].LedgerCreatedAt.Before(txs[j].LedgerCreatedAt)
+	})
+
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
 	sqlxTx, ok := dbTx.(*sqlx.Tx)
 	if !ok {
@@ -342,7 +381,13 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 	}
 	defer func() { _ = txStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
 
+	// Build lookup maps for ledger_created_at and toID by tx hash
+	ledgerCreatedAtByHash := make(map[string]time.Time, len(txs))
+	toIDByHash := make(map[string]int64, len(txs))
 	for _, tx := range txs {
+		ledgerCreatedAtByHash[tx.Hash] = tx.LedgerCreatedAt
+		toIDByHash[tx.Hash] = tx.ToID
+		
 		// Handle nullable MetaXDR field
 		var metaXDR any
 		if tx.MetaXDR != nil {
@@ -372,43 +417,9 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 	}
 
 	// COPY transactions_accounts
-	if len(stellarAddressesByTxHash) > 0 {
-		// Build lookup map for ledger_created_at by tx hash
-		ledgerCreatedAtByHash := make(map[string]time.Time, len(txs))
-		for _, tx := range txs {
-			ledgerCreatedAtByHash[tx.Hash] = tx.LedgerCreatedAt
-		}
-
-		taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",
-			"tx_hash", "account_id", "ledger_created_at",
-		))
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("preparing COPY statement for transactions_accounts: %w", err)
-		}
-		defer func() { _ = taStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
-
-		// Convert sets to slices upfront to avoid channel creation per set
-		for txHash, addresses := range stellarAddressesByTxHash {
-			ledgerCreatedAt := ledgerCreatedAtByHash[txHash]
-			addressSlice := addresses.ToSlice()
-			for _, address := range addressSlice {
-				_, err = taStmt.Exec(txHash, address, ledgerCreatedAt)
-				if err != nil {
-					m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
-					return 0, fmt.Errorf("COPY exec for transactions_accounts: %w", err)
-				}
-			}
-		}
-
-		// Flush the COPY buffer for transactions_accounts
-		_, err = taStmt.Exec()
-		if err != nil {
-			m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
-			return 0, fmt.Errorf("flushing COPY buffer for transactions_accounts: %w", err)
-		}
-
-		m.MetricsService.IncDBQuery("BatchInsertCopy", "transactions_accounts")
+	err = m.batchInsertCopyAccounts(sqlxTx, stellarAddressesByTxHash, ledgerCreatedAtByHash, toIDByHash)
+	if err != nil {
+		return 0, fmt.Errorf("batch inserting transaction accounts: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()
@@ -417,4 +428,57 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 	m.MetricsService.IncDBQuery("BatchInsertCopy", "transactions")
 
 	return len(txs), nil
+}
+
+func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddressesByTxHash map[string]set.Set[string], 
+	ledgerCreatedAtByHash map[string]time.Time, toIDByHash map[string]int64) error {
+	// Collect and sort transactions_accounts entries
+	type txAccountEntry struct {
+		txHash          string
+		accountID       string
+		ledgerCreatedAt time.Time
+		toID            int64
+	}
+	var entries []txAccountEntry
+	for txHash, addresses := range stellarAddressesByTxHash {
+		ledgerCreatedAt := ledgerCreatedAtByHash[txHash]
+		toID := toIDByHash[txHash]
+		for _, address := range addresses.ToSlice() {
+			entries = append(entries, txAccountEntry{txHash, address, ledgerCreatedAt, toID})
+		}
+	}
+	// Sort by (ledger_created_at, toID) for TimescaleDB optimization
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
+			return entries[i].toID < entries[j].toID
+		}
+		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+	})
+
+	taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",
+		"tx_hash", "account_id", "ledger_created_at",
+	))
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
+		return fmt.Errorf("preparing COPY statement for transactions_accounts: %w", err)
+	}
+	defer func() { _ = taStmt.Close() }() //nolint:errcheck // COPY statement close errors are non-fatal
+
+	// Insert sorted entries
+	for _, e := range entries {
+		_, err = taStmt.Exec(e.txHash, e.accountID, e.ledgerCreatedAt)
+		if err != nil {
+			m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
+			return fmt.Errorf("COPY exec for transactions_accounts: %w", err)
+		}
+	}
+
+	// Flush the COPY buffer for transactions_accounts
+	_, err = taStmt.Exec()
+	if err != nil {
+		m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
+		return fmt.Errorf("flushing COPY buffer for transactions_accounts: %w", err)
+	}
+	m.MetricsService.IncDBQuery("BatchInsertCopy", "transactions_accounts")
+	return nil
 }
