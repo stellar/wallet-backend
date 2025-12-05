@@ -93,14 +93,12 @@ SELECT create_hypertable('operations_accounts', 'ledger_created_at',
 -- Enable compression on transactions
 ALTER TABLE transactions SET (
     timescaledb.enable_columnstore,
-    timescaledb.compress,
     timescaledb.orderby = 'ledger_created_at, hash'
 );
 
 -- Enable compression on operations
 ALTER TABLE operations SET (
     timescaledb.enable_columnstore,
-    timescaledb.compress,
     timescaledb.orderby = 'ledger_created_at, id'
 );
 
@@ -108,7 +106,6 @@ ALTER TABLE operations SET (
 -- Segment by account_id for better query performance on account history
 ALTER TABLE state_changes SET (
     timescaledb.enable_columnstore,
-    timescaledb.compress,
     timescaledb.segmentby = 'account_id',
     timescaledb.orderby = 'ledger_created_at, to_id, state_change_order'
 );
@@ -117,7 +114,6 @@ ALTER TABLE state_changes SET (
 -- Segment by account_id for better query performance on account-based queries
 ALTER TABLE transactions_accounts SET (
     timescaledb.enable_columnstore,
-    timescaledb.compress,
     timescaledb.segmentby = 'account_id',
     timescaledb.orderby = 'ledger_created_at, tx_hash'
 );
@@ -126,7 +122,6 @@ ALTER TABLE transactions_accounts SET (
 -- Segment by account_id for better query performance on account-based queries
 ALTER TABLE operations_accounts SET (
     timescaledb.enable_columnstore,
-    timescaledb.compress,
     timescaledb.segmentby = 'account_id',
     timescaledb.orderby = 'ledger_created_at, operation_id'
 );
