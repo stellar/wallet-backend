@@ -51,19 +51,19 @@ ALTER TABLE state_changes DROP CONSTRAINT state_changes_pkey;
 
 -- Convert transactions to hypertable
 SELECT create_hypertable('transactions', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '2 days',
+    chunk_time_interval => INTERVAL '7 days',
     migrate_data => true
 );
 
 -- Convert operations to hypertable
 SELECT create_hypertable('operations', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '2 days',
+    chunk_time_interval => INTERVAL '7 days',
     migrate_data => true
 );
 
 -- Convert state_changes to hypertable
 SELECT create_hypertable('state_changes', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '2 days',
+    chunk_time_interval => INTERVAL '7 days',
     migrate_data => true
 );
 
