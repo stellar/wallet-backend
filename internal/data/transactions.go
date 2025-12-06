@@ -237,10 +237,12 @@ func (m *TransactionModel) BatchInsert(
 	txHashes := make([]string, len(entries))
 	stellarAddresses := make([]string, len(entries))
 	taLedgerCreatedAts := make([]time.Time, len(entries))
+	taToIDs := make([]int64, len(entries))
 	for i, e := range entries {
 		txHashes[i] = e.txHash
 		stellarAddresses[i] = e.accountID
 		taLedgerCreatedAts[i] = e.ledgerCreatedAt
+		taToIDs[i] = e.toID
 	}
 
 	// Insert transactions and transactions_accounts links with minimal account validation.
@@ -269,14 +271,15 @@ func (m *TransactionModel) BatchInsert(
 	-- Insert transactions_accounts links
 	inserted_transactions_accounts AS (
 		INSERT INTO transactions_accounts
-			(tx_hash, account_id, ledger_created_at)
+			(tx_hash, account_id, ledger_created_at, to_id)
 		SELECT
-			ta.tx_hash, ta.account_id, ta.ledger_created_at
+			ta.tx_hash, ta.account_id, ta.ledger_created_at, ta.to_id
 		FROM (
 			SELECT
 				UNNEST($8::text[]) AS tx_hash,
 				UNNEST($9::text[]) AS account_id,
-				UNNEST($10::timestamptz[]) AS ledger_created_at
+				UNNEST($10::timestamptz[]) AS ledger_created_at,
+				UNNEST($11::bigint[]) AS to_id
 		) ta
 		ON CONFLICT (account_id, tx_hash, ledger_created_at) DO NOTHING
 	)
@@ -298,6 +301,7 @@ func (m *TransactionModel) BatchInsert(
 		pq.Array(txHashes),
 		pq.Array(stellarAddresses),
 		pq.Array(taLedgerCreatedAts),
+		pq.Array(taToIDs),
 	)
 	duration := time.Since(start).Seconds()
 	for _, dbTableName := range []string{"transactions", "transactions_accounts"} {
@@ -457,7 +461,7 @@ func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddre
 	})
 
 	taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",
-		"tx_hash", "account_id", "ledger_created_at",
+		"tx_hash", "account_id", "ledger_created_at", "to_id",
 	))
 	if err != nil {
 		m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
@@ -467,7 +471,7 @@ func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddre
 
 	// Insert sorted entries
 	for _, e := range entries {
-		_, err = taStmt.Exec(e.txHash, e.accountID, e.ledgerCreatedAt)
+		_, err = taStmt.Exec(e.txHash, e.accountID, e.ledgerCreatedAt, e.toID)
 		if err != nil {
 			m.MetricsService.IncDBQueryError("BatchInsertCopy", "transactions_accounts", utils.GetDBErrorType(err))
 			return fmt.Errorf("COPY exec for transactions_accounts: %w", err)

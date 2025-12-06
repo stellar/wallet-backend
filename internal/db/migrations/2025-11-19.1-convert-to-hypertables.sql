@@ -28,6 +28,13 @@ ALTER TABLE state_changes DROP CONSTRAINT IF EXISTS state_changes_tx_hash_fkey;
 ALTER TABLE state_changes DROP CONSTRAINT IF EXISTS state_changes_account_id_fkey;
 
 -- =============================================================================
+-- STEP 1.5: Add to_id column to transactions_accounts for Direct Compress optimization
+-- This enables numeric sorting (faster than string sorting on tx_hash)
+-- =============================================================================
+
+ALTER TABLE transactions_accounts ADD COLUMN IF NOT EXISTS to_id BIGINT;
+
+-- =============================================================================
 -- STEP 2: Modify primary keys to include time dimension for hypertables
 -- TimescaleDB requires the time dimension to be part of the primary key
 -- =============================================================================
@@ -52,48 +59,49 @@ ALTER TABLE operations_accounts DROP CONSTRAINT operations_accounts_pkey;
 
 -- =============================================================================
 -- STEP 3: Convert tables to hypertables
--- Using 7 days chunk interval as specified
+-- Using 2 days chunk interval as specified
 -- =============================================================================
 
 -- Convert transactions to hypertable
 SELECT create_hypertable('transactions', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '7 days',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert operations to hypertable
 SELECT create_hypertable('operations', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '7 days',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert state_changes to hypertable
 SELECT create_hypertable('state_changes', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '7 days',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert transactions_accounts to hypertable
 SELECT create_hypertable('transactions_accounts', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '7 days',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- Convert operations_accounts to hypertable
 SELECT create_hypertable('operations_accounts', 'ledger_created_at',
-    chunk_time_interval => INTERVAL '7 days',
+    chunk_time_interval => INTERVAL '2 days',
     migrate_data => true
 );
 
 -- =============================================================================
 -- STEP 4: Enable compression on hypertables
--- Compress chunks older than 7 days to save storage
+-- Compress chunks older than 2 days to save storage
 -- =============================================================================
 
 -- Enable compression on transactions
+-- Order by to_id (numeric) instead of hash (string) for faster comparison and Direct Compress optimization
 ALTER TABLE transactions SET (
     timescaledb.enable_columnstore,
-    timescaledb.orderby = 'ledger_created_at, hash'
+    timescaledb.orderby = 'ledger_created_at, to_id'
 );
 
 -- Enable compression on operations
@@ -106,16 +114,17 @@ ALTER TABLE operations SET (
 -- Segment by account_id for better query performance on account history
 ALTER TABLE state_changes SET (
     timescaledb.enable_columnstore,
-    timescaledb.segmentby = 'account_id',
+    timescaledb.segmentby = 'account_id, state_change_category',
     timescaledb.orderby = 'ledger_created_at, to_id, state_change_order'
 );
 
 -- Enable compression on transactions_accounts
 -- Segment by account_id for better query performance on account-based queries
+-- Order by to_id (numeric) instead of tx_hash (string) for faster comparison and Direct Compress optimization
 ALTER TABLE transactions_accounts SET (
     timescaledb.enable_columnstore,
     timescaledb.segmentby = 'account_id',
-    timescaledb.orderby = 'ledger_created_at, tx_hash'
+    timescaledb.orderby = 'ledger_created_at, to_id'
 );
 
 -- Enable compression on operations_accounts
@@ -128,27 +137,14 @@ ALTER TABLE operations_accounts SET (
 
 -- =============================================================================
 -- STEP 5: Add compression policies
--- Automatically compress chunks older than 7 days
+-- Automatically compress chunks older than 2 days
 -- =============================================================================
 
-SELECT add_compression_policy('transactions', INTERVAL '7 days');
-SELECT add_compression_policy('operations', INTERVAL '7 days');
-SELECT add_compression_policy('state_changes', INTERVAL '7 days');
-SELECT add_compression_policy('transactions_accounts', INTERVAL '7 days');
-SELECT add_compression_policy('operations_accounts', INTERVAL '7 days');
-
--- =============================================================================
--- STEP 6: Recreate indexes optimized for time-series queries
--- TimescaleDB automatically creates indexes on the time dimension
--- =============================================================================
-
--- Add additional useful indexes for common query patterns
--- CREATE INDEX IF NOT EXISTS idx_transactions_ledger_number ON transactions(ledger_number, ledger_created_at DESC);
--- CREATE INDEX IF NOT EXISTS idx_operations_ledger_number ON operations(ledger_number, ledger_created_at DESC);
--- CREATE INDEX IF NOT EXISTS idx_state_changes_ledger_number ON state_changes(ledger_number, ledger_created_at DESC);
-
--- Composite index for state_changes account queries
--- CREATE INDEX IF NOT EXISTS idx_state_changes_account_time ON state_changes(account_id, ledger_created_at DESC);
+SELECT add_compression_policy('transactions', INTERVAL '2 days');
+SELECT add_compression_policy('operations', INTERVAL '2 days');
+SELECT add_compression_policy('state_changes', INTERVAL '2 days');
+SELECT add_compression_policy('transactions_accounts', INTERVAL '2 days');
+SELECT add_compression_policy('operations_accounts', INTERVAL '2 days');
 
 -- +migrate Down
 
@@ -196,9 +192,9 @@ DROP INDEX IF EXISTS idx_state_changes_account_time;
 CREATE TABLE transactions_new (
     hash TEXT NOT NULL,
     to_id BIGINT NOT NULL,
-    envelope_xdr TEXT,
-    result_xdr TEXT,
-    meta_xdr TEXT,
+    envelope_xdr BYTEA,
+    result_xdr BYTEA,
+    meta_xdr BYTEA,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -215,7 +211,7 @@ CREATE TABLE operations_new (
     id BIGINT NOT NULL,
     tx_hash TEXT NOT NULL,
     operation_type TEXT NOT NULL,
-    operation_xdr TEXT,
+    operation_xdr BYTEA,
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -69,6 +69,12 @@ services:
       - checkpoint_timeout=20min
       - -c
       - wal_buffers=64MB
+      - -c
+      - timescaledb.enable_direct_compress_copy=on
+      - -c
+      - timescaledb.enable_direct_compress_copy_sort_batches=off
+      - -c
+      - timescaledb.enable_direct_compress_copy_client_sorted=on
     configs:
       - source: postgres_init
         target: /docker-entrypoint-initdb.d/init-schemas.sql

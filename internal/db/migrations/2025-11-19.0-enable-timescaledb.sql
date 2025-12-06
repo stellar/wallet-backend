@@ -3,11 +3,6 @@
 -- Enable TimescaleDB extension
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
--- Enable Direct Compress
-SET timescaledb.enable_direct_compress_copy = on;
-SET timescaledb.enable_direct_compress_copy_sort_batches = off;
-SET timescaledb.enable_direct_compress_copy_client_sorted = on;
-
 -- +migrate Down
 
 -- Note: Dropping TimescaleDB extension would require dropping all hypertables first
