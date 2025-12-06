@@ -351,6 +351,9 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 		return fmt.Errorf("end ledger %d cannot be greater than latest ingested ledger %d for backfilling", endLedger, latestIngestedLedger)
 	}
 
+	// Note that there could be some part of [start, end] that is already present in our db.
+	// Since we use the COPY protocol for inserting into the db, we cannot insert duplicate data and have to calculate the
+	// actual gap ranges in our db.
 	gaps, err := m.calculateBackfillGaps(ctx, startLedger, endLedger)
 	if err != nil {
 		return fmt.Errorf("calculating backfill gaps: %w", err)
