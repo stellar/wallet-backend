@@ -3,7 +3,7 @@
 -- Table: transactions
 -- Stores Stellar transactions with XDR data in binary format for storage efficiency.
 CREATE TABLE transactions (
-    hash TEXT PRIMARY KEY,
+    hash TEXT,
     to_id BIGINT NOT NULL,
     envelope_xdr BYTEA,
     result_xdr BYTEA,
@@ -11,16 +11,23 @@ CREATE TABLE transactions (
     ledger_number INTEGER NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.partition_column = 'ledger_created_at'
 );
 
 -- Table: transactions_accounts
 -- Junction table linking transactions to participating accounts.
 CREATE TABLE transactions_accounts (
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash) ON DELETE CASCADE,
+    tx_hash TEXT NOT NULL,
+    to_id BIGINT NOT NULL,
     account_id TEXT NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (account_id, tx_hash)
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.segmentby = 'account_id',
+    timescaledb.partition_column = 'ledger_created_at'
 );
 
 -- +migrate Down
