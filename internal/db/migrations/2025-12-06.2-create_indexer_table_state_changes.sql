@@ -10,9 +10,9 @@ CREATE TABLE state_changes (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ledger_created_at TIMESTAMPTZ NOT NULL,
     ledger_number INTEGER NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts(stellar_address),
+    account_id TEXT NOT NULL,
     operation_id BIGINT NOT NULL,
-    tx_hash TEXT NOT NULL REFERENCES transactions(hash),
+    tx_hash TEXT NOT NULL,
     token_id TEXT,
     amount TEXT,
     flags JSONB,
@@ -26,8 +26,11 @@ CREATE TABLE state_changes (
     deployer_account_id TEXT,
     funder_account_id TEXT,
     thresholds JSONB,
-    trustline_limit JSONB,
-    PRIMARY KEY (to_id, state_change_order)
+    trustline_limit JSONB
+) WITH (
+    timescaledb.hypertable,
+    timescaledb.segmentby = 'account_id',
+    timescaledb.partition_column = 'ledger_created_at'
 );
 
 
