@@ -53,13 +53,17 @@ func OpenDBConnectionPool(dataSourceName string) (ConnectionPool, error) {
 }
 
 // OpenDBConnectionPoolForBackfill creates a connection pool optimized for bulk insert operations.
-// It configures session-level settings (synchronous_commit=off, work_mem=256MB) via the connection
-// string, which are applied to every new connection in the pool.
+// It configures session-level settings via the connection string, applied to every new connection:
+//   - synchronous_commit=off: Skip waiting for WAL flush (faster writes, safe for backfill)
+//   - work_mem=256MB: Memory for query operations
+//   - maintenance_work_mem=4GB: Memory for COPY, CREATE INDEX, and other maintenance ops
+//
+// Note: wal_level=minimal requires server-side config (postgresql.conf) and restart.
 // This should ONLY be used for backfill instances, NOT for live ingestion.
 func OpenDBConnectionPoolForBackfill(dataSourceName string) (ConnectionPool, error) {
 	// Append session parameters to connection string for automatic configuration.
-	// URL-encoded: -c synchronous_commit=off -c work_mem=256MB
-	backfillParams := "options=-c%20synchronous_commit%3Doff%20-c%20work_mem%3D256MB"
+	// URL-encoded: -c synchronous_commit=off -c work_mem=256MB -c maintenance_work_mem=4GB
+	backfillParams := "options=-c%20synchronous_commit%3Doff%20-c%20work_mem%3D256MB%20-c%20maintenance_work_mem%3D4GB"
 
 	separator := "?"
 	if strings.Contains(dataSourceName, "?") {
