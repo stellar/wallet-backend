@@ -176,12 +176,12 @@ func (m *TransactionModel) BatchInsert(
 		sqlExecuter = m.DB
 	}
 
-	// Sort transactions by (LedgerCreatedAt, ToID) for TimescaleDB optimization
+	// Sort transactions by (LedgerCreatedAt DESC, ToID DESC) for TimescaleDB optimization
 	sort.Slice(txs, func(i, j int) bool {
 		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
-			return txs[i].ToID < txs[j].ToID
+			return txs[i].ToID > txs[j].ToID
 		}
-		return txs[i].LedgerCreatedAt.Before(txs[j].LedgerCreatedAt)
+		return txs[i].LedgerCreatedAt.After(txs[j].LedgerCreatedAt)
 	})
 
 	// 1. Flatten the transactions into parallel slices
@@ -226,12 +226,12 @@ func (m *TransactionModel) BatchInsert(
 			entries = append(entries, txAccountEntry{txHash, address, ledgerCreatedAt, toID})
 		}
 	}
-	// Sort by (ledger_created_at, toID) for TimescaleDB optimization
+	// Sort by (ledger_created_at DESC, toID DESC) for TimescaleDB optimization
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
-			return entries[i].toID < entries[j].toID
+			return entries[i].toID > entries[j].toID
 		}
-		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+		return entries[i].ledgerCreatedAt.After(entries[j].ledgerCreatedAt)
 	})
 	// Build slices from sorted entries
 	txHashes := make([]string, len(entries))
@@ -358,12 +358,12 @@ func (m *TransactionModel) BatchInsertCopyFromPointers(
 		return 0, nil
 	}
 
-	// Sort transactions by (LedgerCreatedAt, ToID) for TimescaleDB optimization
+	// Sort transactions by (LedgerCreatedAt DESC, ToID DESC) for TimescaleDB optimization
 	sort.Slice(txs, func(i, j int) bool {
 		if txs[i].LedgerCreatedAt.Equal(txs[j].LedgerCreatedAt) {
-			return txs[i].ToID < txs[j].ToID
+			return txs[i].ToID > txs[j].ToID
 		}
-		return txs[i].LedgerCreatedAt.Before(txs[j].LedgerCreatedAt)
+		return txs[i].LedgerCreatedAt.After(txs[j].LedgerCreatedAt)
 	})
 
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
@@ -452,12 +452,12 @@ func (m *TransactionModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx, stellarAddre
 			entries = append(entries, txAccountEntry{txHash, address, ledgerCreatedAt, toID})
 		}
 	}
-	// Sort by (ledger_created_at, toID) for TimescaleDB optimization
+	// Sort by (ledger_created_at DESC, toID DESC) for TimescaleDB optimization
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
-			return entries[i].toID < entries[j].toID
+			return entries[i].toID > entries[j].toID
 		}
-		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+		return entries[i].ledgerCreatedAt.After(entries[j].ledgerCreatedAt)
 	})
 
 	taStmt, err := sqlxTx.Prepare(pq.CopyIn("transactions_accounts",

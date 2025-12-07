@@ -12,7 +12,8 @@ CREATE TABLE operations (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ) WITH (
     timescaledb.hypertable,
-    timescaledb.partition_column = 'ledger_created_at'
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.order_by = 'ledger_created_at DESC, id DESC'
 );
 
 -- Table: operations_accounts
@@ -24,12 +25,15 @@ CREATE TABLE operations_accounts (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 ) WITH (
     timescaledb.hypertable,
-    timescaledb.segmentby = 'account_id',
-    timescaledb.partition_column = 'ledger_created_at'
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.order_by = 'ledger_created_at DESC, operation_id DESC'
 );
+
+CREATE INDEX idx_operations_accounts_account_id ON operations_accounts (account_id);
 
 -- +migrate Down
 
 -- Tables
 DROP TABLE IF EXISTS operations_accounts CASCADE;
 DROP TABLE IF EXISTS operations CASCADE;
+DROP INDEX IF EXISTS idx_operations_accounts_account_id;

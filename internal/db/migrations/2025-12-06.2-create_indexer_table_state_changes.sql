@@ -29,12 +29,15 @@ CREATE TABLE state_changes (
     trustline_limit JSONB
 ) WITH (
     timescaledb.hypertable,
-    timescaledb.segmentby = 'account_id',
-    timescaledb.partition_column = 'ledger_created_at'
+    timescaledb.partition_column = 'ledger_created_at',
+    timescaledb.segment_by = 'state_change_category',
+    timescaledb.order_by = 'ledger_created_at DESC, to_id DESC, state_change_order DESC'
 );
 
+CREATE INDEX idx_state_changes_account_id ON state_changes (account_id);
 
 -- +migrate Down
 
 -- Tables
 DROP TABLE IF EXISTS state_changes CASCADE;
+DROP INDEX IF EXISTS idx_state_changes_account_id;
