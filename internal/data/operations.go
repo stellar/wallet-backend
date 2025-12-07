@@ -250,12 +250,12 @@ func (m *OperationModel) BatchInsert(
 		sqlExecuter = m.DB
 	}
 
-	// Sort operations by (LedgerCreatedAt, ID) for TimescaleDB optimization
+	// Sort operations by (LedgerCreatedAt DESC, ID DESC) for TimescaleDB optimization
 	sort.Slice(operations, func(i, j int) bool {
 		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
-			return operations[i].ID < operations[j].ID
+			return operations[i].ID > operations[j].ID
 		}
-		return operations[i].LedgerCreatedAt.Before(operations[j].LedgerCreatedAt)
+		return operations[i].LedgerCreatedAt.After(operations[j].LedgerCreatedAt)
 	})
 
 	// 1. Flatten the operations into parallel slices
@@ -294,12 +294,12 @@ func (m *OperationModel) BatchInsert(
 			entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
 		}
 	}
-	// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
+	// Sort by (ledger_created_at DESC, operation_id DESC) for TimescaleDB optimization
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
-			return entries[i].opID < entries[j].opID
+			return entries[i].opID > entries[j].opID
 		}
-		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+		return entries[i].ledgerCreatedAt.After(entries[j].ledgerCreatedAt)
 	})
 	// Build slices from sorted entries
 	opIDs := make([]int64, len(entries))
@@ -420,12 +420,12 @@ func (m *OperationModel) BatchInsertCopyFromPointers(
 		return 0, nil
 	}
 
-	// Sort operations by (LedgerCreatedAt, ID) for TimescaleDB optimization
+	// Sort operations by (LedgerCreatedAt DESC, ID DESC) for TimescaleDB optimization
 	sort.Slice(operations, func(i, j int) bool {
 		if operations[i].LedgerCreatedAt.Equal(operations[j].LedgerCreatedAt) {
-			return operations[i].ID < operations[j].ID
+			return operations[i].ID > operations[j].ID
 		}
-		return operations[i].LedgerCreatedAt.Before(operations[j].LedgerCreatedAt)
+		return operations[i].LedgerCreatedAt.After(operations[j].LedgerCreatedAt)
 	})
 
 	// Get the underlying *sql.Tx from sqlx.Tx for pq.CopyIn
@@ -504,12 +504,12 @@ func (m *OperationModel) batchInsertCopyAccounts(sqlxTx *sqlx.Tx,
 			entries = append(entries, opAccountEntry{opID, address, ledgerCreatedAt})
 		}
 	}
-	// Sort by (ledger_created_at, operation_id) for TimescaleDB optimization
+	// Sort by (ledger_created_at DESC, operation_id DESC) for TimescaleDB optimization
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].ledgerCreatedAt.Equal(entries[j].ledgerCreatedAt) {
-			return entries[i].opID < entries[j].opID
+			return entries[i].opID > entries[j].opID
 		}
-		return entries[i].ledgerCreatedAt.Before(entries[j].ledgerCreatedAt)
+		return entries[i].ledgerCreatedAt.After(entries[j].ledgerCreatedAt)
 	})
 
 	oaStmt, err := sqlxTx.Prepare(pq.CopyIn("operations_accounts",
