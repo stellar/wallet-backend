@@ -209,7 +209,7 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, txHash, transaction.Hash)
 	assert.Equal(t, int64(1), transaction.ToID)
-	assert.Equal(t, "envelope", transaction.EnvelopeXDR)
+	assert.Equal(t, []byte("envelope"), transaction.EnvelopeXDR)
 }
 
 func TestTransactionModel_GetAll(t *testing.T) {
@@ -297,12 +297,12 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 
 	// Create test transactions_accounts links
 	_, err = dbConnectionPool.ExecContext(ctx, `
-		INSERT INTO transactions_accounts (tx_hash, account_id)
+		INSERT INTO transactions_accounts (tx_hash, account_id, ledger_created_at)
 		VALUES
-			('tx1', $1),
-			('tx2', $1),
-			('tx3', $2)
-	`, address1, address2)
+			('tx1', $1, $3),
+			('tx2', $1, $3),
+			('tx3', $2, $3)
+	`, address1, address2, now)
 	require.NoError(t, err)
 
 	// Test BatchGetByAccount
