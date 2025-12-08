@@ -16,3 +16,8 @@ scalar UInt32
 # GraphQL's Int type is 32-bit, so we need custom scalar for larger values
 # Used for database IDs and other large integer values
 scalar Int64
+
+# Bytes scalar - represents binary data as base64-encoded strings
+# Handles conversion between Go []byte and GraphQL base64 string representations
+# Used for XDR fields (operationXdr, envelopeXdr, resultXdr, metaXdr)
+scalar Bytes

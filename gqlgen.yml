@@ -206,3 +206,6 @@ models:
   StateChangeReason:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.StateChangeReason
+  Bytes:
+    model:
+      - github.com/stellar/wallet-backend/internal/serve/graphql/scalars.Bytes

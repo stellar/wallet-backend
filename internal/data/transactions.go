@@ -264,7 +264,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($6::bigint[]) AS ledger_number,
 				UNNEST($7::timestamptz[]) AS ledger_created_at
 		) t
-		ON CONFLICT (hash, ledger_created_at) DO NOTHING
+		ON CONFLICT (hash) DO NOTHING
 		RETURNING hash
 	),
 
@@ -281,7 +281,7 @@ func (m *TransactionModel) BatchInsert(
 				UNNEST($10::timestamptz[]) AS ledger_created_at,
 				UNNEST($11::bigint[]) AS to_id
 		) ta
-		ON CONFLICT (account_id, tx_hash, ledger_created_at) DO NOTHING
+		ON CONFLICT (account_id, tx_hash) DO NOTHING
 	)
 
 	-- Return the hashes of successfully inserted transactions
