@@ -15,7 +15,8 @@ account management, and payment tracking capabilities.
   - [Usage](#usage)
     - [Transaction Building and Fee Bump](#transaction-building-and-fee-bump)
       - [Complete Transaction Flow](#complete-transaction-flow)
-    - [State Changes Indexer and History API](#state-changes-indexer-and-history-api)
+    - [Account Token Cache](#account-token-cache)
+    - [Contract Metadata Service](#contract-metadata-service)
     - [GraphQL API](#graphql-api)
       - [Getting Started](#getting-started)
       - [Queries](#queries)
@@ -258,6 +259,246 @@ The `AccountTokenService` interface provides the following methods:
 - O(1) Redis lookup per account
 - Single RPC call for all balances (no N+1 queries)
 - Typical response time: 100-300ms (including RPC roundtrip)
+
+### Contract Metadata Service
+
+The wallet-backend implements a **Contract Metadata Service** that fetches and stores rich metadata for Stellar Asset Contract (SAC) and SEP-41 token contracts. This service enriches the [Account Token Cache](#account-token-cache) by providing human-readable token information (name, symbol, decimals) that powers the [`balancesByAccountAddress`](#7-get-account-balances) GraphQL query.
+
+**Why it exists:**
+- **Rich Token Information**: Provides name, symbol, and decimals for contract tokens without requiring clients to fetch this data
+- **GraphQL Enhancement**: Powers detailed balance responses with token metadata in a single query
+- **SAC Asset Mapping**: Extracts and stores the underlying classic asset (code:issuer) from SAC token names
+- **Performance**: Batch fetches and caches metadata to avoid repeated RPC calls
+- **Seamless Integration**: Works transparently during both initial cache population and live ingestion
+
+#### Supported Contract Types
+
+The service handles two types of contract tokens:
+
+| Type | Description | Metadata Source |
+|------|-------------|----------------|
+| **SAC** | Stellar Asset Contract (wrapped classic assets) | Contract methods + name parsing for code:issuer |
+| **SEP-41** | Custom fungible tokens implementing SEP-41 standard | Contract methods (name, symbol, decimals) |
+
+#### Database Schema
+
+Contract metadata is stored in the `contract_tokens` PostgreSQL table:
+
+```sql
+CREATE TABLE contract_tokens (
+    id TEXT PRIMARY KEY,           -- Contract ID (C...)
+    type TEXT NOT NULL,            -- "SAC" or "SEP41"
+    code TEXT NULL,                -- Asset code (for SAC tokens)
+    issuer TEXT NULL,              -- Asset issuer (for SAC tokens)
+    name TEXT NULL,                -- Token name from contract
+    symbol TEXT NULL,              -- Token symbol from contract
+    decimals SMALLINT NOT NULL,    -- Token decimals
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Example Rows:**
+
+| id | type | code | issuer | name | symbol | decimals |
+|----|------|------|--------|------|--------|----------|
+| `CAQ...JHQJ` | SAC | USDC | GBBD47IF6LWK7... | USDC:GBBD47IF6LWK7... | USDC | 7 |
+| `CCV...KXPS` | SEP41 | NULL | NULL | Example Token | EXT | 7 |
+
+#### Metadata Fetching Process
+
+The Contract Metadata Service operates in two phases, coordinated with the [Account Token Cache](#account-token-cache):
+
+**1. Initial Population (Cold Start)**
+
+During startup when populating the account token cache from history archives:
+
+```
+History Archive (Checkpoint)
+         │
+         ▼
+Account Token Service
+├── Collects contract IDs from checkpoint
+├── Validates contract types (SAC vs SEP-41)
+│        │
+│        ▼
+Contract Metadata Service
+├── Fetches metadata via RPC simulation
+├── Parses SAC code:issuer from name field
+└── Stores in contract_tokens table
+         │
+         ▼
+   PostgreSQL Database
+```
+
+**Process:**
+1. `AccountTokenService.PopulateAccountTokens()` collects all contract IDs from checkpoint
+2. Contract types are validated (SAC via standard asset wrapper, SEP-41 via contract spec)
+3. `ContractMetadataService.FetchAndStoreMetadata()` fetches metadata for all contracts
+4. Metadata is stored in PostgreSQL for future queries
+
+**2. Live Ingestion (Continuous Updates)**
+
+During real-time ingestion when new contract tokens are detected:
+
+```
+Stellar RPC (LedgerCloseMeta)
+         │
+         ▼
+    Indexer
+    └── Detects new contract token transfers
+         │
+         ▼
+Contract Metadata Service
+├── Fetches metadata for new contracts
+└── Stores in contract_tokens table
+         │
+         ▼
+   PostgreSQL Database
+```
+
+**Process:**
+1. Indexer's transaction processors detect new contract balance entries
+2. New contract IDs are identified (not in cache)
+3. Metadata is fetched and stored in `contract_tokens` table
+4. Account Token Cache is updated with new contract IDs
+
+#### How Metadata is Fetched
+
+The service uses **RPC transaction simulation** to call contract methods without executing actual transactions:
+
+**Simulation-Based Fetching:**
+```go
+// For each contract, simulate 3 transactions:
+1. InvokeHostFunction("name")   → Returns token name
+2. InvokeHostFunction("symbol") → Returns token symbol
+3. InvokeHostFunction("decimals") → Returns token decimals
+
+// Simulation uses a dummy account (no real account needed)
+// Results are parsed from ScVal XDR responses
+```
+
+**Parallel Processing Architecture:**
+- **Per-Contract Parallelism**: Fetches name, symbol, decimals simultaneously using pond worker pool
+- **Batch Processing**: Processes contracts in batches of 20 to limit concurrent RPC load
+- **Rate Limiting**: 2-second sleep between batches to avoid overwhelming RPC server
+
+**Performance Example:**
+```
+60 contracts with 3 fields each = 180 RPC calls
+- Batch 1-20: ~20 seconds (parallel fetch)
+- Sleep: 2 seconds
+- Batch 21-40: ~20 seconds (parallel fetch)
+- Sleep: 2 seconds
+- Batch 41-60: ~20 seconds (parallel fetch)
+Total time: ~64 seconds vs ~180 seconds sequential
+```
+
+#### SAC Token Metadata Parsing
+
+SAC (Stellar Asset Contract) tokens require special handling because they wrap classic Stellar assets:
+
+**Name Field Format:**
+```
+SAC tokens store the underlying asset as: "CODE:ISSUER"
+Example: "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+```
+
+**Parsing Logic:**
+```go
+// For SAC contracts only:
+parts := strings.Split(metadata.Name, ":")
+if len(parts) == 2 {
+    metadata.Code = parts[0]   // "USDC"
+    metadata.Issuer = parts[1] // "GBBD47IF..."
+}
+```
+
+This allows the GraphQL API to return both the contract address and the underlying classic asset information in balance queries.
+
+#### Integration with GraphQL Balances
+
+Contract metadata stored in `contract_tokens` enriches the [`balancesByAccountAddress`](#7-get-account-balances) query:
+
+**For SAC Balances:**
+```graphql
+{
+  balancesByAccountAddress(address: "GABC...") {
+    ... on SACBalance {
+      code       # From contract_tokens.code
+      issuer     # From contract_tokens.issuer
+      decimals   # From contract_tokens.decimals
+      balance    # From RPC ledger entry
+    }
+  }
+}
+```
+
+**For SEP-41 Balances:**
+```graphql
+{
+  balancesByAccountAddress(address: "GABC...") {
+    ... on SEP41Balance {
+      name       # From contract_tokens.name
+      symbol     # From contract_tokens.symbol
+      decimals   # From contract_tokens.decimals
+      balance    # From RPC ledger entry
+    }
+  }
+}
+```
+
+**Query Flow:**
+1. Fetch contract IDs from Redis (Account Token Cache)
+2. Fetch contract metadata from PostgreSQL (`contract_tokens` table)
+3. Build ledger keys and query Stellar RPC for current balances
+4. Combine metadata + balance data in GraphQL response
+
+This architecture enables **sub-second balance queries** with complete token information, without requiring multiple RPC calls per token.
+
+#### Service API
+
+The `ContractMetadataService` interface provides:
+
+```go
+// Fetch and store metadata for multiple contracts
+FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.ContractType) error
+```
+
+**Parameters:**
+- `contractTypesByID`: Map of contract IDs to contract types (SAC or SEP-41)
+
+**Behavior:**
+- Returns `nil` for empty input (no-op)
+- Fetches metadata in parallel batches
+- Parses SAC code:issuer from name field
+- Stores in database with `ON CONFLICT DO NOTHING` (idempotent)
+- Logs warnings for individual failures but continues processing
+- Returns error only for critical database failures
+
+#### Performance Characteristics
+
+**Initial Population:**
+- Processes contracts in batches of 20
+- Parallel metadata fetching (3 fields per contract)
+- ~3 seconds per batch (20 contracts × 3 fields = 60 parallel RPC calls)
+- 2-second sleep between batches for rate limiting
+- Typical time: ~5 minutes for 1,000 contracts
+
+**Live Ingestion:**
+- Fetches metadata only for new contracts (not already in database)
+- Same batching and parallelism as initial population
+- Minimal overhead for most ledgers (few new contracts per ledger)
+
+**Database Operations:**
+- Batch insert with `UNNEST` for efficient bulk storage
+- `ON CONFLICT DO NOTHING` prevents duplicate key errors
+- Automatic deduplication for contracts seen in multiple contexts
+
+**Memory Efficiency:**
+- Metadata map size = number of contracts × ~200 bytes per entry
+- Worker pool limits concurrent RPC connections
+- No large in-memory buffers required
 
 ### GraphQL API
 
