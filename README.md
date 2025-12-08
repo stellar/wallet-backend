@@ -16,6 +16,7 @@ account management, and payment tracking capabilities.
     - [Transaction Building and Fee Bump](#transaction-building-and-fee-bump)
       - [Complete Transaction Flow](#complete-transaction-flow)
     - [Account Token Cache](#account-token-cache)
+    - [Contract Validator Service](#contract-validator-service)
     - [Contract Metadata Service](#contract-metadata-service)
     - [GraphQL API](#graphql-api)
       - [Getting Started](#getting-started)
@@ -259,6 +260,238 @@ The `AccountTokenService` interface provides the following methods:
 - O(1) Redis lookup per account
 - Single RPC call for all balances (no N+1 queries)
 - Typical response time: 100-300ms (including RPC roundtrip)
+
+### Contract Validator Service
+
+The wallet-backend implements a **Contract Validator Service** that validates whether Stellar contracts implement the SEP-41 token standard by analyzing their WASM bytecode. This service is a critical component of the [Account Token Cache](#account-token-cache) system, enabling automatic classification of contract tokens during cache population.
+
+**Why it exists:**
+- **Automatic Token Classification**: Identifies which contracts follow the SEP-41 fungible token standard without manual configuration
+- **Standards Compliance**: Ensures contracts expose the required token interface (balance, transfer, decimals, etc.)
+- **Balance Tracking**: Only SEP-41-compliant contracts are tracked in the account token cache for balance queries
+- **Integration with GraphQL**: Powers the [`balancesByAccountAddress`](#7-get-account-balances) query by distinguishing SEP-41 tokens from unknown contracts
+
+#### How Validation Works
+
+The Contract Validator uses a 4-step process to validate contracts against the SEP-41 standard:
+
+```
+Contract WASM Bytecode
+         │
+         ▼
+1. WASM Compilation (wazero runtime)
+         │
+         ▼
+2. Spec Extraction (contractspecv0 custom section)
+         │
+         ▼
+3. XDR Parsing (ScSpecEntry unmarshaling)
+         │
+         ▼
+4. Function Validation (name, inputs, outputs)
+         │
+         ▼
+   Classification Result
+   ├── SEP-41 ✓ (all functions match)
+   └── Unknown (missing/mismatched functions)
+```
+
+**Process Details:**
+
+1. **WASM Compilation**: Uses the [wazero](https://wazero.io/) runtime to safely compile the contract's WASM module with custom sections enabled
+2. **Spec Extraction**: Extracts the `contractspecv0` custom section that contains XDR-encoded contract specifications
+3. **XDR Parsing**: Unmarshals `ScSpecEntry` items from the spec bytes, representing each contract function and type
+4. **Function Validation**: Verifies that all 10 required SEP-41 functions exist with exact parameter names and types
+
+#### SEP-41 Required Functions
+
+For a contract to be classified as SEP-41-compliant, it must implement **all** of the following functions with exact signatures:
+
+| Function | Parameters | Returns | Description |
+|----------|-----------|---------|-------------|
+| `balance` | `id: Address` | `i128` | Get balance for an address |
+| `allowance` | `from: Address, spender: Address` | `i128` | Get allowance for spender |
+| `decimals` | _(none)_ | `u32` | Number of decimal places |
+| `name` | _(none)_ | `String` | Token name |
+| `symbol` | _(none)_ | `String` | Token symbol |
+| `approve` | `from: Address, spender: Address, amount: i128, expiration_ledger: u32` | _(void)_ | Approve spender allowance |
+| `transfer` | `from: Address, to: Address, amount: i128` | _(void)_ | Transfer tokens |
+| `transfer` (CAP-67) | `from: Address, to_muxed: MuxedAddress, amount: i128` | _(void)_ | Transfer to muxed address |
+| `transfer_from` | `spender: Address, from: Address, to: Address, amount: i128` | _(void)_ | Transfer from allowance |
+| `burn` | `from: Address, amount: i128` | _(void)_ | Burn tokens |
+| `burn_from` | `spender: Address, from: Address, amount: i128` | _(void)_ | Burn from allowance |
+
+**Notes:**
+- All parameter names must match exactly (e.g., `from`, `to`, `amount`).
+- The `transfer` function supports two variants: standard (to `Address`) or [CAP-67](https://stellar.org/protocol/cap-67) (to `MuxedAddress`).
+- Functions with `(void)` return type have no outputs.
+- A SEP-41 compliant token has to implement all required functions but can implement additional functions too.
+
+#### Contract Type Classification
+
+The wallet-backend classifies contracts into three types during cache population:
+
+| Type | Classification Method | Tracked in Cache | Example |
+|------|----------------------|------------------|---------|
+| **SAC** | Standard asset wrapper detection via `sac.AssetFromContractData()` | Yes | USDC:ISSUER wrapped contract |
+| **SEP-41** | Contract Validator (WASM spec validation) | Yes | Custom fungible tokens |
+| **Unknown** | Contracts that don't match SAC or SEP-41 | No | NFTs, AMMs, other contracts |
+
+**Classification Logic:**
+1. **SAC contracts** are identified first using Stellar's standard asset wrapper format (without WASM validation)
+2. **Non-SAC contracts** are grouped by WASM hash and validated against SEP-41 requirements using the contract validator service
+3. **Unknown contracts** that fail SEP-41 validation are not tracked in the account token cache
+
+This classification determines:
+- Whether contract balances are tracked in Redis (SAC and SEP-41 only)
+- How balances are displayed in GraphQL responses (different fields per type)
+- Whether contract metadata is fetched and stored by the [Contract Metadata Service](#contract-metadata-service)
+
+#### Integration with Account Token Cache
+
+The Contract Validator runs during the initial [Account Token Cache](#account-token-cache) population from history archives:
+
+**Integration Flow:**
+
+```
+Account Token Service (PopulateAccountTokens)
+         │
+         ▼
+CheckpointChangeReader
+├── Collects LedgerEntryTypeContractCode (WASM bytecode)
+├── Collects LedgerEntryTypeContractData (instances)
+└── Groups contracts by WASM hash
+         │
+         ▼
+enrichContractTypes()
+├── For each WASM hash:
+│   ├── contractValidator.ValidateFromContractCode(ctx, wasmBytes)
+│   └── Assign ContractTypeSEP41 to all contracts with this hash
+└── Returns contractTypesByContractID map
+         │
+         ▼
+Contract Metadata Service
+└── Fetches metadata for validated SEP-41 contracts
+         │
+         ▼
+Redis Cache + PostgreSQL
+└── Stores contract IDs and metadata
+```
+
+**Efficiency Optimization:**
+
+The validator processes contracts by **WASM hash** rather than individual contract ID, because:
+- Multiple contract instances can share the same WASM code
+- Validating once per WASM hash (not per contract ID) reduces computation
+- All contracts with the same WASM hash receive the same classification
+
+**Example:**
+```
+WASM Hash: 0xabc123...
+├── Contract: CABC...123 → SEP-41
+├── Contract: CABC...456 → SEP-41  (same WASM, inherits classification)
+└── Contract: CABC...789 → SEP-41  (same WASM, inherits classification)
+```
+
+#### Technical Implementation
+
+**WASM Runtime:**
+
+The validator uses the [wazero](https://wazero.io/) WebAssembly runtime, which:
+- Provides safe, sandboxed WASM execution in pure Go
+- Supports custom section extraction without executing contract code
+- Does not require CGo dependencies
+
+**Custom Section Extraction:**
+
+Stellar contracts embed their interface specifications in a WASM custom section named `contractspecv0`:
+
+```
+WASM Module Structure:
+├── Code Section (executable functions)
+├── Data Section (constants)
+└── Custom Sections
+    └── "contractspecv0" ← XDR-encoded contract spec
+```
+
+**XDR Type Mapping:**
+
+The validator maps XDR `ScSpecType` values to human-readable type names:
+
+| XDR Type | Human-Readable Name |
+|----------|---------------------|
+| `ScSpecTypeBool` | `bool` |
+| `ScSpecTypeU32` | `u32` |
+| `ScSpecTypeI128` | `i128` |
+| `ScSpecTypeAddress` | `Address` |
+| `ScSpecTypeMuxedAddress` | `MuxedAddress` |
+| `ScSpecTypeString` | `String` |
+| `ScSpecTypeVec` | `Vec` |
+| `ScSpecTypeMap` | `Map` |
+
+#### Service API
+
+The `ContractValidator` interface provides:
+
+```go
+// Validate contract code against SEP-41 standard
+ValidateFromContractCode(ctx context.Context, wasmCode []byte) (types.ContractType, error)
+
+// Close wazero runtime and release resources
+Close(ctx context.Context) error
+```
+
+**Parameters:**
+- `wasmCode`: Raw WASM bytecode from `LedgerEntryTypeContractCode` entry
+
+**Return Values:**
+- `types.ContractTypeSEP41`: Contract implements all SEP-41 functions
+- `types.ContractTypeUnknown`: Contract missing required functions or spec extraction failed
+- `error`: WASM compilation or spec parsing errors
+
+**Error Handling:**
+- Missing `contractspecv0` section returns `ContractTypeUnknown` with error
+- Invalid WASM bytecode returns compilation error
+- XDR unmarshaling errors are logged and return `ContractTypeUnknown`
+- Individual validation failures are logged but don't fail the entire process
+
+**Resource Management:**
+
+The validator must be explicitly closed to release wazero runtime resources:
+
+```go
+defer func() {
+    if err := contractValidator.Close(ctx); err != nil {
+        log.Errorf("Failed to close contract validator: %v", err)
+    }
+}()
+```
+
+This is handled automatically in `PopulateAccountTokens()`.
+
+#### Performance Characteristics
+
+**Initial Population:**
+- Processes contracts grouped by WASM hash (deduplication)
+- Validation is CPU-bound (WASM compilation + XDR parsing)
+- Typical performance: ~50-100 contracts/second per WASM hash
+- No RPC calls required (reads from history archive)
+
+**Live Ingestion:**
+- Contract validator is **not** used during live ingestion
+- New contracts are detected via balance entries but not re-validated
+- Classification happens only during initial cache population
+
+**Memory Usage:**
+- Wazero runtime: ~10MB base overhead
+- Per-contract: ~1-5MB during compilation (released after validation)
+- Compiled modules are closed immediately after spec extraction
+
+**Optimization Strategies:**
+1. **WASM Hash Grouping**: Validate once per unique WASM hash, not per contract instance
+2. **Spec Caching**: Contract specs are extracted once and reused for all contracts with same hash
+3. **Lazy Compilation**: WASM modules are compiled only when needed for validation
+4. **Resource Cleanup**: Compiled modules are closed immediately after use to free memory
 
 ### Contract Metadata Service
 
