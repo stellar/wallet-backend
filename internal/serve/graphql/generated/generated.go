@@ -2167,7 +2167,7 @@ type CreateFeeBumpTransactionPayload {
 type Operation{
   id:              Int64!
   operationType:   OperationType!
-  operationXdr:    String!
+  operationXdr:    Bytes!
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
@@ -2250,6 +2250,11 @@ scalar UInt32
 # GraphQL's Int type is 32-bit, so we need custom scalar for larger values
 # Used for database IDs and other large integer values
 scalar Int64
+
+# Bytes scalar - represents binary data as base64-encoded strings
+# Handles conversion between Go []byte and GraphQL base64 string representations
+# Used for XDR fields (operationXdr, envelopeXdr, resultXdr, metaXdr)
+scalar Bytes
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `# GraphQL StateChange type - represents changes to blockchain state
 interface BaseStateChange {           
@@ -2260,7 +2265,7 @@ interface BaseStateChange {
   ledgerNumber:               UInt32!
 
   # GraphQL Relationships - these fields use resolvers
-  # Related operation - nullable since fee state changes do not have operations associated with them
+  # Related account
   account:                    Account! @goField(forceResolver: true)
 
   # Related operation - nullable since fee state changes do not have operations associated with them
@@ -2399,9 +2404,9 @@ type BalanceAuthorizationChange implements BaseStateChange{
 # gqlgen generates Go structs from this schema definition
 type Transaction{
   hash:            String!
-  envelopeXdr:     String!
-  resultXdr:       String!
-  metaXdr:         String
+  envelopeXdr:     Bytes!
+  resultXdr:       Bytes!
+  metaXdr:         Bytes
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
@@ -6317,9 +6322,9 @@ func (ec *executionContext) _Operation_operationXdr(ctx context.Context, field g
 		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.([]byte)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalNBytes2ᚕbyte(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Operation_operationXdr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -6329,7 +6334,7 @@ func (ec *executionContext) fieldContext_Operation_operationXdr(_ context.Contex
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			return nil, errors.New("field of type Bytes does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10497,9 +10502,9 @@ func (ec *executionContext) _Transaction_envelopeXdr(ctx context.Context, field 
 		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.([]byte)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalNBytes2ᚕbyte(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_envelopeXdr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -10509,7 +10514,7 @@ func (ec *executionContext) fieldContext_Transaction_envelopeXdr(_ context.Conte
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			return nil, errors.New("field of type Bytes does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10541,9 +10546,9 @@ func (ec *executionContext) _Transaction_resultXdr(ctx context.Context, field gr
 		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.([]byte)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalNBytes2ᚕbyte(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_resultXdr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -10553,7 +10558,7 @@ func (ec *executionContext) fieldContext_Transaction_resultXdr(_ context.Context
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			return nil, errors.New("field of type Bytes does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10582,9 +10587,9 @@ func (ec *executionContext) _Transaction_metaXdr(ctx context.Context, field grap
 	if resTmp == nil {
 		return graphql.Null
 	}
-	res := resTmp.(*string)
+	res := resTmp.([]byte)
 	fc.Result = res
-	return ec.marshalOString2ᚖstring(ctx, field.Selections, res)
+	return ec.marshalOBytes2ᚕbyte(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) fieldContext_Transaction_metaXdr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -10594,7 +10599,7 @@ func (ec *executionContext) fieldContext_Transaction_metaXdr(_ context.Context, 
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			return nil, errors.New("field of type Bytes does not have child fields")
 		},
 	}
 	return fc, nil
@@ -19062,6 +19067,28 @@ func (ec *executionContext) marshalNBuildTransactionPayload2ᚖgithubᚗcomᚋst
 	return ec._BuildTransactionPayload(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNBytes2ᚕbyte(ctx context.Context, v any) ([]byte, error) {
+	res, err := scalars.UnmarshalBytes(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBytes2ᚕbyte(ctx context.Context, sel ast.SelectionSet, v []byte) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	_ = sel
+	res := scalars.MarshalBytes(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
 func (ec *executionContext) unmarshalNCreateFeeBumpTransactionInput2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCreateFeeBumpTransactionInput(ctx context.Context, v any) (CreateFeeBumpTransactionInput, error) {
 	res, err := ec.unmarshalInputCreateFeeBumpTransactionInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -19646,6 +19673,24 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = sel
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
+	return res
+}
+
+func (ec *executionContext) unmarshalOBytes2ᚕbyte(ctx context.Context, v any) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := scalars.UnmarshalBytes(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBytes2ᚕbyte(ctx context.Context, sel ast.SelectionSet, v []byte) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := scalars.MarshalBytes(v)
 	return res
 }
 

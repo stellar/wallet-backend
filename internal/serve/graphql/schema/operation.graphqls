@@ -3,7 +3,7 @@
 type Operation{
   id:              Int64!
   operationType:   OperationType!
-  operationXdr:    String!
+  operationXdr:    Bytes!
   ledgerNumber:    UInt32!
   ledgerCreatedAt: Time!
   ingestedAt:      Time!
