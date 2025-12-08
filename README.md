@@ -19,31 +19,8 @@ account management, and payment tracking capabilities.
     - [Contract Validator Service](#contract-validator-service)
     - [Contract Metadata Service](#contract-metadata-service)
     - [GraphQL API](#graphql-api)
-      - [Getting Started](#getting-started)
-      - [Queries](#queries)
-      - [Mutations](#mutations)
-      - [Pagination](#pagination)
-      - [State Changes](#state-changes)
-      - [Error Handling](#error-handling)
-      - [Performance Features](#performance-features)
     - [Integration Test Framework](#integration-test-framework)
-      - [Why Integration Tests Exist](#why-integration-tests-exist)
-      - [Architecture Overview](#architecture-overview)
-      - [Infrastructure Components](#infrastructure-components)
-      - [Test Accounts](#test-accounts)
-      - [Contract Deployment](#contract-deployment)
-      - [Test Suites](#test-suites)
-      - [Test Fixtures](#test-fixtures)
-      - [Running the Tests](#running-the-tests)
-      - [Design Patterns](#design-patterns)
   - [Local Development Setup](#local-development-setup)
-    - [Prerequisites](#prerequisites)
-    - [Running the Server](#running-the-server)
-      - [Docker Compose (Quickstart)](#docker-compose-quickstart)
-      - [Local + Docker (Active Development)](#local--docker-active-development)
-    - [Testing](#testing)
-      - [Unit Tests](#unit-tests)
-      - [Integration Tests](#integration-tests)
   - [Authentication](#authentication)
     - [JWT Signature](#jwt-signature)
     - [JWT Claims](#jwt-claims)
@@ -753,6 +730,15 @@ The wallet-backend provides a powerful GraphQL API that enables flexible queryin
 - **Efficient Data Loading**: Built-in DataLoaders prevent N+1 queries
 - **Cursor-based Pagination**: Relay-style pagination for all list queries
 - **Rich Relationships**: Easily traverse relationships between accounts, transactions, operations, and state changes
+
+**In this section:**
+- [Getting Started](#getting-started)
+- [Queries](#queries)
+- [Mutations](#mutations)
+- [Pagination](#pagination)
+- [State Changes](#state-changes)
+- [Error Handling](#error-handling)
+- [Performance Features](#performance-features)
 
 #### Getting Started
 
@@ -1692,6 +1678,17 @@ query {
 
 The wallet-backend includes a comprehensive integration test framework that validates the entire system end-to-end, from Docker infrastructure setup through transaction submission and GraphQL data validation. These tests provide confidence that all components work together correctly in a realistic Stellar environment.
 
+**In this section:**
+- [Why Integration Tests Exist](#why-integration-tests-exist)
+- [Architecture Overview](#architecture-overview)
+- [Infrastructure Components](#infrastructure-components)
+- [Test Accounts](#test-accounts)
+- [Contract Deployment](#contract-deployment)
+- [Test Suites](#test-suites)
+- [Test Fixtures](#test-fixtures)
+- [Running the Tests](#running-the-tests)
+- [Design Patterns](#design-patterns)
+
 #### Why Integration Tests Exist
 
 The integration tests serve several critical purposes:
@@ -1987,6 +1984,11 @@ The integration test framework employs several sophisticated design patterns:
 ## Local Development Setup
 
 Follow these steps to start the wallet-backend server for local development and contribution.
+
+**In this section:**
+- [Prerequisites](#prerequisites)
+- [Running the Server](#running-the-server)
+- [Testing](#testing)
 
 ### Prerequisites
 
